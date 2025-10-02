@@ -1,2 +1,2 @@
 # PokemonEngine
-Gamemaker Pokemon Emerald Engine.
+Pokemon Emerald Engine.
