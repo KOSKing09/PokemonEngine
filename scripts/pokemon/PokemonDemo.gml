@@ -1,0 +1,1 @@
+// Pokemon demo script placeholder
