@@ -7,17 +7,20 @@ if (!variable_global_exists("WORLD_CORE")) {
         base_rate: 1.0,
         steps_until_enc: irandom_range(12,28),
         surface: "grass",
-        on_enter: function(_){},
-        on_exit: function(){},
+        on_enter: function(_payload){},
+        on_exit:  function(){},
         on_update: function(){
             time_update();
-            if (function_exists(controls_update)) controls_update();
-            // Interact
-            if (function_exists(controls_pressed) && controls_pressed("Interact",0)) {
+            controls_update();
+            if (controls_pressed("Interact", 0)) {
                 if (variable_global_exists("obj_player")) {
-                    var p = instance_find(obj_player,0); if (instance_exists(p)) interact_try(p);
+                    var plr = instance_find(obj_player, 0);
+                    if (instance_exists(plr)) interact_try(plr);
                 }
             }
+            if (controls_pressed("Pause", 0))  pause_toggle(0);
+            if (controls_pressed("Inventory", 0)) bag_toggle();
+            if (controls_pressed("Pokemon", 0)) party_toggle(0);
         },
         on_draw: function(){
             draw_set_color(c_white);
@@ -30,9 +33,9 @@ if (!variable_global_exists("WORLD_CORE")) {
 }
 
 function engine_core_bootstrap() {
-    // Register world scene if you use the stack
-    if (function_exists(scene_register)) scene_register("world", WORLD_CORE);
-    // Seed a default zone and encounter set if none registered
+    var scene_reg_idx = asset_get_index("scene_register");
+    if (scene_reg_idx != -1) script_execute(scene_reg_idx, "world", WORLD_CORE);
+
     if (ds_map_size(ZONES) == 0) {
         zone_register("Route 1", "route1", "", "Clear", 1.0);
         zone_set_active("Route 1", "route1");
@@ -50,21 +53,22 @@ function engine_core_bootstrap() {
 }
 
 function world_register_step(_in_grass, _count) {
-    var c = is_undefined(_count) ? 1 : _count;
+    var step_inc = is_undefined(_count) ? 1 : _count;
     repel_consume_step();
     var mult = zone_active().mult * WORLD_CORE.base_rate;
     if (repel_is_active()) mult *= 0.1;
     WORLD_CORE.surface = _in_grass ? "grass" : "none";
     if (!_in_grass) return;
-    WORLD_CORE.steps_until_enc -= c;
+    WORLD_CORE.steps_until_enc -= step_inc;
     if (WORLD_CORE.steps_until_enc <= 0) {
         WORLD_CORE.steps_until_enc = irandom_range(WORLD_CORE.encounter_step_min, WORLD_CORE.encounter_step_max);
         if (random(1) <= mult) {
             var pick = encounter_roll_zone("grass");
             if (!is_undefined(pick)) {
-                if (function_exists(battle_start)) {
+                var battle_idx = asset_get_index("battle_start");
+                if (battle_idx != -1) {
                     var lvl = irandom_range(pick.lvl[0], pick.lvl[1]);
-                    battle_start(pick.mon, lvl);
+                    script_execute(battle_idx, pick.mon, lvl);
                 }
             }
         }

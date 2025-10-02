@@ -1,16 +1,20 @@
 /// @file scr_interact.gml
-/// Requires your player to expose grid position and facing vector.
 function interact_try(_player) {
     if (is_undefined(_player)) return false;
-    var tx = _player.grid_x + _player.face_x;
-    var ty = _player.grid_y + _player.face_y;
-    // Ask for NPC at tile
-    if (function_exists(npc_find_at_tile)) {
-        var n = npc_find_at_tile(tx,ty);
-        if (!is_undefined(n) && is_instance(n)) {
-            if (variable_instance_exists(n, "on_interact") && is_method(n.on_interact)) { n.direction_face(-_player.face_x, -_player.face_y); n.on_interact(_player); return true; }
+
+    var tile_x = _player.grid_x + _player.face_x;
+    var tile_y = _player.grid_y + _player.face_y;
+
+    var npc_find_idx = asset_get_index("npc_find_at_tile");
+    if (npc_find_idx != -1) {
+        var npc_inst = script_execute(npc_find_idx, tile_x, tile_y);
+        if (npc_inst != noone && is_instance(npc_inst)) {
+            if (variable_instance_exists(npc_inst, "direction_face")) npc_inst.direction_face(-_player.face_x, -_player.face_y);
+            if (variable_instance_exists(npc_inst, "on_interact") && is_method(npc_inst.on_interact)) {
+                npc_inst.on_interact(_player);
+                return true;
+            }
         }
     }
-    // Ask events for tile (optional extension)
     return false;
 }
