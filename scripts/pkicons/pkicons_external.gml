@@ -1,6 +1,13 @@
-// [Pokémon Data]: pkicons_external — Build v2.8.1 — 2025-10-03
-// Fix: avoid built-in name `score` (renamed to `fit_score`) to prevent launch errors.
-// Includes v2.8 features: smart 8‑tile grid pick + centered proportional scaling.
+// [Pokémon Data]: pkicons_external — Build v2.9.2 — 2025-10-03
+// Changes
+// - Keeps split defaults:
+//      * Missing 32×32 icon => spr_mon_icon_placeholder
+//      * Missing 96×96 art  => spr_mon_placeholder
+// - Restores pkicons_get_icon32_dir (used by _by_mon)
+// - Restores pkicons_icon32_frame_ui (2‑frame UI animator)
+// - Uses robust 8‑tile grid + centered scaling (from v2.8.x)
+//
+// Safe to drop-in over v2.9.0. No legacy pkicons_set_missing_sprite shim (you removed that call).
 
 globalvar PKICONS;
 
@@ -15,7 +22,9 @@ function pkicons_init(){
             icon_sheet_cache: {},
             icon_strip_cache: {},
             icon_dir_cache: {},
-            missing_sprite: -1
+            // Split placeholders
+            missing_icon32: spr_mon_icon_placeholder,
+            missing_art96:  spr_mon_placeholder
         };
     }
 }
@@ -24,7 +33,10 @@ function pkicons__log(_m){
     if (PKICONS.debug) show_debug_message("[pkicons] " + string(_m));
 }
 
-function pkicons_set_missing_sprite(_spr){ PKICONS.missing_sprite = _spr; }
+// Explicit setters for placeholders & bases
+function pkicons_set_missing_icon(_spr){ PKICONS.missing_icon32 = _spr; }
+function pkicons_set_missing_art(_spr){  PKICONS.missing_art96  = _spr;  }
+
 function pkicons_set_art96_base(_absDir){
     var p = string_replace_all(string(_absDir),"\\","/");
     if (string_length(p)>0 && string_copy(p,string_length(p),1)!="/") p+="/";
@@ -67,7 +79,7 @@ function pkicons_get_art96(_species){
         var c=variable_struct_get(PKICONS.art_cache,key);
         if (sprite_exists(c)) return c;
     }
-    var base=PKICONS.art96_base; if (string_length(base)<=0) return PKICONS.missing_sprite;
+    var base=PKICONS.art96_base; if (string_length(base)<=0) return PKICONS.missing_art96;
     var spr=-1,cands=pkicons__cands(_species);
     for (var i=0;i<array_length(cands);i++){
         var fn=pkicons__join(base,cands[i]);
@@ -76,25 +88,26 @@ function pkicons_get_art96(_species){
             if (sprite_exists(spr)) break;
         }
     }
-    if (!sprite_exists(spr)) spr=PKICONS.missing_sprite;
+    if (!sprite_exists(spr)) spr=PKICONS.missing_art96;
     variable_struct_set(PKICONS.art_cache,key,spr);
     return spr;
 }
 function pkicons_get_art96_by_mon(_mon){
-    if (!is_struct(_mon)) return PKICONS.missing_sprite;
+    if (!is_struct(_mon)) return PKICONS.missing_art96;
     if (variable_struct_exists(_mon,"species_id") && is_real(_mon.species_id)) return pkicons_get_art96(_mon.species_id);
     if (variable_struct_exists(_mon,"species")) return pkicons_get_art96(_mon.species);
-    return PKICONS.missing_sprite;
+    return PKICONS.missing_art96;
 }
 
 // ---------------- 32×32 Overworld Icons ----------------
 function pkicons__load_icon32_sheet(_species){
+    pkicons_init();
     var key="SHEET|"+string(_species);
     if (variable_struct_exists(PKICONS.icon_sheet_cache,key)){
         var c=variable_struct_get(PKICONS.icon_sheet_cache,key);
         if (sprite_exists(c)) return c;
     }
-    var base=PKICONS.icon32_base; if (string_length(base)<=0) return PKICONS.missing_sprite;
+    var base=PKICONS.icon32_base; if (string_length(base)<=0) return PKICONS.missing_icon32;
     var spr=-1,cands=pkicons__cands(_species);
     for (var i=0;i<array_length(cands);i++){
         var fn=pkicons__join(base,cands[i]);
@@ -103,12 +116,12 @@ function pkicons__load_icon32_sheet(_species){
             if (sprite_exists(spr)) break;
         }
     }
-    if (!sprite_exists(spr)) spr=PKICONS.missing_sprite;
+    if (!sprite_exists(spr)) spr=PKICONS.missing_icon32;
     variable_struct_set(PKICONS.icon_sheet_cache,key,spr);
     return spr;
 }
 
-// Pick the best dividing 8‑tile grid (most square tiles)
+// Grid helpers (robust 8‑tile inference)
 function pkicons__best_grid8(_w,_h){
     var bestCols=4, bestRows=2, bestTw=_w div 4, bestTh=_h div 2;
     var bestScore=$1e30;
@@ -132,8 +145,6 @@ function pkicons__best_grid8(_w,_h){
     }
     return [bestCols, bestRows, bestTw, bestTh, found];
 }
-
-// Infer grid
 function pkicons__infer_grid(_w,_h){
     if (_w mod 32==0 && _h mod 32==0){
         return [_w div 32, _h div 32, 32, 32];
@@ -143,7 +154,7 @@ function pkicons__infer_grid(_w,_h){
     return [4, 2, _w div 4, _h div 2];
 }
 
-// Build 8-frame strip, centered in 32×32
+// Build 8‑frame strip, centered in 32×32
 function pkicons__get_icon32_strip(_species){
     var key="STRIP|"+string(_species);
     if (variable_struct_exists(PKICONS.icon_strip_cache,key)){
@@ -152,7 +163,7 @@ function pkicons__get_icon32_strip(_species){
     }
 
     var sheet=pkicons__load_icon32_sheet(_species);
-    if (!sprite_exists(sheet)) return PKICONS.missing_sprite;
+    if (!sprite_exists(sheet)) return PKICONS.missing_icon32;
 
     var fullW=sprite_get_width(sheet);
     var fullH=sprite_get_height(sheet);
@@ -162,7 +173,7 @@ function pkicons__get_icon32_strip(_species){
     var total=cols*rows;
     var sc=min(32/tileW,32/tileH);
     var surf=surface_create(32,32);
-    if (!surface_exists(surf)) return PKICONS.missing_sprite;
+    if (!surface_exists(surf)) return PKICONS.missing_icon32;
 
     var strip=-1;
     for (var i=0;i<8;i++){
@@ -186,15 +197,15 @@ function pkicons__get_icon32_strip(_species){
         }
     }
     surface_free(surf);
-    if (!sprite_exists(strip)) strip=PKICONS.missing_sprite;
+    if (!sprite_exists(strip)) strip=PKICONS.missing_icon32;
     variable_struct_set(PKICONS.icon_strip_cache,key,strip);
     return strip;
 }
 
 function pkicons__make_dir_from_strip(_sprStrip,_sub0,_sub1){
-    if (!sprite_exists(_sprStrip)) return PKICONS.missing_sprite;
+    if (!sprite_exists(_sprStrip)) return PKICONS.missing_icon32;
     var surf=surface_create(32,32);
-    if (!surface_exists(surf)) return PKICONS.missing_sprite;
+    if (!surface_exists(surf)) return PKICONS.missing_icon32;
 
     surface_set_target(surf);
     draw_clear_alpha(c_black,0);
@@ -212,6 +223,7 @@ function pkicons__make_dir_from_strip(_sprStrip,_sub0,_sub1){
     return spr_dir;
 }
 
+// 32×32 directional icon resolver (restored)
 function pkicons_get_icon32_dir(_species,_dir){
     pkicons_init();
     var d=string_upper(string(_dir));
@@ -222,7 +234,7 @@ function pkicons_get_icon32_dir(_species,_dir){
         if (sprite_exists(c)) return c;
     }
     var strip=pkicons__get_icon32_strip(_species);
-    if (!sprite_exists(strip)) return PKICONS.missing_sprite;
+    if (!sprite_exists(strip)) return PKICONS.missing_icon32;
 
     var sub0=4,sub1=5;
     if (d=="UP"){sub0=0;sub1=1;}
@@ -234,18 +246,20 @@ function pkicons_get_icon32_dir(_species,_dir){
     variable_struct_set(PKICONS.icon_dir_cache,key,spr_dir);
     return spr_dir;
 }
+
 function pkicons_get_icon32_dir_by_mon(_mon,_dir){
-    if (!is_struct(_mon)) return PKICONS.missing_sprite;
+    if (!is_struct(_mon)) return PKICONS.missing_icon32;
     if (variable_struct_exists(_mon,"species_id") && is_real(_mon.species_id)) return pkicons_get_icon32_dir(_mon.species_id,_dir);
     if (variable_struct_exists(_mon,"species")) return pkicons_get_icon32_dir(_mon.species,_dir);
-    return PKICONS.missing_sprite;
+    return PKICONS.missing_icon32;
 }
 
+// Simple 2‑frame animator for UI icons (as expected by party system)
 function pkicons_icon32_frame_ui(){
     return (current_time div 166) mod 2;
 }
 
-// Dev defaults
-pkicons_init();
-pkicons_set_art96_base("C:/Users/King2/Documents/Pokemon Engine/sprites/pokemon/");
-pkicons_set_icon32_base("C:/Users/King2/Documents/Pokemon Engine/sprites/Overworld/Normal/");
+// Init (bases left to your Create event or dev setup)
+// pkicons_init();
+// pkicons_set_art96_base("C:/.../sprites/pokemon/");
+// pkicons_set_icon32_base("C:/.../sprites/Overworld/Normal/");

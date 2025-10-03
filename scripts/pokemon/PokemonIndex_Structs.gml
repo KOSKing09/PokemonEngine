@@ -1,3 +1,4 @@
+// [Pokémon Index]: PokemonIndex_STRUCTS — Build v2.5 — Updated 2025-10-03
 // ============================================================================
 // PokemonIndex_STRUCTS.gml  (arrays only)
 // Builds:
@@ -138,4 +139,141 @@ function scr_poke_calc_stat(_base, _lvl){
     var b = max(1, _base);
     var L = max(1, _lvl);
     return floor(((2*b)*L)/100) + 5;
+}
+
+
+// ======== APPENDED: SAFE LOOKUPS & DESCRIPTION HELPERS (Build v2.5) ========
+// Change: scr_poke_moves_upto_level now de-duplicates move IDs while preserving learn order.
+
+function scr_move_name_by_id(_mid){
+    if (!is_real(_mid) || _mid <= 0) return "";
+    if (variable_global_exists("_move_text") && is_array(global._move_text) && _mid < array_length(global._move_text)){
+        var t = global._move_text[_mid];
+        if (is_struct(t) && !is_undefined(t.name) && t.name != "") return t.name;
+    }
+    if (variable_global_exists("_moves") && is_array(global._moves) && _mid < array_length(global._moves)){
+        var m = global._moves[_mid];
+        if (is_struct(m) && !is_undefined(m.identifier)){
+            var s = m.identifier; 
+            if (string_length(s) > 0) return string_replace_all(string_upper(string_copy(s,1,1)) + string_delete(s,1,1), "-", " ");
+        }
+    }
+    return "";
+}
+
+function scr_move_desc_by_id(_mid){
+    if (!is_real(_mid) || _mid <= 0) return "";
+    if (!(variable_global_exists("_move_text") && is_array(global._move_text))) return "";
+    if (_mid >= array_length(global._move_text)) return "";
+    var t = global._move_text[_mid];
+    if (!is_struct(t)) return "";
+    return is_undefined(t.short_desc) ? "" : t.short_desc;
+}
+
+function scr_ability_name_by_id(_aid){
+    if (!is_real(_aid) || _aid <= 0) return "";
+    if (variable_global_exists("_ability_text") && is_array(global._ability_text) && _aid < array_length(global._ability_text)){
+        var t = global._ability_text[_aid];
+        if (is_struct(t) && !is_undefined(t.name) && t.name != "") return t.name;
+    }
+    if (variable_global_exists("_abilities") && is_array(global._abilities) && _aid < array_length(global._abilities)){
+        var a = global._abilities[_aid];
+        if (is_struct(a) && !is_undefined(a.identifier)){
+            var s = a.identifier; 
+            if (string_length(s) > 0) return string_replace_all(string_upper(string_copy(s,1,1)) + string_delete(s,1,1), "-", " ");
+        }
+    }
+    return "";
+}
+
+function scr_poke_abilities_by_id(_sid){
+    if (!(variable_global_exists("_species_abilities") && is_array(global._species_abilities))) return [];
+    if (_sid < 0 || _sid >= array_length(global._species_abilities)) return [];
+    var arr = global._species_abilities[_sid];
+    return is_array(arr) ? arr : [];
+}
+
+function scr_poke_moveset_by_id(_sid){
+    if (!(variable_global_exists("_species_moves") && is_array(global._species_moves))) return [];
+    if (_sid < 0 || _sid >= array_length(global._species_moves)) return [];
+    var arr = global._species_moves[_sid];
+    return is_array(arr) ? arr : [];
+}
+
+// UPDATED: returns unique move IDs up to level, preserving learn order
+function scr_poke_moves_upto_level(_sid, _lvl){
+    var lvl = max(1, is_real(_lvl) ? _lvl : 1);
+    var ms = scr_poke_moveset_by_id(_sid);
+    var out = [];
+    for (var _i = 0; _i < array_length(ms); _i++){
+        var m = ms[_i];
+        if (!(is_struct(m) && m.lvl <= lvl)) continue;
+        var _mid = m.mid;
+        var _seen = false;
+        for (var _j = 0; _j < array_length(out); _j++){
+            if (out[_j] == _mid) { _seen = true; break; }
+        }
+        if (!_seen) array_push(out, _mid);
+    }
+    return out;
+}
+
+function scr_poke_moves_future(_sid, _lvl){
+    var lvl = max(1, is_real(_lvl) ? _lvl : 1);
+    var ms = scr_poke_moveset_by_id(_sid);
+    var out = [];
+    for (var _i = 0; _i < array_length(ms); _i++){
+        var m = ms[_i];
+        if (is_struct(m) && m.lvl > lvl) array_push(out, { lvl:m.lvl, mid:m.mid });
+    }
+    return out;
+}
+
+function scr_poke_pick_ability(_sid, _seed_opt){
+    var arr = scr_poke_abilities_by_id(_sid);
+    if (!is_array(arr) || array_length(arr) == 0) return 0;
+    var idx = 0;
+    if (is_real(_seed_opt)) {
+        var _old = random_get_seed();
+        random_set_seed(_seed_opt);
+        idx = irandom(array_length(arr)-1);
+        random_set_seed(_old);
+    } else {
+        idx = irandom(array_length(arr)-1);
+    }
+    return arr[idx];
+}
+
+function scr_poke_describe(_sid, _lvl){
+    var name_ident = scr_poke_name_by_id(_sid);
+    var stats = scr_poke_stats(_sid);
+    var lvl = max(1, is_real(_lvl) ? _lvl : 1);
+    var ability_ids = scr_poke_abilities_by_id(_sid);
+    var ability_names = [];
+    for (var _i = 0; _i < array_length(ability_ids); _i++){
+        var _aid = ability_ids[_i];
+        array_push(ability_names, scr_ability_name_by_id(_aid));
+    }
+    var learned_ids = scr_poke_moves_upto_level(_sid, lvl);
+    var learned = [];
+    for (var _j = 0; _j < array_length(learned_ids); _j++){
+        var _mid = learned_ids[_j];
+        array_push(learned, { id:_mid, name:scr_move_name_by_id(_mid), desc:scr_move_desc_by_id(_mid) });
+    }
+    var future_pairs = scr_poke_moves_future(_sid, lvl);
+    var future = [];
+    for (var _k = 0; _k < array_length(future_pairs); _k++){
+        var p = future_pairs[_k];
+        array_push(future, { lvl:p.lvl, id:p.mid, name:scr_move_name_by_id(p.mid), desc:scr_move_desc_by_id(p.mid) });
+    }
+    return {
+        species_id     : _sid,
+        name_ident     : name_ident,
+        stats          : stats,
+        level          : lvl,
+        ability_ids    : ability_ids,
+        ability_names  : ability_names,
+        moves_learned  : learned,
+        moves_future   : future
+    };
 }

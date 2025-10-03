@@ -1,3 +1,4 @@
+// [Pokémon Demo]: PokemonDemo_STRUCTS — Build v2.3 — Updated 2025-10-03
 // ============================================================================
 // PokemonDemo_STRUCTS.gml  (no maps)
 // - Seeds PARTY[pid].mons with real data using the struct-based index
@@ -99,5 +100,44 @@ function scr_party_debug_seed_random(_pid, _count)
     // Reset UI state, don’t auto-open
     P.sel = 0; P.scroll = 0; P.swap_index = -1; P.menu_sel = 0; P.lock = 0;
     show_debug_message("[DEMO] Seeded " + string(array_length(P.mons)) + " random Pokémon to PARTY[" + string(_pid) + "].");
+
+    // === DEMO ENRICHMENT (inline): abilities + moves + description pack ===
+    var _party = party_ensure(_pid);
+    if (is_array(_party.mons)) {
+        for (var _i = 0; _i < array_length(_party.mons); _i++) {
+            var _mon = _party.mons[_i];
+            if (!is_struct(_mon)) continue;
+
+            var _speciesId = _mon.species_id;
+            var _level = is_undefined(_mon.level) ? (is_undefined(_mon.lvl) ? 5 : _mon.lvl) : _mon.level;
+
+            // Pick an ability deterministically by speciesId + level seed
+            var _abilityId = scr_poke_pick_ability(_speciesId, _speciesId * 1000 + _level);
+            _mon.ability_id = _abilityId;
+            _mon.ability    = scr_ability_name_by_id(_abilityId);
+
+            // Learn moves up to level (keep last 4)
+            var _moveIds = scr_poke_moves_upto_level(_speciesId, _level);
+            if (array_length(_moveIds) > 4) {
+                var _start = array_length(_moveIds) - 4;
+                var _trim = [];
+                for (var _j = _start; _j < array_length(_moveIds); _j++) array_push(_trim, _moveIds[_j]);
+                _moveIds = _trim;
+            }
+            _mon.moves = _moveIds;
+
+            // Named + described moves for UI
+            var _named = [];
+            for (var _k = 0; _k < array_length(_moveIds); _k++) {
+                var _mid = _moveIds[_k];
+                array_push(_named, { id:_mid, name:scr_move_name_by_id(_mid), desc:scr_move_desc_by_id(_mid) });
+            }
+            _mon.moves_named = _named;
+
+            // Full description pack for Description UI
+            _mon.describe = scr_poke_describe(_speciesId, _level);
+        }
+    }
+    // === END DEMO ENRICHMENT ===
 }
 

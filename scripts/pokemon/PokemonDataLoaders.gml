@@ -1,3 +1,4 @@
+// [Pokémon Data]: PokemonDataLoaders — Build v3.2 — Updated 2025-10-03
 // ============================================================================
 // PokemonDataLoaders_STRUCTS.gml  (arrays + structs only)
 // - Requires load_csv(path) that returns a ds_grid (built-in ok)
@@ -130,4 +131,188 @@ function data_load_all_structs(){
     data_load_pokemon_structs();
     data_load_pokemon_stats_structs();
     show_debug_message("[DATA][structs] done.");
+
+    // --- EXT HOOK (safe, runs once if present) ---
+    if (!variable_global_exists("_csv_ext_loaded") || !global._csv_ext_loaded) {
+        if (is_undefined(data_load_all_structs_ext)) {
+            // ext not defined -> skip silently
+        } else {
+            data_load_all_structs_ext();
+            global._csv_ext_loaded = true;
+        }
+    }
+
+}
+// ---------- EXTENDED DATA LOADERS (moves, abilities, texts, species links) ----------
+// All CSVs optional. Missing files are skipped safely. Results go to new globals for lookups.
+//  - global._moves[mid]           => { id, identifier, power, pp, priority, type_id, damage_class_id }
+//  - global._move_text[mid]       => { name, short_desc, effect }
+//  - global._abilities[aid]       => { id, identifier }
+//  - global._ability_text[aid]    => { name, short_desc, effect }
+//  - global._species_abilities[sid] => [aid, ...]
+//  - global._species_moves[sid]     => [ { lvl, mid }, ... ]  (sorted by lvl)
+
+function data_load_moves_structs(){
+    var path = working_directory + "/data/csv/moves.csv";
+    var g = load_csv(path);
+    if (g == -1) { show_debug_message("[DATA][moves] SKIP: " + path); global._moves = []; return; }
+    var H = ds_grid_height(g);
+    // size by max id
+    var max_id = 0;
+    for (var _r = 1; _r < H; _r++){
+        var _id = __to_int_safe(__grid(g,0,_r,0),0);
+        if (_id > max_id) max_id = _id;
+    }
+    global._moves = []; array_resize(global._moves, max_id+1);
+    var _rows = 0;
+    for (var _r = 1; _r < H; _r++){
+        var _id   = __to_int_safe(__grid(g,0,_r,0), 0);
+        if (_id <= 0) continue;
+        var _ident= __s_trim(__grid(g,1,_r,""));
+        var _type = __to_int_safe(__grid(g,3,_r,0), 0);
+        var _power= __to_int_safe(__grid(g,4,_r,0), 0);
+        var _pp   = __to_int_safe(__grid(g,5,_r,0), 0);
+        var _prio = __to_int_safe(__grid(g,7,_r,0), 0);
+        var _dcls = __to_int_safe(__grid(g,8,_r,0), 0);
+        global._moves[_id] = { id:_id, identifier:_ident, type_id:_type, power:_power, pp:_pp, priority:_prio, damage_class_id:_dcls };
+        _rows++;
+    }
+    show_debug_message("[DATA][moves] rows=" + string(_rows));
+}
+
+function data_load_move_text_structs(){
+    var path = working_directory + "/data/csv/move_text.csv";
+    var g = load_csv(path);
+    if (g == -1) { show_debug_message("[DATA][move_text] SKIP: " + path); global._move_text = []; return; }
+    var H = ds_grid_height(g);
+    var max_id = 0;
+    for (var _r = 1; _r < H; _r++){
+        var _id = __to_int_safe(__grid(g,0,_r,0),0);
+        if (_id > max_id) max_id = _id;
+    }
+    global._move_text = []; array_resize(global._move_text, max_id+1);
+    var _rows = 0;
+    for (var _r = 1; _r < H; _r++){
+        var _id   = __to_int_safe(__grid(g,0,_r,0), 0);
+        if (_id <= 0) continue;
+        var _name = __s_trim(__grid(g,1,_r,""));
+        var _sdesc= __s_trim(__grid(g,2,_r,""));
+        var _eff  = __s_trim(__grid(g,3,_r,""));
+        global._move_text[_id] = { name:_name, short_desc:_sdesc, effect:_eff };
+        _rows++;
+    }
+    show_debug_message("[DATA][move_text] rows=" + string(_rows));
+}
+
+function data_load_abilities_structs(){
+    var path = working_directory + "/data/csv/abilities.csv";
+    var g = load_csv(path);
+    if (g == -1) { show_debug_message("[DATA][abilities] SKIP: " + path); global._abilities = []; return; }
+    var H = ds_grid_height(g);
+    var max_id = 0;
+    for (var _r = 1; _r < H; _r++){
+        var _id = __to_int_safe(__grid(g,0,_r,0),0);
+        if (_id > max_id) max_id = _id;
+    }
+    global._abilities = []; array_resize(global._abilities, max_id+1);
+    var _rows = 0;
+    for (var _r = 1; _r < H; _r++){
+        var _id   = __to_int_safe(__grid(g,0,_r,0), 0);
+        if (_id <= 0) continue;
+        var _ident= __s_trim(__grid(g,1,_r,""));
+        global._abilities[_id] = { id:_id, identifier:_ident };
+        _rows++;
+    }
+    show_debug_message("[DATA][abilities] rows=" + string(_rows));
+}
+
+function data_load_ability_text_structs(){
+    var path = working_directory + "/data/csv/ability_text.csv";
+    var g = load_csv(path);
+    if (g == -1) { show_debug_message("[DATA][ability_text] SKIP: " + path); global._ability_text = []; return; }
+    var H = ds_grid_height(g);
+    var max_id = 0;
+    for (var _r = 1; _r < H; _r++){
+        var _id = __to_int_safe(__grid(g,0,_r,0),0);
+        if (_id > max_id) max_id = _id;
+    }
+    global._ability_text = []; array_resize(global._ability_text, max_id+1);
+    var _rows = 0;
+    for (var _r = 1; _r < H; _r++){
+        var _id   = __to_int_safe(__grid(g,0,_r,0), 0);
+        if (_id <= 0) continue;
+        var _name = __s_trim(__grid(g,1,_r,""));
+        var _sdesc= __s_trim(__grid(g,2,_r,""));
+        var _eff  = __s_trim(__grid(g,3,_r,""));
+        global._ability_text[_id] = { name:_name, short_desc:_sdesc, effect:_eff };
+        _rows++;
+    }
+    show_debug_message("[DATA][ability_text] rows=" + string(_rows));
+}
+
+function data_load_species_abilities_structs(){
+    var path = working_directory + "/data/csv/pokemon_abilities.csv";
+    var g = load_csv(path);
+    if (g == -1) { show_debug_message("[DATA][pokemon_abilities] SKIP: " + path); global._species_abilities = []; return; }
+    var H = ds_grid_height(g);
+    // size by max species id
+    var max_sid = 0;
+    for (var _r = 1; _r < H; _r++){
+        var _sid = __to_int_safe(__grid(g,0,_r,0),0);
+        if (_sid > max_sid) max_sid = _sid;
+    }
+    global._species_abilities = []; array_resize(global._species_abilities, max_sid+1);
+    for (var _i = 0; _i <= max_sid; _i++) global._species_abilities[_i] = [];
+    var _rows = 0;
+    for (var _r = 1; _r < H; _r++){
+        var _sid = __to_int_safe(__grid(g,0,_r,0),0);
+        var _aid = __to_int_safe(__grid(g,1,_r,0),0);
+        if (_sid <= 0 || _aid <= 0) continue;
+        array_push(global._species_abilities[_sid], _aid);
+        _rows++;
+    }
+    show_debug_message("[DATA][pokemon_abilities] rows=" + string(_rows));
+}
+
+function data_load_species_moves_structs(){
+    var path = working_directory + "/data/csv/pokemon_moves.csv";
+    var g = load_csv(path);
+    if (g == -1) { show_debug_message("[DATA][pokemon_moves] SKIP: " + path); global._species_moves = []; return; }
+    var H = ds_grid_height(g);
+    var max_sid = 0;
+    for (var _r = 1; _r < H; _r++){
+        var _sid = __to_int_safe(__grid(g,0,_r,0),0);
+        if (_sid > max_sid) max_sid = _sid;
+    }
+    global._species_moves = []; array_resize(global._species_moves, max_sid+1);
+    for (var _i = 0; _i <= max_sid; _i++) global._species_moves[_i] = [];
+    var _rows = 0;
+    for (var _r = 1; _r < H; _r++){
+        var _sid = __to_int_safe(__grid(g,0,_r,0),0);
+        var _vg  = __to_int_safe(__grid(g,1,_r,0),0);
+        var _mid = __to_int_safe(__grid(g,2,_r,0),0);
+        var _mth = __to_int_safe(__grid(g,3,_r,0),0); // 1 = level-up
+        var _lvl = __to_int_safe(__grid(g,4,_r,0),0);
+        if (_sid <= 0 || _mid <= 0 || _mth != 1) continue;
+        array_push(global._species_moves[_sid], { lvl:_lvl, mid:_mid });
+        _rows++;
+    }
+    // sort each species moves by lvl
+    for (var _sid = 0; _sid < array_length(global._species_moves); _sid++){
+        var _arr = global._species_moves[_sid];
+        if (is_array(_arr) && array_length(_arr) > 1){
+            array_sort(_arr, function(a,b){ return a.lvl - b.lvl; });
+        }
+    }
+    show_debug_message("[DATA][pokemon_moves] rows=" + string(_rows));
+}
+
+function data_load_all_structs_ext(){
+    data_load_moves_structs();
+    data_load_move_text_structs();
+    data_load_abilities_structs();
+    data_load_ability_text_structs();
+    data_load_species_abilities_structs();
+    data_load_species_moves_structs();
+    show_debug_message("[DATA][structs_ext] done.");
 }

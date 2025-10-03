@@ -1,6 +1,8 @@
-// [Party System]: party_system — Build v4.8.1 — 2025-10-03
-// Fix: renamed stray `_hp_txt` to `hp_txt` in info panel draw (prevents undefined var crash).
-// All other features from v4.8.0 retained (selector in list & submenu, spacing, calm icon anim).
+// [Party System]: party_system — Build v4.8.7 — 2025-10-03
+// Fix: Party list rows fallback = spr_mon_icon_placeholder (small icon).
+//      Summary artwork fallback = spr_mon_placeholder (large art).
+//      Removed spr_bag_pokeball_small entirely.
+//      Selector uses spr_selector directly in list & submenu.
 
 globalvar PARTY;
 
@@ -11,72 +13,64 @@ globalvar PARTY;
 #macro PARTY_HILITE_EDGE make_color_rgb(136,100,36)
 #macro PARTY_HILITE_ALPHA 0.20
 
-// ---------- Asset helpers (safe) ----------
-function __party_asset_index_or(_name){
-    var nm = string(_name);
-    if (string_length(nm) <= 0) return -1;
-    var idx = asset_get_index(nm);
-    return idx;
-}
-
 // ---------- Basic queries / toggles ----------
 function party_is_open(_pid){
     if (!variable_global_exists("PARTY")) return false;
     if (!is_array(global.PARTY)) return false;
     if (array_length(global.PARTY) <= _pid) return false;
-    var P = global.PARTY[_pid];
-    if (!is_struct(P)) return false;
-    if (!variable_struct_exists(P,"open")) return false;
-    return P.open;
+    var _P = global.PARTY[_pid];
+    if (!is_struct(_P)) return false;
+    if (!variable_struct_exists(_P,"open")) return false;
+    return _P.open;
 }
 function party_open(_pid){
     if (!variable_global_exists("PARTY")) return;
     if (!is_array(global.PARTY)) return;
     if (array_length(global.PARTY) <= _pid) return;
-    var P = global.PARTY[_pid];
-    if (!is_struct(P)) return;
-    P.open         = true;
-    P.mode         = "list";
-    P.menu_sel     = 0;
-    P.swap_index   = -1;
-    P.sum_move_sel = 0;
-    P.sum_learn_sel= 0;
-    P.lock         = 4;
+    var _P = global.PARTY[_pid];
+    if (!is_struct(_P)) return;
+    _P.open         = true;
+    _P.mode         = "list";
+    _P.menu_sel     = 0;
+    _P.swap_index   = -1;
+    _P.sum_move_sel = 0;
+    _P.sum_learn_sel= 0;
+    _P.lock         = 4;
 }
 function party_close(_pid){
     if (!variable_global_exists("PARTY")) return;
     if (!is_array(global.PARTY)) return;
     if (array_length(global.PARTY) <= _pid) return;
-    var P = global.PARTY[_pid];
-    if (!is_struct(P)) return;
-    P.open = false;
+    var _P = global.PARTY[_pid];
+    if (!is_struct(_P)) return;
+    _P.open = false;
 }
 function party_toggle(_pid){
     if (!variable_global_exists("PARTY")) return;
     if (!is_array(global.PARTY)) return;
     if (array_length(global.PARTY) <= _pid) return;
-    var P = global.PARTY[_pid];
-    if (!is_struct(P)) return;
-    P.open = !P.open;
-    if (P.open){
-        P.mode         = "list";
-        P.menu_sel     = 0;
-        P.swap_index   = -1;
-        P.sum_move_sel = 0;
-        P.sum_learn_sel= 0;
-        P.lock         = 4;
+    var _P = global.PARTY[_pid];
+    if (!is_struct(_P)) return;
+    _P.open = !_P.open;
+    if (_P.open){
+        _P.mode         = "list";
+        _P.menu_sel     = 0;
+        _P.swap_index   = -1;
+        _P.sum_move_sel = 0;
+        _P.sum_learn_sel= 0;
+        _P.lock         = 4;
     }
 }
 
 // ---------- Initialization / ensure ----------
 function party_init(){
     if (!variable_global_exists("PARTY")) global.PARTY = [];
-    var players = 1;
-    if (variable_global_exists("PAUSE_PLAYERS_ACTIVE")) players = max(1, global.PAUSE_PLAYERS_ACTIVE);
-    array_resize(global.PARTY, players);
-    for (var pid = 0; pid < players; pid++){
-        if (!is_struct(global.PARTY[pid])){
-            global.PARTY[pid] = {
+    var _players = 1;
+    if (variable_global_exists("PAUSE_PLAYERS_ACTIVE")) _players = max(1, global.PAUSE_PLAYERS_ACTIVE);
+    array_resize(global.PARTY, _players);
+    for (var _pid = 0; _pid < _players; _pid++){
+        if (!is_struct(global.PARTY[_pid])){
+            global.PARTY[_pid] = {
                 open:false, mode:"list", sel:0, scroll:0, menu_sel:0, swap_index:-1, lock:0,
                 mons:[], sum_move_sel:0, sum_learn_sel:0
             };
@@ -87,169 +81,169 @@ function party_ensure(_pid){
     if (!variable_global_exists("PARTY")) global.PARTY = [];
     if (!is_array(global.PARTY)) global.PARTY = [];
     if (array_length(global.PARTY) <= _pid) array_resize(global.PARTY, _pid + 1);
-    var P = global.PARTY[_pid];
-    if (!is_struct(P)){
-        P = { open:false, mode:"list", sel:0, scroll:0, menu_sel:0, swap_index:-1, lock:0, mons:[], sum_move_sel:0, sum_learn_sel:0 };
-        global.PARTY[_pid] = P;
+    var _P = global.PARTY[_pid];
+    if (!is_struct(_P)){
+        _P = { open:false, mode:"list", sel:0, scroll:0, menu_sel:0, swap_index:-1, lock:0, mons:[], sum_move_sel:0, sum_learn_sel:0 };
+        global.PARTY[_pid] = _P;
     }
-    if (!variable_struct_exists(P,"open"))          P.open         = false;
-    if (!variable_struct_exists(P,"mode"))          P.mode         = "list";
-    if (!variable_struct_exists(P,"sel"))           P.sel          = 0;
-    if (!variable_struct_exists(P,"scroll"))        P.scroll       = 0;
-    if (!variable_struct_exists(P,"menu_sel"))      P.menu_sel     = 0;
-    if (!variable_struct_exists(P,"swap_index"))    P.swap_index   = -1;
-    if (!variable_struct_exists(P,"lock"))          P.lock         = 0;
-    if (!variable_struct_exists(P,"mons") || !is_array(P.mons)) P.mons = [];
-    if (!variable_struct_exists(P,"sum_move_sel"))  P.sum_move_sel = 0;
-    if (!variable_struct_exists(P,"sum_learn_sel")) P.sum_learn_sel= 0;
+    if (!variable_struct_exists(_P,"open"))          _P.open         = false;
+    if (!variable_struct_exists(_P,"mode"))          _P.mode         = "list";
+    if (!variable_struct_exists(_P,"sel"))           _P.sel          = 0;
+    if (!variable_struct_exists(_P,"scroll"))        _P.scroll       = 0;
+    if (!variable_struct_exists(_P,"menu_sel"))      _P.menu_sel     = 0;
+    if (!variable_struct_exists(_P,"swap_index"))    _P.swap_index   = -1;
+    if (!variable_struct_exists(_P,"lock"))          _P.lock         = 0;
+    if (!variable_struct_exists(_P,"mons") || !is_array(_P.mons)) _P.mons = [];
+    if (!variable_struct_exists(_P,"sum_move_sel"))  _P.sum_move_sel = 0;
+    if (!variable_struct_exists(_P,"sum_learn_sel")) _P.sum_learn_sel= 0;
 
-    var n = array_length(P.mons), rows = 6;
-    if (n <= 0){ P.sel = 0; P.scroll = 0; }
+    var _n = array_length(_P.mons), _rows = 6;
+    if (_n <= 0){ _P.sel = 0; _P.scroll = 0; }
     else {
-        if (P.sel >= n) P.sel = n - 1;
-        if (P.sel < 0)  P.sel = 0;
-        var max_scroll = max(0, n - rows);
-        if (P.scroll < 0) P.scroll = 0;
-        if (P.scroll > max_scroll) P.scroll = max_scroll;
-        if (P.sel <  P.scroll)        P.scroll = P.sel;
-        if (P.sel >= P.scroll + rows)  P.scroll = max(0, P.sel - rows + 1);
+        if (_P.sel >= _n) _P.sel = _n - 1;
+        if (_P.sel < 0)   _P.sel = 0;
+        var _max_scroll = max(0, _n - _rows);
+        if (_P.scroll < 0) _P.scroll = 0;
+        if (_P.scroll > _max_scroll) _P.scroll = _max_scroll;
+        if (_P.sel <  _P.scroll)        _P.scroll = _P.sel;
+        if (_P.sel >= _P.scroll + _rows) _P.scroll = max(0, _P.sel - _rows + 1);
     }
-    return P;
+    return _P;
 }
 
 // ---------- Helpers ----------
 function __party_mons(_pid){
     if (variable_global_exists("PARTY") && is_array(global.PARTY) && array_length(global.PARTY) > _pid){
-        var p = global.PARTY[_pid];
-        if (is_struct(p) && variable_struct_exists(p,"mons") && is_array(p.mons)) return p.mons;
+        var _p = global.PARTY[_pid];
+        if (is_struct(_p) && variable_struct_exists(_p,"mons") && is_array(_p.mons)) return _p.mons;
     }
     return [];
 }
 function __party_mon_get(_P, _pid){
-    var mons = __party_mons(_pid), n = array_length(mons);
-    if (n <= 0) return undefined;
-    var idx = _P.sel; if (idx < 0 || idx >= n) return undefined;
-    return mons[idx];
+    var _mons = __party_mons(_pid), _n = array_length(_mons);
+    if (_n <= 0) return undefined;
+    var _idx = _P.sel; if (_idx < 0 || _idx >= _n) return undefined;
+    return _mons[_idx];
 }
 function __party_move_name(_id){
     if (!is_real(_id)) return "—";
     if (is_undefined(scr_move_name_by_id)) return "Move#" + string(_id);
-    var t = scr_move_name_by_id(_id);
-    if (is_string(t) && string_length(t) > 0) return t;
+    var _t = scr_move_name_by_id(_id);
+    if (is_string(_t) && string_length(_t) > 0) return _t;
     return "Move#" + string(_id);
 }
 
 // ---------- Update ----------
 function party_update(){
     if (!variable_global_exists("PARTY")) return;
-    var players = array_length(global.PARTY); if (players <= 0) return;
+    var _players = array_length(global.PARTY); if (_players <= 0) return;
 
-    for (var pid = 0; pid < players; pid++){
-        var P = party_ensure(pid);
-        if (!P.open) continue;
-        if (P.lock > 0) P.lock--;
+    for (var _pid = 0; _pid < _players; _pid++){
+        var _P = party_ensure(_pid);
+        if (!_P.open) continue;
+        if (_P.lock > 0) _P.lock--;
 
-        var mons = P.mons, n = array_length(mons), ROWS = 6;
+        var _mons = _P.mons, _n = array_length(_mons), _ROWS = 6;
 
-        if (P.mode != "select" && P.mode != "summary_profile" && P.mode != "summary_moves" && P.mode != "summary_forget"){
-            if (controls_pressed(pid,"Run") && P.lock == 0){ P.open = false; P.lock = 2; continue; }
+        if (_P.mode != "select" && _P.mode != "summary_profile" && _P.mode != "summary_moves" && _P.mode != "summary_forget"){
+            if (controls_pressed(_pid,"Run") && _P.lock == 0){ _P.open = false; _P.lock = 2; continue; }
         }
 
-        switch (P.mode){
+        switch (_P.mode){
             case "list": {
-                if (controls_pressed(pid,"MoveDown") && n > 0) P.sel = clamp(P.sel + 1, 0, n - 1);
-                if (controls_pressed(pid,"MoveUp")   && n > 0) P.sel = clamp(P.sel - 1, 0, n - 1);
-                P.scroll = clamp(P.scroll, 0, max(0, n - ROWS));
-                if (P.sel <  P.scroll)        P.scroll = P.sel;
-                if (P.sel >= P.scroll + ROWS) P.scroll = max(0, P.sel - ROWS + 1);
-                if (controls_pressed(pid,"Interact") && P.lock == 0){ P.mode="menu"; P.menu_sel=0; P.lock=2; }
+                if (controls_pressed(_pid,"MoveDown") && _n > 0) _P.sel = clamp(_P.sel + 1, 0, _n - 1);
+                if (controls_pressed(_pid,"MoveUp")   && _n > 0) _P.sel = clamp(_P.sel - 1, 0, _n - 1);
+                _P.scroll = clamp(_P.scroll, 0, max(0, _n - _ROWS));
+                if (_P.sel <  _P.scroll)        _P.scroll = _P.sel;
+                if (_P.sel >= _P.scroll + _ROWS) _P.scroll = max(0, _P.sel - _ROWS + 1);
+                if (controls_pressed(_pid,"Interact") && _P.lock == 0){ _P.mode="menu"; _P.menu_sel=0; _P.lock=2; }
             } break;
 
             case "menu": {
-                if (controls_pressed(pid,"MoveDown")) P.menu_sel = clamp(P.menu_sel + 1, 0, 3);
-                if (controls_pressed(pid,"MoveUp"))   P.menu_sel = clamp(P.menu_sel - 1, 0, 3);
-                if (controls_pressed(pid,"Interact") && P.lock == 0){
-                    switch (P.menu_sel){
-                        case 0: P.mode="summary_profile"; P.sum_move_sel=0; P.sum_learn_sel=0; P.lock=2; break;
-                        case 1: P.swap_index = P.sel; P.mode="select"; P.lock=2; break;
-                        case 2: P.mode="list"; P.lock=2; break;
-                        case 3: P.mode="list"; P.lock=2; break;
+                if (controls_pressed(_pid,"MoveDown")) _P.menu_sel = clamp(_P.menu_sel + 1, 0, 3);
+                if (controls_pressed(_pid,"MoveUp"))   _P.menu_sel = clamp(_P.menu_sel - 1, 0, 3);
+                if (controls_pressed(_pid,"Interact") && _P.lock == 0){
+                    switch (_P.menu_sel){
+                        case 0: _P.mode="summary_profile"; _P.sum_move_sel=0; _P.sum_learn_sel=0; _P.lock=2; break;
+                        case 1: _P.swap_index = _P.sel; _P.mode="select"; _P.lock=2; break;
+                        case 2: _P.mode="list"; _P.lock=2; break;
+                        case 3: _P.mode="list"; _P.lock=2; break;
                     }
                 }
             } break;
 
             case "select": {
-                if (controls_pressed(pid,"MoveDown") && n > 0) P.sel = clamp(P.sel + 1, 0, n - 1);
-                if (controls_pressed(pid,"MoveUp")   && n > 0) P.sel = clamp(P.sel - 1, 0, n - 1);
-                P.scroll = clamp(P.scroll, 0, max(0, n - ROWS));
-                if (P.sel <  P.scroll)        P.scroll = P.sel;
-                if (P.sel >= P.scroll + ROWS) P.scroll = max(0, P.sel - ROWS + 1);
-                if (controls_pressed(pid,"Interact") && P.lock == 0){
-                    var src = P.swap_index, dst = P.sel;
-                    if (n > 0 && src >= 0 && src < n && dst >= 0 && dst < n && src != dst){
-                        var t = mons[src]; mons[src] = mons[dst]; mons[dst] = t;
-                        P.mons = mons; P.sel = dst;
+                if (controls_pressed(_pid,"MoveDown") && _n > 0) _P.sel = clamp(_P.sel + 1, 0, _n - 1);
+                if (controls_pressed(_pid,"MoveUp")   && _n > 0) _P.sel = clamp(_P.sel - 1, 0, _n - 1);
+                _P.scroll = clamp(_P.scroll, 0, max(0, _n - _ROWS));
+                if (_P.sel <  _P.scroll)        _P.scroll = _P.sel;
+                if (_P.sel >= _P.scroll + _ROWS) _P.scroll = max(0, _P.sel - _ROWS + 1);
+                if (controls_pressed(_pid,"Interact") && _P.lock == 0){
+                    var _src = _P.swap_index, _dst = _P.sel;
+                    if (_n > 0 && _src >= 0 && _src < _n && _dst >= 0 && _dst < _n && _src != _dst){
+                        var _t = _mons[_src]; _mons[_src] = _mons[_dst]; _mons[_dst] = _t;
+                        _P.mons = _mons; _P.sel = _dst;
                     }
-                    P.mode="list"; P.swap_index=-1; P.lock=2;
+                    _P.mode="list"; _P.swap_index=-1; _P.lock=2;
                 }
-                if (controls_pressed(pid,"Run") && P.lock == 0){ P.mode="list"; P.swap_index=-1; P.lock=2; }
+                if (controls_pressed(_pid,"Run") && _P.lock == 0){ _P.mode="list"; _P.swap_index=-1; _P.lock=2; }
             } break;
 
             case "summary_profile": {
-                if (controls_pressed(pid,"MoveRight") && n > 0){ P.sel = clamp(P.sel + 1, 0, n - 1); P.lock = 2; }
-                if (controls_pressed(pid,"MoveLeft")  && n > 0){ P.sel = clamp(P.sel - 1, 0, n - 1); P.lock = 2; }
-                if (controls_pressed(pid,"MoveDown")){ P.mode = "summary_moves"; P.lock = 2; }
-                if (controls_pressed(pid,"Run") && P.lock == 0){ P.mode = "list"; P.lock = 2; }
+                if (controls_pressed(_pid,"MoveRight") && _n > 0){ _P.sel = clamp(_P.sel + 1, 0, _n - 1); _P.lock = 2; }
+                if (controls_pressed(_pid,"MoveLeft")  && _n > 0){ _P.sel = clamp(_P.sel - 1, 0, _n - 1); _P.lock = 2; }
+                if (controls_pressed(_pid,"MoveDown")){ _P.mode = "summary_moves"; _P.lock = 2; }
+                if (controls_pressed(_pid,"Run") && _P.lock == 0){ _P.mode = "list"; _P.lock = 2; }
             } break;
 
             case "summary_moves": {
-                var M  = __party_mon_get(P, pid);
-                var mv = is_struct(M) && variable_struct_exists(M,"moves") ? M.moves : [];
-                var lr = is_struct(M) && variable_struct_exists(M,"learnset") ? M.learnset : [];
-                var nm = array_length(mv), nl = array_length(lr);
+                var _M  = __party_mon_get(_P, _pid);
+                var _mv = is_struct(_M) && variable_struct_exists(_M,"moves") ? _M.moves : [];
+                var _lr = is_struct(_M) && variable_struct_exists(_M,"learnset") ? _M.learnset : [];
+                var _nm = array_length(_mv), _nl = array_length(_lr);
 
-                if (controls_pressed(pid,"MoveUp")){ P.mode = "summary_profile"; P.lock = 2; }
-                if (controls_pressed(pid,"MoveRight") && n > 0){ P.sel = clamp(P.sel + 1, 0, n - 1); P.lock = 2; }
-                if (controls_pressed(pid,"MoveLeft")  && n > 0){ P.sel = clamp(P.sel - 1, 0, n - 1); P.lock = 2; }
+                if (controls_pressed(_pid,"MoveUp")){ _P.mode = "summary_profile"; _P.lock = 2; }
+                if (controls_pressed(_pid,"MoveRight") && _n > 0){ _P.sel = clamp(_P.sel + 1, 0, _n - 1); _P.lock = 2; }
+                if (controls_pressed(_pid,"MoveLeft")  && _n > 0){ _P.sel = clamp(_P.sel - 1, 0, _n - 1); _P.lock = 2; }
 
-                var invHeld = controls_down(pid,"Inventory");
-                if (invHeld){
-                    if (nl > 0){
-                        if (controls_pressed(pid,"MoveDown")) P.sum_learn_sel = clamp(P.sum_learn_sel + 1, 0, nl - 1);
-                        if (controls_pressed(pid,"MoveUp"))   P.sum_learn_sel = clamp(P.sum_learn_sel - 1, 0, nl - 1);
-                    } else P.sum_learn_sel = 0;
+                var _invHeld = controls_down(_pid,"Inventory");
+                if (_invHeld){
+                    if (_nl > 0){
+                        if (controls_pressed(_pid,"MoveDown")) _P.sum_learn_sel = clamp(_P.sum_learn_sel + 1, 0, _nl - 1);
+                        if (controls_pressed(_pid,"MoveUp"))   _P.sum_learn_sel = clamp(_P.sum_learn_sel - 1, 0, _nl - 1);
+                    } else _P.sum_learn_sel = 0;
                 } else {
-                    if (nm > 0){
-                        if (controls_pressed(pid,"MoveDown")) P.sum_move_sel = clamp(P.sum_move_sel + 1, 0, nm - 1);
-                        if (controls_pressed(pid,"MoveUp"))   P.sum_move_sel = clamp(P.sum_move_sel - 1, 0, nm - 1);
-                    } else P.sum_move_sel = 0;
+                    if (_nm > 0){
+                        if (controls_pressed(_pid,"MoveDown")) _P.sum_move_sel = clamp(_P.sum_move_sel + 1, 0, _nm - 1);
+                        if (controls_pressed(_pid,"MoveUp"))   _P.sum_move_sel = clamp(_P.sum_move_sel - 1, 0, _nm - 1);
+                    } else _P.sum_move_sel = 0;
                 }
 
-                if (controls_pressed(pid,"Interact") && P.lock == 0){
-                    if (nl > 0){
-                        var learnId = lr[P.sum_learn_sel];
-                        if (nm < 4){ array_push(mv, learnId); M.moves = mv; P.sum_move_sel = array_length(mv) - 1; P.lock = 4; }
-                        else { P.mode = "summary_forget"; P.lock = 2; }
+                if (controls_pressed(_pid,"Interact") && _P.lock == 0){
+                    if (_nl > 0){
+                        var _learnId = _lr[_P.sum_learn_sel];
+                        if (_nm < 4){ array_push(_mv, _learnId); _M.moves = _mv; _P.sum_move_sel = array_length(_mv) - 1; _P.lock = 4; }
+                        else { _P.mode = "summary_forget"; _P.lock = 2; }
                     }
                 }
-                if (controls_pressed(pid,"Run") && P.lock == 0){ P.mode = "list"; P.lock = 2; }
+                if (controls_pressed(_pid,"Run") && _P.lock == 0){ _P.mode = "list"; _P.lock = 2; }
             } break;
 
             case "summary_forget": {
-                var M2  = __party_mon_get(P, pid);
-                var mv2 = is_struct(M2) && variable_struct_exists(M2,"moves") ? M2.moves : [];
-                var nm2 = array_length(mv2);
-                if (nm2 <= 0){ P.mode = "summary_moves"; break; }
-                if (controls_pressed(pid,"MoveDown")) P.sum_move_sel = clamp(P.sum_move_sel + 1, 0, nm2 - 1);
-                if (controls_pressed(pid,"MoveUp"))   P.sum_move_sel = clamp(P.sum_move_sel - 1, 0, nm2 - 1);
-                var lr2 = is_struct(M2) && variable_struct_exists(M2,"learnset") ? M2.learnset : [];
-                var nl2 = array_length(lr2);
-                var chosen = (nl2 > 0) ? lr2[P.sum_learn_sel] : -1;
-                if (controls_pressed(pid,"Interact") && P.lock == 0){
-                    if (chosen != -1){ mv2[P.sum_move_sel] = chosen; M2.moves = mv2; P.mode = "summary_moves"; P.lock = 4; }
-                    else { P.mode = "summary_moves"; P.lock = 2; }
+                var _M2  = __party_mon_get(_P, _pid);
+                var _mv2 = is_struct(_M2) && variable_struct_exists(_M2,"moves") ? _M2.moves : [];
+                var _nm2 = array_length(_mv2);
+                if (_nm2 <= 0){ _P.mode = "summary_moves"; break; }
+                if (controls_pressed(_pid,"MoveDown")) _P.sum_move_sel = clamp(_P.sum_move_sel + 1, 0, _nm2 - 1);
+                if (controls_pressed(_pid,"MoveUp"))   _P.sum_move_sel = clamp(_P.sum_move_sel - 1, 0, _nm2 - 1);
+                var _lr2 = is_struct(_M2) && variable_struct_exists(_M2,"learnset") ? _M2.learnset : [];
+                var _nl2 = array_length(_lr2);
+                var _chosen = (_nl2 > 0) ? _lr2[_P.sum_learn_sel] : -1;
+                if (controls_pressed(_pid,"Interact") && _P.lock == 0){
+                    if (_chosen != -1){ _mv2[_P.sum_move_sel] = _chosen; _M2.moves = _mv2; _P.mode = "summary_moves"; _P.lock = 4; }
+                    else { _P.mode = "summary_moves"; _P.lock = 2; }
                 }
-                if (controls_pressed(pid,"Run") && P.lock == 0){ P.mode = "summary_moves"; P.lock = 2; }
+                if (controls_pressed(_pid,"Run") && _P.lock == 0){ _P.mode = "summary_moves"; _P.lock = 2; }
             } break;
         }
     }
@@ -258,342 +252,337 @@ function party_update(){
 // ---------- Draw ----------
 function party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     if (!party_is_open(_pid)) return;
-    var P = party_ensure(_pid);
+    var _P = party_ensure(_pid);
 
-    var S  = max(1, min(floor(_rw / 240), floor(_rh / 160)));
-    var OX = _rx + (_rw - 240 * S) div 2;
-    var OY = _ry + (_rh - 160 * S) div 2;
+    var _S  = max(1, min(floor(_rw / 240), floor(_rh / 160)));
+    var _OX = _rx + (_rw - 240 * _S) div 2;
+    var _OY = _ry + (_rh - 160 * _S) div 2;
 
-    if (string(P.mode) == "summary_profile" || string(P.mode) == "summary_moves" || string(P.mode) == "summary_forget"){
-        __party_draw_summary(_pid, P, OX, OY, S);
+    if (string(_P.mode) == "summary_profile" || string(_P.mode) == "summary_moves" || string(_P.mode) == "summary_forget"){
+        __party_draw_summary(_pid, _P, _OX, _OY, _S);
         return;
     }
 
-    var C_BG_A    = make_color_rgb(252,236,180);
-    var C_BG_B    = make_color_rgb(248,220,140);
-    var C_PAPER   = make_color_rgb(255,243,195);
-    var C_PAPER_E = make_color_rgb(136,100,36);
+    var _C_BG_A    = make_color_rgb(252,236,180);
+    var _C_BG_B    = make_color_rgb(248,220,140);
+    var _C_PAPER   = make_color_rgb(255,243,195);
+    var _C_PAPER_E = make_color_rgb(136,100,36);
 
-    var stripe_h = 8;
-    for (var yy = 0; yy < 160; yy += stripe_h){
-        draw_set_color( ((yy div stripe_h) & 1) == 1 ? C_BG_B : C_BG_A );
-        draw_rectangle(OX, OY + yy*S, OX + 240*S, OY + (yy+stripe_h)*S, false);
+    var _stripe_h = 8;
+    for (var _yy = 0; _yy < 160; _yy += _stripe_h){
+        draw_set_color( ((_yy div _stripe_h) & 1) == 1 ? _C_BG_B : _C_BG_A );
+        draw_rectangle(_OX, _OY + _yy*_S, _OX + 240*_S, _OY + (_yy+_stripe_h)*_S, false);
     }
 
-    var LIST_X = 120, LIST_Y = 8,  LIST_W = 112, LIST_H = 144;
-    var INFO_X = 8,   INFO_Y = 98, INFO_W = 104, INFO_H = 54;
+    var _LIST_X = 120, _LIST_Y = 8,  _LIST_W = 112, _LIST_H = 144;
+    var _INFO_X = 8,   _INFO_Y = 98, _INFO_W = 104, _INFO_H = 54;
 
-    var lx1 = OX + LIST_X*S,            ly1 = OY + LIST_Y*S;
-    var lx2 = OX + (LIST_X+LIST_W)*S,   ly2 = OY + (LIST_Y+LIST_H)*S;
-    draw_set_color(C_PAPER);   draw_rectangle(lx1, ly1, lx2, ly2, false);
-    draw_set_color(C_PAPER_E); draw_rectangle(lx1 - S, ly1 - S, lx2 + S, ly2 + S, true);
+    var _lx1 = _OX + _LIST_X*_S,            _ly1 = _OY + _LIST_Y*_S;
+    var _lx2 = _OX + (_LIST_X+_LIST_W)*_S,  _ly2 = _OY + (_LIST_Y+_LIST_H)*_S;
+    draw_set_color(_C_PAPER);   draw_rectangle(_lx1, _ly1, _lx2, _ly2, false);
+    draw_set_color(_C_PAPER_E); draw_rectangle(_lx1 - _S, _ly1 - _S, _lx2 + _S, _ly2 + _S, true);
 
     if (variable_global_exists("FNT_POKEMON")) draw_set_font(global.FNT_POKEMON); else draw_set_font(-1);
     draw_set_color(c_white);
 
-    var mons  = P.mons;
-    var n     = array_length(mons);
-    var ROWS  = 6;
-    var ROW_H = max(12, string_height("A") + 2);
+    var _mons  = _P.mons;
+    var _n     = array_length(_mons);
+    var _ROWS  = 6;
+    var _ROW_H = max(12, string_height("A") + 2);
 
-    var sprSelector    = __party_asset_index_or("spr_selector");
-    var sprPlaceholder = __party_asset_index_or("spr_mon_icon_placeholder");
+    // Direct sprite references
+    var sprSelector     = spr_selector;
+    var sprPlaceholder  = spr_mon_icon_placeholder; // correct small icon placeholder
 
-    for (var r = 0; r < ROWS; r++){
-        var idx = P.scroll + r; if (idx >= n) break;
-        var M = mons[idx];
-        var row_y_gui = OY + (LIST_Y + 8 + r*(ROW_H + PARTY_ROW_PAD_UI)) * S;
+    for (var _r = 0; _r < _ROWS; _r++){
+        var _idx = _P.scroll + _r; if (_idx >= _n) break;
+        var _M = _mons[_idx];
+        var _row_y_gui = _OY + (_LIST_Y + 8 + _r*(_ROW_H + PARTY_ROW_PAD_UI)) * _S;
 
-        if (idx == P.sel){
-            var rx1 = OX + (LIST_X + 2) * S;
-            var ry1 = row_y_gui - (ROW_H * 0.65) * S;
-            var rx2 = OX + (LIST_X + LIST_W - 2) * S;
-            var ry2 = ry1 + (ROW_H * 1.25) * S;
+        if (_idx == _P.sel){
+            var _rx1 = _OX + (_LIST_X + 2) * _S;
+            var _ry1 = _row_y_gui - (_ROW_H * 0.65) * _S;
+            var _rx2 = _OX + (_LIST_X + _LIST_W - 2) * _S;
+            var _ry2 = _ry1 + (_ROW_H * 1.25) * _S;
             draw_set_alpha(PARTY_HILITE_ALPHA);
             draw_set_color(PARTY_HILITE_COL);
-            draw_rectangle(rx1, ry1, rx2, ry2, false);
+            draw_rectangle(_rx1, _ry1, _rx2, _ry2, false);
             draw_set_alpha(1);
             draw_set_color(PARTY_HILITE_EDGE);
-            draw_rectangle(rx1, ry1, rx2, ry2, true);
+            draw_rectangle(_rx1, _ry1, _rx2, _ry2, true);
             draw_set_color(c_white);
         }
 
-        if (idx == P.sel && sprite_exists(sprSelector)){
-            var sh2 = max(1, sprite_get_height(sprSelector));
-            var tgt2 = ROW_H * S;
-            var sc2  = tgt2 / sh2;
-            draw_sprite_ext(sprSelector, 0, OX + (LIST_X + 2)*S - 10*S, row_y_gui - tgt2*0.15, sc2, sc2, 0, c_white, 1);
+        // Selector at current row (list) using spr_selector directly
+        if (_idx == _P.sel){
+            var _sh2 = max(1, sprite_get_height(sprSelector));
+            var _tgt2 = _ROW_H * _S;
+            var _sc2  = _tgt2 / _sh2;
+            draw_sprite_ext(sprSelector, 0, _OX + (_LIST_X + 2)*_S - 10*_S, _row_y_gui - _tgt2*0.15, _sc2, _sc2, 0, c_white, 1);
         }
 
-        var sprDown = -1;
-        if (!is_undefined(pkicons_get_icon32_dir_by_mon)) sprDown = pkicons_get_icon32_dir_by_mon(M, "down");
-        var hasIcon = sprite_exists(sprDown);
-        if (!hasIcon && sprite_exists(sprPlaceholder)){ sprDown = sprPlaceholder; hasIcon = true; }
+        var _sprDown = -1;
+        if (!is_undefined(pkicons_get_icon32_dir_by_mon)) _sprDown = pkicons_get_icon32_dir_by_mon(_M, "down");
+        var _hasIcon = (_sprDown != -1);
+        if (!_hasIcon){ _sprDown = sprPlaceholder; _hasIcon = true; }
 
-        var drawnIconW_ui = 0;
-        if (hasIcon){
-            var frame = 0;
-            if (!is_undefined(pkicons_icon32_frame_ui)) frame = pkicons_icon32_frame_ui();
+        var _drawnIconW_ui = 0;
+        if (_hasIcon){
+            var _frame = 0;
+            if (!is_undefined(pkicons_icon32_frame_ui)) _frame = pkicons_icon32_frame_ui();
 
-            var ih = max(1, sprite_get_height(sprDown));
-            var target_h_gui = PARTY_ICON_H_UI * S;
-            var sc_icon = target_h_gui / ih;
+            var _ih = max(1, sprite_get_height(_sprDown));
+            var _target_h_gui = PARTY_ICON_H_UI * _S;
+            var _sc_icon = _target_h_gui / _ih;
 
-            var ix_gui = OX + (LIST_X + 2) * S;
-            var iw_gui = sprite_get_width(sprDown) * sc_icon;
-            var iy_gui = row_y_gui - target_h_gui * 0.5;
+            var _ix_gui = _OX + (_LIST_X + 2) * _S;
+            var _iw_gui = sprite_get_width(_sprDown) * _sc_icon;
+            var _iy_gui = _row_y_gui - _target_h_gui * 0.5;
 
-            draw_sprite_ext(sprDown, frame, floor(ix_gui), floor(iy_gui), sc_icon, sc_icon, 0, c_white, 1);
-            drawnIconW_ui = ceil((iw_gui) / S);
+            draw_sprite_ext(_sprDown, _frame, floor(_ix_gui), floor(_iy_gui), _sc_icon, _sc_icon, 0, c_white, 1);
+            _drawnIconW_ui = ceil((_iw_gui) / _S);
         } else {
-            drawnIconW_ui = 18;
+            _drawnIconW_ui = 18;
         }
 
-        var disp_name = "???";
-        if (is_struct(M)){
-            if (variable_struct_exists(M,"species_id")){
-                var sid = M.species_id;
-                if (is_real(sid) && sid >= 0){
-                    var idn = scr_poke_name_by_id(sid);
-                    if (string_length(idn) > 0){
-                        disp_name = string_replace_all(idn, "-", " ");
-                        if (string_length(disp_name) > 0){
-                            disp_name = string_upper(string_copy(disp_name,1,1)) + string_delete(disp_name,1,1);
+        var _disp_name = "???";
+        if (is_struct(_M)){
+            if (variable_struct_exists(_M,"species_id")){
+                var _sid = _M.species_id;
+                if (is_real(_sid) && _sid >= 0){
+                    var _idn = scr_poke_name_by_id(_sid);
+                    if (string_length(_idn) > 0){
+                        _disp_name = string_replace_all(_idn, "-", " ");
+                        if (string_length(_disp_name) > 0){
+                            _disp_name = string_upper(string_copy(_disp_name,1,1)) + string_delete(_disp_name,1,1);
                         }
                     }
                 }
-            } else if (variable_struct_exists(M,"species")) disp_name = string(M.species);
-            else if (variable_struct_exists(M,"name"))     disp_name = string(M.name);
+            } else if (variable_struct_exists(_M,"species")) _disp_name = string(_M.species);
+            else if (variable_struct_exists(_M,"name"))     _disp_name = string(_M.name);
         }
-        var name_x_ui = 120 + 2 + drawnIconW_ui + 6;
-        var name_x_gui = OX + name_x_ui * S;
-        draw_text(name_x_gui, row_y_gui, disp_name);
+        var _name_x_ui = 120 + 2 + _drawnIconW_ui + 6;
+        var _name_x_gui = _OX + _name_x_ui * _S;
+        draw_text(_name_x_gui, _row_y_gui, _disp_name);
     }
 
-    var ix1 = OX + INFO_X*S, iy1 = OY + INFO_Y*S;
-    var ix2 = OX + (INFO_X+INFO_W)*S, iy2 = OY + (INFO_Y+INFO_H)*S;
-    draw_set_color(C_PAPER);   draw_rectangle(ix1, iy1, ix2, iy2, false);
-    draw_set_color(C_PAPER_E); draw_rectangle(ix1 - S, iy1 - S, ix2 + S, iy2 + S, true);
+    var _ix1 = _OX + _INFO_X*_S, _iy1 = _OY + _INFO_Y*_S;
+    var _ix2 = _OX + (_INFO_X+_INFO_W)*_S, _iy2 = _OY + (_INFO_Y+_INFO_H)*_S;
+    draw_set_color(_C_PAPER);   draw_rectangle(_ix1, _iy1, _ix2, _iy2, false);
+    draw_set_color(_C_PAPER_E); draw_rectangle(_ix1 - _S, _iy1 - _S, _ix2 + _S, _iy2 + _S, true);
 
-    if (n > 0){
-        var Li = clamp(P.sel, 0, n - 1);
-        var L = mons[Li];
+    if (_n > 0){
+        var _Li = clamp(_P.sel, 0, _n - 1);
+        var _L = _mons[_Li];
 
-        var nm_disp = "???";
-        if (is_struct(L)){
-            if (variable_struct_exists(L,"species_id")){
-                var sid2 = L.species_id;
-                if (is_real(sid2) && sid2 >= 0){
-                    var idn2 = scr_poke_name_by_id(sid2);
-                    if (string_length(idn2) > 0){
-                        nm_disp = string_replace_all(idn2, "-", " ");
-                        if (string_length(nm_disp) > 0){
-                            nm_disp = string_upper(string_copy(nm_disp,1,1)) + string_delete(nm_disp,1,1);
+        var _nm_disp = "???";
+        if (is_struct(_L)){
+            if (variable_struct_exists(_L,"species_id")){
+                var _sid2 = _L.species_id;
+                if (is_real(_sid2) && _sid2 >= 0){
+                    var _idn2 = scr_poke_name_by_id(_sid2);
+                    if (string_length(_idn2) > 0){
+                        _nm_disp = string_replace_all(_idn2, "-", " ");
+                        if (string_length(_nm_disp) > 0){
+                            _nm_disp = string_upper(string_copy(_nm_disp,1,1)) + string_delete(_nm_disp,1,1);
                         }
                     }
                 }
-            } else if (variable_struct_exists(L,"species")) nm_disp = string(L.species);
-            else if (variable_struct_exists(L,"name"))     nm_disp = string(L.name);
+            } else if (variable_struct_exists(_L,"species")) _nm_disp = string(_L.species);
+            else if (variable_struct_exists(_L,"name"))     _nm_disp = string(_L.name);
         }
         draw_set_color(c_white);
-        draw_text(ix1 + 6*S, iy1 + 6*S, nm_disp);
+        draw_text(_ix1 + 6*_S, _iy1 + 6*_S, _nm_disp);
 
-        var nature_txt = "—";
-        if (is_struct(L)){
-            if (variable_struct_exists(L,"nature"))      nature_txt = string(L.nature);
-            else if (variable_struct_exists(L,"Nature")) nature_txt = string(L.Nature);
-            else if (variable_struct_exists(L,"nat"))    nature_txt = string(L.nat);
+        var _nature_txt = "—";
+        if (is_struct(_L)){
+            if (variable_struct_exists(_L,"nature"))      _nature_txt = string(_L.nature);
+            else if (variable_struct_exists(_L,"Nature")) _nature_txt = string(_L.Nature);
+            else if (variable_struct_exists(_L,"nat"))    _nature_txt = string(_L.nat);
         }
-        draw_text(ix1 + 6*S, iy1 + 20*S, "Nature: " + nature_txt);
+        draw_text(_ix1 + 6*_S, _iy1 + 20*_S, "Nature: " + _nature_txt);
 
-        var hp_cur = 0; if (is_struct(L)){ if (variable_struct_exists(L,"hp")) hp_cur = L.hp; else if (variable_struct_exists(L,"HP")) hp_cur = L.HP; }
-        var hp_max = 1; if (is_struct(L)){ if (variable_struct_exists(L,"maxhp")) hp_max = L.maxhp; else if (variable_struct_exists(L,"hp_max")) hp_max = L.hp_max; }
-        if (!is_real(hp_max) || hp_max <= 0) hp_max = max(1, hp_cur);
+        var _hp_cur = 0; if (is_struct(_L)){ if (variable_struct_exists(_L,"hp")) _hp_cur = _L.hp; else if (variable_struct_exists(_L,"HP")) _hp_cur = _L.HP; }
+        var _hp_max = 1; if (is_struct(_L)){ if (variable_struct_exists(_L,"maxhp")) _hp_max = _L.maxhp; else if (variable_struct_exists(_L,"hp_max")) _hp_max = _L.hp_max; }
+        if (!is_real(_hp_max) || _hp_max <= 0) _hp_max = max(1, _hp_cur);
 
-        var lvl_val = 1; if (is_struct(L)){ if (variable_struct_exists(L,"level")) lvl_val = L.level; else if (variable_struct_exists(L,"lvl")) lvl_val = L.lvl; }
+        var _lvl_val = 1; if (is_struct(_L)){ if (variable_struct_exists(_L,"level")) _lvl_val = _L.level; else if (variable_struct_exists(_L,"lvl")) _lvl_val = _L.lvl; }
 
-        var bar_x = ix1 + 6*S, bar_y = iy1 + 34*S, bar_w = (INFO_W - 12) * S, bar_h = 6 * S;
-        draw_set_color(C_PAPER_E); draw_rectangle(bar_x - S, bar_y - S, bar_x + bar_w + S, bar_y + bar_h + S, true);
+        var _bar_x = _ix1 + 6*_S, _bar_y = _iy1 + 34*_S, _bar_w = (_INFO_W - 12) * _S, _bar_h = 6 * _S;
+        draw_set_color(_C_PAPER_E); draw_rectangle(_bar_x - _S, _bar_y - _S, _bar_x + _bar_w + _S, _bar_y + _bar_h + _S, true);
 
-        var ratio = (hp_max > 0) ? clamp(hp_cur / hp_max, 0, 1) : 0;
-        var hp_col = (ratio >= 0.5) ? make_color_rgb(56,200,72) : (ratio >= 0.2 ? make_color_rgb(248,200,40) : make_color_rgb(232,64,48));
-        var fill_w = floor(bar_w * ratio);
-        draw_set_color(hp_col); draw_rectangle(bar_x, bar_y, bar_x + fill_w, bar_y + bar_h, false);
+        var _ratio = (_hp_max > 0) ? clamp(_hp_cur / _hp_max, 0, 1) : 0;
+        var _hp_col = (_ratio >= 0.5) ? make_color_rgb(56,200,72) : (_ratio >= 0.2 ? make_color_rgb(248,200,40) : make_color_rgb(232,64,48));
+        var _fill_w = floor(_bar_w * _ratio);
+        draw_set_color(_hp_col); draw_rectangle(_bar_x, _bar_y, _bar_x + _fill_w, _bar_y + _bar_h, false);
 
-        var hp_txt = string(hp_cur) + " / " + string(hp_max);
-        var hp_tx  = bar_x + bar_w - string_width(hp_txt);
-        var hp_ty  = bar_y + bar_h + (2*S) + 6;
+        var _hp_txt = string(_hp_cur) + " / " + string(_hp_max);
+        var _hp_tx  = _bar_x + _bar_w - string_width(_hp_txt);
+        var _hp_ty  = _bar_y + _bar_h + (2*_S) + 6;
 
         draw_set_color(c_white);
-        draw_text(bar_x, hp_ty, "Lv " + string(lvl_val));
-        draw_text(hp_tx, hp_ty, hp_txt); // <-- fixed: use hp_txt (no underscore)
+        draw_text(_bar_x, _hp_ty, "Lv " + string(_lvl_val));
+        draw_text(_hp_tx, _hp_ty, _hp_txt);
     }
 
-    if (string(P.mode) == "menu"){
-        var MX = 96, MY = 20, MW = 76, MH = 84;
-        var bx1 = OX + MX*S;
-        var by1 = OY + MY*S;
-        var bx2 = OX + (MX+MW)*S;
-        var by2 = OY + (MY+MH)*S;
+    if (string(_P.mode) == "menu"){
+        var _MX = 96, _MY = 20, _MW = 76, _MH = 84;
+        var _bx1 = _OX + _MX*_S;
+        var _by1 = _OY + _MY*_S;
+        var _bx2 = _OX + (_MX+_MW)*_S;
+        var _by2 = _OY + (_MY+_MH)*_S;
 
-        draw_set_color(C_PAPER);   draw_rectangle(bx1, by1, bx2, by2, false);
-        draw_set_color(C_PAPER_E); draw_rectangle(bx1 - S, by1 - S, bx2 + S, by2 + S, true);
+        draw_set_color(_C_PAPER);   draw_rectangle(_bx1, _by1, _bx2, _by2, false);
+        draw_set_color(_C_PAPER_E); draw_rectangle(_bx1 - _S, _by1 - _S, _bx2 + _S, _by2 + _S, true);
 
         if (variable_global_exists("FNT_POKEMON")) draw_set_font(global.FNT_POKEMON); else draw_set_font(-1);
         draw_set_color(c_white);
 
-        var items = ["Summary","Switch","Item","Cancel"];
-        var m_h   = max(12, string_height("A") + 2);
-        var sprSelMenu = __party_asset_index_or("spr_selector");
-        for (var i = 0; i < 4; i++){
-            var yy_menu = by1 + (6 + i*m_h);
-            if (i == P.menu_sel){
-                if (sprite_exists(sprSelMenu)){
-                    var selh = max(1, sprite_get_height(sprSelMenu));
-                    var tgt  = m_h;
-                    var sc   = tgt / selh;
-                    draw_sprite_ext(sprSelMenu, 0, bx1 + 4*S, yy_menu - tgt*0.15, sc, sc, 0, c_white, 1);
-                } else {
-                    draw_text(bx1 + 4*S, yy_menu, "►");
-                }
+        var _items = ["Summary","Switch","Item","Cancel"];
+        var _m_h   = max(12, string_height("A") + 2);
+        // Use spr_selector directly in menu
+        for (var _i = 0; _i < 4; _i++){
+            var _yy_menu = _by1 + (6 + _i*_m_h);
+            if (_i == _P.menu_sel){
+                var _selh = max(1, sprite_get_height(spr_selector));
+                var _tgt  = _m_h;
+                var _sc   = _tgt / _selh;
+                draw_sprite_ext(spr_selector, 0, _bx1 + 4*_S, _yy_menu - _tgt*0.15, _sc, _sc, 0, c_white, 1);
             }
-            draw_text(bx1 + 16*S, yy_menu, items[i]);
+            draw_text(_bx1 + 16*_S, _yy_menu, _items[_i]);
         }
     }
 }
 
 // ---------- Summary / Description ----------
-function __party_draw_summary(_pid, P, OX, OY, S){
-    var C_BG    = make_color_rgb(224, 216, 248);
-    var C_PAPER = make_color_rgb(255, 255, 255);
-    var C_EDGE  = make_color_rgb(64, 56, 112);
-    var C_ACC   = make_color_rgb(208, 48, 48);
-    var C_TEXT  = c_white;
+function __party_draw_summary(_pid, _P, _OX, _OY, _S){
+    var _C_BG    = make_color_rgb(224, 216, 248);
+    var _C_PAPER = make_color_rgb(255, 255, 255);
+    var _C_EDGE  = make_color_rgb(64, 56, 112);
+    var _C_ACC   = make_color_rgb(208, 48, 48);
+    var _C_TEXT  = c_white;
 
-    draw_set_color(C_BG);   draw_rectangle(OX, OY, OX + 240*S, OY + 160*S, false);
-    draw_set_color(C_EDGE); draw_rectangle(OX, OY, OX + 240*S, OY + 20*S, true);
+    draw_set_color(_C_BG);   draw_rectangle(_OX, _OY, _OX + 240*_S, _OY + 160*_S, false);
+    draw_set_color(_C_EDGE); draw_rectangle(_OX, _OY, _OX + 240*_S, _OY + 20*_S, true);
 
-    var mons = __party_mons(_pid), n = array_length(mons);
-    for (var i = 0; i < 6; i++){
-        var cx = OX + (104 + i*16)*S, cy = OY + 10*S;
-        draw_set_color( (i < n) ? (i == P.sel ? C_ACC : C_PAPER) : make_color_rgb(136,136,136) );
-        draw_circle(cx, cy, 4*S, false);
+    var _mons = __party_mons(_pid), _n = array_length(_mons);
+    for (var _i = 0; _i < 6; _i++){
+        var _cx = _OX + (104 + _i*16)*_S, _cy = _OY + 10*_S;
+        draw_set_color( (_i < _n) ? (_i == _P.sel ? _C_ACC : _C_PAPER) : make_color_rgb(136,136,136) );
+        draw_circle(_cx, _cy, 4*_S, false);
     }
 
-    var LEFT_X = 8, LEFT_Y = 24, LEFT_W = 96, LEFT_H = 120;
-    var RIGHT_X = 108, RIGHT_Y = 24, RIGHT_W = 124, RIGHT_H = 120;
-    var lx1 = OX + LEFT_X*S,  ly1 = OY + LEFT_Y*S;
-    var lx2 = OX + (LEFT_X + LEFT_W)*S, ly2 = OY + (LEFT_Y + LEFT_H)*S;
-    var rx1 = OX + RIGHT_X*S, ry1 = OY + RIGHT_Y*S;
-    var rx2 = OX + (RIGHT_X + RIGHT_W)*S, ry2 = OY + (RIGHT_Y + RIGHT_H)*S;
+    var _LEFT_X = 8, _LEFT_Y = 24, _LEFT_W = 96, _LEFT_H = 120;
+    var _RIGHT_X = 108, _RIGHT_Y = 24, _RIGHT_W = 124, _RIGHT_H = 120;
+    var _lx1 = _OX + _LEFT_X*_S,  _ly1 = _OY + _LEFT_Y*_S;
+    var _lx2 = _OX + (_LEFT_X + _LEFT_W)*_S, _ly2 = _OY + (_LEFT_Y + _LEFT_H)*_S;
+    var _rx1 = _OX + _RIGHT_X*_S, _ry1 = _OY + _RIGHT_Y*_S;
+    var _rx2 = _OX + (_RIGHT_X + _RIGHT_W)*_S, _ry2 = _OY + (_RIGHT_Y + _RIGHT_H)*_S;
 
-    draw_set_color(C_PAPER); draw_rectangle(lx1, ly1, lx2, ly2, false);
-    draw_set_color(C_EDGE);  draw_rectangle(lx1- S, ly1- S, lx2+ S, ly2+ S, true);
-    draw_set_color(C_PAPER); draw_rectangle(rx1, ry1, rx2, ry2, false);
-    draw_set_color(C_EDGE);  draw_rectangle(rx1- S, ry1- S, rx2+ S, ry2+ S, true);
+    draw_set_color(_C_PAPER); draw_rectangle(_lx1, _ly1, _lx2, _ly2, false);
+    draw_set_color(_C_EDGE);  draw_rectangle(_lx1- _S, _ly1- _S, _lx2+ _S, _ly2+ _S, true);
+    draw_set_color(_C_PAPER); draw_rectangle(_rx1, _ry1, _rx2, _ry2, false);
+    draw_set_color(_C_EDGE);  draw_rectangle(_rx1- _S, _ry1- _S, _rx2+ _S, _ry2+ _S, true);
 
     if (variable_global_exists("FNT_POKEMON")) draw_set_font(global.FNT_POKEMON); else draw_set_font(-1);
-    draw_set_color(C_TEXT);
+    draw_set_color(_C_TEXT);
 
-    var sprBall = __party_asset_index_or("spr_bag_pokeball_small");
-
-    var M = __party_mon_get(P, _pid);
-    if (is_struct(M)){
-        var nm = "???";
-        if (variable_struct_exists(M,"species_id") && is_real(M.species_id)){
-            var idn = scr_poke_name_by_id(M.species_id);
-            if (string_length(idn) > 0){
-                nm = string_replace_all(idn, "-", " ");
-                if (string_length(nm) > 0) nm = string_upper(string_copy(nm,1,1)) + string_delete(nm,1,1);
+    var _M = __party_mon_get(_P, _pid);
+    if (is_struct(_M)){
+        var _nm = "???";
+        if (variable_struct_exists(_M,"species_id") && is_real(_M.species_id)){
+            var _idn = scr_poke_name_by_id(_M.species_id);
+            if (string_length(_idn) > 0){
+                _nm = string_replace_all(_idn, "-", " ");
+                if (string_length(_nm) > 0) _nm = string_upper(string_copy(_nm,1,1)) + string_delete(_nm,1,1);
             }
-        } else if (variable_struct_exists(M,"species")) nm = string(M.species);
-        else if (variable_struct_exists(M,"name"))     nm = string(M.name);
-        draw_text(lx1 + 6*S, ly1 + 6*S, nm);
+        } else if (variable_struct_exists(_M,"species")) _nm = string(_M.species);
+        else if (variable_struct_exists(_M,"name"))     _nm = string(_M.name);
+        draw_text(_lx1 + 6*_S, _ly1 + 6*_S, _nm);
 
-        var sprArt = -1;
-        if (!is_undefined(pkicons_get_art96_by_mon)) sprArt = pkicons_get_art96_by_mon(M);
-        if (!sprite_exists(sprArt)){
-            var pl = __party_asset_index_or("spr_mon_placeholder");
-            if (sprite_exists(pl)) sprArt = pl;
+        var _sprArt = -1;
+        if (!is_undefined(pkicons_get_art96_by_mon)) _sprArt = pkicons_get_art96_by_mon(_M);
+        if (_sprArt == -1){
+            _sprArt = spr_mon_placeholder; // summary art fallback (large)
         }
-        if (sprite_exists(sprArt)){
-            var artW = sprite_get_width(sprArt), artH = sprite_get_height(sprArt);
-            var boxW = (LEFT_W - 12) * S,       boxH = (LEFT_H - 36) * S;
-            var sc   = min(boxW / artW, boxH / artH);
-            var dx   = lx1 + (LEFT_W*S - artW*sc) * 0.5;
-            var dy   = ly1 + 18*S + (boxH - artH*sc) * 0.5;
-            draw_sprite_ext(sprArt, 0, dx, dy, sc, sc, 0, c_white, 1);
+        if (_sprArt != -1){
+            var _artW = sprite_get_width(_sprArt), _artH = sprite_get_height(_sprArt);
+            var _boxW = (_LEFT_W - 12) * _S,       _boxH = (_LEFT_H - 36) * _S;
+            var _sc   = min(_boxW / _artW, _boxH / _artH);
+            var _dx   = _lx1 + (_LEFT_W*_S - _artW*_sc) * 0.5;
+            var _dy   = _ly1 + 18*_S + (_boxH - _artH*_sc) * 0.5;
+            draw_sprite_ext(_sprArt, 0, _dx, _dy, _sc, _sc, 0, c_white, 1);
         }
 
-        var lvl = 1; if (variable_struct_exists(M,"level")) lvl = M.level; else if (variable_struct_exists(M,"lvl")) lvl = M.lvl;
-        draw_text(lx1 + 6*S, ly2 - 16*S, "Lv " + string(lvl));
-        if (sprite_exists(sprBall)) draw_sprite_ext(sprBall,0,lx2 - 14*S,ly2 - 14*S,S,S,0,c_white,1);
+        var _lvl = 1; if (variable_struct_exists(_M,"level")) _lvl = _M.level; else if (variable_struct_exists(_M,"lvl")) _lvl = _M.lvl;
+        draw_text(_lx1 + 6*_S, _ly2 - 16*_S, "Lv " + string(_lvl));
+        // Pokéball icon intentionally removed.
     }
 
-    if (string(P.mode) == "summary_profile"){
-        __party_draw_profile_block(M, rx1, ry1, RIGHT_W, RIGHT_H, S);
-    } else if (string(P.mode) == "summary_moves"){
-        __party_draw_moves_block(P, M, rx1, ry1, RIGHT_W, RIGHT_H, S, false);
-    } else if (string(P.mode) == "summary_forget"){
-        __party_draw_moves_block(P, M, rx1, ry1, RIGHT_W, RIGHT_H, S, true);
+    if (string(_P.mode) == "summary_profile"){
+        __party_draw_profile_block(_M, _rx1, _ry1, _RIGHT_W, _RIGHT_H, _S);
+    } else if (string(_P.mode) == "summary_moves"){
+        __party_draw_moves_block(_P, _M, _rx1, _ry1, _RIGHT_W, _RIGHT_H, _S, false);
+    } else if (string(_P.mode) == "summary_forget"){
+        __party_draw_moves_block(_P, _M, _rx1, _ry1, _RIGHT_W, _RIGHT_H, _S, true);
     }
 }
 
 // ---------- Summary helpers ----------
 function __party_draw_profile_block(_M, _x, _y, _w, _h, _S){
-    var C_LABEL = make_color_rgb(40, 96, 96);
-    var lh = max(12, string_height("A") + 2) * _S;
+    var _C_LABEL = make_color_rgb(40, 96, 96);
+    var _lh = max(12, string_height("A") + 2) * _S;
     draw_set_color(c_white); draw_text(_x + 6*_S, _y + 6*_S, "PROFILE");
-    draw_set_color(C_LABEL);
-    draw_text(_x + 6*_S, _y + 6*_S + lh*1, "OT/");
-    draw_text(_x + 6*_S, _y + 6*_S + lh*2, "TYPE/");
-    draw_text(_x + 6*_S, _y + 6*_S + lh*3, "ABILITY/");
-    draw_text(_x + 6*_S, _y + 6*_S + lh*5, "TRAINER MEMO");
+    draw_set_color(_C_LABEL);
+    draw_text(_x + 6*_S, _y + 6*_S + _lh*1, "OT/");
+    draw_text(_x + 6*_S, _y + 6*_S + _lh*2, "TYPE/");
+    draw_text(_x + 6*_S, _y + 6*_S + _lh*3, "ABILITY/");
+    draw_text(_x + 6*_S, _y + 6*_S + _lh*5, "TRAINER MEMO");
     draw_set_color(c_white);
-    var ot="—", idno="—", typ="—", abi="—", nat="—", metLv="—", metMp="—";
+    var _ot="—", _idno="—", _typ="—", _abi="—", _nat="—", _metLv="—", _metMp="—";
     if (is_struct(_M)){
-        if (variable_struct_exists(_M,"ot"))   ot   = string(_M.ot);
-        if (variable_struct_exists(_M,"idno")) idno = string(_M.idno);
+        if (variable_struct_exists(_M,"ot"))   _ot   = string(_M.ot);
+        if (variable_struct_exists(_M,"idno")) _idno = string(_M.idno);
         if (variable_struct_exists(_M,"type")){
             if (is_array(_M.type)){
-                var tA = string(_M.type[0]); var tB = (array_length(_M.type) > 1) ? string(_M.type[1]) : "";
-                typ = (string_length(tB) > 0) ? (tA + " / " + tB) : tA;
-            } else typ = string(_M.type);
+                var _tA = string(_M.type[0]); var _tB = (array_length(_M.type) > 1) ? string(_M.type[1]) : "";
+                _typ = (string_length(_tB) > 0) ? (_tA + " / " + _tB) : _tA;
+            } else _typ = string(_M.type);
         }
-        if (variable_struct_exists(_M,"ability"))  abi  = string(_M.ability);
-        if (variable_struct_exists(_M,"nature"))   nat  = string(_M.nature);
-        if (variable_struct_exists(_M,"met_level")) metLv = string(_M.met_level);
-        if (variable_struct_exists(_M,"met_map"))   metMp = string(_M.met_map);
+        if (variable_struct_exists(_M,"ability"))  _abi  = string(_M.ability);
+        if (variable_struct_exists(_M,"nature"))   _nat  = string(_M.nature);
+        if (variable_struct_exists(_M,"met_level")) _metLv = string(_M.met_level);
+        if (variable_struct_exists(_M,"met_map"))   _metMp = string(_M.met_map);
     }
-    draw_text(_x + 60*_S, _y + 6*_S + lh*1, ot + "   IDNo" + idno);
-    draw_text(_x + 60*_S, _y + 6*_S + lh*2, typ);
-    draw_text(_x + 60*_S, _y + 6*_S + lh*3, abi);
-    draw_text(_x + 6*_S,  _y + 6*_S + lh*6, string_upper(nat) + " nature,");
-    draw_text(_x + 6*_S,  _y + 6*_S + lh*7, "met at Lv." + metLv + ",");
-    draw_text(_x + 6*_S,  _y + 6*_S + lh*8, metMp + ".");
+    draw_text(_x + 60*_S, _y + 6*_S + _lh*1, _ot + "   IDNo" + _idno);
+    draw_text(_x + 60*_S, _y + 6*_S + _lh*2, _typ);
+    draw_text(_x + 60*_S, _y + 6*_S + _lh*3, _abi);
+    draw_text(_x + 6*_S,  _y + 6*_S + _lh*6, string_upper(_nat) + " nature,");
+    draw_text(_x + 6*_S,  _y + 6*_S + _lh*7, "met at Lv." + _metLv + ",");
+    draw_text(_x + 6*_S,  _y + 6*_S + _lh*8, _metMp + ".");
 }
 function __party_draw_moves_block(_P, _M, _x, _y, _w, _h, _S, _highlightForget){
-    var lh = max(12, string_height("A") + 2) * _S;
+    var _lh = max(12, string_height("A") + 2) * _S;
     draw_set_color(c_white);
     draw_text(_x + 6*_S, _y + 6*_S, "MOVES");
     draw_text(_x + _w*_S - 60*_S, _y + 6*_S, "LEARNSET");
 
-    var mv = is_struct(_M) && variable_struct_exists(_M,"moves") ? _M.moves : [];
-    var nm = array_length(mv);
-    for (var i = 0; i < max(4,nm); i++){
-        var lineY = _y + 20*_S + lh*i;
-        var txt = (i < nm) ? __party_move_name(mv[i]) : "—";
-        draw_set_color( i == _P.sum_move_sel ? (_highlightForget ? make_color_rgb(232,64,48) : make_color_rgb(72,200,88)) : c_white );
-        draw_text(_x + 10*_S, lineY, txt);
+    var _mv = is_struct(_M) && variable_struct_exists(_M,"moves") ? _M.moves : [];
+    var _nm = array_length(_mv);
+    for (var _i = 0; _i < max(4,_nm); _i++){
+        var _lineY = _y + 20*_S + _lh*_i;
+        var _txt = (_i < _nm) ? __party_move_name(_mv[_i]) : "—";
+        draw_set_color( _i == _P.sum_move_sel ? (_highlightForget ? make_color_rgb(232,64,48) : make_color_rgb(72,200,88)) : c_white );
+        draw_text(_x + 10*_S, _lineY, _txt);
     }
 
-    var lr = is_struct(_M) && variable_struct_exists(_M,"learnset") ? _M.learnset : [];
-    var nl = array_length(lr);
-    for (var j = 0; j < nl; j++){
-        var lineY2 = _y + 20*_S + lh*j;
-        var txt2 = __party_move_name(lr[j]);
-        draw_set_color( j == _P.sum_learn_sel ? make_color_rgb(72,160,232) : c_white );
-        draw_text(_x + (_w*_S) - 110*_S, lineY2, txt2);
+    var _lr = is_struct(_M) && variable_struct_exists(_M,"learnset") ? _M.learnset : [];
+    var _nl = array_length(_lr);
+    for (var _j = 0; _j < _nl; _j++){
+        var _lineY2 = _y + 20*_S + _lh*_j;
+        var _txt2 = __party_move_name(_lr[_j]);
+        draw_set_color( _j == _P.sum_learn_sel ? make_color_rgb(72,160,232) : c_white );
+        draw_text(_x + (_w*_S) - 110*_S, _lineY2, _txt2);
     }
 
     draw_set_color(c_white);
@@ -603,7 +592,7 @@ function __party_draw_moves_block(_P, _M, _x, _y, _w, _h, _S, _highlightForget){
 
 // ---------- Entrypoint ----------
 function party_draw_gui(_pid){
-    var gw = display_get_gui_width();
-    var gh = display_get_gui_height();
-    party_draw_gui_rect(_pid, 0, 0, gw, gh);
+    var _gw = display_get_gui_width();
+    var _gh = display_get_gui_height();
+    party_draw_gui_rect(_pid, 0, 0, _gw, _gh);
 }
