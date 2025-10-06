@@ -1,4 +1,4 @@
-// [Pokémon Demo]: PokemonDemo_STRUCTS — Build v2.3 — Updated 2025-10-03
+// [Pokémon Demo]: PokemonDemo_STRUCTS — Build v2.7 — Updated 2025-10-05
 // ============================================================================
 // PokemonDemo_STRUCTS.gml  (no maps)
 // - Seeds PARTY[pid].mons with real data using the struct-based index
@@ -39,7 +39,13 @@ function scr_party_debug_seed_random(_pid, _count)
     array_resize(P.mons, 0);
 
     // Distinct random picks from the index list
-    var pool  = global._id_list;                // array of species IDs (sorted)
+    // Restrict pool to species IDs you currently have sprites for (1..901)
+    var full_pool = global._id_list; // assumed sorted ascending
+    var pool = [];
+    for (var _pi = 0; _pi < array_length(full_pool); _pi++) {
+        var _sid_chk = full_pool[_pi];
+        if (_sid_chk >= 1 && _sid_chk <= 901) array_push(pool, _sid_chk);
+    }
     var plen  = array_length(pool);
     var takes = min(_count, plen);
 
@@ -82,10 +88,51 @@ function scr_party_debug_seed_random(_pid, _count)
         var spe   = (is_undefined(scr_poke_calc_stat)) ? (10 + L)     : scr_poke_calc_stat(base_spe, L);
 
         // Push mon entry (fields match your party UI expectations)
+        // Deterministic trainer ID + OT for demo (can be overridden later)
+        var _demo_ot = variable_global_exists("PLAYER_NAME") ? string(global.PLAYER_NAME) : "YOU";
+        if (_pid == 1 && variable_global_exists("PLAYER2_NAME")) _demo_ot = string(global.PLAYER2_NAME);
+    // Use actual species ID as IDNo (per requirement) instead of synthesized random-like number
+    var _id_val  = sid; // direct species id
+        var _icon_spr = spr_mon_icon_placeholder;
+        if (!is_undefined(pkicons_get_icon32_dir)) {
+            // Attempt DOWN or FRONT direction preferring DOWN
+            var _tmp = pkicons_get_icon32_dir(sid, "down");
+            if (is_undefined(_tmp) || !sprite_exists(_tmp)) _tmp = pkicons_get_icon32_dir(sid, "front");
+            if (!is_undefined(_tmp) && sprite_exists(_tmp)) _icon_spr = _tmp;
+        }
+
+        // Resolve types (supports either global._pokemon[sid].type_ids OR global._species_types[sid] OR fallback) 
+        var _t1 = -1, _t2 = -1; var _types_arr = [];
+        if (variable_global_exists("_species_types") && is_array(global._species_types)){
+            if (sid < array_length(global._species_types)){
+                var __ta = global._species_types[sid];
+                if (is_array(__ta)){
+                    if (array_length(__ta) > 0) _t1 = __ta[0];
+                    if (array_length(__ta) > 1) _t2 = __ta[1];
+                    for (var __i=0; __i<array_length(__ta); __i++) array_push(_types_arr, __ta[__i]);
+                }
+            }
+        } else if (variable_global_exists("_pokemon") && is_array(global._pokemon)){
+            if (sid < array_length(global._pokemon)){
+                var __rec = global._pokemon[sid];
+                if (is_struct(__rec)){
+                    // If some extended loader later adds type1/type2 keys
+                    if (variable_struct_exists(__rec,"type1")) _t1 = __rec.type1;
+                    if (variable_struct_exists(__rec,"type2")) _t2 = __rec.type2;
+                }
+            }
+            if (_t1 != -1) array_push(_types_arr,_t1);
+            if (_t2 != -1) array_push(_types_arr,_t2);
+        }
+        if (array_length(_types_arr) == 0){
+            // Fallback: assign a dummy type for visibility (e.g., normal=1 if your table uses 1-based)
+            _t1 = 1; array_push(_types_arr, _t1);
+        }
+
         array_push(P.mons, {
             species_id : sid,
-            species    : name_ident,           // identifier string (lowercase-with-dashes)
-            level      : L,                    // your party UI reads .level (and falls back to .lvl)
+            species    : name_ident,
+            level      : L,
             hp         : hpmax,
             maxhp      : hpmax,
             atk        : atk,
@@ -93,13 +140,26 @@ function scr_party_debug_seed_random(_pid, _count)
             spa        : spa,
             spd        : spd,
             spe        : spe,
-            icon       : spr_mon_icon_placeholder // your placeholder 32x32 (2 frames)
+            ot         : _demo_ot,
+            idno       : _id_val,
+            icon       : _icon_spr,
+            shiny      : false, // will mark one random shiny below
+            type1      : _t1,
+            type2      : _t2,
+            types      : _types_arr
         });
     }
 
     // Reset UI state, don’t auto-open
     P.sel = 0; P.scroll = 0; P.swap_index = -1; P.menu_sel = 0; P.lock = 0;
     show_debug_message("[DEMO] Seeded " + string(array_length(P.mons)) + " random Pokémon to PARTY[" + string(_pid) + "].");
+
+    // Pick exactly one random shiny (if at least 1 mon) so UI can demonstrate shiny icons + art
+    if (array_length(P.mons) > 0){
+        var shiny_index = irandom(array_length(P.mons)-1);
+        P.mons[shiny_index].shiny = true;
+        show_debug_message("[DEMO] Shiny assigned to party slot " + string(shiny_index));
+    }
 
     // === DEMO ENRICHMENT (inline): abilities + moves + description pack ===
     var _party = party_ensure(_pid);
