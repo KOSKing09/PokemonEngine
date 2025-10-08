@@ -26,11 +26,11 @@ function pkicons_init(){
             icon_dir_cache: {},
             // Split placeholders
             missing_icon32: spr_mon_icon_placeholder,
-            missing_art96:  spr_mon_placeholder
-            ,icon32_base_shiny: "" // auto‑derived by replacing /Normal/ with /Shiny/ unless overridden
-            ,last_cry_loaded: ""
-            ,last_cry_status: ""
-            ,last_play_status: ""
+            missing_art96: spr_mon_placeholder,
+            icon32_base_shiny: "", // auto-derived by replacing /Normal/ with /Shiny/ unless overridden
+            last_cry_loaded: "",
+            last_cry_status: "",
+            last_play_status: ""
         };
     }
 }
@@ -348,6 +348,22 @@ function pkicons__cands(_species){
     return ret;
 }
 
+// Check whether a 32x32 icon file exists for a species (optionally shiny).
+// Returns true if a candidate file exists on disk under the configured base.
+function pkicons_has_icon32(_species, _shiny){
+    pkicons_init();
+    var base = _shiny ? PKICONS.icon32_base_shiny : PKICONS.icon32_base;
+    if (string_length(base) <= 0) return false;
+    var cands = pkicons__cands(_species);
+    for (var i=0; i<array_length(cands); i++){
+        var fn = pkicons__join(base, cands[i]);
+        var ex = false;
+        try { ex = file_exists(fn); } catch (e) { ex = false; }
+        if (ex) return true;
+    }
+    return false;
+}
+
 // Preload cries for a numeric range (inclusive). Returns a struct { loaded:[], missing:[] }
 function pkicons_preload_cries(_start, _end){
     pkicons_init();
@@ -524,12 +540,16 @@ function pkicons__load_icon32_sheet_shiny(_species){
     return spr;
 }
 
-// Grid helpers (robust 8‑tile inference)
+// Grid helpers (robust 8-tile inference)
 function pkicons__best_grid8(_w,_h){
-    var bestCols=4, bestRows=2, bestTw=_w div 4, bestTh=_h div 2;
-    var bestScore=$1e30;
-    var found=false;
+    var bestCols = 4;
+    var bestRows = 2;
+    var bestTw = _w div 4;
+    var bestTh = _h div 2;
+    var bestScore = $1e9;
+    var found = false;
 
+    // Candidate layouts: common 8-tile groupings
     var pairs=[ [4,2], [2,4], [8,1], [1,8] ];
     for (var i=0; i<array_length(pairs); i++){
         var c = pairs[i][0];
@@ -537,10 +557,15 @@ function pkicons__best_grid8(_w,_h){
         if ((_w mod c)==0 && (_h mod r)==0){
             var tw = _w div c;
             var th = _h div r;
-            var ratio = (th>0) ? (tw/th) : 999999;
-            var fit_score = abs(ratio - 1); // closer to 1 => more square
-            if (fit_score < bestScore){
-                bestScore = fit_score;
+            // Score should prefer tiles close to 32x32 and also favor squarish tiles.
+            // primary: distance from ideal 32 pixels; secondary: squareness (ratio close to 1).
+            var dist32 = abs(tw - 32) + abs(th - 32);
+            var ratio = (th>0) ? (tw / th) : 999999;
+            var sq_penalty = abs(ratio - 1);
+            var _score = dist32 + (sq_penalty * 4.0); // weight squareness but prefer 32px size first
+
+            if (_score < bestScore){
+                bestScore = _score;
                 bestCols = c; bestRows = r; bestTw = tw; bestTh = th;
                 found = true;
             }
@@ -638,21 +663,25 @@ function pkicons__get_icon32_strip_shiny(_species){
 }
 
 function pkicons__make_dir_from_strip(_sprStrip,_sub0,_sub1){
+    // Create a 2-frame directional sprite from an 8-frame strip.
     if (!sprite_exists(_sprStrip)) return PKICONS.missing_icon32;
-    var surf=surface_create(32,32);
+
+    var surf = surface_create(32,32);
     if (!surface_exists(surf)) return PKICONS.missing_icon32;
 
+    // First frame
     surface_set_target(surf);
-    draw_clear_alpha(c_black,0);
-    draw_sprite_ext(_sprStrip,_sub0,0,0,1,1,0,c_white,1);
+    draw_clear_alpha(c_black, 0);
+    draw_sprite_ext(_sprStrip, _sub0, 0, 0, 1, 1, 0, c_white, 1);
     surface_reset_target();
-    var spr_dir=sprite_create_from_surface(surf,0,0,32,32,false,false,0,0);
+    var spr_dir = sprite_create_from_surface(surf, 0, 0, 32, 32, false, false, 0, 0);
 
+    // Second frame (append to the sprite if first created)
     surface_set_target(surf);
-    draw_clear_alpha(c_black,0);
-    draw_sprite_ext(_sprStrip,_sub1,0,0,1,1,0,c_white,1);
+    draw_clear_alpha(c_black, 0);
+    draw_sprite_ext(_sprStrip, _sub1, 0, 0, 1, 1, 0, c_white, 1);
     surface_reset_target();
-    if (sprite_exists(spr_dir)) sprite_add_from_surface(spr_dir,surf,0,0,32,32,false,false);
+    if (sprite_exists(spr_dir)) sprite_add_from_surface(spr_dir, surf, 0, 0, 32, 32, false, false);
 
     surface_free(surf);
     return spr_dir;

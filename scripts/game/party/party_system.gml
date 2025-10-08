@@ -239,6 +239,95 @@ function __party_move_name(_id){
     return "Move#" + string(_id);
 }
 
+// Party Name Support Addons — v4.40.0 — 2025-10-06
+// Works alongside Party System v4.39.0+ without editing it.
+// Provides .name (canonical species) and .nickname fields for every mon,
+// plus helpers and a one-call applicator you can run at boot and before battles.
+
+#macro PARTY_NICKNAMES_ENABLED 1
+
+/// mon_display_name(_mon) -> string
+/// Shows nickname if present, else canonical species name, else "???"
+function mon_display_name(_mon) {
+    if (is_undefined(_mon)) return "???";
+    if (variable_struct_exists(_mon,"nickname") && is_string(_mon.nickname) && string_length(_mon.nickname) > 0) {
+        return _mon.nickname;
+    }
+    if (variable_struct_exists(_mon,"name") && is_string(_mon.name) && string_length(_mon.name) > 0) {
+        return _mon.name;
+    }
+    var __sid = -1;
+    if (variable_struct_exists(_mon,"species_id") && is_real(_mon.species_id)) __sid = _mon.species_id;
+    else if (variable_struct_exists(_mon,"id") && is_real(_mon.id))            __sid = _mon.id;
+    if (__sid > 0) return scr_poke_name_by_id(__sid);
+    return "???";
+}
+
+/// party_mon_ensure_name(_mon) -> _mon (mutates + returns)
+/// Guarantees .name (canonical) and .nickname fields exist on a mon struct.
+function party_mon_ensure_name(_mon) {
+    if (is_undefined(_mon)) return _mon;
+    if (!variable_struct_exists(_mon,"nickname")) _mon.nickname = undefined;
+    if (!variable_struct_exists(_mon,"name") || !is_string(_mon.name) || string_length(_mon.name) <= 0) {
+        var __sid2 = -1;
+        if (variable_struct_exists(_mon,"species_id") && is_real(_mon.species_id)) __sid2 = _mon.species_id;
+        else if (variable_struct_exists(_mon,"id") && is_real(_mon.id))             __sid2 = _mon.id;
+        _mon.name = (__sid2 > 0) ? scr_poke_name_by_id(__sid2) : "???";
+    }
+    return _mon;
+}
+
+/// party_apply_name_support(_pid) -> void
+/// Ensures every mon in the given player's party has .name/.nickname.
+function party_apply_name_support(_pid) {
+    if (!PARTY_NICKNAMES_ENABLED) return;
+    var __P = party_ensure(_pid);
+    if (is_undefined(__P)) return;
+    var __mons = __P.mons;
+    var __n = array_length(__mons);
+    for (var __i=0; __i<__n; ++__i) {
+        var __m = __mons[__i];
+        if (!is_undefined(__m)) {
+            __m = party_mon_ensure_name(__m);
+            __mons[__i] = __m;
+        }
+    }
+    __P.mons = __mons;
+}
+
+/// party_set_nickname(_pid, _index, _nick) -> bool
+/// Sets a nickname (or clears it when _nick empty). Returns success.
+function party_set_nickname(_pid, _index, _nick) {
+    if (!PARTY_NICKNAMES_ENABLED) return false;
+    var __P = party_ensure(_pid);
+    if (is_undefined(__P)) return false;
+    var __mons = __P.mons;
+    if (_index < 0 || _index >= array_length(__mons)) return false;
+    var __m = __mons[_index];
+    if (is_undefined(__m)) return false;
+    __m = party_mon_ensure_name(__m);
+    if (is_string(_nick) && string_length(_nick) > 0) __m.nickname = string(_nick);
+    else __m.nickname = undefined;
+    __mons[_index] = __m;
+    __P.mons = __mons;
+    return true;
+}
+
+/// party_ensure_named(_pid) -> party
+/// Wrapper: call wherever you use party_ensure to also ensure names.
+function party_ensure_named(_pid) {
+    var __P = party_ensure(_pid);
+    party_apply_name_support(_pid);
+    return __P;
+}
+
+/// battle_test_prepare_names(_pid) -> void
+/// Call before battle_open() in tests.
+function battle_test_prepare_names(_pid) {
+    party_apply_name_support(_pid);
+}
+
+
 // ---------- Update ----------
 function party_update(){
     if (!variable_global_exists("PARTY")) return;
