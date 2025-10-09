@@ -24,14 +24,25 @@ function pkicons_init(){
             icon_sheet_cache: {},
             icon_strip_cache: {},
             icon_dir_cache: {},
-            // Split placeholders
-            missing_icon32: spr_mon_icon_placeholder,
-            missing_art96: spr_mon_placeholder,
-            icon32_base_shiny: "", // auto-derived by replacing /Normal/ with /Shiny/ unless overridden
+            item_icon_cache: {},
+            item_icon_base: "",
+            // Split placeholders (resolved immediately after init)
+            missing_icon32: -1,
+            missing_art96: -1,
+            icon32_base_shiny: "", // auto‑derived by replacing /Normal/ with /Shiny/ unless overridden
             last_cry_loaded: "",
             last_cry_status: "",
             last_play_status: ""
         };
+        // Resolve common built-in placeholders to numeric asset indices when available
+        try {
+            var _ph32 = asset_get_index("spr_mon_icon_placeholder");
+            if (is_real(_ph32) && _ph32 != -1) global.PKICONS.missing_icon32 = _ph32;
+        } catch (e) { /* ignore */ }
+        try {
+            var _ph96 = asset_get_index("spr_mon_placeholder");
+            if (is_real(_ph96) && _ph96 != -1) global.PKICONS.missing_art96 = _ph96;
+        } catch (e) { /* ignore */ }
     }
 }
 
@@ -40,8 +51,25 @@ function pkicons__log(_m){
 }
 
 // Explicit setters for placeholders & bases
-function pkicons_set_missing_icon(_spr){ PKICONS.missing_icon32 = _spr; }
-function pkicons_set_missing_art(_spr){  PKICONS.missing_art96  = _spr;  }
+function pkicons_set_missing_icon(_spr){
+    // Accept either a numeric sprite id or a symbol/string name and coerce to an asset index
+    var _id = _spr;
+    if (!is_real(_id)){
+        // try to resolve by name
+        try { _id = asset_get_index(string(_spr)); } catch (e) { _id = -1; }
+    }
+    if (!is_real(_id)) _id = -1;
+    PKICONS.missing_icon32 = _id;
+}
+
+function pkicons_set_missing_art(_spr){
+    var _id = _spr;
+    if (!is_real(_id)){
+        try { _id = asset_get_index(string(_spr)); } catch (e) { _id = -1; }
+    }
+    if (!is_real(_id)) _id = -1;
+    PKICONS.missing_art96 = _id;
+}
 
 function pkicons_set_art96_base(_absDir){
     var p = string_replace_all(string(_absDir),"\\","/");
@@ -66,6 +94,110 @@ function pkicons_set_icon32_shiny_base(_absDir){
     if (string_length(p)>0 && string_copy(p,string_length(p),1)!="/") p+="/";
     PKICONS.icon32_base_shiny = p;
 }
+
+// ---------------- External item icons (by name) ----------------
+// Base directory should point to the folder containing PNGs named after items
+// Example: pkicons_set_item_icon_base("C:/Users/King2/Documents/Pokemon Engine/sprites/items/")
+function pkicons_set_item_icon_base(_absDir){
+    var p = string_replace_all(string(_absDir),"\\","/");
+    if (string_length(p)>0 && string_copy(p,string_length(p),1)!="/") p+="/";
+    pkicons_init();
+    PKICONS.item_icon_base = p;
+}
+
+function pkicons__cands_item(_name){
+    var out = [];
+    if (is_undefined(_name) || string_length(string_trim(string(_name)))==0) return out;
+    // Normalize: strip common accents and replace hyphens with spaces so filenames match
+    var s = string_trim(string(_name));
+    // Replace hyphens with spaces (user-specified)
+    s = string_replace_all(s, "-", " ");
+    // Normalize common accented characters to ASCII
+    s = string_replace_all(s, "é", "e");
+    s = string_replace_all(s, "É", "E");
+    s = string_replace_all(s, "è", "e");
+    s = string_replace_all(s, "È", "E");
+    s = string_replace_all(s, "ê", "e");
+    s = string_replace_all(s, "ô", "o");
+    s = string_replace_all(s, "ö", "o");
+    s = string_replace_all(s, "ü", "u");
+    s = string_replace_all(s, "á", "a");
+    s = string_replace_all(s, "Á", "A");
+    s = string_replace_all(s, "ç", "c");
+    s = string_replace_all(s, "ñ", "n");
+    // Collapse multiple spaces
+    while (string_pos("  ", s) > 0) s = string_replace_all(s, "  ", " ");
+    s = string_trim(s);
+    var ext = PKICONS.ext; if (string_length(ext) <= 0) ext = ".png";
+    // Raw name and simple variants
+    array_push(out, s + ext);
+    array_push(out, string_lower(s) + ext);
+    array_push(out, string_upper(s) + ext);
+    // Replace spaces with underscores / dashes
+    var u = string_replace_all(s, " ", "_");
+    var d = string_replace_all(s, " ", "-");
+    array_push(out, u + ext);
+    array_push(out, d + ext);
+    // Also try without spaces/punctuation
+    var clean = string_replace_all(u, "'", ""); clean = string_replace_all(clean, ".", "");
+    array_push(out, clean + ext);
+    // De-duplicate while preserving order
+    var seen = {};
+    var uniq = [];
+    for (var i=0;i<array_length(out);i++){
+        var v = out[i]; if (variable_struct_exists(seen,v)) continue; variable_struct_set(seen,v,true); array_push(uniq,v);
+    }
+    return uniq;
+}
+
+function pkicons_get_item_icon_by_name(_name){
+    pkicons_init();
+    var key = "ITEM|" + string(_name);
+    // Ensure the configured missing placeholder is a numeric asset index
+    if (variable_struct_exists(PKICONS,"missing_icon32")){
+        var _ph_raw = variable_struct_get(PKICONS,"missing_icon32");
+        if (!is_real(_ph_raw)){
+            // Attempt to resolve symbol/string to asset index
+            var _resolved = -1;
+            try { _resolved = asset_get_index(string(_ph_raw)); } catch (e) { _resolved = -1; }
+            if (is_real(_resolved)) variable_struct_set(PKICONS, "missing_icon32", _resolved);
+        }
+    }
+
+    if (variable_struct_exists(PKICONS.item_icon_cache,key)){
+        var cached = variable_struct_get(PKICONS.item_icon_cache,key);
+        // If cached is non-numeric (symbol), try to resolve it to an index
+        if (!is_real(cached)){
+            var _tryIdx = -1;
+            try { _tryIdx = asset_get_index(string(cached)); } catch (e) { _tryIdx = -1; }
+            if (is_real(_tryIdx)) cached = _tryIdx;
+        }
+        if (!is_undefined(cached) && sprite_exists(cached)) return cached;
+    }
+    var base = PKICONS.item_icon_base;
+    if (string_length(base) <= 0){ pkicons__log("item icon base not set; cannot load item icon: " + string(_name));
+        var miss = (variable_struct_exists(PKICONS,"missing_icon32") ? variable_struct_get(PKICONS,"missing_icon32") : -1);
+        if (!is_real(miss)) miss = -1;
+        variable_struct_set(PKICONS.item_icon_cache,key,miss);
+        return miss;
+    }
+    var cands = pkicons__cands_item(_name);
+    var spr = -1;
+    for (var i=0;i<array_length(cands);i++){
+        var fn = pkicons__join(base, cands[i]);
+        var ex = false;
+        try { ex = file_exists(fn); } catch (e) { ex = false; }
+        if (ex){
+            spr = sprite_add(fn,1,false,false,0,0);
+            pkicons__log("item icon loaded: " + fn + " for name=" + string(_name));
+            if (sprite_exists(spr)) break;
+        }
+    }
+    if (!sprite_exists(spr)) spr = PKICONS.missing_icon32;
+    variable_struct_set(PKICONS.item_icon_cache,key,spr);
+    return spr;
+}
+
 
 // ---------- Cry (sound) loader (per-species OGG streaming) ----------
 function pkicons_set_cries_base(_absDir){
@@ -540,16 +672,12 @@ function pkicons__load_icon32_sheet_shiny(_species){
     return spr;
 }
 
-// Grid helpers (robust 8-tile inference)
+// Grid helpers (robust 8‑tile inference)
 function pkicons__best_grid8(_w,_h){
-    var bestCols = 4;
-    var bestRows = 2;
-    var bestTw = _w div 4;
-    var bestTh = _h div 2;
-    var bestScore = $1e9;
-    var found = false;
+    var bestCols=4, bestRows=2, bestTw=_w div 4, bestTh=_h div 2;
+    var bestScore=$1e30;
+    var found=false;
 
-    // Candidate layouts: common 8-tile groupings
     var pairs=[ [4,2], [2,4], [8,1], [1,8] ];
     for (var i=0; i<array_length(pairs); i++){
         var c = pairs[i][0];
@@ -557,15 +685,10 @@ function pkicons__best_grid8(_w,_h){
         if ((_w mod c)==0 && (_h mod r)==0){
             var tw = _w div c;
             var th = _h div r;
-            // Score should prefer tiles close to 32x32 and also favor squarish tiles.
-            // primary: distance from ideal 32 pixels; secondary: squareness (ratio close to 1).
-            var dist32 = abs(tw - 32) + abs(th - 32);
-            var ratio = (th>0) ? (tw / th) : 999999;
-            var sq_penalty = abs(ratio - 1);
-            var _score = dist32 + (sq_penalty * 4.0); // weight squareness but prefer 32px size first
-
-            if (_score < bestScore){
-                bestScore = _score;
+            var ratio = (th>0) ? (tw/th) : 999999;
+            var fit_score = abs(ratio - 1); // closer to 1 => more square
+            if (fit_score < bestScore){
+                bestScore = fit_score;
                 bestCols = c; bestRows = r; bestTw = tw; bestTh = th;
                 found = true;
             }
@@ -663,25 +786,21 @@ function pkicons__get_icon32_strip_shiny(_species){
 }
 
 function pkicons__make_dir_from_strip(_sprStrip,_sub0,_sub1){
-    // Create a 2-frame directional sprite from an 8-frame strip.
     if (!sprite_exists(_sprStrip)) return PKICONS.missing_icon32;
-
-    var surf = surface_create(32,32);
+    var surf=surface_create(32,32);
     if (!surface_exists(surf)) return PKICONS.missing_icon32;
 
-    // First frame
     surface_set_target(surf);
-    draw_clear_alpha(c_black, 0);
-    draw_sprite_ext(_sprStrip, _sub0, 0, 0, 1, 1, 0, c_white, 1);
+    draw_clear_alpha(c_black,0);
+    draw_sprite_ext(_sprStrip,_sub0,0,0,1,1,0,c_white,1);
     surface_reset_target();
-    var spr_dir = sprite_create_from_surface(surf, 0, 0, 32, 32, false, false, 0, 0);
+    var spr_dir=sprite_create_from_surface(surf,0,0,32,32,false,false,0,0);
 
-    // Second frame (append to the sprite if first created)
     surface_set_target(surf);
-    draw_clear_alpha(c_black, 0);
-    draw_sprite_ext(_sprStrip, _sub1, 0, 0, 1, 1, 0, c_white, 1);
+    draw_clear_alpha(c_black,0);
+    draw_sprite_ext(_sprStrip,_sub1,0,0,1,1,0,c_white,1);
     surface_reset_target();
-    if (sprite_exists(spr_dir)) sprite_add_from_surface(spr_dir, surf, 0, 0, 32, 32, false, false);
+    if (sprite_exists(spr_dir)) sprite_add_from_surface(spr_dir,surf,0,0,32,32,false,false);
 
     surface_free(surf);
     return spr_dir;

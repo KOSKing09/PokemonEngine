@@ -1,18 +1,31 @@
-// [Pokémon Demo]: PokemonDemo_STRUCTS — Build v2.7 — Updated 2025-10-05
+// [Pokémon Demo]: PokemonDemo_STRUCTS — Build v2.9 (NameSupport) — Updated 2025-10-06
 // ============================================================================
 // PokemonDemo_STRUCTS.gml  (no maps)
 // - Seeds PARTY[pid].mons with real data using the struct-based index
+// - Adds .name (canonical species name) and .nickname (optional) on every mon
 // ============================================================================
 
-/// scr_poke_runtime_demo_init_random(count=3)  — v2.0
+/// (Local) demo_mon_ensure_name(_mon) -> _mon
+/// Guarantees .name (canonical species name) and .nickname (may be undefined)
+function demo_mon_ensure_name(_mon) {
+    if (is_undefined(_mon)) return _mon;
+    if (!variable_struct_exists(_mon, "nickname")) _mon.nickname = undefined;
+    var __sid = -1;
+    if (variable_struct_exists(_mon, "species_id") && is_real(_mon.species_id)) __sid = _mon.species_id;
+    else if (variable_struct_exists(_mon, "id") && is_real(_mon.id)) __sid = _mon.id;
+    if (!variable_struct_exists(_mon, "name") || !is_string(_mon.name) || string_length(_mon.name) <= 0) {
+        _mon.name = (__sid > 0) ? scr_poke_name_by_id(__sid) : "???";
+    }
+    return _mon;
+}
+
+/// scr_poke_runtime_demo_init_random(count=3)  — v2.1 (NameSupport)
 /// Seeds PARTY[0] (and PARTY[1] if present) with COUNT random Pokémon.
 /// Requires your index arrays (global._id_list / global._name_list) to be built.
 function scr_poke_runtime_demo_init_random(_count)
 {
-    // default 3 mons
     var count = is_undefined(_count) ? 3 : max(1, _count);
 
-    // Make sure index arrays exist (built by your index builder)
     if (!(variable_global_exists("_id_list") && is_array(global._id_list) && array_length(global._id_list) > 0)) {
         show_debug_message("[DEMO] _id_list missing or empty — build your index arrays first.");
         return;
@@ -22,15 +35,12 @@ function scr_poke_runtime_demo_init_random(_count)
         return;
     }
 
-    // Seed both players if you’re running splitscreen later; always P0
     scr_party_debug_seed_random(0, count);
-
-    if (instance_number(oPlayer) > 1) {
-        scr_party_debug_seed_random(1, count);
-    }
+    if (instance_number(oPlayer) > 1) { scr_party_debug_seed_random(1, count); }
 }
 
-/// scr_party_debug_seed_random(pid, count) — v2.0
+
+/// scr_party_debug_seed_random(pid, count) — v2.1 (NameSupport)
 /// Pulls COUNT random species from _id_list/_name_list, builds basic stats, pushes into PARTY[pid].mons.
 function scr_party_debug_seed_random(_pid, _count)
 {
@@ -38,9 +48,7 @@ function scr_party_debug_seed_random(_pid, _count)
     if (!is_array(P.mons)) P.mons = [];
     array_resize(P.mons, 0);
 
-    // Distinct random picks from the index list
-    // Restrict pool to species IDs you currently have sprites for (1..901)
-    var full_pool = global._id_list; // assumed sorted ascending
+    var full_pool = global._id_list;
     var pool = [];
     for (var _pi = 0; _pi < array_length(full_pool); _pi++) {
         var _sid_chk = full_pool[_pi];
@@ -49,7 +57,6 @@ function scr_party_debug_seed_random(_pid, _count)
     var plen  = array_length(pool);
     var takes = min(_count, plen);
 
-    // Simple unique selection without shuffling entire list
     var chosen = [];
     var guard  = 0;
     while (array_length(chosen) < takes && guard < 10000) {
@@ -61,13 +68,11 @@ function scr_party_debug_seed_random(_pid, _count)
         if (!dup) array_push(chosen, sid);
     }
 
-    // Build party entries
     for (var j = 0; j < array_length(chosen); j++) {
         var sid  = chosen[j];
-        var name_ident = scr_poke_name_by_id(sid);                    // e.g., "bulbasaur"
+        var name_ident = scr_poke_name_by_id(sid);
         if (string_length(name_ident) <= 0) continue;
 
-        // base stats (fallbacks if your helper isn’t ready)
         var st = is_undefined(scr_poke_stats) ? undefined : scr_poke_stats(sid);
         var base_hp  = (is_undefined(st) || is_undefined(st.hp))  ? 45 : st.hp;
         var base_atk = (is_undefined(st) || is_undefined(st.atk)) ? 49 : st.atk;
@@ -76,10 +81,8 @@ function scr_party_debug_seed_random(_pid, _count)
         var base_spd = (is_undefined(st) || is_undefined(st.spd)) ? 65 : st.spd;
         var base_spe = (is_undefined(st) || is_undefined(st.spe)) ? 45 : st.spe;
 
-        // Random-ish level each run
         var L = irandom_range(5, 18);
 
-        // Calc basic stats (your demo calcs)
         var hpmax = (is_undefined(scr_poke_calc_hp))   ? (20 + L * 2) : scr_poke_calc_hp(base_hp, L);
         var atk   = (is_undefined(scr_poke_calc_stat)) ? (10 + L)     : scr_poke_calc_stat(base_atk, L);
         var def   = (is_undefined(scr_poke_calc_stat)) ? (10 + L)     : scr_poke_calc_stat(base_def, L);
@@ -87,36 +90,31 @@ function scr_party_debug_seed_random(_pid, _count)
         var spd   = (is_undefined(scr_poke_calc_stat)) ? (10 + L)     : scr_poke_calc_stat(base_spd, L);
         var spe   = (is_undefined(scr_poke_calc_stat)) ? (10 + L)     : scr_poke_calc_stat(base_spe, L);
 
-        // Push mon entry (fields match your party UI expectations)
-        // Deterministic trainer ID + OT for demo (can be overridden later)
         var _demo_ot = variable_global_exists("PLAYER_NAME") ? string(global.PLAYER_NAME) : "YOU";
         if (_pid == 1 && variable_global_exists("PLAYER2_NAME")) _demo_ot = string(global.PLAYER2_NAME);
-    // Use actual species ID as IDNo (per requirement) instead of synthesized random-like number
-    var _id_val  = sid; // direct species id
+        var _id_val  = sid;
+
         var _icon_spr = spr_mon_icon_placeholder;
         if (!is_undefined(pkicons_get_icon32_dir)) {
-            // Attempt DOWN or FRONT direction preferring DOWN
             var _tmp = pkicons_get_icon32_dir(sid, "down");
             if (is_undefined(_tmp) || !sprite_exists(_tmp)) _tmp = pkicons_get_icon32_dir(sid, "front");
             if (!is_undefined(_tmp) && sprite_exists(_tmp)) _icon_spr = _tmp;
         }
 
-        // Resolve types (supports either global._pokemon[sid].type_ids OR global._species_types[sid] OR fallback) 
         var _t1 = -1, _t2 = -1; var _types_arr = [];
-        if (variable_global_exists("_species_types") && is_array(global._species_types)){
-            if (sid < array_length(global._species_types)){
+        if (variable_global_exists("_species_types") && is_array(global._species_types)) {
+            if (sid < array_length(global._species_types)) {
                 var __ta = global._species_types[sid];
-                if (is_array(__ta)){
+                if (is_array(__ta)) {
                     if (array_length(__ta) > 0) _t1 = __ta[0];
                     if (array_length(__ta) > 1) _t2 = __ta[1];
                     for (var __i=0; __i<array_length(__ta); __i++) array_push(_types_arr, __ta[__i]);
                 }
             }
-        } else if (variable_global_exists("_pokemon") && is_array(global._pokemon)){
-            if (sid < array_length(global._pokemon)){
+        } else if (variable_global_exists("_pokemon") && is_array(global._pokemon)) {
+            if (sid < array_length(global._pokemon)) {
                 var __rec = global._pokemon[sid];
-                if (is_struct(__rec)){
-                    // If some extended loader later adds type1/type2 keys
+                if (is_struct(__rec)) {
                     if (variable_struct_exists(__rec,"type1")) _t1 = __rec.type1;
                     if (variable_struct_exists(__rec,"type2")) _t2 = __rec.type2;
                 }
@@ -124,44 +122,30 @@ function scr_party_debug_seed_random(_pid, _count)
             if (_t1 != -1) array_push(_types_arr,_t1);
             if (_t2 != -1) array_push(_types_arr,_t2);
         }
-        if (array_length(_types_arr) == 0){
-            // Fallback: assign a dummy type for visibility (e.g., normal=1 if your table uses 1-based)
-            _t1 = 1; array_push(_types_arr, _t1);
-        }
+        if (array_length(_types_arr) == 0) { _t1 = 1; array_push(_types_arr, _t1); }
 
-        array_push(P.mons, {
-            species_id : sid,
-            species    : name_ident,
-            level      : L,
-            hp         : hpmax,
-            maxhp      : hpmax,
-            atk        : atk,
-            def        : def,
-            spa        : spa,
-            spd        : spd,
-            spe        : spe,
-            ot         : _demo_ot,
-            idno       : _id_val,
-            icon       : _icon_spr,
-            shiny      : false, // will mark one random shiny below
-            type1      : _t1,
-            type2      : _t2,
-            types      : _types_arr
-        });
+        // Build mon struct via factory to centralize creation logic
+        var _factory_opts = { ot: _demo_ot, idno: _id_val, shiny: false, icon: _icon_spr };
+        var _mon_struct = pokemon_factory_create(sid, L, _factory_opts);
+        // Ensure names
+        _mon_struct = demo_mon_ensure_name(_mon_struct);
+        // Use model API to add mon
+        party_model_add_mon(_pid, _mon_struct);
     }
 
-    // Reset UI state, don’t auto-open
     P.sel = 0; P.scroll = 0; P.swap_index = -1; P.menu_sel = 0; P.lock = 0;
     show_debug_message("[DEMO] Seeded " + string(array_length(P.mons)) + " random Pokémon to PARTY[" + string(_pid) + "].");
 
-    // Pick exactly one random shiny (if at least 1 mon) so UI can demonstrate shiny icons + art
-    if (array_length(P.mons) > 0){
-        var shiny_index = irandom(array_length(P.mons)-1);
-        P.mons[shiny_index].shiny = true;
+    var _mons_arr = party_model_get_mons(_pid);
+    if (array_length(_mons_arr) > 0){
+        var shiny_index = irandom(array_length(_mons_arr)-1);
+        // mutate via direct struct access (shallow copy not required here)
+        if (is_struct(_mons_arr[shiny_index])) _mons_arr[shiny_index].shiny = true;
+        // persist back
+        var _Ptmp = party_ensure(_pid); _Ptmp.mons = _mons_arr; 
         show_debug_message("[DEMO] Shiny assigned to party slot " + string(shiny_index));
     }
 
-    // === DEMO ENRICHMENT (inline): abilities + moves + description pack ===
     var _party = party_ensure(_pid);
     if (is_array(_party.mons)) {
         for (var _i = 0; _i < array_length(_party.mons); _i++) {
@@ -171,12 +155,10 @@ function scr_party_debug_seed_random(_pid, _count)
             var _speciesId = _mon.species_id;
             var _level = is_undefined(_mon.level) ? (is_undefined(_mon.lvl) ? 5 : _mon.lvl) : _mon.level;
 
-            // Pick an ability deterministically by speciesId + level seed
             var _abilityId = scr_poke_pick_ability(_speciesId, _speciesId * 1000 + _level);
             _mon.ability_id = _abilityId;
             _mon.ability    = scr_ability_name_by_id(_abilityId);
 
-            // Learn moves up to level (keep last 4)
             var _moveIds = scr_poke_moves_upto_level(_speciesId, _level);
             if (array_length(_moveIds) > 4) {
                 var _start = array_length(_moveIds) - 4;
@@ -186,7 +168,6 @@ function scr_party_debug_seed_random(_pid, _count)
             }
             _mon.moves = _moveIds;
 
-            // Named + described moves for UI
             var _named = [];
             for (var _k = 0; _k < array_length(_moveIds); _k++) {
                 var _mid = _moveIds[_k];
@@ -194,10 +175,14 @@ function scr_party_debug_seed_random(_pid, _count)
             }
             _mon.moves_named = _named;
 
-            // Full description pack for Description UI
             _mon.describe = scr_poke_describe(_speciesId, _level);
+
+            // Ensure names again after enrichment (in case external loaders touched fields)
+            _mon = demo_mon_ensure_name(_mon);
+            // persist enriched mon back to the party via model array write
+            var __mons_local = party_model_get_mons(_pid);
+            if (is_array(__mons_local) && _i >= 0 && _i < array_length(__mons_local)) __mons_local[_i] = _mon;
+            var __Ptmp = party_ensure(_pid); __Ptmp.mons = __mons_local;
         }
     }
-    // === END DEMO ENRICHMENT ===
 }
-
