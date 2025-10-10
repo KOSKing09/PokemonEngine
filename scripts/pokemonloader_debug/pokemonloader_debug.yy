@@ -1,0 +1,13 @@
+{
+  "$GMScript":"v1",
+  "%Name":"pokemonloader_debug",
+  "isCompatibility":false,
+  "isDnD":false,
+  "name":"pokemonloader_debug",
+  "parent":{
+    "name":"data",
+    "path":"folders/Scripts/data.yy",
+  },
+  "resourceType":"GMScript",
+  "resourceVersion":"2.0",
+}

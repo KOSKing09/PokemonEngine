@@ -1,0 +1,13 @@
+{
+  "$GMScript":"v1",
+  "%Name":"PokemonDataVerify",
+  "isCompatibility":false,
+  "isDnD":false,
+  "name":"PokemonDataVerify",
+  "parent":{
+    "name":"data",
+    "path":"folders/Scripts/data.yy",
+  },
+  "resourceType":"GMScript",
+  "resourceVersion":"2.0",
+}

@@ -1,0 +1,25 @@
+{
+  "$GMSound":"",
+  "%Name":"snd_Littleroot_Town",
+  "audioGroupId":{
+    "name":"audiogroup_default",
+    "path":"audiogroups/audiogroup_default",
+  },
+  "bitDepth":1,
+  "bitRate":128,
+  "compression":0,
+  "conversionMode":0,
+  "duration":121.026375,
+  "name":"snd_Littleroot_Town",
+  "parent":{
+    "name":"Sounds",
+    "path":"folders/Sounds.yy",
+  },
+  "preload":false,
+  "resourceType":"GMSound",
+  "resourceVersion":"2.0",
+  "sampleRate":44100,
+  "soundFile":"snd_Littleroot_Town.mp3",
+  "type":0,
+  "volume":0.08,
+}
