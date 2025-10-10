@@ -80,7 +80,7 @@ function data_load_profile_run() {
         "data_load_item_text_structs",
         "data_load_item_categories_structs",
         "data_load_machines_structs",
-        // legacy compute removed; categories loader builds struct-based mapping
+        "data_compute_item_bag_pages"
     ];
     // Orchestrators (run last if present)
     var _targets_orchestrators = [

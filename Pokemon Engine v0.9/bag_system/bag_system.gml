@@ -25,9 +25,6 @@ function bags_init(_players){
             }
         }
     }
-    // Initialize bag-related global flags (safe defaults)
-    if (!variable_global_exists("BAG_AUTO_RECOMPUTE")) global.BAG_AUTO_RECOMPUTE = true; // if true, bag_inventory_add_item will rebuild mapping and reseed immediately
-    if (!variable_global_exists("BAG_WARN_PAGE0")) global.BAG_WARN_PAGE0 = false;        // if true, warn when items are seeded to page 0
 }
 
 // Compact helper to ensure struct properties exist with defaults
@@ -41,6 +38,57 @@ function bag__get_item_placeholder(){ if (!is_undefined(__bag_impl__get_item_pla
 
 // Return an empty items array for a bag (five pages)
 function bag__empty_items(){ if (!is_undefined(__bag_impl__empty_items)) return __bag_impl__empty_items(); return [[],[],[],[],[]]; }
+
+// Map an item to one of the five bag pages: 0=ITEMS,1=POKEBALLS,2=TMHM,3=BERRIES,4=KEY ITEMS
+function bag__item_to_page(_iid, _it){
+    // defaults
+    var page = 0;
+    if (!is_struct(_it)) return page;
+    var ident = (variable_struct_exists(_it, "identifier") ? string(_it.identifier) : string(_it.name));
+    ident = string_lower(string_trim(ident));
+
+    // quick heuristics by identifier
+    if (string_pos("ball", ident) > 0) { page = 1; return page; }
+    if (string_pos("tm", ident) == 1 || string_pos("tm", ident) > 0 && string_pos("tm", ident) <= 3) { page = 2; return page; }
+    if (string_pos("hm", ident) == 1 || string_pos("hm", ident) > 0 && string_pos("hm", ident) <= 3) { page = 2; return page; }
+    if (string_pos("berry", ident) > 0) { page = 3; return page; }
+
+    // key items detection: check flags or category name if available
+    if (variable_global_exists("_item_flag_map") && is_array(global._item_flag_map) && _iid < array_length(global._item_flag_map)){
+        var fmap = global._item_flag_map[_iid];
+        if (is_array(fmap)){
+            for (var fi = 0; fi < array_length(fmap); fi++){
+                var code = string_lower(string_trim(fmap[fi]));
+                if (code == "key" || code == "key_item" || code == "key_item_flag") { page = 4; return page; }
+            }
+        }
+    }
+
+    // If item_categorys exists, try to find the category record and inspect its name/identifier for 'key' or 'key-item'
+    if (variable_global_exists("item_categorys") && is_array(global.item_categorys)){
+        var cid = -1;
+        if (variable_struct_exists(_it, "category_id")) cid = _it.category_id;
+        if (cid > 0){
+            for (var ci = 0; ci < array_length(global.item_categorys); ci++){
+                var crec = global.item_categorys[ci];
+                if (!is_struct(crec) || !variable_struct_exists(crec, "id")) continue;
+                if (crec.id == cid){
+                    var cname = string_lower(string_trim(variable_struct_exists(crec, "identifier") ? crec.identifier : (variable_struct_exists(crec, "name") ? crec.name : string(crec.id))));
+                    if (string_pos("key", cname) > 0 || string_pos("key-item", cname) > 0 || string_pos("keyitems", cname) > 0) { page = 4; return page; }
+                    // fallback: if pocket name indicates pokeballs/berries
+                    if (variable_struct_exists(crec, "pocket")){
+                        var pn = string_lower(string_trim(crec.pocket));
+                        if (string_pos("ball", pn) > 0) { page = 1; return page; }
+                        if (string_pos("berry", pn) > 0) { page = 3; return page; }
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    return page;
+}
 
 function bag_is_open(_pid) { return (variable_global_exists("BAGS") && is_array(global.BAGS) && array_length(global.BAGS) > _pid && global.BAGS[_pid].open); }
 function bag_open(_pid) { if (is_array(global.BAGS) && array_length(global.BAGS) > _pid) global.BAGS[_pid].open = true; }
@@ -86,18 +134,7 @@ function bag_inventory_set_qty(_pid, _itemId, _qty){
 function bag_inventory_add_item(_pid, _itemId, _qtyAdd){
     var _cur  = bag_inventory_get_qty(_pid, _itemId);
     var _next = _cur + (is_real(_qtyAdd) ? max(0, floor(_qtyAdd)) : 0);
-    var _res = bag_inventory_set_qty(_pid, _itemId, _next);
-
-    // Recompute mapping (if loader exists) and reseed the bag so UI updates immediately.
-        // recompute mapping according to flag (centralized helper)
-        if (variable_global_exists("BAG_AUTO_RECOMPUTE") ? global.BAG_AUTO_RECOMPUTE : true){
-            if (!is_undefined(bag__ensure_item_bag_map)) bag__ensure_item_bag_map();
-        }
-
-    if (!is_undefined(bags_seed_from_items)) bags_seed_from_items(_pid);
-    else if (!is_undefined(bags_seed_all)) bags_seed_all();
-
-    return _res;
+    return bag_inventory_set_qty(_pid, _itemId, _next);
 }
 
 function bag_inventory_remove_item(_pid, _itemId, _qtyRem){
@@ -109,70 +146,157 @@ function bag_inventory_remove_item(_pid, _itemId, _qtyRem){
 // ---- Seeding ----
 function bags_seed_from_items(_pid){
     var _b = bag_inventory_ensure(_pid);
-    _b.items = bag__empty_items();
+        _b.items = bag__empty_items();
 
-    var _count = (variable_global_exists("_items") && is_array(global._items)) ? array_length(global._items) : 0;
-    for (var _i = 1; _i < _count; _i++){
-        var _it = global._items[_i];
-        if (!is_struct(_it)) continue;
-
-        var _qty = bag_inventory_get_qty(_pid, _i);
-        if (_qty <= 0) continue;
-
-        var _page = 0;
-        // Ensure mapping is available (but do not force CSV reads here)
-        if (!is_undefined(bag__ensure_item_bag_map)) bag__ensure_item_bag_map(false);
-        // Prefer struct-based mapping if available
-        if (variable_global_exists("_item_bag_map") && is_struct(global._item_bag_map) && is_array(global._item_bag_map.by_id) && _i < array_length(global._item_bag_map.by_id)){
-            _page = global._item_bag_map.by_id[_i];
-        } else {
-            _page = 0;
-        }
-        if (!is_real(_page) || _page < 0 || _page > 4) _page = 0;
-
-        var _desc = "—";
-        if (variable_global_exists("_item_text") && is_array(global._item_text) && _i < array_length(global._item_text) && is_struct(global._item_text[_i])){
-            var _d2 = global._item_text[_i].flavor_text;
-            if (is_string(_d2) && string_length(string_trim(_d2)) > 0) _desc = _d2;
+        // small helper: preferred display name for an item id
+        function _bag__display_name(_iid, _it){
+            // prefer localized/item_text name if present
+            if (variable_global_exists("_item_text") && is_array(global._item_text) && _iid < array_length(global._item_text) && is_struct(global._item_text[_iid])){
+                var jt = global._item_text[_iid];
+                if (variable_struct_exists(jt, "name") && is_string(jt.name) && string_length(string_trim(jt.name)) > 0) return jt.name;
+                if (variable_struct_exists(jt, "short_desc") && is_string(jt.short_desc) && string_length(string_trim(jt.short_desc)) > 0) return jt.short_desc;
+            }
+            if (is_struct(_it) && variable_struct_exists(_it, "name") && is_string(_it.name) && string_length(string_trim(_it.name)) > 0) return _it.name;
+            if (is_struct(_it) && variable_struct_exists(_it, "identifier") && is_string(_it.identifier) && string_length(string_trim(_it.identifier)) > 0) return _it.identifier;
+            return "?";
         }
 
-        // Icon: placeholder by name, then external resolver if present
-    var _icon = -1;
-    var _sprIdx = bag__get_item_placeholder();
-    if (_sprIdx != -1) _icon = _sprIdx;
+    // Heuristic seeding: assign each item directly to one of 5 pages using bag__item_to_page
+    for (var iid = 1; iid < array_length(global._items); iid++){
+        var it = global._items[iid];
+        if (!is_struct(it)) continue;
+        var qty = bag_inventory_get_qty(_pid, iid);
+        if (qty <= 0) continue;
+
+        var page = bag__item_to_page(iid, it);
+        page = clamp(page, 0, 4);
+
+        var desc = "—";
+        if (variable_global_exists("_item_text") && is_array(global._item_text) && iid < array_length(global._item_text) && is_struct(global._item_text[iid])){
+            var _d2 = global._item_text[iid].flavor_text;
+            if (is_string(_d2) && string_length(string_trim(_d2)) > 0) desc = _d2;
+        }
+        var icon = bag__get_item_placeholder();
         if (!is_undefined(pkicons_get_item_icon_by_name)){
-            var _spr_try = pkicons_get_item_icon_by_name(string(_it.name));
-            // Accept any value the runtime considers a sprite (including ref sprite values)
-            if (!is_undefined(_spr_try) && sprite_exists(_spr_try)) _icon = _spr_try;
+            var spr_try = pkicons_get_item_icon_by_name(string(it.name));
+            if (!is_undefined(spr_try) && sprite_exists(spr_try)) icon = spr_try;
         }
+        var dname = _bag__display_name(iid, it);
+        var row = { name: dname, qty: qty, desc: desc, icon: icon, item_id: iid };
+        array_push(_b.items[page], row);
+    }
 
-        var _row = { name: _it.name, qty: _qty, desc: _desc, icon: _icon, item_id: _i };
-        array_push(_b.items[_page], _row);
+    // Post-pass: ensure any items with qty>0 that weren't placed get added to page 0
+    for (var iidp = 1; iidp < array_length(global._items); iidp++){
+        var itm = global._items[iidp];
+        if (!is_struct(itm)) continue;
+        var qtp = bag_inventory_get_qty(_pid, iidp);
+        if (qtp <= 0) continue;
+        // check placed
+        var placed = false;
+        for (var pp = 0; pp < array_length(_b.items); pp++){
+            var arrp = _b.items[pp];
+            for (var jj = 0; jj < array_length(arrp); jj++){
+                if (arrp[jj].item_id == iidp) { placed = true; break; }
+            }
+            if (placed) break;
+        }
+        if (!placed){
+            var nm = _bag__display_name(iidp, itm);
+            var ic = bag__get_item_placeholder();
+            if (!is_undefined(pkicons_get_item_icon_by_name)){
+                var st = pkicons_get_item_icon_by_name(string(itm.name)); if (!is_undefined(st) && sprite_exists(st)) ic = st;
+            }
+            array_push(_b.items[0], { name:nm, qty:qtp, desc:"—", icon:ic, item_id:iidp });
+        }
     }
 
     _b.sel = 0;
     _b.scroll = 0;
 }
 
-// Helper: Ensure the in-memory item->bag mapping is available.
-// If _forceCsv (default true) is set, the helper may call the CSV loader when categories are missing.
-function bag__ensure_item_bag_map(_forceCsv){
-    var _force = (argument_count > 0) ? !!_forceCsv : true;
-    if (variable_global_exists("_item_bag_map") && is_struct(global._item_bag_map)) return true;
-    // Prefer building from in-memory categories
-    if (variable_global_exists("_item_categories") && is_array(global._item_categories)){
-        if (!is_undefined(data_build_item_bag_map)) return data_build_item_bag_map();
-    }
-    // Optionally fall back to CSV read to populate categories
-    if (_force){
-        if (!is_undefined(data_load_item_categories_structs)) return data_load_item_categories_structs();
-    }
-    return false;
-}
-
 function bags_seed_all(){
     if (!variable_global_exists("BAGS") || !is_array(global.BAGS)) return;
     for (var _pid = 0; _pid < array_length(global.BAGS); _pid++){ bags_seed_from_items(_pid); }
+}
+
+// Debug helper: print bag pages for a player id
+function debug_print_bag(_pid){
+    if (!variable_global_exists("BAGS") || !is_array(global.BAGS) || _pid < 0 || _pid >= array_length(global.BAGS)) { show_debug_message("[DEBUG][bag] invalid pid"); return; }
+    var _b = bag_inventory_ensure(_pid);
+    show_debug_message("[DEBUG][bag] pid=" + string(_pid) + " sys_qty_len=" + string(array_length(_b.sys_qty)));
+    for (var p = 0; p < array_length(_b.items); p++){
+        var arr = _b.items[p];
+        show_debug_message("[DEBUG][bag] page=" + string(p) + " items=" + string(array_length(arr)));
+        for (var ii = 0; ii < array_length(arr); ii++){
+            var r = arr[ii];
+            show_debug_message("[DEBUG][bag]  - " + string(r.item_id) + ": " + string(r.name) + " x" + string(r.qty));
+        }
+    }
+}
+
+// Diagnostic: list items with qty>0 and explain placement (or why not placed)
+function debug_bag_orphans(_pid){
+    if (!variable_global_exists("BAGS") || !is_array(global.BAGS) || _pid < 0 || _pid >= array_length(global.BAGS)) { show_debug_message("[DEBUG][bag] invalid pid"); return; }
+    var _b = bag_inventory_ensure(_pid);
+    if (!variable_global_exists("_items") || !is_array(global._items)) { show_debug_message("[DEBUG][bag] no global._items loaded"); return; }
+
+    show_debug_message("[DEBUG][bag_orphans] scanning items for pid=" + string(_pid));
+    var foundAny = false;
+    for (var iid = 1; iid < array_length(global._items); iid++){
+        var it = global._items[iid];
+        if (!is_struct(it)) continue;
+        var qty = bag_inventory_get_qty(_pid, iid);
+        if (qty <= 0) continue;
+        foundAny = true;
+        // Determine where the seeder would place it
+        if (!variable_global_exists("item_categorys") || !is_array(global.item_categorys) || array_length(global.item_categorys) == 0){
+            show_debug_message("[DEBUG][bag_orphans] item=" + string(iid) + ", name=" + string(it.name) + ", qty=" + string(qty) + " => all items go to page 0 (no categories)");
+            continue;
+        }
+        var cidVal = -1;
+        if (variable_struct_exists(it, "category_id")) cidVal = it.category_id;
+        if (cidVal <= 0){
+            show_debug_message("[DEBUG][bag_orphans] item=" + string(iid) + ", name=" + string(it.name) + ", qty=" + string(qty) + " => NO category_id on item");
+            continue;
+        }
+        // find category record with matching .id (category ids may be sparse)
+        var catIndex = -1;
+        for (var ci = 0; ci < array_length(global.item_categorys); ci++){
+            if (!is_struct(global.item_categorys[ci])) continue;
+            if (variable_struct_exists(global.item_categorys[ci], "id") && global.item_categorys[ci].id == cidVal){ catIndex = ci; break; }
+        }
+        if (catIndex == -1){
+            show_debug_message("[DEBUG][bag_orphans] item=" + string(iid) + ", name=" + string(it.name) + ", qty=" + string(qty) + " => category id " + string(cidVal) + " missing in global.item_categorys (no matching .id)");
+            continue;
+        }
+        var catrec = global.item_categorys[catIndex];
+        var pocketName = (variable_struct_exists(catrec, "pocket") ? catrec.pocket : string(cidVal));
+        // determine pocket order
+        var pockets = [];
+        if (variable_global_exists("_item_pockets") && is_array(global._item_pockets) && array_length(global._item_pockets) > 0) pockets = global._item_pockets;
+        else {
+            for (var cidx = 0; cidx < array_length(global.item_categorys); cidx++){ if (!is_struct(global.item_categorys[cidx])) continue; var pn = global.item_categorys[cidx].pocket; var found=false; for (var qq=0; qq<array_length(pockets); qq++) if (pockets[qq]==pn) { found=true; break; } if (!found) array_push(pockets, pn); }
+        }
+        // find pocket index
+        var pidx = -1;
+        for (var k = 0; k < array_length(pockets); k++){ if (pockets[k] == pocketName) { pidx = k; break; } }
+        if (pidx == -1){
+            show_debug_message("[DEBUG][bag_orphans] item=" + string(iid) + ", name=" + string(it.name) + ", qty=" + string(qty) + " => pocket '" + string(pocketName) + "' not in pocket order");
+            continue;
+        }
+        if (pidx >= 5){
+            show_debug_message("[DEBUG][bag_orphans] item=" + string(iid) + ", name=" + string(it.name) + ", qty=" + string(qty) + " => pocket index " + string(pidx) + " >= 5 (out of pages)");
+            continue;
+        }
+        // check whether it's actually present on that page
+        var placed = false;
+        var arr = _b.items[pidx];
+        for (var zz = 0; zz < array_length(arr); zz++){ if (arr[zz].item_id == iid) { placed = true; break; } }
+        if (placed) show_debug_message("[DEBUG][bag_orphans] item=" + string(iid) + ", name=" + string(it.name) + ", qty=" + string(qty) + " => placed on page " + string(pidx));
+        else show_debug_message("[DEBUG][bag_orphans] item=" + string(iid) + ", name=" + string(it.name) + ", qty=" + string(qty) + " => SHOULD be on page " + string(pidx) + " but wasn't found in _b.items[" + string(pidx) + "]");
+    }
+    if (!foundAny) show_debug_message("[DEBUG][bag_orphans] no items with qty>0 for pid=" + string(_pid));
 }
 
 // ---- Draw helpers ----

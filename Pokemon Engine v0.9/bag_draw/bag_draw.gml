@@ -39,8 +39,18 @@ function __bag_impl_bag_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     // Poké Ball spinner
     if (sprite_exists(sbagpokeball)){ var nf = max(1, sprite_get_number(sbagpokeball)); var fr = (b.spin_ticks > 0) ? ((18 - b.spin_ticks) div max(1, floor(18/nf))) mod nf : 0; draw_sprite(sbagpokeball, fr, ox + 8*s, oy + (head_y - 1)*s); }
 
-    // Page title
-    if (sprite_exists(sbagbartextboxUI)){ var tsub = clamp(b.page, 0, max(1, sprite_get_number(sbagbartextboxUI)) - 1); draw_sprite(sbagbartextboxUI, tsub, ox + 24*s, oy + head_y*s); }
+    // Page title: prefer pocket name from loader struct if present
+    var drawnTitle = false;
+    if (variable_global_exists("_item_categorys") && is_struct(global._item_categorys) && variable_struct_exists(global._item_categorys, "pockets") && is_array(global._item_categorys.pockets)){
+        var pks = global._item_categorys.pockets; var pn = (b.page < array_length(pks) ? pks[b.page] : "");
+        if (string_length(string_trim(pn)) > 0){
+            if (variable_global_exists("FNT_POKEMON")) draw_set_font(global.FNT_POKEMON); else draw_set_font(-1);
+            draw_set_color(c_white);
+            draw_text(ox + 48*s, oy + (head_y + 4)*s, string_upper(pn));
+            drawnTitle = true;
+        }
+    }
+    if (!drawnTitle){ if (sprite_exists(sbagbartextboxUI)){ var tsub = clamp(b.page, 0, max(1, sprite_get_number(sbagbartextboxUI)) - 1); draw_sprite(sbagbartextboxUI, tsub, ox + 24*s, oy + head_y*s); } }
 
     // pips
     { var pip_x0 = 43, pip_y = 24, pip_size = 4, pip_gap = 8;

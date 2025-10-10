@@ -11,90 +11,141 @@ function __s_trim(_v)    { return is_string(_v) ? string_trim(_v) : string(_v); 
 function __s_ok(_v)      { return (is_string(_v) && string_length(string_trim(_v)) > 0); }
 function __r_ok(_v)      { return is_real(_v); }
 function __to_int_safe(_v, _def){
-    if (argument_count < 2) _def = 0;
     if (is_real(_v)) return floor(_v);
-    if (is_string(_v)){
+    if (is_string(_v)) {
         var s = string_trim(_v);
         if (string_length(s) == 0) return _def;
-        var r = real(s);
-        return is_real(r) ? floor(r) : _def;
+        return floor(real(s));
     }
     return _def;
 }
+function __to_real_safe(_v, _def){
+    if (is_real(_v)) return _v;
+    if (is_string(_v)) {
+        var s = string_trim(_v);
+        if (string_length(s) == 0) return _def;
+        return real(s);
+    }
+    return _def;
+}
+function __grid(_g, _c, _r, _def){
+    var W = ds_grid_width(_g), H = ds_grid_height(_g);
+    return ((_c>=0 && _c<W && _r>=0 && _r<H) ? _g[# _c, _r] : _def);
+}
+function __arr_ensure_len(_arr, _len){
+    if (array_length(_arr) < _len) array_resize(_arr, _len);
+    return _arr;
+}
 
-// Build the `global._item_bag_map` from already-loaded `global._item_categories` and `global._items`.
-function data_build_item_bag_map(){
-    var cats = (variable_global_exists("_item_categories") && is_array(global._item_categories)) ? global._item_categories : [];
-    var items_arr = (variable_global_exists("_items") && is_array(global._items)) ? global._items : [];
-    var N = array_length(items_arr);
+// ---- NEW: header + text helpers (non-breaking; addition only) ----
+function __col_find_ci(_g, _name){
+    // Case-insensitive column header search on header row (row 0)
+    var W = ds_grid_width(_g);
+    var _needle = string_lower(_name);
+    for (var c = 0; c < W; c++){
+        var h = __s_trim(__grid(_g, c, 0, ""));
+        if (string_lower(h) == _needle) return c;
+    }
+    return -1;
+}
+function __text_clean_spaces(_t){
+    var s = string(_t);
+    s = string_replace_all(s, "\\n", " ");
+    s = string_replace_all(s, "\n", " ");
+    s = string_replace_all(s, "\\r", " ");
+    s = string_replace_all(s, "\r", " ");
+    s = string_replace_all(s, "\\f", " ");
+    s = string_replace_all(s, "  ", " ");
+    return string_trim(s);
+}
 
-    // heuristic mapping rules
-    var map_rules = [
-        { key:"medicine", page:1 },
-        { key:"heal|potion|medicine", page:1 },
-        { key:"ball|pokeball|pokeballs|masterball|ultraball", page:2 },
-        { key:"machine|tm|hm|machine", page:3 },
-        { key:"berry|berries", page:4 },
-        { key:"key|key-item|key items|key_items", page:4 }
-    ];
+// ---------- DATA: pokemon.csv ----------
+function data_load_pokemon_structs(){
+    var path = working_directory + "/data/csv/pokemon.csv";
+    var g = load_csv(path);
+    if (g == -1) { show_debug_message("[DATA][pokemon] FAILED: " + path); global._pokemon = []; return; }
 
-    var id_to_page = [];
-    var by_identifier = {};
-    var by_category = {};
+    var H = ds_grid_height(g);
 
-    for (var ci = 0; ci < array_length(cats); ci++){
-        var crec = cats[ci];
-        var pg = 0;
-        if (is_struct(crec)){
-            var ident = is_string(crec.identifier) ? string_lower(__s_trim(crec.identifier)) : "";
-            var cname = is_string(crec.name) ? string_lower(__s_trim(crec.name)) : ident;
-            var hay = ident + " " + cname;
-            for (var mr = 0; mr < array_length(map_rules); mr++){
-                var rule = map_rules[mr];
-                var parts = string_split(rule.key, "|");
-                for (var p = 0; p < array_length(parts); p++){
-                    var sub = string_trim(parts[p]);
-                    if (string_length(sub) == 0) continue;
-                    if (string_pos(sub, hay) > 0) { pg = rule.page; break; }
-                }
-                if (pg != 0) break;
+    // Find max id so we can size the array once
+    var max_id = 0;
+    for (var r = 1; r < H; r++){
+        var v = __grid(g, 0, r, 0);
+        var sid = __to_int_safe(v, 0);
+        if (sid > max_id) max_id = sid;
+    }
+    global._pokemon = [];
+    array_resize(global._pokemon, max_id + 1);
+
+    // Fill by id
+    var rows = 0;
+    for (var r = 1; r < H; r++){
+        var sid        = __to_int_safe(__grid(g,0,r,""), 0);
+        var identifier = string(__grid(g,1,r,""));
+        var species_id = __to_int_safe(__grid(g,2,r,""), 0);
+        var height     = __to_int_safe(__grid(g,3,r,""), 0);
+        var weight     = __to_int_safe(__grid(g,4,r,""), 0);
+        var base_exp   = __to_int_safe(__grid(g,5,r,""), 0);
+        var order_     = __to_int_safe(__grid(g,6,r,""), 0);
+        var is_default = __to_int_safe(__grid(g,7,r,""), 0);
+
+        if (sid > 0 && string_length(identifier) > 0){
+            var rec = {
+                _id: sid,
+                identifier: identifier,
+                species_id: species_id,
+                height: height,
+                weight: weight,
+                _base_exp: base_exp,
+                _order: order_,
+                is_default: is_default
+            };
+            global._pokemon[sid] = rec;
+            rows++;
+        }
+    }
+    show_debug_message("[DATA][pokemon] rows=" + string(rows));
+}
+
+// ---------- DATA: pokemon_stats.csv -> per species aggregate ----------
+function data_load_pokemon_stats_structs(){
+    var path = working_directory + "/data/csv/pokemon_stats.csv";
+    var g = load_csv(path);
+    if (g == -1) { show_debug_message("[DATA][pokemon_stats] FAILED: " + path); global._poke_stats = []; return; }
+
+    // Ensure stats array covers all ids present in pokemon
+    var max_id = max(0, array_length(global._pokemon)-1);
+    global._poke_stats = [];
+    array_resize(global._poke_stats, max_id + 1);
+
+    // init each to defaults
+    for (var i = 0; i <= max_id; i++){
+        global._poke_stats[i] = { hp:45, atk:49, def:49, spa:65, spd:65, spe:45 };
+    }
+
+    // PokeAPI stat ids: 1=HP,2=Atk,3=Def,4=SpA,5=SpD,6=Spe
+    var H = ds_grid_height(g);
+    var rows = 0;
+    for (var r = 1; r < H; r++){
+        var pid = __to_int_safe(__grid(g,0,r,""), 0);
+        var sid = __to_int_safe(__grid(g,1,r,""), 0);
+        var val = __to_int_safe(__grid(g,2,r,""), 0);
+        if (pid <= 0 || pid > max_id) continue;
+
+        var ref = global._poke_stats[pid];
+        if (is_struct(ref)){
+            switch (sid){
+                case 1: ref.hp  = val; break;
+                case 2: ref.atk = val; break;
+                case 3: ref.def = val; break;
+                case 4: ref.spa = val; break;
+                case 5: ref.spd = val; break;
+                case 6: ref.spe = val; break;
             }
-            if (is_string(crec.identifier) && string_length(crec.identifier) > 0) variable_struct_set(by_identifier, crec.identifier, pg);
-            variable_struct_set(by_category, crec.name, pg);
-        }
-        id_to_page[ci] = pg;
-    }
-
-    var mapping = [];
-    if (N > 0) array_resize(mapping, N);
-    for (var i = 0; i < N; i++){
-        var pg2 = 0;
-        var it = items_arr[i];
-        if (is_struct(it) && variable_struct_exists(it, "category_id")){
-            var cid2 = it.category_id;
-            if (is_real(cid2) && cid2 >= 0 && cid2 < array_length(id_to_page) && !is_undefined(id_to_page[cid2])) pg2 = id_to_page[cid2];
-        }
-        if (!is_real(pg2) || pg2 < 0) pg2 = 0; if (pg2 > 4) pg2 = 4;
-        mapping[i] = floor(pg2);
-    }
-
-    // apply overrides if present
-    if (variable_global_exists("_item_bag_page_overrides") && is_struct(global._item_bag_page_overrides)){
-        var overrides = global._item_bag_page_overrides;
-        for (var kk = 0; kk < N; kk++){
-            var it2 = items_arr[kk];
-            if (!is_struct(it2)) continue;
-            var ident2 = it2.identifier;
-            if (is_string(ident2) && variable_struct_exists(overrides, ident2)){
-                var op2 = variable_struct_get(overrides, ident2);
-                if (is_real(op2)) mapping[kk] = clamp(floor(op2), 0, 4);
-            }
+            rows++;
         }
     }
-
-    global._item_bag_map = { by_id: mapping, by_identifier: by_identifier, by_category: by_category, overrides: (variable_global_exists("_item_bag_page_overrides") ? global._item_bag_page_overrides : {}) };
-    show_debug_message("[DATA][item_categories] built bag_map from in-memory categories for items=" + string(N));
-    return true;
+    show_debug_message("[DATA][pokemon_stats] rows=" + string(rows));
 }
 
 // ---------- ORCHESTRATOR ----------
@@ -375,6 +426,12 @@ function data_load_all_structs_ext(){
     data_load_ability_text_structs();    // UPDATED to PokeAPI flavor text
     data_load_species_abilities_structs();
     data_load_species_moves_structs();
+    // Items + item categories
+    data_load_items_structs();
+    data_load_item_categorys_structs();
+    // Item flags: map + prose
+    data_load_item_flag_map_structs();
+    data_load_item_flag_prose_structs();
     show_debug_message("[DATA][structs_ext] done.");
 }
 
@@ -413,194 +470,179 @@ function data_load_items_structs(){
     show_debug_message("[DATA][items] rows=" + string(rows));
 }
 
-// Compute a mapping from item id -> bag page index (0..4).
-// This is a safe, best-effort mapper using item.category_id when available.
-// Legacy flat-array mapping removed. Use `data_load_item_categories_structs()` to build `global._item_bag_map` instead.
 
-// Debug helper: dump the struct-based item bag map (or legacy array) for verification
-function data_dump_item_bag_map(_limit){
-    var map = (variable_global_exists("_item_bag_map") && is_struct(global._item_bag_map)) ? global._item_bag_map : undefined;
-    if (is_undefined(map)) { show_debug_message("[DATA][dump_bag_map] no mapping present"); return false; }
-
-    show_debug_message("[DATA][dump_bag_map] struct present: by_id=" + string(array_length(map.by_id)) + ", by_identifier=" + string(variable_struct_size(map.by_identifier)));
-
-    var items = (variable_global_exists("_items") && is_array(global._items)) ? global._items : [];
-    var N = array_length(items);
-    var L = (argument_count > 0 && is_real(_limit) && _limit > 0) ? min(_limit, N-1) : min(50, N-1);
-    for (var i = 1; i <= L; i++){
-        var it = items[i];
-        if (!is_struct(it)) continue;
-        var pid = -1;
-        if (array_length(map.by_id) > i) pid = map.by_id[i];
-        var ident = (variable_struct_exists(it, "identifier") ? it.identifier : "") + "";
-        var cid = (variable_struct_exists(it, "category_id") ? string(it.category_id) : "?");
-        show_debug_message("[DATA][dump_bag_map] id=" + string(it._id) + " ident=" + ident + " cat=" + cid + " -> page=" + string(pid));
-    }
-    return true;
-}
-
-// Runs the item-related loaders in the correct order and computes bag pages.
-// Safe: missing functions or CSVs are skipped. Will attempt to seed `BAGS` if present.
-function data_load_all_items(){
-    var ok = true;
-    // Core item data
-    if (!is_undefined(data_load_items_structs)) data_load_items_structs();
-    // Optional supplemental loaders - call if defined
-    if (!is_undefined(data_load_item_names_structs)) data_load_item_names_structs();
-    if (!is_undefined(data_load_item_text_structs)) data_load_item_text_structs();
-    if (!is_undefined(data_load_item_categories_structs)) data_load_item_categories_structs();
-    if (!is_undefined(data_load_machines_structs)) data_load_machines_structs();
-
-    // Mapping is computed by data_load_item_categories_structs(); no legacy compute function.
-
-    // If BAGS exist, seed them now
-    if (variable_global_exists("BAGS") && is_array(global.BAGS) && !is_undefined(bags_seed_all)){
-        bags_seed_all();
-    }
-    show_debug_message("[DATA][items_orch] done.");
-    return ok;
-}
-
-// Load item categories and compute `global._item_bag_map` from category identifiers.
-function data_load_item_categories_structs(){
-    var path = working_directory + "/data/csv/item_categories.csv";
-    var g = load_csv(path);
-    if (g == -1) { show_debug_message("[DATA][item_categories] SKIP: " + path); global._item_categories = []; return; }
+// ---------- ITEMS: categories / pockets (NEW) ----------
+// Loads item_categories.csv (optional). Produces:
+//  - global.item_categorys[pocket_id] = { id, identifier, name, pocket_id, pocket_name }
+//  - global._item_to_bag_page[item_id] = pocket_index (0-4)  -- best-effort mapping for bag seeding
+function data_load_item_categorys_structs(){
+    var csv_path = working_directory + "/data/csv/item_categories.csv";
+    var g = load_csv(csv_path);
+    if (g == -1) { show_debug_message("[DATA][item_categories] SKIP: " + csv_path); global.item_categorys = []; global._item_to_bag_page = []; return; }
 
     var H = ds_grid_height(g);
+    // discover max id
     var max_id = 0;
-    var ci_id = __col_find_ci(g, "id");
-    var ci_ident = __col_find_ci(g, "identifier");
-    // Fallback: if no header, assume columns like PokeAPI (id, identifier, ...)
-    if (ci_id < 0) ci_id = 0;
-    if (ci_ident < 0) ci_ident = 1;
-
     for (var r = 1; r < H; r++){
-        var v = __to_int_safe(__grid(g, ci_id, r, 0), 0);
-        if (v > max_id) max_id = v;
+        var idv = __to_int_safe(__grid(g,0,r,0), 0);
+        if (idv > max_id) max_id = idv;
     }
 
-    var cats = [];
-    array_resize(cats, max_id + 1);
+    global.item_categorys = []; array_resize(global.item_categorys, max_id + 1);
+    // Build a simple pocket -> page mapping. Default pocket ordering will be filled into pages 0..n-1,
+    // but bag expects at most 5 pages; we'll clamp to 0..4. If CSV has a 'pocket_id' or 'pocket' column,
+    // we will use that to group categories into pockets; otherwise categories map directly by id.
+
+    // Try to find pocket column names (case-insensitive)
+    var ci_id = __col_find_ci(g, "id");
+    var ci_ident = __col_find_ci(g, "identifier");
+    var ci_name = __col_find_ci(g, "name");
+    var ci_pocket = __col_find_ci(g, "pocket") ;
+
+    // Create mapping from pocket name to page index (struct/array-based)
+    var pocket_order = [];
+
+
     var rows = 0;
     for (var r2 = 1; r2 < H; r2++){
-        var cid = __to_int_safe(__grid(g, ci_id, r2, 0), 0);
+        var cid = (ci_id >= 0) ? __to_int_safe(__grid(g, ci_id, r2, 0), 0) : __to_int_safe(__grid(g, 0, r2, 0), 0);
         if (cid <= 0) continue;
-        var ident = string(__grid(g, ci_ident, r2, ""));
-        ident = string_lower(__s_trim(ident));
-        cats[cid] = { id:cid, identifier:ident, name:ident };
+        var ident = (ci_ident >= 0) ? __s_trim(__grid(g, ci_ident, r2, "")) : string(__grid(g,1,r2,""));
+        var namev = (ci_name >= 0) ? __s_trim(__grid(g, ci_name, r2, "")) : ident;
+        var pocket_name = (ci_pocket >= 0) ? __s_trim(__grid(g, ci_pocket, r2, "")) : string(cid);
+
+        // Assign pocket -> page index if unseen
+        var pocket_id = -1;
+        for (var _pi = 0; _pi < array_length(pocket_order); _pi++){
+            if (pocket_order[_pi] == pocket_name) { pocket_id = _pi; break; }
+        }
+        if (pocket_id == -1) {
+            pocket_id = array_length(pocket_order);
+            array_push(pocket_order, pocket_name);
+        }
+
+        global.item_categorys[cid] = { id:cid, identifier:ident, name:namev, pocket:pocket_name, pocket_id:pocket_id };
         rows++;
     }
 
-    // Attempt localized category names via item_category_prose.csv (optional)
-    var prose_path = working_directory + "/data/csv/item_category_prose.csv";
-    var gp = load_csv(prose_path);
-    var used_prose = (gp != -1);
-    if (used_prose){
-        var H2 = ds_grid_height(gp);
-        var ci_cat = __col_find_ci(gp, "item_category_id");
-        var ci_lang = __col_find_ci(gp, "local_language_id");
-        var ci_name = __col_find_ci(gp, "name");
-        var en_id = 9;
-        // resolve EN id from languages.csv if present
-        var lg = load_csv(working_directory + "/data/csv/languages.csv");
-        if (lg != -1){ var cid_l = __col_find_ci(lg, "identifier"); var cid_id = __col_find_ci(lg, "id"); if (cid_l >= 0 && cid_id >= 0){ for (var rr = 1; rr < ds_grid_height(lg); rr++){ var lidv = __to_int_safe(__grid(lg, cid_id, rr, 0), 0); var lidstr = string_lower(__s_trim(__grid(lg, cid_l, rr, ""))); if (lidstr == "en") { en_id = lidv; break; } } } }
-
-        if (ci_cat >= 0 && ci_lang >= 0 && ci_name >= 0){
-            for (var r3 = 1; r3 < H2; r3++){
-                var lid = __to_int_safe(__grid(gp, ci_lang, r3, 0), 0);
-                if (lid != en_id) continue;
-                var cc = __to_int_safe(__grid(gp, ci_cat, r3, 0), 0);
-                if (cc <= 0) continue;
-                var nm = __text_clean_spaces(__grid(gp, ci_name, r3, ""));
-                if (is_undefined(cats[cc])) cats[cc] = { id:cc, identifier:"", name:nm };
-                else cats[cc].name = nm;
+    // Convert pocket_order into a simple array and clamp pages to 0..4
+    global._item_pockets = pocket_order;
+    global._item_to_bag_page = [];
+    // Find column for items -> category mapping if present in items.csv (we already read items earlier)
+    // Fallback: use category_id stored on each global._items[item_id].category_id
+    for (var iid = 1; iid < array_length(global._items); iid++){
+        var it = global._items[iid];
+        if (!is_struct(it)) continue;
+        var cat = -1;
+        if (variable_struct_exists(it, "category_id")) cat = it.category_id;
+        if (cat <= 0) {
+            global._item_to_bag_page[iid] = 0;
+            continue;
+        }
+        if (cat < array_length(global.item_categorys) && is_struct(global.item_categorys[cat]) && variable_struct_exists(global.item_categorys[cat], "pocket_id")){
+            var pg = global.item_categorys[cat].pocket_id;
+            if (!is_real(pg) || pg < 0) pg = 0;
+            // clamp 0..4
+            pg = min(4, max(0, floor(pg)));
+            global._item_to_bag_page[iid] = pg;
+        } else {
+            // try lookup by pocket name
+            var pocket_name = (cat < array_length(global.item_categorys) && is_struct(global.item_categorys[cat])) ? global.item_categorys[cat].pocket : string(cat);
+            var pg = 0;
+            // find pocket index in pocket_order
+            for (var pidx = 0; pidx < array_length(pocket_order); pidx++){
+                if (pocket_order[pidx] == pocket_name){ pg = pidx; break; }
             }
+            pg = min(4, max(0, floor(pg)));
+            global._item_to_bag_page[iid] = pg;
         }
     }
 
-    global._item_categories = cats;
-    show_debug_message("[DATA][item_categories] rows=" + string(rows));
+    show_debug_message("[DATA][item_categories] rows=" + string(rows) + " pockets=" + string(array_length(global._item_pockets)) );
+}
 
-    // Build mapping from category identifier -> bag page index.
-    // This emulates the original loader: use category.identifier to determine page.
-    var id_to_page = {};
-    // manual mapping heuristics (identifier substrings)
-    var map_rules = [
-        { key:"medicine", page:1 },
-        { key:"heal|potion|medicine", page:1 },
-        { key:"ball|pokeball|pokeballs", page:2 },
-        { key:"machine|tm|hm|machine", page:3 },
-        { key:"berry|berries", page:4 },
-        { key:"key|key-item|key items|key_items", page:4 }
-    ];
 
-    // Build id_to_page using category identifiers and names
-    for (var ci = 0; ci < array_length(cats); ci++){
-        var crec = cats[ci];
-        var pg = 0;
-        if (is_struct(crec)){
-            var ident = is_string(crec.identifier) ? string_lower(__s_trim(crec.identifier)) : "";
-            var cname = is_string(crec.name) ? string_lower(__s_trim(crec.name)) : ident;
-            var hay = ident + " " + cname;
-            for (var mr = 0; mr < array_length(map_rules); mr++){
-                var rule = map_rules[mr];
-                var parts = string_split(rule.key, "|");
-                for (var p = 0; p < array_length(parts); p++){
-                    var sub = string_trim(parts[p]);
-                    if (string_length(sub) == 0) continue;
-                    if (string_pos(sub, hay) > 0) { pg = rule.page; break; }
-                }
-                if (pg != 0) break;
-            }
-        }
-        id_to_page[ci] = pg;
+// ---------- ITEMS: flags (map + prose) ----------
+// data/csv/item_flag_map.csv => maps item_id -> flag codes (simple CSV with columns like item_id,flag_code)
+// Produces global._item_flag_map[item_id] = ["flag1","flag2",...]
+function data_load_item_flag_map_structs(){
+    var csv_path = working_directory + "/data/csv/item_flag_map.csv";
+    var g = load_csv(csv_path);
+    if (g == -1) { show_debug_message("[DATA][item_flag_map] SKIP: " + csv_path); global._item_flag_map = []; return; }
+    var H = ds_grid_height(g);
+
+    // find columns if header exists
+    var ci_item = __col_find_ci(g, "item_id");
+    var ci_flag = __col_find_ci(g, "flag") ;
+    if (ci_item < 0) ci_item = 0; if (ci_flag < 0) ci_flag = 1;
+
+    // find max item id to size array
+    var max_iid = 0;
+    for (var r = 1; r < H; r++){
+        var iid = __to_int_safe(__grid(g, ci_item, r, 0), 0);
+        if (iid > max_iid) max_iid = iid;
+    }
+    global._item_flag_map = [];
+    array_resize(global._item_flag_map, max_iid + 1);
+    for (var i = 0; i <= max_iid; i++) global._item_flag_map[i] = [];
+
+    var rows = 0;
+    for (var r2 = 1; r2 < H; r2++){
+        var iid = __to_int_safe(__grid(g, ci_item, r2, 0), 0);
+        if (iid <= 0) continue;
+        var flag = __s_trim(__grid(g, ci_flag, r2, ""));
+        if (string_length(flag) == 0) continue;
+        if (iid >= array_length(global._item_flag_map)) array_resize(global._item_flag_map, iid+1);
+        array_push(global._item_flag_map[iid], flag);
+        rows++;
+    }
+    show_debug_message("[DATA][item_flag_map] rows=" + string(rows));
+}
+
+// data/csv/item_flag_prose.csv => maps flag_code -> prose/description
+// Produces global._item_flag_text[flag_code] = { code:flag_code, description: "..." }
+function data_load_item_flag_prose_structs(){
+    var csv_path = working_directory + "/data/csv/item_flag_prose.csv";
+    var g = load_csv(csv_path);
+    if (g == -1) { show_debug_message("[DATA][item_flag_prose] SKIP: " + csv_path); global._item_flag_text = []; return; }
+    var H = ds_grid_height(g);
+
+    var ci_flag = __col_find_ci(g, "flag") ;
+    var ci_text = __col_find_ci(g, "text") ;
+    if (ci_flag < 0) ci_flag = 0; if (ci_text < 0) ci_text = 1;
+
+    // We'll store as an associative-like array by code index: find unique codes and store them sequentially,
+    // but also build a helper lookup by code via a struct `global._item_flag_text_by_code` so callers can find by code.
+    global._item_flag_text = [];
+    global._item_flag_text_by_code = {}; // small struct lookup
+
+    var rows = 0;
+    for (var r2 = 1; r2 < H; r2++){
+        var code = __s_trim(__grid(g, ci_flag, r2, ""));
+        if (string_length(code) == 0) continue;
+        var text = __text_clean_spaces(__grid(g, ci_text, r2, ""));
+        var entry = { code:code, text:text };
+        array_push(global._item_flag_text, entry);
+        // also add a direct code -> struct entry in the struct lookup
+        global._item_flag_text_by_code[code] = entry;
+        rows++;
+    }
+    show_debug_message("[DATA][item_flag_prose] rows=" + string(rows));
+}
+
+// Debug helper: prints a short summary of loaded items and categories
+function debug_print_items_and_categories(){
+    var cntItems = (variable_global_exists("_items") && is_array(global._items)) ? array_length(global._items) : 0;
+    show_debug_message("[DEBUG] _items count=" + string(cntItems));
+    for (var i = 1; i < min(10, cntItems); i++){
+        var it = global._items[i];
+        if (is_struct(it)) show_debug_message("[DEBUG] item " + string(i) + ": id=" + string(it._id) + ", name=" + string(it.name) + ", cat=" + string(it.category_id));
     }
 
-    // Now compute mapping using item.category_id (struct will be built below)
-    var items_arr = (variable_global_exists("_items") && is_array(global._items)) ? global._items : [];
-    var N = array_length(items_arr);
-    var mapping = [];
-    if (N > 0) array_resize(mapping, N);
-    for (var i = 0; i < N; i++){
-        var pg = 0;
-        var it = items_arr[i];
-        if (is_struct(it) && variable_struct_exists(it, "category_id")){
-            var cid2 = it.category_id;
-            if (is_real(cid2) && cid2 >= 0 && cid2 < array_length(id_to_page) && !is_undefined(id_to_page[cid2])) pg = id_to_page[cid2];
-        }
-        if (!is_real(pg) || pg < 0) pg = 0; if (pg > 4) pg = 4;
-        mapping[i] = floor(pg);
+    var cntCats = (variable_global_exists("item_categorys") && is_array(global.item_categorys)) ? array_length(global.item_categorys) : 0;
+    show_debug_message("[DEBUG] item_categorys count=" + string(cntCats));
+    for (var c = 0; c < min(20, cntCats); c++){
+        var cat = global.item_categorys[c];
+        if (is_struct(cat)) show_debug_message("[DEBUG] cat " + string(c) + ": id=" + string(cat.id) + ", name=" + string(cat.name) + ", pocket=" + string(cat.pocket) + ", pocket_id=" + string(cat.pocket_id));
     }
-    // Apply manual overrides if present (maps item identifier -> page)
-    // Example: global._item_bag_page_overrides = { "masterball":2, "super_potion":1 }
-    if (variable_global_exists("_item_bag_page_overrides") && is_struct(global._item_bag_page_overrides)){
-        var overrides = global._item_bag_page_overrides;
-        for (var jj = 0; jj < N; jj++){
-            var it = items_arr[jj];
-            if (!is_struct(it)) continue;
-            var iid = it.identifier;
-            if (!is_string(iid)) continue;
-            if (variable_struct_exists(overrides, iid)){
-                var op = variable_struct_get(overrides, iid);
-                if (is_real(op)) mapping[jj] = clamp(floor(op), 0, 4);
-            }
-        }
-    }
-
-    // populate struct-based map
-    global._item_bag_map = { by_id: mapping, by_identifier: by_identifier, by_category: by_category, overrides: {} };
-    show_debug_message("[DATA][item_categories] computed bag_map for items=" + string(N));
-
-    // Show a short sample for verification
-    var sampleN = min(12, N-1);
-    for (var s = 1; s <= sampleN; s++){
-        var which = s;
-        if (which >= N) break;
-        var si = items_arr[which];
-        if (!is_struct(si)) continue;
-        show_debug_message("[DATA][item_sample] id=" + string(si._id) + " ident=" + string(si.identifier) + " cat=" + string(si.category_id) + " -> page=" + string(mapping[which]));
-    }
-
-    return true;
 }
