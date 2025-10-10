@@ -1,0 +1,13 @@
+{
+  "$GMScript":"v1",
+  "%Name":"pkicons_external",
+  "isCompatibility":false,
+  "isDnD":false,
+  "name":"pkicons_external",
+  "parent":{
+    "name":"data",
+    "path":"folders/Scripts/data.yy",
+  },
+  "resourceType":"GMScript",
+  "resourceVersion":"2.0",
+}

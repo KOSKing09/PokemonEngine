@@ -1,0 +1,13 @@
+{
+  "$GMScript":"v1",
+  "%Name":"font_pokemon",
+  "isCompatibility":false,
+  "isDnD":false,
+  "name":"font_pokemon",
+  "parent":{
+    "name":"Game",
+    "path":"folders/Scripts/Game.yy",
+  },
+  "resourceType":"GMScript",
+  "resourceVersion":"2.0",
+}

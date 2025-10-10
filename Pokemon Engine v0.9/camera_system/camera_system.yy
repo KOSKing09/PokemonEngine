@@ -1,0 +1,13 @@
+{
+  "$GMScript":"v1",
+  "%Name":"camera_system",
+  "isCompatibility":false,
+  "isDnD":false,
+  "name":"camera_system",
+  "parent":{
+    "name":"Game",
+    "path":"folders/Scripts/Game.yy",
+  },
+  "resourceType":"GMScript",
+  "resourceVersion":"2.0",
+}
