@@ -93,39 +93,39 @@ function data_load_profile_run() {
 
     // Run groups with subtotals
     _subtotal = __dlp_run_group(_metrics, _logPath, "BASE", _targets_base);
-    show_debug_message("[DLP] SUBTOTAL BASE ms=" + string(_subtotal));
+    if (variable_global_exists("DEBUG") && global.DEBUG) show_debug_message("[DLP] SUBTOTAL BASE ms=" + string(_subtotal));
     __dlp_write_line(_logPath, __dlp_timestamp() + ",SUBTOTAL_BASE,1," + string(_subtotal));
 
     _subtotal = __dlp_run_group(_metrics, _logPath, "MOVES_ABIL", _targets_moves);
-    show_debug_message("[DLP] SUBTOTAL MOVES_ABIL ms=" + string(_subtotal));
+    if (variable_global_exists("DEBUG") && global.DEBUG) show_debug_message("[DLP] SUBTOTAL MOVES_ABIL ms=" + string(_subtotal));
     __dlp_write_line(_logPath, __dlp_timestamp() + ",SUBTOTAL_MOVES_ABIL,1," + string(_subtotal));
 
     _subtotal = __dlp_run_group(_metrics, _logPath, "ITEMS", _targets_items);
-    show_debug_message("[DLP] SUBTOTAL ITEMS ms=" + string(_subtotal));
+    if (variable_global_exists("DEBUG") && global.DEBUG) show_debug_message("[DLP] SUBTOTAL ITEMS ms=" + string(_subtotal));
     __dlp_write_line(_logPath, __dlp_timestamp() + ",SUBTOTAL_ITEMS,1," + string(_subtotal));
 
     _subtotal = __dlp_run_group(_metrics, _logPath, "ORCH", _targets_orchestrators);
-    show_debug_message("[DLP] SUBTOTAL ORCH ms=" + string(_subtotal));
+    if (variable_global_exists("DEBUG") && global.DEBUG) show_debug_message("[DLP] SUBTOTAL ORCH ms=" + string(_subtotal));
     __dlp_write_line(_logPath, __dlp_timestamp() + ",SUBTOTAL_ORCH,1," + string(_subtotal));
 
     var _grandEnd = __dlp_now();
     _metrics.sys_total_ms = __dlp_ms(_grandStart, _grandEnd);
-    show_debug_message("[DLP] TOTAL ms=" + string(_metrics.sys_total_ms));
+    if (variable_global_exists("DEBUG") && global.DEBUG) show_debug_message("[DLP] TOTAL ms=" + string(_metrics.sys_total_ms));
     __dlp_write_line(_logPath, __dlp_timestamp() + ",TOTAL,1," + string(_metrics.sys_total_ms));
 
     // Sorted summary (descending by ms)
     _metrics.sys_sorted_indices = __dlp_sort_indices_desc(_metrics.sys_items);
 
-    show_debug_message("----------------------------------------");
-    show_debug_message("[DLP] Sorted summary (desc ms):");
+    if (variable_global_exists("DEBUG") && global.DEBUG) show_debug_message("----------------------------------------");
+    if (variable_global_exists("DEBUG") && global.DEBUG) show_debug_message("[DLP] Sorted summary (desc ms):");
     for (var _i = 0; _i < array_length(_metrics.sys_sorted_indices); _i++) {
         var _idx = _metrics.sys_sorted_indices[_i];
         var _e = _metrics.sys_items[_idx];
         if (is_struct(_e)) {
-            show_debug_message("   " + _e.label + " → ok=" + string(_e.ok) + " ms=" + string(_e.ms));
+            if (variable_global_exists("DEBUG") && global.DEBUG) show_debug_message("   " + _e.label + " 2 ok=" + string(_e.ok) + " ms=" + string(_e.ms));
         }
     }
-    show_debug_message("----------------------------------------");
+    if (variable_global_exists("DEBUG") && global.DEBUG) show_debug_message("----------------------------------------");
 
     return _metrics;
 }
@@ -168,7 +168,7 @@ function __dlp_run_one(_metrics, _logPath, _label) {
     var _line = _stamp + "," + _label + "," + _okStr + "," + string(_ms);
     __dlp_write_line(_logPath, _line);
 
-    show_debug_message("[DLP] " + _label + " → ok=" + string(_ok) + " ms=" + string(_ms));
+    if (variable_global_exists("DEBUG") && global.DEBUG) show_debug_message("[DLP] " + _label + " → ok=" + string(_ok) + " ms=" + string(_ms));
 }
 
 // ------------------------------------------------------------

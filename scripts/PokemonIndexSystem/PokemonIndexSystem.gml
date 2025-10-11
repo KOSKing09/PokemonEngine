@@ -74,7 +74,7 @@ function scr_poke_index_build_simple_structs()
         if (p.idv > max_id) max_id = p.idv;
     }
 
-    show_debug_message("[INDEX] built arrays: names=" + string(m) + " max_id=" + string(max_id));
+    if (variable_global_exists("DEBUG") && global.DEBUG) show_debug_message("[INDEX] built arrays: names=" + string(m) + " max_id=" + string(max_id));
 }
 
 // ----- New: index_build_all() compatibility wrapper -----
@@ -167,7 +167,7 @@ function index_build_all()
         }
     }
 
-    show_debug_message("[INDEX] index_build_all() completed");
+    if (variable_global_exists("DEBUG") && global.DEBUG) show_debug_message("[INDEX] index_build_all() completed");
 }
 
 

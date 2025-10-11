@@ -32,7 +32,7 @@ function font_pokemon_init(_spr, _ord, _gw, _gh){
 
     // warn if lengths don't match (this is the #1 cause of wrong glyphs)
     if (spr_len != ord_len) {
-        show_debug_message("[FONT] WARNING: sprite frames (" + string(spr_len) +
+        if (variable_global_exists("DEBUG") && global.DEBUG) show_debug_message("[FONT] WARNING: sprite frames (" + string(spr_len) +
             ") != order length (" + string(ord_len) + "). Update your ORDER string to match the strip.");
     }
 

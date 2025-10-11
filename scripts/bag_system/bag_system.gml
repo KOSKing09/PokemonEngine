@@ -233,6 +233,8 @@ function bags_seed_all(){
 
 // Debug helper: print bag pages for a player id
 function debug_print_bag(_pid){
+    // Master gate: only run when global.DEBUG is true
+    if (!variable_global_exists("DEBUG") || !global.DEBUG) return;
     if (!variable_global_exists("BAGS") || !is_array(global.BAGS) || _pid < 0 || _pid >= array_length(global.BAGS)) { show_debug_message("[DEBUG][bag] invalid pid"); return; }
     var _b = bag_inventory_ensure(_pid);
     show_debug_message("[DEBUG][bag] pid=" + string(_pid) + " sys_qty_len=" + string(array_length(_b.sys_qty)));
@@ -248,6 +250,8 @@ function debug_print_bag(_pid){
 
 // Diagnostic: list items with qty>0 and explain placement (or why not placed)
 function debug_bag_orphans(_pid){
+    // Master gate: only run when global.DEBUG is true
+    if (!variable_global_exists("DEBUG") || !global.DEBUG) return;
     if (!variable_global_exists("BAGS") || !is_array(global.BAGS) || _pid < 0 || _pid >= array_length(global.BAGS)) { show_debug_message("[DEBUG][bag] invalid pid"); return; }
     var _b = bag_inventory_ensure(_pid);
     if (!variable_global_exists("_items") || !is_array(global._items)) { show_debug_message("[DEBUG][bag] no global._items loaded"); return; }

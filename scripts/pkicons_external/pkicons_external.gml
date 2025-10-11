@@ -14,7 +14,6 @@ globalvar PKICONS;
 function pkicons_init(){
     if (!variable_global_exists("PKICONS")){
         global.PKICONS = {
-            debug: false,
             ext: ".png",
             art96_base: "",
             icon32_base: "",

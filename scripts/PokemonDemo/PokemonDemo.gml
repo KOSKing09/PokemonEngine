@@ -27,11 +27,11 @@ function scr_poke_runtime_demo_init_random(_count)
     var count = is_undefined(_count) ? 3 : max(1, _count);
 
     if (!(variable_global_exists("_id_list") && is_array(global._id_list) && array_length(global._id_list) > 0)) {
-        show_debug_message("[DEMO] _id_list missing or empty — build your index arrays first.");
+        if (variable_global_exists("DEBUG") && global.DEBUG) show_debug_message("[DEMO] _id_list missing or empty — build your index arrays first.");
         return;
     }
     if (!(variable_global_exists("_name_list") && is_array(global._name_list) && array_length(global._name_list) > 0)) {
-        show_debug_message("[DEMO] _name_list missing or empty — build your index arrays first.");
+        if (variable_global_exists("DEBUG") && global.DEBUG) show_debug_message("[DEMO] _name_list missing or empty — build your index arrays first.");
         return;
     }
 
@@ -134,7 +134,7 @@ function scr_party_debug_seed_random(_pid, _count)
     }
 
     P.sel = 0; P.scroll = 0; P.swap_index = -1; P.menu_sel = 0; P.lock = 0;
-    show_debug_message("[DEMO] Seeded " + string(array_length(P.mons)) + " random Pokémon to PARTY[" + string(_pid) + "].");
+    if (variable_global_exists("DEBUG") && global.DEBUG) show_debug_message("[DEMO] Seeded " + string(array_length(P.mons)) + " random Pokémon to PARTY[" + string(_pid) + "].");
 
     var _mons_arr = party_model_get_mons(_pid);
     if (array_length(_mons_arr) > 0){
@@ -143,7 +143,7 @@ function scr_party_debug_seed_random(_pid, _count)
         if (is_struct(_mons_arr[shiny_index])) _mons_arr[shiny_index].shiny = true;
         // persist back
         var _Ptmp = party_ensure(_pid); _Ptmp.mons = _mons_arr; 
-        show_debug_message("[DEMO] Shiny assigned to party slot " + string(shiny_index));
+        if (variable_global_exists("DEBUG") && global.DEBUG) show_debug_message("[DEMO] Shiny assigned to party slot " + string(shiny_index));
     }
 
     var _party = party_ensure(_pid);
