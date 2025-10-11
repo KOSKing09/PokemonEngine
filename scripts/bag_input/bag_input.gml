@@ -52,40 +52,48 @@ function __bag_impl_bag_item_menu_update(_pid){
 
     // If party requested to Give to a mon, allow direct selection from bag: Interact -> give to mon
     if (variable_struct_exists(b, "give_from_party") && b.give_from_party && variable_struct_exists(b, "give_to_mon")){
-        // pressing Interact when a bag item is selected will give it to the party mon
+                // pressing Interact when a bag item is selected will give it to the party mon
         if (controls_pressed(_pid, "Interact") && b.lock == 0){
             var row = b.sel; if (row >= 0 && row < n){ var it = lst[row];
                 var monIndex = b.give_to_mon;
-                // ensure party exists and target mon
-                if (!is_undefined(party_ensure) && !is_undefined(party_ensure)){
-                    var P = party_ensure(_pid); // note: party was opened by caller
-                    if (is_struct(P) && is_array(P.mons) && monIndex >= 0 && monIndex < array_length(P.mons)){
-                        var target = P.mons[monIndex]; if (!is_struct(target)) target = P.mons[monIndex] = {};
-                        // return prev held item to bag
-                        var prev = (variable_struct_exists(target, "held_item_id") ? variable_struct_get(target, "held_item_id") : -1);
-                        if (is_real(prev) && prev > 0) bag_inventory_add_item(_pid, prev, 1);
-                        // set held item to selected and preserve canonical identifier for render/lookup
-                        variable_struct_set(target, "held_item_id", it.item_id);
-                        if (is_struct(it) && variable_struct_exists(it, "real_name") && string_length(string(it.real_name)) > 0){
-                            variable_struct_set(target, "held_item_real_name", string(it.real_name));
-                        } else if (is_struct(it) && variable_struct_exists(it, "name") && string_length(string(it.name)) > 0){
-                            variable_struct_set(target, "held_item_real_name", string(it.name));
+                // Ensure item is holdable before giving
+                if (!is_undefined(bag__item_is_holdable) && !bag__item_is_holdable(it)){
+                    // Don't close the bag or clear the give request — allow the player to pick another item.
+                    show_debug_message("[bag->party] Selected item is not holdable; choose another item.");
+                    b.lock = 8; // small delay to avoid spam
+                } else {
+                    // ensure party exists and target mon
+                    if (!is_undefined(party_ensure)){
+                        var P = party_ensure(_pid); // note: party was opened by caller
+                        if (is_struct(P) && is_array(P.mons) && monIndex >= 0 && monIndex < array_length(P.mons)){
+                            var target = P.mons[monIndex]; if (!is_struct(target)) target = P.mons[monIndex] = {};
+                            // return prev held item to bag
+                            var prev = (variable_struct_exists(target, "held_item_id") ? variable_struct_get(target, "held_item_id") : -1);
+                            if (is_real(prev) && prev > 0) bag_inventory_add_item(_pid, prev, 1);
+                            // set held item to selected and preserve canonical identifier for render/lookup
+                            variable_struct_set(target, "held_item_id", it.item_id);
+                            if (is_struct(it) && variable_struct_exists(it, "real_name") && string_length(string(it.real_name)) > 0){
+                                variable_struct_set(target, "held_item_real_name", string(it.real_name));
+                            } else if (is_struct(it) && variable_struct_exists(it, "name") && string_length(string(it.name)) > 0){
+                                variable_struct_set(target, "held_item_real_name", string(it.name));
+                            }
+                            // remove one from bag
+                            bag_inventory_remove_item(_pid, it.item_id, 1);
+                            bags_seed_from_items(_pid);
+                            show_debug_message("[bag->party] Gave item " + string(it.item_id) + " to mon " + string(monIndex));
                         }
-                        // remove one from bag
-                        bag_inventory_remove_item(_pid, it.item_id, 1);
-                        bags_seed_from_items(_pid);
-                        show_debug_message("[bag->party] Gave item " + string(it.item_id) + " to mon " + string(monIndex));
                     }
+
+                    // Clear flags and return to party menu
+                    b.give_from_party = false; b.give_to_mon = undefined; b.lock = 4; // small lock
+                    // re-open party UI and restore to menu so player returns to party menu
+                    if (!is_undefined(party_open) && !is_undefined(party_ensure)){
+                        party_open(_pid);
+                        var P2 = party_ensure(_pid);
+                        if (is_struct(P2)){ P2.mode = "menu"; P2.lock = 4; }
+                    }
+                    bag_close(_pid);
                 }
-                // clear flags and return to party menu
-                b.give_from_party = false; b.give_to_mon = undefined; b.lock = 4; // small lock
-                // re-open party UI and restore to menu so player returns to party menu
-                if (!is_undefined(party_open) && !is_undefined(party_ensure)){
-                    party_open(_pid);
-                    var P2 = party_ensure(_pid);
-                    if (is_struct(P2)){ P2.mode = "menu"; P2.lock = 4; }
-                }
-                bag_close(_pid);
             }
         }
         // still allow normal navigation while in give_from_party mode; do not open the item submenu
@@ -106,46 +114,47 @@ function __bag_impl_bag_item_menu_update(_pid){
 
     if (!b.item_menu_open) return;
 
-    // navigate submenu (4 options)
-    // Diagnostics: log control events when menu is open (temporary)
+    // Build dynamic labels to match drawing so indices remain consistent
+    var _rowNav = clamp(b.item_menu_row, 0, max(0, n - 1));
+    var _itNav = (n > 0 && _rowNav < n) ? lst[_rowNav] : undefined;
+    var _labelsNav = ["Use","Discard","Cancel"];
+    if (!is_undefined(bag__item_is_holdable) && bag__item_is_holdable(_itNav)) array_insert(_labelsNav, 1, "Give");
+    var _maxIdx = array_length(_labelsNav) - 1;
+    // navigate submenu using dynamic bounds
     if (controls_pressed(_pid, "MoveDown")){
-        b.item_menu_sel = clamp(b.item_menu_sel + 1, 0, 3);
+        b.item_menu_sel = clamp(b.item_menu_sel + 1, 0, _maxIdx);
     }
     if (controls_pressed(_pid, "MoveUp")){
-        b.item_menu_sel = clamp(b.item_menu_sel - 1, 0, 3);
+        b.item_menu_sel = clamp(b.item_menu_sel - 1, 0, _maxIdx);
     }
 
-    // selection
+    // selection by label (keeps behavior consistent when 'Give' is present or not)
     if (controls_pressed(_pid, "Interact") && b.lock == 0){
-        var sel = b.item_menu_sel; var row = b.item_menu_row; var it = lst[row];
+        var sel = clamp(b.item_menu_sel, 0, _maxIdx);
+        var row = b.item_menu_row; var it = lst[row];
         b.item_menu_open = false; b.lock = 2;
-        switch (sel){
-            case 0: // Use (not implemented here)
-                show_debug_message("[bag] Use action not handled in core. Implement bag__use_item_on_self to handle it.");
-                break;
-            case 1: // Give -> open party in select_item mode
-                // Close bag, ensure party and set give_pending
-                bag_close(_pid);
-                if (is_undefined(party_open)) break;
+        var action = _labelsNav[sel];
+        if (action == "Use"){
+            show_debug_message("[bag] Use action not handled in core. Implement bag__use_item_on_self to handle it.");
+        } else if (action == "Give"){
+            // Close bag, ensure party and set give_pending
+            bag_close(_pid);
+            if (!is_undefined(party_open)){
                 party_open(_pid);
                 var P = party_ensure(_pid);
                 P.mode = "select_item";
-                // include the raw identifier (real_name) so the party receives canonical item name
                 var _realnm_pending = undefined;
                 if (is_struct(it) && variable_struct_exists(it, "real_name")) _realnm_pending = string(it.real_name);
                 else if (is_struct(it) && variable_struct_exists(it, "name")) _realnm_pending = string(it.name);
                 P.give_pending = { bag_pid: _pid, page: b.page, row: row, item_id: it.item_id, item_real_name: _realnm_pending };
                 P.lock = 4;
-                break;
-            case 2: // Discard (remove one)
-                bag_inventory_remove_item(_pid, it.item_id, 1);
-                bags_seed_from_items(_pid);
-                break;
-            case 3: // Cancel
-                // nothing
-                break;
+            }
+        } else if (action == "Discard"){
+            bag_inventory_remove_item(_pid, it.item_id, 1);
+            bags_seed_from_items(_pid);
+        } else if (action == "Cancel"){
+            // nothing
         }
-        // If this bag was in a party-driven Give mode, clear those flags now to avoid stale behavior
         if (variable_struct_exists(b, "give_from_party") && b.give_from_party){ b.give_from_party = false; b.give_to_mon = undefined; }
         return;
     }

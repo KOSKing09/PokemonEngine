@@ -49,42 +49,59 @@ function __party_impl_party_update(){
             break;
 
             case "item_action":
-                // simple two-option submenu for Item: Give / Take / Cancel
-                if (controls_pressed(_pid,"MoveDown")) _P.item_menu_sel = clamp(_P.item_menu_sel + 1, 0, 2);
-                if (controls_pressed(_pid,"MoveUp"))   _P.item_menu_sel = clamp(_P.item_menu_sel - 1, 0, 2);
+                // Build labels the same way the party draw does so indices line up with actions
+                var _labels = ["Take","Cancel"];
+                var _shouldShowGive = false;
+                if (variable_struct_exists(_P, "give_pending")){
+                    _shouldShowGive = true;
+                } else {
+                    var _selMon = undefined;
+                    if (variable_struct_exists(_P, "mons") && is_array(_P.mons) && _P.sel >= 0 && _P.sel < array_length(_P.mons)) _selMon = _P.mons[_P.sel];
+                    if (!is_undefined(_selMon) && is_struct(_selMon) && variable_struct_exists(_selMon, "held_item_id")){
+                        var _hid_tmp = variable_struct_get(_selMon, "held_item_id");
+                        if (is_real(_hid_tmp) && _hid_tmp > 0) _shouldShowGive = false; else _shouldShowGive = true;
+                    } else {
+                        _shouldShowGive = true;
+                    }
+                }
+                if (_shouldShowGive) array_insert(_labels, 0, "Give");
+
+                var _maxIdx = array_length(_labels) - 1;
+                if (controls_pressed(_pid,"MoveDown")) _P.item_menu_sel = clamp(_P.item_menu_sel + 1, 0, _maxIdx);
+                if (controls_pressed(_pid,"MoveUp"))   _P.item_menu_sel = clamp(_P.item_menu_sel - 1, 0, _maxIdx);
                 if (controls_pressed(_pid,"Interact") && _P.lock == 0){
-                    switch (_P.item_menu_sel){
-                        case 0: // Give: open bag and mark for giving to this mon
-                            var _b = bag_inventory_ensure(_pid);
-                            // flag the bag to deliver selection to this party slot
-                            _b.give_to_mon = _P.sel;
-                            _b.give_from_party = true;
-                            // close party so bag is visible (party is drawn on top of bag); bag will re-open the party after give
-                            _P.lock = 4;
-                            party_close(_pid);
-                            bag_open(_pid);
-                            // short lock on bag to avoid immediate input
-                            _b.lock = 4;
-                            break;
-                        case 1: // Take: move held item from mon into bag (if present)
-                            var target = _P.mons[_P.sel];
-                            if (is_struct(target) && variable_struct_exists(target, "held_item_id")){
-                                var hid = variable_struct_get(target, "held_item_id");
-                                if (is_real(hid) && hid > 0){
-                                    bag_inventory_add_item(_pid, hid, 1);
-                                    // clear held item id and canonical name
-                                    variable_struct_set(target, "held_item_id", -1);
-                                    variable_struct_set(target, "held_item_real_name", "");
-                                    bags_seed_from_items(_pid);
-                                    show_debug_message("[party] Took item " + string(hid) + " from mon index " + string(_P.sel));
-                                } else { show_debug_message("[party] No held item to take"); }
-                            } else { show_debug_message("[party] No held item structure"); }
-                            // return to party menu
-                            _P.mode = "list"; _P.lock = 4; _P.give_pending = undefined;
-                            break;
-                        case 2: // Cancel
-                            _P.mode = "menu"; _P.lock = 2;
-                            break;
+                    var _action = _labels[clamp(_P.item_menu_sel, 0, _maxIdx)];
+                    if (_action == "Give"){
+                        var _b = bag_inventory_ensure(_pid);
+                        // flag the bag to deliver selection to this party slot
+                        _b.give_to_mon = _P.sel;
+                        _b.give_from_party = true;
+                        // close party so bag is visible (party is drawn on top of bag); bag will re-open the party after give
+                        _P.lock = 4;
+                        party_close(_pid);
+                        bag_open(_pid);
+                        // short lock on bag to avoid immediate input
+                        _b.lock = 4;
+                    } else if (_action == "Take"){
+                        // Ensure target mon struct exists and attempt to read held item id
+                        var target = _P.mons[_P.sel];
+                        if (!is_struct(target)) target = _P.mons[_P.sel] = {};
+                        var hid = (variable_struct_exists(target, "held_item_id") ? variable_struct_get(target, "held_item_id") : -1);
+                        if (is_real(hid) && hid > 0){
+                            // Add the held item back to the player's bag
+                            bag_inventory_add_item(_pid, hid, 1);
+                            // Clear held item id and canonical name on the mon
+                            if (variable_struct_exists(target, "held_item_id")) variable_struct_set(target, "held_item_id", -1);
+                            if (variable_struct_exists(target, "held_item_real_name")) variable_struct_set(target, "held_item_real_name", "");
+                            bags_seed_from_items(_pid);
+                            show_debug_message("[party] Took item " + string(hid) + " from mon index " + string(_P.sel));
+                        } else {
+                            show_debug_message("[party] No held item to take");
+                        }
+                        // return to party menu
+                        _P.mode = "list"; _P.lock = 4; _P.give_pending = undefined;
+                    } else if (_action == "Cancel"){
+                        _P.mode = "menu"; _P.lock = 2;
                     }
                 }
                 if (controls_pressed(_pid,"Run") && _P.lock == 0){ _P.mode = "menu"; _P.lock = 2; }
@@ -108,10 +125,11 @@ function __party_impl_party_update(){
             break;
 
             case "select_item":
+                // navigation for select_item
                 if (controls_pressed(_pid,"MoveDown") && _n > 0) _P.sel = clamp(_P.sel + 1, 0, _n - 1);
                 if (controls_pressed(_pid,"MoveUp")   && _n > 0) _P.sel = clamp(_P.sel - 1, 0, _n - 1);
                 _P.scroll = clamp(_P.scroll, 0, max(0, _n - _ROWS));
-                if (_P.sel <  _P.scroll)        _P.scroll = _P.sel;
+                if (_P.sel <  _P.scroll) _P.scroll = _P.sel;
                 if (_P.sel >= _P.scroll + _ROWS) _P.scroll = max(0, _P.sel - _ROWS + 1);
 
                 if (controls_pressed(_pid,"Interact") && _P.lock == 0){
@@ -124,62 +142,77 @@ function __party_impl_party_update(){
 
                         if (bpid >= 0){
                             var _b = bag_inventory_ensure(bpid);
-                            if (array_length(_b.items) > page){ var pageArr = _b.items[page]; if (brow < array_length(pageArr)){
-                                var target = _P.mons[_P.sel]; if (!is_struct(target)) target = _P.mons[_P.sel] = {};
-                                // swap behavior: return existing held item to bag
-                                var prev = (variable_struct_exists(target, "held_item_id") ? variable_struct_get(target, "held_item_id") : -1);
-                                if (is_real(prev) && prev > 0){ bag_inventory_add_item(bpid, prev, 1); }
-                                // assign new id and preserve canonical real name for rendering/lookup
-                                if (!is_undefined(item_id) && item_id > 0) variable_struct_set(target, "held_item_id", item_id);
-                                if (!is_undefined(gp) && is_struct(gp) && variable_struct_exists(gp, "item_real_name")){
-                                    var _rn = variable_struct_get(gp, "item_real_name");
-                                    if (!is_undefined(_rn) && string_length(string(_rn)) > 0) variable_struct_set(target, "held_item_real_name", string(_rn));
-                                } else {
-                                    // fallback: try resolving from item_id via bag pages
-                                    var _tryName = undefined;
-                                    var _b_src = bag_inventory_ensure(bpid);
-                                    if (is_struct(_b_src)){
-                                        // try to find in _b_src.items
-                                        for (var __p=0; __p<array_length(_b_src.items); __p++){
-                                            var __arr = _b_src.items[__p];
-                                            for (var __r=0; __r<array_length(__arr); __r++){
-                                                var __it = __arr[__r];
-                                                if (is_struct(__it) && variable_struct_exists(__it, "item_id") && __it.item_id == item_id){
-                                                    if (variable_struct_exists(__it, "real_name")) { _tryName = string(__it.real_name); break; }
+                            if (array_length(_b.items) > page){
+                                var pageArr = _b.items[page];
+                                if (brow < array_length(pageArr)){
+                                    var target = _P.mons[_P.sel]; if (!is_struct(target)) target = _P.mons[_P.sel] = {};
+                                    // return existing held item to bag
+                                    var prev = (variable_struct_exists(target, "held_item_id") ? variable_struct_get(target, "held_item_id") : -1);
+                                    if (is_real(prev) && prev > 0) bag_inventory_add_item(bpid, prev, 1);
+
+                                    // Safety: ensure the item is holdable before assigning
+                                    var pending_holdable = true;
+                                    if (!is_undefined(bag__item_is_holdable)){
+                                        var _checkVal = undefined;
+                                        if (variable_struct_exists(gp, "item_real_name")) _checkVal = variable_struct_get(gp, "item_real_name");
+                                        else _checkVal = item_id;
+                                        pending_holdable = bag__item_is_holdable(_checkVal);
+                                    }
+
+                                    if (!pending_holdable){
+                                        show_debug_message("[party] Tried to give item but it is not holdable; action aborted.");
+                                    } else {
+                                        // assign new id and preserve canonical real name for rendering/lookup
+                                        if (!is_undefined(item_id) && item_id > 0) variable_struct_set(target, "held_item_id", item_id);
+                                        if (!is_undefined(gp) && is_struct(gp) && variable_struct_exists(gp, "item_real_name")){
+                                            var _rn = variable_struct_get(gp, "item_real_name");
+                                            if (!is_undefined(_rn) && string_length(string(_rn)) > 0) variable_struct_set(target, "held_item_real_name", string(_rn));
+                                        } else {
+                                            // fallback: try resolving from item_id via bag pages
+                                            var _tryName = undefined;
+                                            var _b_src = bag_inventory_ensure(bpid);
+                                            if (is_struct(_b_src)){
+                                                for (var __p=0; __p<array_length(_b_src.items); __p++){
+                                                    var __arr = _b_src.items[__p];
+                                                    for (var __r=0; __r<array_length(__arr); __r++){
+                                                        var __it = __arr[__r];
+                                                        if (is_struct(__it) && variable_struct_exists(__it, "item_id") && __it.item_id == item_id){
+                                                            if (variable_struct_exists(__it, "real_name")) { _tryName = string(__it.real_name); break; }
+                                                        }
+                                                    }
+                                                    if (!is_undefined(_tryName)) break;
                                                 }
                                             }
-                                            if (!is_undefined(_tryName)) break;
+                                            if (!is_undefined(_tryName)) variable_struct_set(target, "held_item_real_name", _tryName);
                                         }
-                                    }
-                                    if (!is_undefined(_tryName)) variable_struct_set(target, "held_item_real_name", _tryName);
-                                }
-                                // remove one from bag
-                                bag_inventory_remove_item(bpid, item_id, 1);
-                                // refresh bag pages from sys_qty
-                                bags_seed_from_items(bpid);
-                                show_debug_message("[party] Gave item " + string(item_id) + " to mon index " + string(_P.sel));
 
-                                // Close party UI and re-open the bag, restoring page/selection so player returns to bag menu
-                                if (!is_undefined(party_close)) party_close(_pid);
-                                if (!is_undefined(bag_open)) bag_open(bpid);
-                                var _b_after = bag_inventory_ensure(bpid);
-                                // restore page (clamp) and sel (clamp to available rows)
-                                _b_after.page = clamp(page, 0, max(0, array_length(_b_after.items) - 1));
-                                var _arrAfter = _b_after.items[_b_after.page];
-                                var _maxSel = max(0, array_length(_arrAfter) - 1);
-                                _b_after.sel = clamp(brow, 0, _maxSel);
-                                // ensure scroll covers sel (rows = 8)
-                                var _rows = 8;
-                                _b_after.scroll = clamp(_b_after.scroll, 0, max(0, array_length(_arrAfter) - _rows));
-                                if (_b_after.sel < _b_after.scroll) _b_after.scroll = _b_after.sel;
-                                if (_b_after.sel >= _b_after.scroll + _rows) _b_after.scroll = max(0, _b_after.sel - _rows + 1);
-                                // short lock to avoid immediate input carryover
-                                _b_after.lock = 4;
-                            }}
+                                        // remove one from bag and refresh
+                                        bag_inventory_remove_item(bpid, item_id, 1);
+                                        bags_seed_from_items(bpid);
+                                        show_debug_message("[party] Gave item " + string(item_id) + " to mon index " + string(_P.sel));
+
+                                        // Close party UI and re-open the bag, restoring page/selection so player returns to bag menu
+                                        if (!is_undefined(party_close)) party_close(_pid);
+                                        if (!is_undefined(bag_open)) bag_open(bpid);
+                                        var _b_after = bag_inventory_ensure(bpid);
+                                        _b_after.page = clamp(page, 0, max(0, array_length(_b_after.items) - 1));
+                                        var _arrAfter = _b_after.items[_b_after.page];
+                                        var _maxSel = max(0, array_length(_arrAfter) - 1);
+                                        _b_after.sel = clamp(brow, 0, _maxSel);
+                                        var _rows = 8;
+                                        _b_after.scroll = clamp(_b_after.scroll, 0, max(0, array_length(_arrAfter) - _rows));
+                                        if (_b_after.sel < _b_after.scroll) _b_after.scroll = _b_after.sel;
+                                        if (_b_after.sel >= _b_after.scroll + _rows) _b_after.scroll = max(0, _b_after.sel - _rows + 1);
+                                        _b_after.lock = 4;
+                                    }
+                                }
+                            }
                         }
+
                         // clear pending
                         _P.give_pending = undefined;
                     }
+
                     _P.mode = "list"; _P.lock = 2;
                 }
 

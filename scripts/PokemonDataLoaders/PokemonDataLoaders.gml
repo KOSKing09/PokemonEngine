@@ -231,10 +231,7 @@ function data_load_move_text_structs(){
             var HL = ds_grid_height(lg);
             for (var rr = 1; rr < HL; rr++){
                 var ident = string_lower(__s_trim(__grid(lg, ci_ident, rr, "")));
-                if (ident == "en"){
-                    en_id = __to_int_safe(__grid(lg, ci_lid, rr, 9), 9);
-                    break;
-                }
+                if (ident == "en"){ en_id = __to_int_safe(__grid(lg, ci_lid, rr, 9), 9); break; }
             }
         }
     }
@@ -245,7 +242,7 @@ function data_load_move_text_structs(){
     var ci_lang = __col_find_ci(g, "language_id");
     var ci_text = __col_find_ci(g, "flavor_text");
     if (ci_move < 0 || ci_lang < 0 || ci_text < 0){
-    data_debug("[DATA][move_text] ERROR: required columns missing in move_flavor_text.csv");
+        data_debug("[DATA][move_text] ERROR: required columns missing in move_flavor_text.csv");
         global._move_text = [];
         return;
     }
@@ -256,6 +253,7 @@ function data_load_move_text_structs(){
         var mid = __to_int_safe(__grid(g, ci_move, r, 0), 0);
         if (mid > max_mid) max_mid = mid;
     }
+
     global._move_text = []; array_resize(global._move_text, max_mid + 1);
     var maxVG = []; array_resize(maxVG, max_mid + 1);
     for (var i = 0; i <= max_mid; i++){ maxVG[i] = 0; }
@@ -264,13 +262,10 @@ function data_load_move_text_structs(){
     for (var r2 = 1; r2 < H; r2++){
         var lang = __to_int_safe(__grid(g, ci_lang, r2, 0), 0);
         if (lang != en_id) continue;
-
         var mid2  = __to_int_safe(__grid(g, ci_move, r2, 0), 0);
         if (mid2 <= 0) continue;
-
         var vg    = (ci_vg >= 0) ? __to_int_safe(__grid(g, ci_vg, r2, 0), 0) : 0;
         var text  = __text_clean_spaces(__grid(g, ci_text, r2, ""));
-
         // Keep the latest version group text
         if (vg >= maxVG[mid2]){
             maxVG[mid2] = vg;
@@ -469,8 +464,9 @@ function data_load_all_structs_ext(){
     data_load_items_structs();
     data_load_item_categorys_structs();
     // Item flags: map + prose
-    data_load_item_flag_map_structs();
+    // Ensure prose table loads first so map normalization can resolve numeric codes
     data_load_item_flag_prose_structs();
+    data_load_item_flag_map_structs();
     data_debug("[DATA][structs_ext] done.");
 }
 
@@ -648,10 +644,13 @@ function data_load_item_flag_map_structs(){
     for (var r2 = 1; r2 < H; r2++){
         var iid = __to_int_safe(__grid(g, ci_item, r2, 0), 0);
         if (iid <= 0) continue;
-        var flag = __s_trim(__grid(g, ci_flag, r2, ""));
-        if (string_length(flag) == 0) continue;
+        var raw_flag = __s_trim(__grid(g, ci_flag, r2, ""));
+        if (string_length(raw_flag) == 0) continue;
+        // Do not attempt to canonicalize numeric flag ids here; leave raw values as-is.
+        // Normalization will be done later by data_normalize_item_flag_map() after all loaders finish.
+        var norm = raw_flag;
         var pos = positions[iid];
-        global._item_flag_map[iid][pos] = flag;
+        global._item_flag_map[iid][pos] = norm;
         positions[iid] = pos + 1;
         rows++;
     }
@@ -663,12 +662,23 @@ function data_load_item_flag_map_structs(){
 function data_load_item_flag_prose_structs(){
     var csv_path = working_directory + "/data/csv/item_flag_prose.csv";
     var g = load_csv(csv_path);
-    if (g == -1) { data_debug("[DATA][item_flag_prose] SKIP: " + csv_path); global._item_flag_text = []; return; }
+    if (g == -1) {
+        // Ensure the globals exist (empty) so callers can detect them but avoid nil checks failing
+        global._item_flag_text = [];
+        global._item_flag_text_by_code = {};
+        data_debug("[DATA][item_flag_prose] SKIP: file missing or unreadable: " + csv_path + " (working_directory=" + string(working_directory) + ")");
+        return;
+    }
     var H = ds_grid_height(g);
 
-    var ci_flag = __col_find_ci(g, "flag") ;
-    var ci_text = __col_find_ci(g, "text") ;
-    if (ci_flag < 0) ci_flag = 0; if (ci_text < 0) ci_text = 1;
+    // Support multiple CSV header styles: prefer 'flag'/'name'/'description' but fall back to common alternatives.
+    var ci_flag = __col_find_ci(g, "flag");
+    if (ci_flag < 0) ci_flag = __col_find_ci(g, "item_flag_id");
+    var ci_name = __col_find_ci(g, "name");
+    if (ci_name < 0) ci_name = __col_find_ci(g, "text");
+    var ci_desc = __col_find_ci(g, "description");
+    if (ci_desc < 0) ci_desc = __col_find_ci(g, "text");
+    if (ci_flag < 0) ci_flag = 0; if (ci_name < 0) ci_name = 1; if (ci_desc < 0) ci_desc = ci_name;
 
     // We'll store as an associative-like array by code index: find unique codes and store them sequentially,
     // but also build a helper lookup by code via a struct `global._item_flag_text_by_code` so callers can find by code.
@@ -686,13 +696,46 @@ function data_load_item_flag_prose_structs(){
     for (var r2 = 1; r2 < H; r2++){
         var code = __s_trim(__grid(g, ci_flag, r2, ""));
         if (string_length(code) == 0) continue;
-        var text = __text_clean_spaces(__grid(g, ci_text, r2, ""));
-        var entry = { code:code, text:text };
+        var name_val = __s_trim(__grid(g, ci_name, r2, ""));
+        var desc_val = __text_clean_spaces(__grid(g, ci_desc, r2, ""));
+        // Normalize name to a short key: lowercase and convert spaces/underscores to hyphens
+        var key = string_lower(string_trim(name_val));
+        key = string_replace_all(key, " ", "-");
+        key = string_replace_all(key, "_", "-");
+        var entry = { code:code, name:name_val, key:key, text:desc_val };
         global._item_flag_text[idx] = entry;
-        global._item_flag_text_by_code[code] = entry;
+    // Store by string key to avoid numeric coercion issues
+    global._item_flag_text_by_code[string(code)] = entry;
         idx++; rows++;
     }
     data_debug("[DATA][item_flag_prose] rows=" + string(rows));
+
+    // Extra debug: check runtime shape/type of the helper lookup and probe a sample code
+    var _ptype = "missing";
+    if (variable_global_exists("_item_flag_text_by_code")){
+        if (is_struct(global._item_flag_text_by_code)) _ptype = "struct";
+        else if (is_array(global._item_flag_text_by_code)) _ptype = "array";
+        else if (is_real(global._item_flag_text_by_code) && ds_exists(global._item_flag_text_by_code, ds_type_map)) _ptype = "ds_map";
+        else _ptype = "other";
+    }
+    data_debug("[DATA][item_flag_prose] prose_type=" + _ptype);
+    // probe lookup on first non-empty code from the CSV
+    var _probe_code = "";
+    for (var r4 = 1; r4 < H; r4++){
+        var _pc = __s_trim(__grid(g, ci_flag, r4, ""));
+        if (string_length(_pc) > 0){ _probe_code = _pc; break; }
+    }
+    if (string_length(_probe_code) > 0){
+        var _found = false;
+        if (!is_undefined(data_get_item_flag_entry)){
+            var _entry = data_get_item_flag_entry(_probe_code);
+            _found = is_struct(_entry) || is_array(_entry) || (is_real(_entry) && ds_exists(_entry, ds_type_map));
+        }
+        data_debug("[DATA][item_flag_prose] probe_lookup code=" + string(_probe_code) + " -> found=" + string(_found));
+    } else {
+        data_debug("[DATA][item_flag_prose] probe_lookup: no code found in CSV rows");
+    }
+
 }
 
 // Debug helper: prints a short summary of loaded items and categories
@@ -710,4 +753,79 @@ function debug_print_items_and_categories(){
         var cat = global.item_categorys[c];
     if (is_struct(cat) && variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[DEBUG] cat " + string(c) + ": id=" + string(cat.id) + ", name=" + string(cat.name) + ", pocket=" + string(cat.pocket) + ", pocket_id=" + string(cat.pocket_id));
     }
+}
+
+// Normalize any numeric flag ids in global._item_flag_map to textual keys using
+// global._item_flag_text_by_code. Safe to call multiple times.
+function data_normalize_item_flag_map(){
+    if (!variable_global_exists("_item_flag_map") || !is_array(global._item_flag_map)) { data_debug("[DATA][normalize_flags] _item_flag_map missing"); return; }
+    // If prose table missing, attempt to run the prose loader now (best-effort)
+    if (!variable_global_exists("_item_flag_text_by_code") || !is_struct(global._item_flag_text_by_code)){
+        if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) data_debug("[DATA][normalize_flags] _item_flag_text_by_code missing — attempting to load prose now");
+        if (!is_undefined(data_load_item_flag_prose_structs)){
+            data_load_item_flag_prose_structs();
+            if (variable_global_exists("_item_flag_text_by_code") && is_struct(global._item_flag_text_by_code)){
+                if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) data_debug("[DATA][normalize_flags] prose loader succeeded on retry");
+            } else {
+                if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) data_debug("[DATA][normalize_flags] prose loader retry failed — aborting normalization");
+                return;
+            }
+        } else {
+            if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) data_debug("[DATA][normalize_flags] prose loader function not available — aborting normalization");
+            return;
+        }
+    }
+    var changed = 0;
+    var total_checked = 0;
+    for (var iid = 0; iid < array_length(global._item_flag_map); iid++){
+        var fmap = global._item_flag_map[iid];
+        if (!is_array(fmap) || array_length(fmap) == 0) continue;
+        for (var fi = 0; fi < array_length(fmap); fi++){
+            var raw = string_trim(string(global._item_flag_map[iid][fi]));
+            // detect numeric-only tokens
+            var only_digits = true;
+            for (var d = 1; d <= string_length(raw); d++){ var ch = string_copy(raw, d, 1); if (ch < "0" || ch > "9") { only_digits = false; break; } }
+            if (!only_digits) continue;
+            total_checked++;
+            var ent = data_get_item_flag_entry(raw);
+            if (is_struct(ent)){
+                var key = "";
+                if (variable_struct_exists(ent, "key") && string_length(string_trim(variable_struct_get(ent, "key"))) > 0) key = string_trim(variable_struct_get(ent, "key"));
+                else if (variable_struct_exists(ent, "name") && string_length(string_trim(variable_struct_get(ent, "name"))) > 0) key = string_lower(string_trim(variable_struct_get(ent, "name")));
+                key = string_replace_all(key, "_", "-");
+                if (string_length(key) > 0 && string_lower(string_trim(raw)) != string_lower(string_trim(key))){
+                    global._item_flag_map[iid][fi] = key;
+                    changed++;
+                }
+            }
+        }
+    }
+    data_debug("[DATA][normalize_flags] checked=" + string(total_checked) + " changed=" + string(changed));
+}
+
+// Tolerant lookup for item_flag prose entries. Returns the entry struct or undefined.
+function data_get_item_flag_entry(_code){
+    if (!variable_global_exists("_item_flag_text_by_code")) return undefined;
+    var m = global._item_flag_text_by_code;
+    var key = string(_code);
+    // struct-like
+    if (is_struct(m)){
+        if (variable_struct_exists(m, key)) return variable_struct_get(m, key);
+        if (variable_struct_exists(m, _code)) return variable_struct_get(m, _code);
+        return undefined;
+    }
+    // ds_map-like
+    if (is_real(m) && ds_exists(m, ds_type_map)){
+        if (ds_map_exists(m, key)) return ds_map_find_value(m, key);
+        if (ds_map_exists(m, _code)) return ds_map_find_value(m, _code);
+        return undefined;
+    }
+    // fallback: if it's an array (unlikely), try numeric index
+    if (is_array(m)){
+        // try to find an entry whose .code matches
+        for (var i = 0; i < array_length(m); i++){
+            if (is_struct(m[i]) && variable_struct_exists(m[i], "code") && string_trim(variable_struct_get(m[i], "code")) == string(_code)) return m[i];
+        }
+    }
+    return undefined;
 }

@@ -190,7 +190,15 @@ function __bag_impl_draw_right_list(_b, _ox, _oy, _s, _list_x, _list_y, _list_w,
 // Draw the small item submenu when open
 function __bag_impl_draw_item_submenu(_b, _ox, _oy, _s, _list_x, _list_y, _list_w){
     if (!variable_struct_exists(_b, "item_menu_open") || !_b.item_menu_open) return;
-    var labels = ["Use","Give","Discard","Cancel"];
+    // Build labels dynamically so we can hide 'Give' for non-holdable items
+    var labels = ["Use","Discard","Cancel"];
+    var lst = _b.items[_b.page];
+    var row = clamp(_b.item_menu_row, 0, max(0, array_length(lst) - 1));
+    var it = (array_length(lst) > 0 && row < array_length(lst)) ? lst[row] : undefined;
+    if (!is_undefined(bag__item_is_holdable) && bag__item_is_holdable(it)){
+        // Insert 'Give' as the second option
+        array_insert(labels, 1, "Give");
+    }
     var menu_sel = clamp(_b.item_menu_sel, 0, array_length(labels) - 1);
     var box_w = 72, box_h = 14 * array_length(labels);
     // Anchor the submenu to the selected row inside the right-list box

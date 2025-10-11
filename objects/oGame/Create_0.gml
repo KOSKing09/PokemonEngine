@@ -10,6 +10,12 @@ var ORDER =
     "“”‘’" +
     "♪▶";
 
+if !(window_get_fullscreen()) {
+    window_set_position(10, 10);
+    window_set_size(display_get_width() - 10, display_get_height() - 10);
+}
+
+
 randomize();
 global.FNT_POKEMON = font_add_sprite_ext(spr_font_pokemon_new, ORDER, false, 0);
 global.FNT_POKEMON_SMALL = font_add_sprite_ext(spr_font_pokemon_new, ORDER, false, -1);
@@ -26,7 +32,12 @@ global.DEBUG = true;
 
 // Data loaders debug gate (opt-in)
 globalvar DATA_DEBUG;
-global.DATA_DEBUG = true;
+// Data loaders debug gate (opt-in). Default OFF for normal play; set true for troubleshooting.
+global.DATA_DEBUG = false;
+
+// Additional verbose data debug (very noisy). Default OFF.
+globalvar DATA_DEBUG_VERBOSE;
+global.DATA_DEBUG_VERBOSE = false;
 
 // --- DATA: ensure globals exist BEFORE loading ------------------------------
 // Make sure a DS map object exists and pokemon/_pokemon point to the SAME id.
@@ -52,6 +63,9 @@ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) {
     show_debug_message("Total ms: " + string(_metrics.sys_total_ms));
 }
 
+// Normalize any numeric flag ids to textual keys so downstream logic can rely on prose keys
+if (!is_undefined(data_normalize_item_flag_map)) data_normalize_item_flag_map();
+
 // --- BUILD SIMPLE INDEX (name <-> id) --------------------------------------
 scr_poke_index_build_simple_structs();  // builds global._name_by_id/_name_list/_id_list
 pkicons_init();
@@ -60,7 +74,7 @@ if (variable_global_exists("PKICONS")){
     if (variable_struct_exists(global.PKICONS, "debug")) global.PKICONS.debug = true;
     else variable_struct_set(global.PKICONS, "debug", true);
 } else {
-    global.PKICONS = { debug: true };
+    global.PKICONS = { debug: true, data_debug: true};
 }
 pkicons_set_art96_base("C:/Users/King2/Documents/Pokemon Engine/sprites/pokemon/");
 pkicons_set_icon32_base("C:/Users/King2/Documents/Pokemon Engine/sprites/Overworld/Normal/");
@@ -172,7 +186,7 @@ bag_inventory_add_item(0, 17, 5);
 bag_inventory_add_item(0, 18, 5);
 bag_inventory_add_item(0, 182, 10);
 bags_seed_from_items(0); // refresh once, not every step
-// (item loader diagnostic removed)
+// (item loader diagnostic removed - bootstrap diagnostic removed)
 // ... keep inv around for gameplay; destroy when appropriate
 
 // --- PLAYER SPAWN -----------------------------------------------------------

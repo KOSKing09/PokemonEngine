@@ -274,6 +274,44 @@ function debug_print_bag(_pid){
     }
 }
 
+// Debug: list all items that the current rules consider holdable
+function bag_debug_list_holdables(){
+    // Basic presence checks
+    if (!variable_global_exists("_items") || !is_array(global._items)) { show_debug_message("[bag_debug] ERROR: global._items not loaded (length missing)"); return; }
+    var items_len = array_length(global._items);
+    var fmap_len = (variable_global_exists("_item_flag_map") && is_array(global._item_flag_map)) ? array_length(global._item_flag_map) : 0;
+    var prose_ok = (variable_global_exists("_item_flag_text_by_code") && is_struct(global._item_flag_text_by_code));
+    show_debug_message("[bag_debug] scanning items for holdable=true | items_len=" + string(items_len) + " flag_map_len=" + string(fmap_len) + " prose_table=" + string(prose_ok));
+
+    // If flag map is empty, print a hint about loader ordering
+    if (fmap_len == 0) show_debug_message("[bag_debug] NOTE: _item_flag_map is empty. This may indicate loaders haven't run yet or CSV was missing. Ensure data_load_item_flag_map_structs() executed.");
+
+    var found = 0;
+    var sample_show = 0;
+    for (var iid = 1; iid < items_len; iid++){
+        var it = global._items[iid]; if (!is_struct(it)) continue;
+        var ok = false;
+        if (!is_undefined(bag__item_is_holdable)) ok = bag__item_is_holdable(iid);
+        if (ok){
+            var ident = (variable_struct_exists(it, "identifier") ? it.identifier : (variable_struct_exists(it, "name") ? it.name : string(iid)));
+            var fmap = (variable_global_exists("_item_flag_map") && is_array(global._item_flag_map) && iid < array_length(global._item_flag_map)) ? global._item_flag_map[iid] : [];
+            show_debug_message("[bag_debug][holdable] " + string(iid) + ": " + string(ident) + " flags=" + string(fmap));
+            found++;
+            // show a small sample of the first few holdables
+            sample_show++;
+            if (sample_show >= 50) break;
+        }
+    }
+    show_debug_message("[bag_debug] total holdable items=" + string(found));
+    // If none found, provide additional hints for troubleshooting
+    if (found == 0){
+        show_debug_message("[bag_debug] HINT: No items were marked holdable. If you expect some, check: ");
+        show_debug_message("  - Confirm data CSVs exist: data/csv/item_flag_map.csv and item_flag_prose.csv");
+        show_debug_message("  - Ensure data_load_profile_run() or data_load_all_structs_ext() ran before this call");
+        show_debug_message("  - Run bag_debug_list_holdables() manually from an in-game console after startup to rule out ordering issues");
+    }
+}
+
 // Diagnostic: list items with qty>0 and explain placement (or why not placed)
 function debug_bag_orphans(_pid){
     if (!variable_global_exists("BAGS") || !is_array(global.BAGS) || _pid < 0 || _pid >= array_length(global.BAGS)) { show_debug_message("[DEBUG][bag] invalid pid"); return; }
@@ -349,3 +387,94 @@ function bag_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){ if (!is_undefined(__bag_im
 function bag_draw_gui(_pid){ var gw = display_get_gui_width(); var gh = display_get_gui_height(); bag_draw_gui_rect(_pid, 0, 0, gw, gh); }
 
 function __bag_wrap_lines(_text, _max_w){ if (!is_undefined(__bag_impl_wrap_lines)) return __bag_impl_wrap_lines(_text, _max_w); var _out = []; if (is_undefined(_text) || string_length(_text) == 0){ array_push(_out, "—"); return _out; } var _words = string_split(_text, " "); var _line  = ""; for (var i = 0; i < array_length(_words); i++){ var _w  = _words[i]; var _try = (_line == "" ? _w : _line + " " + _w); if (string_width(_try) <= _max_w) _line = _try; else { if (_line == "") { var _j = 1; while (_j <= string_length(_w) && string_width(string_copy(_w,1,_j)) <= _max_w) _j++; array_push(_out, string_copy(_w,1,_j-1)); _line = string_copy(_w,_j,string_length(_w)-_j+1); } else { array_push(_out, _line); _line = _w; } } } if (_line != "") array_push(_out, _line); return _out; }
+
+// Determine whether an item can be held by a Pokemon.
+// Accepts: an item row struct (with .item_id), an item id (number), or an identifier/name (string).
+// Returns true if the item is considered holdable (based on item_flags and heuristics), false otherwise.
+function bag__item_is_holdable(_item){
+    // Resolve to item id if possible
+    var iid = -1;
+    if (is_struct(_item)){
+        if (variable_struct_exists(_item, "item_id") && is_real(_item.item_id)) iid = floor(_item.item_id);
+        else if (variable_struct_exists(_item, "identifier") && is_string(_item.identifier)){
+            var ident = string_lower(string_trim(_item.identifier));
+            // search global._items for matching identifier
+            if (variable_global_exists("_items") && is_array(global._items)){
+                for (var ii = 1; ii < array_length(global._items); ii++){
+                    var it = global._items[ii]; if (!is_struct(it)) continue;
+                    if (variable_struct_exists(it, "identifier") && string_lower(string_trim(it.identifier)) == ident){ iid = ii; break; }
+                    if (variable_struct_exists(it, "name") && string_lower(string_trim(it.name)) == ident){ iid = ii; break; }
+                }
+            }
+        }
+    } else if (is_real(_item)){
+        iid = floor(_item);
+    } else if (is_string(_item)){
+        var idl = string_lower(string_trim(_item));
+        if (variable_global_exists("_items") && is_array(global._items)){
+            for (var ii2 = 1; ii2 < array_length(global._items); ii2++){
+                var it2 = global._items[ii2]; if (!is_struct(it2)) continue;
+                if (variable_struct_exists(it2, "identifier") && string_lower(string_trim(it2.identifier)) == idl){ iid = ii2; break; }
+                if (variable_struct_exists(it2, "name") && string_lower(string_trim(it2.name)) == idl){ iid = ii2; break; }
+            }
+        }
+    }
+
+    if (iid <= 0) return false;
+
+    // If item_flag_map exists, check for holdable flags
+    if (variable_global_exists("_item_flag_map") && is_array(global._item_flag_map) && iid < array_length(global._item_flag_map)){
+        var fmap = global._item_flag_map[iid];
+        if (is_array(fmap)){
+            // Normalize flags: if numeric ids are present, try to map them to prose codes
+            for (var fi = 0; fi < array_length(fmap); fi++){
+                var raw = fmap[fi];
+                var code = string_lower(string_trim(raw));
+                var resolved = code;
+                // If code looks numeric, and a prose-by-code table exists, map it to the prose key
+                var only_digits = true;
+                for (var cc = 1; cc <= string_length(code); cc++){ var ch = string_copy(code, cc, 1); if (ch < "0" || ch > "9") { only_digits = false; break; } }
+                if (only_digits){
+                    var entry = undefined;
+                    if (!is_undefined(data_get_item_flag_entry)) entry = data_get_item_flag_entry(code);
+                    if (is_struct(entry)){
+                        // Prefer the normalized key produced by the prose loader, fall back to name (use safe accessors)
+                        if (variable_struct_exists(entry, "key") && string_length(string_trim(variable_struct_get(entry, "key"))) > 0) resolved = string_trim(variable_struct_get(entry, "key"));
+                        else if (variable_struct_exists(entry, "name") && string_length(string_trim(variable_struct_get(entry, "name"))) > 0) resolved = string_lower(string_trim(variable_struct_get(entry, "name")));
+                    }
+                }
+                // Normalize underscores to hyphens for consistent comparison (e.g., holdable_passive -> holdable-passive)
+                resolved = string_replace_all(resolved, "_", "-");
+
+                // Decision rules: only explicit holdable-passive/active are allowed.
+                // NOTE: some data sources include a generic 'holdable' token that is too broad
+                // for gameplay; only treat explicit passive/active holdable flags as valid.
+                if (resolved == "holdable-passive" || resolved == "holdable-active"){
+                    return true;
+                }
+                // explicit exclusions
+                if (resolved == "key" || resolved == "key_item" || resolved == "mail"){
+                    return false;
+                }
+            }
+        }
+    }
+
+    // Fallback heuristics: allow most items that aren't clearly key/consumable/reserved
+    // Disallow common non-holdable categories by identifier
+    if (variable_global_exists("_items") && is_array(global._items) && iid < array_length(global._items)){
+        var rec = global._items[iid];
+        if (is_struct(rec)){
+            var ident2 = "";
+            if (variable_struct_exists(rec, "identifier")) ident2 = string_lower(string_trim(rec.identifier));
+            else if (variable_struct_exists(rec, "name")) ident2 = string_lower(string_trim(rec.name));
+            // disallow TM/HM and pokeballs by identifier heuristics
+            if (string_pos("tm", ident2) == 1 || string_pos("hm", ident2) == 1) return false;
+            if (string_pos("ball", ident2) > 0) return false;
+            if (string_pos("key", ident2) > 0 || string_pos("key-item", ident2) > 0) return false;
+        }
+    }
+
+    // Otherwise default to not holdable to be conservative
+    return false;
+}

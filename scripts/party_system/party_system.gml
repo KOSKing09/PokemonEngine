@@ -443,9 +443,27 @@ function party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         if (string(_P.mode) == "item_action"){
             var _ix = _bx1 + 36*_S;
             var _iy = _by1 + (6 + 2*_m_h);
-            var _labels = ["Give","Take","Cancel"];
+            // Dynamically include 'Give' only when a give_pending exists and the item is holdable
+            var _labels = ["Take","Cancel"];
             var _menuSel = 0;
             if (variable_struct_exists(_P, "item_menu_sel")) _menuSel = variable_struct_get(_P, "item_menu_sel");
+            // Determine whether to show Give or Take based on selected mon state or a pending give from the bag.
+            var _shouldShowGive = false;
+            // If a give is pending (bag -> party flow), always show Give.
+            if (variable_struct_exists(_P, "give_pending")){
+                _shouldShowGive = true;
+            } else {
+                // Otherwise infer from the selected mon: if it already holds an item, show Take; else show Give.
+                var _selMon = undefined;
+                if (variable_struct_exists(_P, "mons") && is_array(_P.mons) && _P.sel >= 0 && _P.sel < array_length(_P.mons)) _selMon = _P.mons[_P.sel];
+                if (!is_undefined(_selMon) && is_struct(_selMon) && variable_struct_exists(_selMon, "held_item_id")){
+                    var _hid_tmp = variable_struct_get(_selMon, "held_item_id");
+                    if (is_real(_hid_tmp) && _hid_tmp > 0){ _shouldShowGive = false; } else { _shouldShowGive = true; }
+                } else {
+                    _shouldShowGive = true;  // mon has no item -> show Give
+                }
+            }
+            if (_shouldShowGive) array_insert(_labels, 0, "Give");
 
             // draw a small parchment box behind the submenu
             var _box_pad_x = 6 * _S;
