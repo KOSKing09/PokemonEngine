@@ -31,7 +31,7 @@ function bags_init(_players){
 function bag__ensure_props(_s, _names, _defs){ if (!is_undefined(__bag_impl__ensure_props)) return __bag_impl__ensure_props(_s,_names,_defs); }
 
 // Return a fresh default bag struct (used in multiple places)
-function bag__default_bag(){ if (!is_undefined(__bag_impl__default_bag)) return __bag_impl__default_bag(); return { open:false, mode:"bag", page:0, sel:0, scroll:0, spin_ticks:0, items:[[],[],[],[],[]], sys_qty:[] }; }
+function bag__default_bag(){ if (!is_undefined(__bag_impl__default_bag)) return __bag_impl__default_bag(); return { open:false, mode:"bag", page:0, sel:0, scroll:0, spin_ticks:0, items:[[],[],[],[],[]], sys_qty:[], item_menu_open:false, item_menu_sel:0, item_menu_row:0, lock:0 }; }
 
 // Return a project placeholder sprite index if present, else fall back to PKICONS.missing_icon32 (or -1)
 function bag__get_item_placeholder(){ if (!is_undefined(__bag_impl__get_item_placeholder)) return __bag_impl__get_item_placeholder(); var ph = asset_get_index("spr_item_placeholder"); if (ph == -1 && variable_global_exists("PKICONS") && is_struct(PKICONS) && variable_struct_exists(PKICONS, "missing_icon32")) ph = variable_struct_get(PKICONS, "missing_icon32"); return ph; }
@@ -106,7 +106,25 @@ function bag_open(_pid) { if (is_array(global.BAGS) && array_length(global.BAGS)
 function bag_close(_pid){ if (is_array(global.BAGS) && array_length(global.BAGS) > _pid) global.BAGS[_pid].open = false; }
 function bag_toggle(_pid){ if (!variable_global_exists("BAGS") || !is_array(global.BAGS) || array_length(global.BAGS) <= _pid) return; global.BAGS[_pid].open = !global.BAGS[_pid].open; }
 
-function bags_update(){ if (!is_undefined(__bag_impl_bags_update)) return __bag_impl_bags_update(); }
+function bags_update(){
+    // decrement short locks on bag slots so new menus become actionable quickly
+    if (variable_global_exists("BAGS") && is_array(global.BAGS)){
+        for (var _pid = 0; _pid < array_length(global.BAGS); _pid++){
+            var _b = global.BAGS[_pid]; if (!is_struct(_b)) continue;
+            if (variable_struct_exists(_b, "lock") && _b.lock > 0) _b.lock--;
+        }
+    }
+
+    // run optional submenu updater first so it can open and consume input this frame
+    if (!is_undefined(__bag_impl_bag_item_menu_update)){
+        if (variable_global_exists("BAGS") && is_array(global.BAGS)){
+            for (var pid = 0; pid < array_length(global.BAGS); pid++) __bag_impl_bag_item_menu_update(pid);
+        }
+    }
+
+    // now run the main bag update (navigation) which will see item_menu_open state and skip if needed
+    if (!is_undefined(__bag_impl_bags_update)) __bag_impl_bags_update();
+}
 
 // ---- Inventory (BAGS-based) ----
 function bag_inventory_ensure(_pid){
@@ -117,7 +135,7 @@ function bag_inventory_ensure(_pid){
             _b = bag__default_bag();
             global.BAGS[_pid] = _b;
         } else {
-            bag__ensure_props(_b, ["items","sys_qty","page","sel","scroll","spin_ticks","mode","open"], [bag__empty_items(), [], 0, 0, 0, 0, "bag", false]);
+            bag__ensure_props(_b, ["items","sys_qty","page","sel","scroll","spin_ticks","mode","open","item_menu_open","item_menu_sel","item_menu_row","lock"], [bag__empty_items(), [], 0, 0, 0, 0, "bag", false, false, 0, 0, 0]);
         }
     return _b;
 }

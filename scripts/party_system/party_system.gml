@@ -385,7 +385,7 @@ function party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         draw_text(_hp_tx, _hp_ty, _hp_txt);
     }
 
-    if (string(_P.mode) == "menu"){
+    if (string(_P.mode) == "menu" || string(_P.mode) == "item_action"){
         var _MX = 96, _MY = 20, _MW = 76, _MH = 84;
         var _bx1 = _OX + _MX*_S;
         var _by1 = _OY + _MY*_S;
@@ -409,6 +409,33 @@ function party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
                 draw_sprite_ext(spr_selector, 0, _bx1 + 4*_S, _yy_menu - _tgt*0.15, _sc, _sc, 0, c_white, 1);
             }
             draw_text(_bx1 + 16*_S, _yy_menu, _items[_i]);
+        }
+        // If in item_action mode, draw a small submenu replacing the 'Item' entry
+        if (string(_P.mode) == "item_action"){
+            var _ix = _bx1 + 36*_S;
+            var _iy = _by1 + (6 + 2*_m_h);
+            var _labels = ["Give","Take","Cancel"];
+            var _menuSel = 0;
+            if (variable_struct_exists(_P, "item_menu_sel")) _menuSel = variable_struct_get(_P, "item_menu_sel");
+
+            // draw a small parchment box behind the submenu
+            var _box_pad_x = 6 * _S;
+            var _box_pad_y = 3 * _S;
+            var _box_w = 48 * _S;
+            var _box_h = array_length(_labels) * _m_h + _box_pad_y * 2;
+            var _box_x1 = _ix - _box_pad_x;
+            var _box_y1 = _iy - _box_pad_y;
+            var _box_x2 = _box_x1 + _box_w;
+            var _box_y2 = _box_y1 + _box_h;
+            draw_set_color(_PARCHMENT); draw_rectangle(_box_x1, _box_y1, _box_x2, _box_y2, false);
+            draw_set_color(_C_PAPER_E); draw_rectangle(_box_x1 - _S, _box_y1 - _S, _box_x2 + _S, _box_y2 + _S, true);
+
+            // render labels in white (no black text) and prefix the selected with '>'
+            for (var _ii = 0; _ii < array_length(_labels); _ii++){
+                var _y2 = _iy + (_ii * _m_h);
+                if (_ii == _menuSel){ draw_set_color(c_white); draw_text(_ix + 4*_S, _y2, "> " + _labels[_ii]); }
+                else { draw_set_color(c_white); draw_text(_ix + 4*_S, _y2, _labels[_ii]); }
+            }
         }
     }
 }

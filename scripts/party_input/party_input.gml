@@ -19,30 +19,77 @@ function __party_impl_party_update(){
         }
 
         switch (_P.mode){
-            case "list": {
+            case "list":
                 if (controls_pressed(_pid,"MoveDown") && _n > 0) _P.sel = clamp(_P.sel + 1, 0, _n - 1);
                 if (controls_pressed(_pid,"MoveUp")   && _n > 0) _P.sel = clamp(_P.sel - 1, 0, _n - 1);
                 _P.scroll = clamp(_P.scroll, 0, max(0, _n - _ROWS));
                 if (_P.sel <  _P.scroll)        _P.scroll = _P.sel;
                 if (_P.sel >= _P.scroll + _ROWS) _P.scroll = max(0, _P.sel - _ROWS + 1);
                 if (controls_pressed(_pid,"Interact") && _P.lock == 0){ _P.mode="menu"; _P.menu_sel=0; _P.lock=2; }
-            } break;
+            break;
 
-            case "menu": {
+            case "menu":
                 if (controls_pressed(_pid,"MoveDown")) _P.menu_sel = clamp(_P.menu_sel + 1, 0, 3);
                 if (controls_pressed(_pid,"MoveUp"))   _P.menu_sel = clamp(_P.menu_sel - 1, 0, 3);
                 if (controls_pressed(_pid,"Interact") && _P.lock == 0){
                     switch (_P.menu_sel){
                         case 0: _P.mode="summary_profile"; _P.sum_move_sel=0; _P.sum_learn_sel=0; _P.lock=2; break;
                         case 1: _P.swap_index = _P.sel; _P.mode="select"; _P.lock=2; break;
-                        case 2: _P.mode="list"; _P.lock=2; break;
+                        case 2:
+                            // Enter item action submenu (Give / Take / Cancel)
+                            _P.mode = "item_action";
+                            show_debug_message("[party] Entered item_action mode (Item submenu)");
+                            _P.item_menu_sel = 0;
+                            _P.lock = 2;
+                            break;
                         case 3: _P.mode="list"; _P.lock=2; break;
                     }
                 }
                 if (controls_pressed(_pid,"Run") && _P.lock == 0){ _P.mode="list"; _P.lock=2; }
-            } break;
+            break;
 
-            case "select": {
+            case "item_action":
+                // simple two-option submenu for Item: Give / Take / Cancel
+                if (controls_pressed(_pid,"MoveDown")) _P.item_menu_sel = clamp(_P.item_menu_sel + 1, 0, 2);
+                if (controls_pressed(_pid,"MoveUp"))   _P.item_menu_sel = clamp(_P.item_menu_sel - 1, 0, 2);
+                if (controls_pressed(_pid,"Interact") && _P.lock == 0){
+                    switch (_P.item_menu_sel){
+                        case 0: // Give: open bag and mark for giving to this mon
+                            var _b = bag_inventory_ensure(_pid);
+                            // flag the bag to deliver selection to this party slot
+                            _b.give_to_mon = _P.sel;
+                            _b.give_from_party = true;
+                            // close party so bag is visible (party is drawn on top of bag); bag will re-open the party after give
+                            _P.lock = 4;
+                            party_close(_pid);
+                            bag_open(_pid);
+                            // short lock on bag to avoid immediate input
+                            _b.lock = 4;
+                            break;
+                        case 1: // Take: move held item from mon into bag (if present)
+                            var target = _P.mons[_P.sel];
+                            if (is_struct(target) && variable_struct_exists(target, "held_item_id")){
+                                var hid = variable_struct_get(target, "held_item_id");
+                                if (is_real(hid) && hid > 0){
+                                    bag_inventory_add_item(_pid, hid, 1);
+                                    // clear held item
+                                    variable_struct_set(target, "held_item_id", -1);
+                                    bags_seed_from_items(_pid);
+                                    show_debug_message("[party] Took item " + string(hid) + " from mon index " + string(_P.sel));
+                                } else { show_debug_message("[party] No held item to take"); }
+                            } else { show_debug_message("[party] No held item structure"); }
+                            // return to party menu
+                            _P.mode = "list"; _P.lock = 4; _P.give_pending = undefined;
+                            break;
+                        case 2: // Cancel
+                            _P.mode = "menu"; _P.lock = 2;
+                            break;
+                    }
+                }
+                if (controls_pressed(_pid,"Run") && _P.lock == 0){ _P.mode = "menu"; _P.lock = 2; }
+            break;
+
+            case "select":
                 if (controls_pressed(_pid,"MoveDown") && _n > 0) _P.sel = clamp(_P.sel + 1, 0, _n - 1);
                 if (controls_pressed(_pid,"MoveUp")   && _n > 0) _P.sel = clamp(_P.sel - 1, 0, _n - 1);
                 _P.scroll = clamp(_P.scroll, 0, max(0, _n - _ROWS));
@@ -57,9 +104,66 @@ function __party_impl_party_update(){
                     _P.mode="list"; _P.swap_index=-1; _P.lock=2;
                 }
                 if (controls_pressed(_pid,"Run") && _P.lock == 0){ _P.mode="list"; _P.swap_index=-1; _P.lock=2; }
-            } break;
+            break;
 
-            case "summary_profile": {
+            case "select_item":
+                if (controls_pressed(_pid,"MoveDown") && _n > 0) _P.sel = clamp(_P.sel + 1, 0, _n - 1);
+                if (controls_pressed(_pid,"MoveUp")   && _n > 0) _P.sel = clamp(_P.sel - 1, 0, _n - 1);
+                _P.scroll = clamp(_P.scroll, 0, max(0, _n - _ROWS));
+                if (_P.sel <  _P.scroll)        _P.scroll = _P.sel;
+                if (_P.sel >= _P.scroll + _ROWS) _P.scroll = max(0, _P.sel - _ROWS + 1);
+
+                if (controls_pressed(_pid,"Interact") && _P.lock == 0){
+                    var gp = (is_struct(_P) && variable_struct_exists(_P, "give_pending") ? _P.give_pending : undefined);
+                    if (!is_undefined(gp) && is_struct(gp)){
+                        var bpid = variable_struct_exists(gp, "bag_pid") ? variable_struct_get(gp, "bag_pid") : -1;
+                        var page  = variable_struct_exists(gp, "page") ? variable_struct_get(gp, "page") : 0;
+                        var brow  = variable_struct_exists(gp, "row") ? variable_struct_get(gp, "row") : 0;
+                        var item_id = variable_struct_exists(gp, "item_id") ? variable_struct_get(gp, "item_id") : -1;
+
+                        if (bpid >= 0){
+                            var _b = bag_inventory_ensure(bpid);
+                            if (array_length(_b.items) > page){ var pageArr = _b.items[page]; if (brow < array_length(pageArr)){
+                                var target = _P.mons[_P.sel]; if (!is_struct(target)) target = _P.mons[_P.sel] = {};
+                                // swap behavior: return existing held item to bag
+                                var prev = (variable_struct_exists(target, "held_item_id") ? variable_struct_get(target, "held_item_id") : -1);
+                                if (is_real(prev) && prev > 0){ bag_inventory_add_item(bpid, prev, 1); }
+                                // assign new
+                                if (!is_undefined(item_id) && item_id > 0) variable_struct_set(target, "held_item_id", item_id);
+                                // remove one from bag
+                                bag_inventory_remove_item(bpid, item_id, 1);
+                                // refresh bag pages from sys_qty
+                                bags_seed_from_items(bpid);
+                                show_debug_message("[party] Gave item " + string(item_id) + " to mon index " + string(_P.sel));
+
+                                // Close party UI and re-open the bag, restoring page/selection so player returns to bag menu
+                                if (!is_undefined(party_close)) party_close(_pid);
+                                if (!is_undefined(bag_open)) bag_open(bpid);
+                                var _b_after = bag_inventory_ensure(bpid);
+                                // restore page (clamp) and sel (clamp to available rows)
+                                _b_after.page = clamp(page, 0, max(0, array_length(_b_after.items) - 1));
+                                var _arrAfter = _b_after.items[_b_after.page];
+                                var _maxSel = max(0, array_length(_arrAfter) - 1);
+                                _b_after.sel = clamp(brow, 0, _maxSel);
+                                // ensure scroll covers sel (rows = 8)
+                                var _rows = 8;
+                                _b_after.scroll = clamp(_b_after.scroll, 0, max(0, array_length(_arrAfter) - _rows));
+                                if (_b_after.sel < _b_after.scroll) _b_after.scroll = _b_after.sel;
+                                if (_b_after.sel >= _b_after.scroll + _rows) _b_after.scroll = max(0, _b_after.sel - _rows + 1);
+                                // short lock to avoid immediate input carryover
+                                _b_after.lock = 4;
+                            }}
+                        }
+                        // clear pending
+                        _P.give_pending = undefined;
+                    }
+                    _P.mode = "list"; _P.lock = 2;
+                }
+
+                if (controls_pressed(_pid,"Run") && _P.lock == 0){ _P.mode = "list"; _P.lock = 2; _P.give_pending = undefined; }
+            break;
+
+            case "summary_profile":
                 if (controls_pressed(_pid,"MoveRight") && _n > 0){ _P.sel = clamp(_P.sel + 1, 0, _n - 1); _P.lock = 2; }
                 if (controls_down(_pid,"Inventory")){
                     if (controls_pressed(_pid,"MoveLeft")){
@@ -85,12 +189,12 @@ function __party_impl_party_update(){
                     global.sys_party_desc_scroll_req -= 28;
                 }
                 if (controls_pressed(_pid,"Run") && _P.lock == 0){ _P.mode = "list"; _P.lock = 2; }
-            } break;
+            break;
 
-            case "summary_moves": {
+            case "summary_moves":
                 var _M  = __party_mon_get(_P, _pid);
-                var _mv = is_struct(_M) && variable_struct_exists(_M,"moves") ? _M.moves : [];
-                var _lr = is_struct(_M) && variable_struct_exists(_M,"learnset") ? _M.learnset : [];
+                var _mv = (is_struct(_M) && variable_struct_exists(_M,"moves")) ? variable_struct_get(_M, "moves") : [];
+                var _lr = (is_struct(_M) && variable_struct_exists(_M,"learnset")) ? variable_struct_get(_M, "learnset") : [];
                 var _nm = array_length(_mv), _nl = array_length(_lr);
 
                 if (controls_pressed(_pid,"MoveRight") && _n > 0){ _P.sel = clamp(_P.sel + 1, 0, _n - 1); _P.lock = 2; }
@@ -132,16 +236,16 @@ function __party_impl_party_update(){
                 if (controls_pressed(_pid,"Interact") && _P.lock == 0){
                     if (_nl > 0){
                         var _learnId = _lr[_P.sum_learn_sel];
-                        if (_nm < 4){ array_push(_mv, _learnId); _M.moves = _mv; _P.sum_move_sel = array_length(_mv) - 1; _P.lock = 4; }
+                        if (_nm < 4){ array_push(_mv, _learnId); variable_struct_set(_M, "moves", _mv); _P.sum_move_sel = array_length(_mv) - 1; _P.lock = 4; }
                         else { _P.mode = "summary_forget"; _P.lock = 2; }
                     }
                 }
                 if (controls_pressed(_pid,"Run") && _P.lock == 0){ _P.mode = "summary_profile"; _P.lock = 2; }
-            } break;
+            break;
 
-            case "summary_forget": {
+            case "summary_forget":
                 var _M2  = __party_mon_get(_P, _pid);
-                var _mv2 = is_struct(_M2) && variable_struct_exists(_M2,"moves") ? _M2.moves : [];
+                var _mv2 = (is_struct(_M2) && variable_struct_exists(_M2,"moves")) ? variable_struct_get(_M2, "moves") : [];
                 var _nm2 = array_length(_mv2);
                 if (_nm2 <= 0){ _P.mode = "summary_moves"; break; }
                 if (controls_pressed(_pid,"MoveDown")) _P.sum_move_sel = clamp(_P.sum_move_sel + 1, 0, _nm2 - 1);
@@ -156,15 +260,15 @@ function __party_impl_party_update(){
                     }
                 }
                 if (controls_pressed(_pid,"MoveUp"))   _P.sum_move_sel = clamp(_P.sum_move_sel - 1, 0, _nm2 - 1);
-                var _lr2 = is_struct(_M2) && variable_struct_exists(_M2,"learnset") ? _M2.learnset : [];
+                var _lr2 = (is_struct(_M2) && variable_struct_exists(_M2,"learnset")) ? variable_struct_get(_M2, "learnset") : [];
                 var _nl2 = array_length(_lr2);
                 var _chosen = (_nl2 > 0) ? _lr2[_P.sum_learn_sel] : -1;
                 if (controls_pressed(_pid,"Interact") && _P.lock == 0){
-                    if (_chosen != -1){ _mv2[_P.sum_move_sel] = _chosen; _M2.moves = _mv2; _P.mode = "summary_moves"; _P.lock = 4; }
+                    if (_chosen != -1){ _mv2[_P.sum_move_sel] = _chosen; variable_struct_set(_M2, "moves", _mv2); _P.mode = "summary_moves"; _P.lock = 4; }
                     else { _P.mode = "summary_moves"; _P.lock = 2; }
                 }
                 if (controls_pressed(_pid,"Run") && _P.lock == 0){ _P.mode = "summary_moves"; _P.lock = 2; }
-            } break;
+            break;
         }
 
         // ---- Summary page animation (mode + selection driven) ----
