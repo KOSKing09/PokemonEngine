@@ -145,30 +145,72 @@ function __dlp_run_group(_metrics, _logPath, _groupLabel, _targetsArr) {
 
 // Single target
 function __dlp_run_one(_metrics, _logPath, _label) {
-    var _asset = asset_get_index(_label);
+    // Allow _label to be a single label or an array of candidate labels.
+    var candidates = [];
+    if (is_array(_label)) {
+        candidates = _label;
+    } else {
+        // build sensible variants to reduce coupling to exact loader naming
+        candidates = __dlp_make_candidates(string(_label));
+    }
+
+    var chosenLabel = "";
+    var chosenAsset = -1;
     var _ok = false;
     var _ms = 0.0;
 
-    if (_asset != -1) {
+    // Try each candidate until we find a script asset we can run
+    for (var ci = 0; ci < array_length(candidates); ci++){
+        var cand = string(candidates[ci]);
+        var aid = asset_get_index(cand);
+        if (aid != -1) {
+            chosenLabel = cand;
+            chosenAsset = aid;
+            break;
+        }
+    }
+
+    if (chosenAsset != -1) {
         var _t0 = __dlp_now();
-        _ok = script_execute(_asset);
+        // script_execute may return undefined; treat truthy/non-error as success
+        var _res = script_execute(chosenAsset);
         var _t1 = __dlp_now();
         _ms = __dlp_ms(_t0, _t1);
+        _ok = !is_undefined(_res) ? (_res == true || _res == 1) : true;
     } else {
+        // nothing found; record first candidate as label for trace
+        chosenLabel = (array_length(candidates) > 0) ? string(candidates[0]) : string(_label);
         _ok = false;
         _ms = 0.0;
     }
 
-    var _entry = { label: _label, ok: _ok, ms: _ms };
+    var _entry = { label: chosenLabel, ok: _ok, ms: _ms };
     _metrics.sys_items = __dlp_array_push(_metrics.sys_items, _entry);
     _metrics.sys_entries += 1;
 
     var _stamp = __dlp_timestamp();
     var _okStr = _ok ? "1" : "0";
-    var _line = _stamp + "," + _label + "," + _okStr + "," + string(_ms);
+    var _line = _stamp + "," + chosenLabel + "," + _okStr + "," + string(_ms);
     __dlp_write_line(_logPath, _line);
 
-    show_debug_message("[DLP] " + _label + " → ok=" + string(_ok) + " ms=" + string(_ms));
+    show_debug_message("[DLP] " + chosenLabel + " → ok=" + string(_ok) + " ms=" + string(_ms));
+}
+
+// Build candidate strings from a logical label to reduce exact-name coupling.
+function __dlp_make_candidates(_label){
+    var out = [];
+    out[0] = _label;
+    // variants
+    out[array_length(out)] = _label + "_structs";
+    out[array_length(out)] = _label + "_csv";
+    // swap common suffixes
+    if (string_pos("_csv", _label) > 0) out[array_length(out)] = string_replace(_label, "_csv", "_structs");
+    if (string_pos("_structs", _label) > 0) out[array_length(out)] = string_replace(_label, "_structs", "_csv");
+    // plural variant
+    out[array_length(out)] = _label + "s";
+    // common orchestrator names
+    if (_label == "data_load_all_structs") out[array_length(out)] = "data_load_all_structs_ext";
+    return out;
 }
 
 // ------------------------------------------------------------

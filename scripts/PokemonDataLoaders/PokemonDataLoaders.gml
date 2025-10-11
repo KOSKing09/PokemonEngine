@@ -367,20 +367,37 @@ function data_load_species_abilities_structs(){
     var g = load_csv(path);
     if (g == -1) { show_debug_message("[DATA][pokemon_abilities] SKIP: " + path); global._species_abilities = []; return; }
     var H = ds_grid_height(g);
-    // size by max species id
+    // Two-pass approach: first count entries per species, then allocate inner arrays and fill
     var max_sid = 0;
+    var counts = [];
     for (var _r = 1; _r < H; _r++){
         var _sid = __to_int_safe(__grid(g,0,_r,0),0);
+        if (_sid <= 0) continue;
         if (_sid > max_sid) max_sid = _sid;
+        if (_sid >= array_length(counts)) array_resize(counts, _sid+1);
+        counts[_sid] = (is_real(counts[_sid]) ? counts[_sid] + 1 : 1);
     }
+
     global._species_abilities = []; array_resize(global._species_abilities, max_sid+1);
-    for (var _i = 0; _i <= max_sid; _i++) global._species_abilities[_i] = [];
+    var positions = []; // insertion cursors for each species
+    for (var _i = 0; _i <= max_sid; _i++){
+        var c = (is_real(counts[_i]) ? counts[_i] : 0);
+        if (c > 0){
+            global._species_abilities[_i] = array_create(c, undefined);
+            positions[_i] = 0;
+        } else {
+            global._species_abilities[_i] = [];
+            positions[_i] = 0;
+        }
+    }
     var _rows = 0;
     for (var _r = 1; _r < H; _r++){
         var _sid = __to_int_safe(__grid(g,0,_r,0),0);
         var _aid = __to_int_safe(__grid(g,1,_r,0),0);
         if (_sid <= 0 || _aid <= 0) continue;
-        array_push(global._species_abilities[_sid], _aid);
+        var pos = positions[_sid];
+        global._species_abilities[_sid][pos] = _aid;
+        positions[_sid] = pos + 1;
         _rows++;
     }
     show_debug_message("[DATA][pokemon_abilities] rows=" + string(_rows));
@@ -396,8 +413,24 @@ function data_load_species_moves_structs(){
         var _sid = __to_int_safe(__grid(g,0,_r,0),0);
         if (_sid > max_sid) max_sid = _sid;
     }
+    // Two-pass: count per species then allocate arrays and fill to avoid repeated resizing
+    var counts = [];
+    for (var _r = 1; _r < H; _r++){
+        var _sid = __to_int_safe(__grid(g,0,_r,0),0);
+        var _mid = __to_int_safe(__grid(g,2,_r,0),0);
+        var _mth = __to_int_safe(__grid(g,3,_r,0),0);
+        if (_sid <= 0 || _mid <= 0 || _mth != 1) continue;
+        if (_sid >= array_length(counts)) array_resize(counts, _sid+1);
+        counts[_sid] = (is_real(counts[_sid]) ? counts[_sid] + 1 : 1);
+    }
+
     global._species_moves = []; array_resize(global._species_moves, max_sid+1);
-    for (var _i = 0; _i <= max_sid; _i++) global._species_moves[_i] = [];
+    var positions = [];
+    for (var _i = 0; _i <= max_sid; _i++){
+        var c = (is_real(counts[_i]) ? counts[_i] : 0);
+        if (c > 0){ global._species_moves[_i] = array_create(c, undefined); positions[_i] = 0; }
+        else { global._species_moves[_i] = []; positions[_i] = 0; }
+    }
     var _rows = 0;
     for (var _r = 1; _r < H; _r++){
         var _sid = __to_int_safe(__grid(g,0,_r,0),0);
@@ -406,7 +439,9 @@ function data_load_species_moves_structs(){
         var _mth = __to_int_safe(__grid(g,3,_r,0),0); // 1 = level-up
         var _lvl = __to_int_safe(__grid(g,4,_r,0),0);
         if (_sid <= 0 || _mid <= 0 || _mth != 1) continue;
-        array_push(global._species_moves[_sid], { lvl:_lvl, mid:_mid });
+        var pos = positions[_sid];
+        global._species_moves[_sid][pos] = { lvl:_lvl, mid:_mid };
+        positions[_sid] = pos + 1;
         _rows++;
     }
     // sort each species moves by lvl
@@ -499,10 +534,9 @@ function data_load_item_categorys_structs(){
     var ci_name = __col_find_ci(g, "name");
     var ci_pocket = __col_find_ci(g, "pocket") ;
 
-    // Create mapping from pocket name to page index (struct/array-based)
-    var pocket_order = [];
-
-
+    // Create mapping from pocket name to page index (do this with a dict to avoid repeated array_push)
+    var pocket_map = {}; // pocket_name -> index
+    var pocket_list_counts = []; // temporary to preserve insertion order
     var rows = 0;
     for (var r2 = 1; r2 < H; r2++){
         var cid = (ci_id >= 0) ? __to_int_safe(__grid(g, ci_id, r2, 0), 0) : __to_int_safe(__grid(g, 0, r2, 0), 0);
@@ -511,22 +545,27 @@ function data_load_item_categorys_structs(){
         var namev = (ci_name >= 0) ? __s_trim(__grid(g, ci_name, r2, "")) : ident;
         var pocket_name = (ci_pocket >= 0) ? __s_trim(__grid(g, ci_pocket, r2, "")) : string(cid);
 
-        // Assign pocket -> page index if unseen
         var pocket_id = -1;
-        for (var _pi = 0; _pi < array_length(pocket_order); _pi++){
-            if (pocket_order[_pi] == pocket_name) { pocket_id = _pi; break; }
-        }
-        if (pocket_id == -1) {
-            pocket_id = array_length(pocket_order);
-            array_push(pocket_order, pocket_name);
+        // Defensive: only treat pocket_map as a struct if it really is one; pocket_name should be a string
+        if (is_struct(pocket_map) && is_string(pocket_name) && variable_struct_exists(pocket_map, pocket_name)){
+            pocket_id = pocket_map[pocket_name];
+        } else {
+            pocket_id = array_length(pocket_list_counts);
+            pocket_list_counts[pocket_id] = pocket_name;
+            if (is_struct(pocket_map)) pocket_map[pocket_name] = pocket_id;
+            else {
+                // If pocket_map somehow isn't a struct, fall back to creating a local struct mapping
+                pocket_map = {};
+                pocket_map[pocket_name] = pocket_id;
+            }
         }
 
         global.item_categorys[cid] = { id:cid, identifier:ident, name:namev, pocket:pocket_name, pocket_id:pocket_id };
         rows++;
     }
 
-    // Convert pocket_order into a simple array and clamp pages to 0..4
-    global._item_pockets = pocket_order;
+    // Convert the collected pocket list into a simple array and clamp pages to 0..4
+    global._item_pockets = pocket_list_counts;
     global._item_to_bag_page = [];
     // Find column for items -> category mapping if present in items.csv (we already read items earlier)
     // Fallback: use category_id stored on each global._items[item_id].category_id
@@ -550,8 +589,8 @@ function data_load_item_categorys_structs(){
             var pocket_name = (cat < array_length(global.item_categorys) && is_struct(global.item_categorys[cat])) ? global.item_categorys[cat].pocket : string(cat);
             var pg = 0;
             // find pocket index in pocket_order
-            for (var pidx = 0; pidx < array_length(pocket_order); pidx++){
-                if (pocket_order[pidx] == pocket_name){ pg = pidx; break; }
+            for (var pidx = 0; pidx < array_length(pocket_list_counts); pidx++){
+                if (pocket_list_counts[pidx] == pocket_name){ pg = pidx; break; }
             }
             pg = min(4, max(0, floor(pg)));
             global._item_to_bag_page[iid] = pg;
@@ -582,9 +621,24 @@ function data_load_item_flag_map_structs(){
         var iid = __to_int_safe(__grid(g, ci_item, r, 0), 0);
         if (iid > max_iid) max_iid = iid;
     }
+    // Count entries per item id
+    var counts = [];
+    for (var r = 1; r < H; r++){
+        var iid = __to_int_safe(__grid(g, ci_item, r, 0), 0);
+        var flag = __s_trim(__grid(g, ci_flag, r, ""));
+        if (iid <= 0 || string_length(flag) == 0) continue;
+        if (iid >= array_length(counts)) array_resize(counts, iid+1);
+        counts[iid] = (is_real(counts[iid]) ? counts[iid] + 1 : 1);
+    }
+
     global._item_flag_map = [];
     array_resize(global._item_flag_map, max_iid + 1);
-    for (var i = 0; i <= max_iid; i++) global._item_flag_map[i] = [];
+    var positions = [];
+    for (var i = 0; i <= max_iid; i++){
+        var c = (is_real(counts[i]) ? counts[i] : 0);
+        if (c > 0){ global._item_flag_map[i] = array_create(c, undefined); positions[i] = 0; }
+        else { global._item_flag_map[i] = []; positions[i] = 0; }
+    }
 
     var rows = 0;
     for (var r2 = 1; r2 < H; r2++){
@@ -592,8 +646,9 @@ function data_load_item_flag_map_structs(){
         if (iid <= 0) continue;
         var flag = __s_trim(__grid(g, ci_flag, r2, ""));
         if (string_length(flag) == 0) continue;
-        if (iid >= array_length(global._item_flag_map)) array_resize(global._item_flag_map, iid+1);
-        array_push(global._item_flag_map[iid], flag);
+        var pos = positions[iid];
+        global._item_flag_map[iid][pos] = flag;
+        positions[iid] = pos + 1;
         rows++;
     }
     show_debug_message("[DATA][item_flag_map] rows=" + string(rows));
@@ -613,19 +668,25 @@ function data_load_item_flag_prose_structs(){
 
     // We'll store as an associative-like array by code index: find unique codes and store them sequentially,
     // but also build a helper lookup by code via a struct `global._item_flag_text_by_code` so callers can find by code.
-    global._item_flag_text = [];
     global._item_flag_text_by_code = {}; // small struct lookup
-
+    // First count rows so we can allocate the array once
+    var total = 0;
+    for (var r2 = 1; r2 < H; r2++){
+        var code = __s_trim(__grid(g, ci_flag, r2, ""));
+        if (string_length(code) == 0) continue;
+        total++;
+    }
+    global._item_flag_text = array_create(total, undefined);
+    var idx = 0;
     var rows = 0;
     for (var r2 = 1; r2 < H; r2++){
         var code = __s_trim(__grid(g, ci_flag, r2, ""));
         if (string_length(code) == 0) continue;
         var text = __text_clean_spaces(__grid(g, ci_text, r2, ""));
         var entry = { code:code, text:text };
-        array_push(global._item_flag_text, entry);
-        // also add a direct code -> struct entry in the struct lookup
+        global._item_flag_text[idx] = entry;
         global._item_flag_text_by_code[code] = entry;
-        rows++;
+        idx++; rows++;
     }
     show_debug_message("[DATA][item_flag_prose] rows=" + string(rows));
 }
