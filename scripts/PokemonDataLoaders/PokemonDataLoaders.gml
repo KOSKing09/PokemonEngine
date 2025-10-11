@@ -63,7 +63,7 @@ function __text_clean_spaces(_t){
 function data_load_pokemon_structs(){
     var path = working_directory + "/data/csv/pokemon.csv";
     var g = load_csv(path);
-    if (g == -1) { show_debug_message("[DATA][pokemon] FAILED: " + path); global._pokemon = []; return; }
+    if (g == -1) { data_debug("[DATA][pokemon] FAILED: " + path); global._pokemon = []; return; }
 
     var H = ds_grid_height(g);
 
@@ -104,14 +104,14 @@ function data_load_pokemon_structs(){
             rows++;
         }
     }
-    show_debug_message("[DATA][pokemon] rows=" + string(rows));
+    data_debug("[DATA][pokemon] rows=" + string(rows));
 }
 
 // ---------- DATA: pokemon_stats.csv -> per species aggregate ----------
 function data_load_pokemon_stats_structs(){
     var path = working_directory + "/data/csv/pokemon_stats.csv";
     var g = load_csv(path);
-    if (g == -1) { show_debug_message("[DATA][pokemon_stats] FAILED: " + path); global._poke_stats = []; return; }
+    if (g == -1) { data_debug("[DATA][pokemon_stats] FAILED: " + path); global._poke_stats = []; return; }
 
     // Ensure stats array covers all ids present in pokemon
     var max_id = max(0, array_length(global._pokemon)-1);
@@ -145,14 +145,14 @@ function data_load_pokemon_stats_structs(){
             rows++;
         }
     }
-    show_debug_message("[DATA][pokemon_stats] rows=" + string(rows));
+    data_debug("[DATA][pokemon_stats] rows=" + string(rows));
 }
 
 // ---------- ORCHESTRATOR ----------
 function data_load_all_structs(){
     data_load_pokemon_structs();
     data_load_pokemon_stats_structs();
-    show_debug_message("[DATA][structs] done.");
+    data_debug("[DATA][structs] done.");
 
     // --- EXT HOOK (safe, runs once if present) ---
     if (!variable_global_exists("_csv_ext_loaded") || !global._csv_ext_loaded) {
@@ -164,6 +164,10 @@ function data_load_all_structs(){
         }
     }
 
+}
+// Simple data debug gate: use global.DATA_DEBUG to enable/disable data loader messages
+function data_debug(_msg){
+    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message(_msg);
 }
 // ---------- EXTENDED DATA LOADERS (moves, abilities, texts, species links) ----------
 // All CSVs optional. Missing files are skipped safely. Results go to new globals for lookups.
@@ -184,7 +188,7 @@ function data_load_all_structs(){
 function data_load_moves_structs(){
     var path = working_directory + "/data/csv/moves.csv";
     var g = load_csv(path);
-    if (g == -1) { show_debug_message("[DATA][moves] SKIP: " + path); global._moves = []; return; }
+    if (g == -1) { data_debug("[DATA][moves] SKIP: " + path); global._moves = []; return; }
     var H = ds_grid_height(g);
     // size by max id
     var max_id = 0;
@@ -206,14 +210,14 @@ function data_load_moves_structs(){
         global._moves[_id] = { id:_id, identifier:_ident, type_id:_type, power:_power, pp:_pp, priority:_prio, damage_class_id:_dcls };
         _rows++;
     }
-    show_debug_message("[DATA][moves] rows=" + string(_rows));
+    data_debug("[DATA][moves] rows=" + string(_rows));
 }
 
 // UPDATED: Move flavor text (PokeAPI) -> move_flavor_text.csv (EN, latest version_group_id)
 function data_load_move_text_structs(){
     var path = working_directory + "/data/csv/move_flavor_text.csv";
     var g = load_csv(path);
-    if (g == -1) { show_debug_message("[DATA][move_text] SKIP: " + path); global._move_text = []; return; }
+    if (g == -1) { data_debug("[DATA][move_text] SKIP: " + path); global._move_text = []; return; }
     var H = ds_grid_height(g);
 
     // Resolve EN language id from languages.csv (fallback to 9)
@@ -241,7 +245,7 @@ function data_load_move_text_structs(){
     var ci_lang = __col_find_ci(g, "language_id");
     var ci_text = __col_find_ci(g, "flavor_text");
     if (ci_move < 0 || ci_lang < 0 || ci_text < 0){
-        show_debug_message("[DATA][move_text] ERROR: required columns missing in move_flavor_text.csv");
+    data_debug("[DATA][move_text] ERROR: required columns missing in move_flavor_text.csv");
         global._move_text = [];
         return;
     }
@@ -275,14 +279,14 @@ function data_load_move_text_structs(){
         }
         rows++;
     }
-    show_debug_message("[DATA][move_flavor_text] en_id=" + string(en_id) + " rows_seen=" + string(rows));
+    data_debug("[DATA][move_flavor_text] en_id=" + string(en_id) + " rows_seen=" + string(rows));
 }
 
 // Abilities (core)
 function data_load_abilities_structs(){
     var path = working_directory + "/data/csv/abilities.csv";
     var g = load_csv(path);
-    if (g == -1) { show_debug_message("[DATA][abilities] SKIP: " + path); global._abilities = []; return; }
+    if (g == -1) { data_debug("[DATA][abilities] SKIP: " + path); global._abilities = []; return; }
     var H = ds_grid_height(g);
     var max_id = 0;
     for (var _r = 1; _r < H; _r++){
@@ -298,14 +302,14 @@ function data_load_abilities_structs(){
         global._abilities[_id] = { id:_id, identifier:_ident };
         _rows++;
     }
-    show_debug_message("[DATA][abilities] rows=" + string(_rows));
+    data_debug("[DATA][abilities] rows=" + string(_rows));
 }
 
 // UPDATED: Ability flavor text (PokeAPI) -> ability_flavor_text.csv (EN)
 function data_load_ability_text_structs(){
     var path = working_directory + "/data/csv/ability_flavor_text.csv";
     var g = load_csv(path);
-    if (g == -1) { show_debug_message("[DATA][ability_text] SKIP: " + path); global._ability_text = []; return; }
+    if (g == -1) { data_debug("[DATA][ability_text] SKIP: " + path); global._ability_text = []; return; }
     var H = ds_grid_height(g);
 
     // Resolve EN language id from languages.csv (fallback 9)
@@ -333,7 +337,7 @@ function data_load_ability_text_structs(){
     var ci_text    = __col_find_ci(g, "flavor_text");
     if (ci_text < 0) ci_text = __col_find_ci(g, "effect"); // some dumps use 'effect'
     if (ci_ability < 0 || ci_lang < 0 || ci_text < 0){
-        show_debug_message("[DATA][ability_text] ERROR: required columns missing in ability_flavor_text.csv");
+    data_debug("[DATA][ability_text] ERROR: required columns missing in ability_flavor_text.csv");
         global._ability_text = [];
         return;
     }
@@ -359,13 +363,13 @@ function data_load_ability_text_structs(){
         global._ability_text[ab2] = { name:"", short_desc:text, effect:text };
         rows++;
     }
-    show_debug_message("[DATA][ability_flavor_text] en_id=" + string(en_id) + " rows_seen=" + string(rows));
+    data_debug("[DATA][ability_flavor_text] en_id=" + string(en_id) + " rows_seen=" + string(rows));
 }
 
 function data_load_species_abilities_structs(){
     var path = working_directory + "/data/csv/pokemon_abilities.csv";
     var g = load_csv(path);
-    if (g == -1) { show_debug_message("[DATA][pokemon_abilities] SKIP: " + path); global._species_abilities = []; return; }
+    if (g == -1) { data_debug("[DATA][pokemon_abilities] SKIP: " + path); global._species_abilities = []; return; }
     var H = ds_grid_height(g);
     // Two-pass approach: first count entries per species, then allocate inner arrays and fill
     var max_sid = 0;
@@ -400,13 +404,13 @@ function data_load_species_abilities_structs(){
         positions[_sid] = pos + 1;
         _rows++;
     }
-    show_debug_message("[DATA][pokemon_abilities] rows=" + string(_rows));
+    data_debug("[DATA][pokemon_abilities] rows=" + string(_rows));
 }
 
 function data_load_species_moves_structs(){
     var path = working_directory + "/data/csv/pokemon_moves.csv";
     var g = load_csv(path);
-    if (g == -1) { show_debug_message("[DATA][pokemon_moves] SKIP: " + path); global._species_moves = []; return; }
+    if (g == -1) { data_debug("[DATA][pokemon_moves] SKIP: " + path); global._species_moves = []; return; }
     var H = ds_grid_height(g);
     var max_sid = 0;
     for (var _r = 1; _r < H; _r++){
@@ -451,7 +455,7 @@ function data_load_species_moves_structs(){
             array_sort(_arr, function(a,b){ return a.lvl - b.lvl; });
         }
     }
-    show_debug_message("[DATA][pokemon_moves] rows=" + string(_rows));
+    data_debug("[DATA][pokemon_moves] rows=" + string(_rows));
 }
 
 function data_load_all_structs_ext(){
@@ -467,7 +471,7 @@ function data_load_all_structs_ext(){
     // Item flags: map + prose
     data_load_item_flag_map_structs();
     data_load_item_flag_prose_structs();
-    show_debug_message("[DATA][structs_ext] done.");
+    data_debug("[DATA][structs_ext] done.");
 }
 
 
@@ -476,7 +480,7 @@ function data_load_all_structs_ext(){
 function data_load_items_structs(){
     var csv_path = working_directory + "/data/csv/items.csv";
     var g = load_csv(csv_path);
-    if (g == -1) { show_debug_message("[DATA][items] SKIP: " + csv_path); global._items = []; return; }
+    if (g == -1) { data_debug("[DATA][items] SKIP: " + csv_path); global._items = []; return; }
     var H = ds_grid_height(g);
 
     var max_id = 0;
@@ -502,7 +506,7 @@ function data_load_items_structs(){
         rows++;
     }
 
-    show_debug_message("[DATA][items] rows=" + string(rows));
+    data_debug("[DATA][items] rows=" + string(rows));
 }
 
 
@@ -513,7 +517,7 @@ function data_load_items_structs(){
 function data_load_item_categorys_structs(){
     var csv_path = working_directory + "/data/csv/item_categories.csv";
     var g = load_csv(csv_path);
-    if (g == -1) { show_debug_message("[DATA][item_categories] SKIP: " + csv_path); global.item_categorys = []; global._item_to_bag_page = []; return; }
+    if (g == -1) { data_debug("[DATA][item_categories] SKIP: " + csv_path); global.item_categorys = []; global._item_to_bag_page = []; return; }
 
     var H = ds_grid_height(g);
     // discover max id
@@ -597,7 +601,7 @@ function data_load_item_categorys_structs(){
         }
     }
 
-    show_debug_message("[DATA][item_categories] rows=" + string(rows) + " pockets=" + string(array_length(global._item_pockets)) );
+    data_debug("[DATA][item_categories] rows=" + string(rows) + " pockets=" + string(array_length(global._item_pockets)) );
 }
 
 
@@ -607,7 +611,7 @@ function data_load_item_categorys_structs(){
 function data_load_item_flag_map_structs(){
     var csv_path = working_directory + "/data/csv/item_flag_map.csv";
     var g = load_csv(csv_path);
-    if (g == -1) { show_debug_message("[DATA][item_flag_map] SKIP: " + csv_path); global._item_flag_map = []; return; }
+    if (g == -1) { data_debug("[DATA][item_flag_map] SKIP: " + csv_path); global._item_flag_map = []; return; }
     var H = ds_grid_height(g);
 
     // find columns if header exists
@@ -651,7 +655,7 @@ function data_load_item_flag_map_structs(){
         positions[iid] = pos + 1;
         rows++;
     }
-    show_debug_message("[DATA][item_flag_map] rows=" + string(rows));
+    data_debug("[DATA][item_flag_map] rows=" + string(rows));
 }
 
 // data/csv/item_flag_prose.csv => maps flag_code -> prose/description
@@ -659,7 +663,7 @@ function data_load_item_flag_map_structs(){
 function data_load_item_flag_prose_structs(){
     var csv_path = working_directory + "/data/csv/item_flag_prose.csv";
     var g = load_csv(csv_path);
-    if (g == -1) { show_debug_message("[DATA][item_flag_prose] SKIP: " + csv_path); global._item_flag_text = []; return; }
+    if (g == -1) { data_debug("[DATA][item_flag_prose] SKIP: " + csv_path); global._item_flag_text = []; return; }
     var H = ds_grid_height(g);
 
     var ci_flag = __col_find_ci(g, "flag") ;
@@ -688,22 +692,22 @@ function data_load_item_flag_prose_structs(){
         global._item_flag_text_by_code[code] = entry;
         idx++; rows++;
     }
-    show_debug_message("[DATA][item_flag_prose] rows=" + string(rows));
+    data_debug("[DATA][item_flag_prose] rows=" + string(rows));
 }
 
 // Debug helper: prints a short summary of loaded items and categories
 function debug_print_items_and_categories(){
     var cntItems = (variable_global_exists("_items") && is_array(global._items)) ? array_length(global._items) : 0;
-    show_debug_message("[DEBUG] _items count=" + string(cntItems));
+    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[DEBUG] _items count=" + string(cntItems));
     for (var i = 1; i < min(10, cntItems); i++){
         var it = global._items[i];
-        if (is_struct(it)) show_debug_message("[DEBUG] item " + string(i) + ": id=" + string(it._id) + ", name=" + string(it.name) + ", cat=" + string(it.category_id));
+    if (is_struct(it) && variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[DEBUG] item " + string(i) + ": id=" + string(it._id) + ", name=" + string(it.name) + ", cat=" + string(it.category_id));
     }
 
     var cntCats = (variable_global_exists("item_categorys") && is_array(global.item_categorys)) ? array_length(global.item_categorys) : 0;
-    show_debug_message("[DEBUG] item_categorys count=" + string(cntCats));
+    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[DEBUG] item_categorys count=" + string(cntCats));
     for (var c = 0; c < min(20, cntCats); c++){
         var cat = global.item_categorys[c];
-        if (is_struct(cat)) show_debug_message("[DEBUG] cat " + string(c) + ": id=" + string(cat.id) + ", name=" + string(cat.name) + ", pocket=" + string(cat.pocket) + ", pocket_id=" + string(cat.pocket_id));
+    if (is_struct(cat) && variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[DEBUG] cat " + string(c) + ": id=" + string(cat.id) + ", name=" + string(cat.name) + ", pocket=" + string(cat.pocket) + ", pocket_id=" + string(cat.pocket_id));
     }
 }

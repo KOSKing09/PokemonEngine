@@ -14,7 +14,7 @@ globalvar PARTY;
 globalvar sys_party_desc_scroll_req;
 
 #macro PARTY_ICON_H_UI 20
-#macro PARTY_ROW_PAD_UI 2
+#macro PARTY_ROW_PAD_UI 7
 #macro PARTY_HILITE_COL make_color_rgb(255,255,255)
 #macro PARTY_HILITE_EDGE make_color_rgb(136,100,36)
 #macro PARTY_HILITE_ALPHA 0.20
@@ -302,6 +302,35 @@ function party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
             _drawnIconW_ui = ceil((_iw_gui) / _S);
         } else {
             _drawnIconW_ui = 18;
+        }
+
+        // Draw small held-item icon at bottom-left of the party portrait if the mon has one
+        if (is_struct(_M)){
+            var _held_spr = -1;
+            // prefer the canonical real name if present
+            if (variable_struct_exists(_M, "held_item_real_name") && string_length(string(_M.held_item_real_name)) > 0){
+                if (!is_undefined(pkicons_get_item_icon_by_name)) _held_spr = pkicons_get_item_icon_by_name(string(_M.held_item_real_name));
+            }
+            // fallback to held_item_id
+            if ((_held_spr == -1 || is_undefined(_held_spr)) && variable_struct_exists(_M, "held_item_id") && is_real(_M.held_item_id) && _M.held_item_id > 0){
+                if (!is_undefined(pkicons_get_item_icon_by_id)) _held_spr = pkicons_get_item_icon_by_id(_M.held_item_id);
+            }
+            // if we have a usable sprite, draw a small 5x5 px icon at bottom-left of the icon area
+            if ((!is_undefined(_held_spr) && _held_spr != -1) && sprite_exists(_held_spr)){
+                var _small_w = 5; var _small_h = 5;
+                var _sx = _OX + (_LIST_X + 2) * _S; // left edge of icon area
+                var _sy = _row_y_gui - (_ROW_H * 0.5) * _S + (_ROW_H * 0.5) * _S; // bottom of row icon area
+                // place slightly inset from bottom-left of the icon region
+                var _px = floor(_sx + 2 * _S);
+                var _py = floor(_row_y_gui + (_target_h_gui * 0.5) - (_small_h * _S) - 1 * _S - 5 * _S + 3 * _S);
+                // compute scale to map sprite intrinsic size to 5x5 UI pixels
+                var _spr_w = max(1, sprite_get_width(_held_spr));
+                var _spr_h = max(1, sprite_get_height(_held_spr));
+                var _scale_x = (_small_w) / _spr_w;
+                var _scale_y = (_small_h) / _spr_h;
+                var _scale = min(_scale_x, _scale_y);
+                draw_sprite_ext(_held_spr, 0, _px, _py, _scale, _scale, 0, c_white, 1);
+            }
         }
 
         var _disp_name = "???";

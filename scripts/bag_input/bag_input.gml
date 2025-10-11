@@ -64,8 +64,13 @@ function __bag_impl_bag_item_menu_update(_pid){
                         // return prev held item to bag
                         var prev = (variable_struct_exists(target, "held_item_id") ? variable_struct_get(target, "held_item_id") : -1);
                         if (is_real(prev) && prev > 0) bag_inventory_add_item(_pid, prev, 1);
-                        // set held item to selected
+                        // set held item to selected and preserve canonical identifier for render/lookup
                         variable_struct_set(target, "held_item_id", it.item_id);
+                        if (is_struct(it) && variable_struct_exists(it, "real_name") && string_length(string(it.real_name)) > 0){
+                            variable_struct_set(target, "held_item_real_name", string(it.real_name));
+                        } else if (is_struct(it) && variable_struct_exists(it, "name") && string_length(string(it.name)) > 0){
+                            variable_struct_set(target, "held_item_real_name", string(it.name));
+                        }
                         // remove one from bag
                         bag_inventory_remove_item(_pid, it.item_id, 1);
                         bags_seed_from_items(_pid);
@@ -104,15 +109,11 @@ function __bag_impl_bag_item_menu_update(_pid){
     // navigate submenu (4 options)
     // Diagnostics: log control events when menu is open (temporary)
     if (controls_pressed(_pid, "MoveDown")){
-        show_debug_message("[bag] MoveDown pressed (submenu)");
         b.item_menu_sel = clamp(b.item_menu_sel + 1, 0, 3);
     }
     if (controls_pressed(_pid, "MoveUp")){
-        show_debug_message("[bag] MoveUp pressed (submenu)");
         b.item_menu_sel = clamp(b.item_menu_sel - 1, 0, 3);
     }
-    if (controls_down(_pid, "MoveDown")) show_debug_message("[bag] MoveDown down (submenu)");
-    if (controls_down(_pid, "MoveUp")) show_debug_message("[bag] MoveUp down (submenu)");
 
     // selection
     if (controls_pressed(_pid, "Interact") && b.lock == 0){
@@ -129,7 +130,11 @@ function __bag_impl_bag_item_menu_update(_pid){
                 party_open(_pid);
                 var P = party_ensure(_pid);
                 P.mode = "select_item";
-                P.give_pending = { bag_pid: _pid, page: b.page, row: row, item_id: it.item_id };
+                // include the raw identifier (real_name) so the party receives canonical item name
+                var _realnm_pending = undefined;
+                if (is_struct(it) && variable_struct_exists(it, "real_name")) _realnm_pending = string(it.real_name);
+                else if (is_struct(it) && variable_struct_exists(it, "name")) _realnm_pending = string(it.name);
+                P.give_pending = { bag_pid: _pid, page: b.page, row: row, item_id: it.item_id, item_real_name: _realnm_pending };
                 P.lock = 4;
                 break;
             case 2: // Discard (remove one)

@@ -72,8 +72,9 @@ function __party_impl_party_update(){
                                 var hid = variable_struct_get(target, "held_item_id");
                                 if (is_real(hid) && hid > 0){
                                     bag_inventory_add_item(_pid, hid, 1);
-                                    // clear held item
+                                    // clear held item id and canonical name
                                     variable_struct_set(target, "held_item_id", -1);
+                                    variable_struct_set(target, "held_item_real_name", "");
                                     bags_seed_from_items(_pid);
                                     show_debug_message("[party] Took item " + string(hid) + " from mon index " + string(_P.sel));
                                 } else { show_debug_message("[party] No held item to take"); }
@@ -128,8 +129,30 @@ function __party_impl_party_update(){
                                 // swap behavior: return existing held item to bag
                                 var prev = (variable_struct_exists(target, "held_item_id") ? variable_struct_get(target, "held_item_id") : -1);
                                 if (is_real(prev) && prev > 0){ bag_inventory_add_item(bpid, prev, 1); }
-                                // assign new
+                                // assign new id and preserve canonical real name for rendering/lookup
                                 if (!is_undefined(item_id) && item_id > 0) variable_struct_set(target, "held_item_id", item_id);
+                                if (!is_undefined(gp) && is_struct(gp) && variable_struct_exists(gp, "item_real_name")){
+                                    var _rn = variable_struct_get(gp, "item_real_name");
+                                    if (!is_undefined(_rn) && string_length(string(_rn)) > 0) variable_struct_set(target, "held_item_real_name", string(_rn));
+                                } else {
+                                    // fallback: try resolving from item_id via bag pages
+                                    var _tryName = undefined;
+                                    var _b_src = bag_inventory_ensure(bpid);
+                                    if (is_struct(_b_src)){
+                                        // try to find in _b_src.items
+                                        for (var __p=0; __p<array_length(_b_src.items); __p++){
+                                            var __arr = _b_src.items[__p];
+                                            for (var __r=0; __r<array_length(__arr); __r++){
+                                                var __it = __arr[__r];
+                                                if (is_struct(__it) && variable_struct_exists(__it, "item_id") && __it.item_id == item_id){
+                                                    if (variable_struct_exists(__it, "real_name")) { _tryName = string(__it.real_name); break; }
+                                                }
+                                            }
+                                            if (!is_undefined(_tryName)) break;
+                                        }
+                                    }
+                                    if (!is_undefined(_tryName)) variable_struct_set(target, "held_item_real_name", _tryName);
+                                }
                                 // remove one from bag
                                 bag_inventory_remove_item(bpid, item_id, 1);
                                 // refresh bag pages from sys_qty

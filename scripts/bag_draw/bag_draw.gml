@@ -179,8 +179,9 @@ function __bag_impl_draw_right_list(_b, _ox, _oy, _s, _list_x, _list_y, _list_w,
 
         draw_set_color(c_white);
         draw_text(_ox + (_list_x + 8) * _s, yline, nm);
-        draw_set_color(c_white);
-        draw_text(_ox + (_list_x + _list_w - 8 - string_width(qty)) * _s, yline, qty);
+    draw_set_color(c_white);
+    // Nudge quantity 5 UI pixels to the right to avoid overlapping the name
+    draw_text(_ox + (_list_x + _list_w - 8 - string_width(qty) + 5) * _s, yline, qty);
 
         if (idx == sel){ draw_set_color(c_white); draw_set_alpha(_pulse); draw_text(_ox + (_list_x + 2) * _s, yline, "►"); draw_set_alpha(1); }
     }

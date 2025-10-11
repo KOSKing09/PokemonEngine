@@ -206,12 +206,18 @@ function bags_seed_from_items(_pid){
             if (is_string(_d2) && string_length(string_trim(_d2)) > 0) desc = _d2;
         }
         var icon = bag__get_item_placeholder();
-        if (!is_undefined(pkicons_get_item_icon_by_name)){
-            var spr_try = pkicons_get_item_icon_by_name(string(it.name));
+        // prefer identifier for lookups (preserve raw CSV identifier which may contain hyphens)
+        var lookup_name = undefined;
+        if (is_struct(it) && variable_struct_exists(it, "identifier") && string_length(string_trim(it.identifier)) > 0) lookup_name = string(it.identifier);
+        else if (is_struct(it) && variable_struct_exists(it, "name") && string_length(string_trim(it.name)) > 0) lookup_name = string(it.name);
+        if (!is_undefined(pkicons_get_item_icon_by_name) && !is_undefined(lookup_name)){
+            var spr_try = pkicons_get_item_icon_by_name(string(lookup_name));
             if (!is_undefined(spr_try) && sprite_exists(spr_try)) icon = spr_try;
         }
     var dname = _bag__display_name(iid, it);
-    var row = { name: bag__clean_display_name(dname), qty: qty, desc: desc, icon: icon, item_id: iid };
+    // store both cleaned display name and raw identifier for lookups
+    var realnm = (is_struct(it) && variable_struct_exists(it, "identifier") && string_length(string_trim(it.identifier)) > 0) ? string(it.identifier) : ((is_struct(it) && variable_struct_exists(it, "name")) ? string(it.name) : "");
+    var row = { name: bag__clean_display_name(dname), real_name: realnm, qty: qty, desc: desc, icon: icon, item_id: iid };
         array_push(_b.items[page], row);
     }
 
@@ -233,10 +239,14 @@ function bags_seed_from_items(_pid){
         if (!placed){
             var nm = _bag__display_name(iidp, itm);
             var ic = bag__get_item_placeholder();
-            if (!is_undefined(pkicons_get_item_icon_by_name)){
-                var st = pkicons_get_item_icon_by_name(string(itm.name)); if (!is_undefined(st) && sprite_exists(st)) ic = st;
+            var lookup_name2 = undefined;
+            if (is_struct(itm) && variable_struct_exists(itm, "identifier") && string_length(string_trim(itm.identifier)) > 0) lookup_name2 = string(itm.identifier);
+            else if (is_struct(itm) && variable_struct_exists(itm, "name") && string_length(string_trim(itm.name)) > 0) lookup_name2 = string(itm.name);
+            if (!is_undefined(pkicons_get_item_icon_by_name) && !is_undefined(lookup_name2)){
+                var st = pkicons_get_item_icon_by_name(string(lookup_name2)); if (!is_undefined(st) && sprite_exists(st)) ic = st;
             }
-            array_push(_b.items[0], { name:bag__clean_display_name(nm), qty:qtp, desc:"—", icon:ic, item_id:iidp });
+            var realnm2 = (is_struct(itm) && variable_struct_exists(itm, "identifier") && string_length(string_trim(itm.identifier)) > 0) ? string(itm.identifier) : ((is_struct(itm) && variable_struct_exists(itm, "name")) ? string(itm.name) : "");
+            array_push(_b.items[0], { name:bag__clean_display_name(nm), real_name: realnm2, qty:qtp, desc:"—", icon:ic, item_id:iidp });
         }
     }
 
