@@ -109,74 +109,8 @@ global.PARTY_ASSETS = {
 
 // --- PARTY / BAGS / PLAYERS -------------------------------------------------
 party_init();               // must be before demo seed (party_ensure uses it)
+//global.DEMO_FORCE_SPECIES = [250, 249]; // optional, you can change or remove
 scr_poke_runtime_demo_init_random(6);           // seeds PARTY[0] (and [1] if present)
-
-// (Optional) sanity prints
-// --- DEBUG: verify data / index / demo (structs version) --------------------
-if (variable_global_exists("DEBUG") && global.DEBUG) {
-    /*
-    // 1) DATA: _pokemon array exists + basic counts
-    var has_poke  = variable_global_exists("_pokemon") && is_array(global._pokemon);
-    var poke_len  = has_poke ? array_length(global._pokemon) : -1;
-
-    var poke_count = 0;
-    if (has_poke){
-        for (var i = 0; i < poke_len; i++){
-            if (is_struct(global._pokemon[i])) poke_count++;
-        }
-    }
-    show_debug_message("[CHECK] _pokemon exists=" + string(has_poke)
-        + "  len=" + string(poke_len) + "  structs=" + string(poke_count));
-
-    // 2) INDEX: arrays exist + sizes
-    var has_name_by_id = variable_global_exists("_name_by_id") && is_array(global._name_by_id);
-    var has_name_list  = variable_global_exists("_name_list")  && is_array(global._name_list);
-    var has_id_list    = variable_global_exists("_id_list")    && is_array(global._id_list);
-
-    var nbi_len = has_name_by_id ? array_length(global._name_by_id) : -1;
-    var nl_len  = has_name_list  ? array_length(global._name_list)  : -1;
-    var il_len  = has_id_list    ? array_length(global._id_list)    : -1;
-
-    show_debug_message("[CHECK] index: _name_by_id.len=" + string(nbi_len)
-        + "  _name_list.len=" + string(nl_len)
-        + "  _id_list.len=" + string(il_len));
-
-    // 3) SAMPLE LOOKUP: bulbasaur
-    var test_id = scr_poke_index_by_name("bulbasaur");
-    var test_nm = (test_id >= 0) ? scr_poke_name_by_id(test_id) : "";
-    show_debug_message("[CHECK] lookup 'bulbasaur' -> id=" + string(test_id)
-        + "  name_by_id(id)=" + test_nm);
-
-    // 4) STATS access sanity
-    if (test_id >= 0){
-        var st = scr_poke_stats(test_id);
-        show_debug_message("[CHECK] stats id=" + string(test_id)
-            + " hp=" + string(st.hp) + " atk=" + string(st.atk)
-            + " def=" + string(st.def) + " spa=" + string(st.spa)
-            + " spd=" + string(st.spd) + " spe=" + string(st.spe));
-    }
-
-    // 5) DEMO PARTY seeded?
-    var party_ok = variable_global_exists("PARTY") && is_array(global.PARTY) && array_length(global.PARTY) > 0;
-    show_debug_message("[CHECK] PARTY exists=" + string(party_ok));
-
-    if (party_ok){
-        var P0 = global.PARTY[0];
-        var has_mons = is_struct(P0) && variable_struct_exists(P0, "mons") && is_array(P0.mons);
-        var n0 = has_mons ? array_length(P0.mons) : -1;
-        show_debug_message("[CHECK] PARTY[0] mons=" + string(n0));
-
-        if (has_mons && n0 > 0){
-			var m0   = (is_array(global.PARTY[0].mons) && array_length(global.PARTY[0].mons) > 0) ? global.PARTY[0].mons[0] : undefined;
-			var nm0  = is_undefined(m0) ? "?" : scr_poke_name_by_id(m0.species_id);
-			var lvl0 = is_undefined(m0) ? -1  : (!is_undefined(m0.level) ? m0.level : (!is_undefined(m0.lvl) ? m0.lvl : -1));
-			show_debug_message("[CHECK] first mon: id=" + string(is_undefined(m0) ? -1 : m0.species_id) + " name=" + nm0 + " lvl=" + string(lvl0));
-        }
-    }
-    */
-}
-
-
 
 // Bags after party is fine
 bags_init(1);

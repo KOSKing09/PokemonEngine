@@ -460,6 +460,8 @@ function data_load_all_structs_ext(){
     data_load_ability_text_structs();    // UPDATED to PokeAPI flavor text
     data_load_species_abilities_structs();
     data_load_species_moves_structs();
+    // Experience / growth tables
+    data_load_experience_structs();
     // Items + item categories
     data_load_items_structs();
     data_load_item_categorys_structs();
@@ -468,6 +470,96 @@ function data_load_all_structs_ext(){
     data_load_item_flag_prose_structs();
     data_load_item_flag_map_structs();
     data_debug("[DATA][structs_ext] done.");
+}
+
+// ---------- DATA: experience.csv -> global._experience[growth_rate_id] = [exp_by_level]
+function data_load_experience_structs(){
+    var path = working_directory + "/data/csv/experience.csv";
+    var g = load_csv(path);
+    if (g == -1) { data_debug("[DATA][experience] SKIP: " + path); global._experience = []; return; }
+
+    var H = ds_grid_height(g);
+    // find columns (case-insensitive header lookup)
+    var ci_gid = __col_find_ci(g, "growth_rate_id");
+    var ci_lvl = __col_find_ci(g, "level");
+    var ci_exp = __col_find_ci(g, "experience");
+    if (ci_gid < 0 || ci_lvl < 0 || ci_exp < 0){ data_debug("[DATA][experience] ERROR: missing required columns"); global._experience = []; return; }
+
+    // Determine maximum growth_rate_id so we can size outer array
+    var max_gid = 0;
+    for (var r = 1; r < H; r++){
+        var gid = __to_int_safe(__grid(g, ci_gid, r, 0), 0);
+        if (gid > max_gid) max_gid = gid;
+    }
+    global._experience = []; array_resize(global._experience, max_gid + 1);
+
+    // Temporary maps to accumulate per-growth arrays by gid
+    var counts = [];
+    // First pass: find max level per growth id
+    for (var r2 = 1; r2 < H; r2++){
+        var gid2 = __to_int_safe(__grid(g, ci_gid, r2, 0), 0);
+        var lvl2 = __to_int_safe(__grid(g, ci_lvl, r2, 0), 0);
+        if (gid2 <= 0 || lvl2 <= 0) continue;
+        if (gid2 >= array_length(counts)) array_resize(counts, gid2 + 1);
+        counts[gid2] = max(is_real(counts[gid2]) ? counts[gid2] : 0, lvl2);
+    }
+
+    for (var gid3 = 0; gid3 < array_length(counts); gid3++){
+        var maxL = (is_real(counts[gid3]) ? counts[gid3] : 0);
+        if (maxL > 0) global._experience[gid3] = array_create(maxL + 1, 0); // index by level (1..maxL)
+        else global._experience[gid3] = [];
+    }
+
+    var rows = 0;
+    for (var r3 = 1; r3 < H; r3++){
+        var gid4 = __to_int_safe(__grid(g, ci_gid, r3, 0), 0);
+        var lvl4 = __to_int_safe(__grid(g, ci_lvl, r3, 0), 0);
+        var exp4 = __to_int_safe(__grid(g, ci_exp, r3, 0), 0);
+        if (gid4 <= 0 || lvl4 <= 0) continue;
+        if (gid4 < array_length(global._experience) && is_array(global._experience[gid4]) && lvl4 < array_length(global._experience[gid4])){
+            global._experience[gid4][lvl4] = exp4;
+            rows++;
+        }
+    }
+    data_debug("[DATA][experience] rows=" + string(rows));
+}
+
+// Helper: get experience threshold for growth_rate_id and level (returns -1 if missing)
+function scr_get_exp_for_level(_growth_id, _level){
+    if (!is_real(_growth_id) || !is_real(_level)) return -1;
+    var gid = floor(_growth_id);
+    var lvl = floor(_level);
+    if (!variable_global_exists("_experience") || !is_array(global._experience)) return -1;
+    if (gid < 0 || gid >= array_length(global._experience)) return -1;
+    var arr = global._experience[gid];
+    if (!is_array(arr) || lvl <= 0 || lvl >= array_length(arr)) return -1;
+    return arr[lvl];
+}
+
+// Helper: get next-level threshold for a mon struct (safest)
+function scr_get_exp_next_for_mon(_mon){
+    if (!is_struct(_mon)) return -1;
+    var sid = -1;
+    if (variable_struct_exists(_mon, "species_id") && is_real(_mon.species_id)) sid = floor(_mon.species_id);
+    else if (variable_struct_exists(_mon, "id") && is_real(_mon.id)) sid = floor(_mon.id);
+    if (sid < 0) return -1;
+    var lvl = 1;
+    if (variable_struct_exists(_mon, "level") && is_real(_mon.level)) lvl = floor(_mon.level);
+    else if (variable_struct_exists(_mon, "lvl") && is_real(_mon.lvl)) lvl = floor(_mon.lvl);
+
+    // Get species record and its growth_rate_id
+    if (!variable_global_exists("_pokemon") || !is_array(global._pokemon)) return -1;
+    if (sid < 0 || sid >= array_length(global._pokemon)) return -1;
+    var rec = global._pokemon[sid];
+    if (!is_struct(rec)) return -1;
+    var gid = -1;
+    if (variable_struct_exists(rec, "growth_rate_id") && is_real(rec.growth_rate_id)) gid = floor(rec.growth_rate_id);
+    else if (variable_struct_exists(rec, "_growth_rate") && is_real(rec._growth_rate)) gid = floor(rec._growth_rate);
+    if (gid < 0) return -1;
+
+    // lookup for level+1
+    var next = scr_get_exp_for_level(gid, lvl + 1);
+    return is_real(next) && next >= 0 ? next : -1;
 }
 
 

@@ -35,8 +35,66 @@ function scr_poke_runtime_demo_init_random(_count)
         return;
     }
 
+    // Always seed random party entries first, then optionally overwrite specific slots
+    // with forced species if `global.DEMO_FORCE_SPECIES` is defined. This keeps the
+    // random flavour while allowing deterministic replacements for testing.
     scr_party_debug_seed_random(0, count);
-    if (instance_number(oPlayer) > 1) { scr_party_debug_seed_random(1, count); }
+    if (instance_number(oPlayer) > 1) scr_party_debug_seed_random(1, count);
+
+    if (variable_global_exists("DEMO_FORCE_SPECIES") && is_array(global.DEMO_FORCE_SPECIES) && array_length(global.DEMO_FORCE_SPECIES) > 0){
+        scr_party_demo_apply_forced(0);
+        if (instance_number(oPlayer) > 1) scr_party_demo_apply_forced(1);
+    }
+}
+
+/// scr_party_debug_seed_list(pid, species_array)
+/// Seeds PARTY[pid] using the exact species ids provided in `species_array` (array of numeric ids).
+function scr_party_debug_seed_list(_pid, _species_array){
+    var P = party_ensure(_pid);
+    if (!is_array(P.mons)) P.mons = [];
+    array_resize(P.mons, 0);
+    if (!is_array(_species_array) || array_length(_species_array) == 0) return;
+    for (var i=0;i<array_length(_species_array);i++){
+        var sid = floor(_species_array[i]);
+        if (sid <= 0) continue;
+        var L = irandom_range(5,18);
+        var _demo_ot = variable_global_exists("PLAYER_NAME") ? string(global.PLAYER_NAME) : "YOU";
+        if (_pid == 1 && variable_global_exists("PLAYER2_NAME")) _demo_ot = string(global.PLAYER2_NAME);
+        var _factory_opts = { ot: _demo_ot, idno: sid, shiny: false, icon: spr_mon_icon_placeholder };
+        var _mon_struct = pokemon_factory_create(sid, L, _factory_opts);
+        _mon_struct = demo_mon_ensure_name(_mon_struct);
+        party_model_add_mon(_pid, _mon_struct);
+    }
+    P.sel = 0; P.scroll = 0; P.swap_index = -1; P.menu_sel = 0; P.lock = 0;
+    show_debug_message("[DEMO] Seeded " + string(array_length(P.mons)) + " forced Pokémon to PARTY[" + string(_pid) + "].");
+}
+
+/// scr_party_demo_apply_forced(pid)
+/// Overwrites seeded party slots with species from global.DEMO_FORCE_SPECIES while
+/// preserving the existing seeded level where possible.
+function scr_party_demo_apply_forced(_pid){
+    if (!variable_global_exists("DEMO_FORCE_SPECIES") || !is_array(global.DEMO_FORCE_SPECIES) || array_length(global.DEMO_FORCE_SPECIES) == 0) return;
+    var P = party_ensure(_pid);
+    if (!is_array(P.mons) || array_length(P.mons) == 0) return;
+    var forced = global.DEMO_FORCE_SPECIES;
+    for (var i=0; i<array_length(forced) && i<array_length(P.mons); i++){
+        var sid = floor(forced[i]); if (sid <= 0) continue;
+        // Preserve level from existing seeded mon if present; else pick random small level
+        var prev = P.mons[i];
+        var lvl = 5;
+        if (is_struct(prev) && variable_struct_exists(prev, "level") && is_real(prev.level)) lvl = prev.level;
+        else if (is_struct(prev) && variable_struct_exists(prev, "lvl") && is_real(prev.lvl)) lvl = prev.lvl;
+
+        var _demo_ot = variable_global_exists("PLAYER_NAME") ? string(global.PLAYER_NAME) : "YOU";
+        if (_pid == 1 && variable_global_exists("PLAYER2_NAME")) _demo_ot = string(global.PLAYER2_NAME);
+        var _factory_opts = { ot: _demo_ot, idno: sid, shiny: false, icon: spr_mon_icon_placeholder };
+        var newmon = pokemon_factory_create(sid, lvl, _factory_opts);
+        newmon = demo_mon_ensure_name(newmon);
+        // Replace slot
+        P.mons[i] = newmon;
+    }
+    // persist back
+    var __Ptmp = party_ensure(_pid); __Ptmp.mons = P.mons;
 }
 
 

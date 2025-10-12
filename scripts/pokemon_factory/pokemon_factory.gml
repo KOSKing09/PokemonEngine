@@ -1,6 +1,6 @@
 // [Pokémon]: pokemon_factory_create — Drop-in (enhanced) — 2025-10-09
 function __pfc_int(_v, _def)    { return (is_undefined(_v) || !is_real(_v)) ? _def : floor(_v); }
-function __pfc_bool(_v, _def)   { return is_bool(_v) ? _v : (!!_v ? true : _def); }
+function __pfc_bool(_v, _def)   { return is_bool(_v) ? _v : (_v ? true : _def); }
 function __pfc_arr(_v, _def)    { return (is_array(_v)) ? _v : _def; }
 
 function __pfc_move_pp(_mid) {
@@ -40,6 +40,8 @@ function __pfc_last4_levelup_moves(_sid, _level) {
 function pokemon_factory_create(_sid, _level, _opts){
     var _s = (is_undefined(_sid) || !is_real(_sid)) ? -1 : floor(_sid);
     var L  = (is_undefined(_level) || !is_real(_level)) ? 5 : floor(_level);
+    // Cap levels at 100 because experience CSV only includes 1..100
+    L = min(100, max(1, L));
     var _o = (is_struct(_opts)) ? _opts : {};
 
     var st = is_undefined(scr_poke_stats) ? undefined : scr_poke_stats(_s);
@@ -116,11 +118,28 @@ function pokemon_factory_create(_sid, _level, _opts){
     var held_item_id   = (variable_struct_exists(_o, "held_item_id") && is_real(_o.held_item_id)) ? floor(_o.held_item_id) : -1;
     var held_item_meta = (variable_struct_exists(_o, "held_item_meta") && is_real(_o.held_item_meta)) ? floor(_o.held_item_meta) : 0;
 
+    var _exp = (variable_struct_exists(_o, "exp") && is_real(_o.exp)) ? floor(_o.exp) : 0;
+    // Prefer CSV-driven threshold if available: scr_get_exp_next_for_mon expects a mon-like struct
+    var _exp_next = -1;
+    if (variable_struct_exists(_o, "exp_next") && is_real(_o.exp_next)) {
+        _exp_next = floor(_o.exp_next);
+    } else {
+        // construct a lightweight mon-like probe
+        var __probe = { species_id: _s, id: _s, level: L };
+        if (!is_undefined(scr_get_exp_next_for_mon)) {
+            var __v = scr_get_exp_next_for_mon(__probe);
+            if (is_real(__v) && __v > 0) _exp_next = floor(__v);
+        }
+    }
+    if (!is_real(_exp_next) || _exp_next <= 0) _exp_next = max(20, L * L * 2);
+
     var mon = {
         species_id : _s,
         id         : _s,
         species    : (is_undefined(scr_poke_name_by_id) ? (variable_struct_exists(_o,"species") ? _o.species : "???:") : scr_poke_name_by_id(_s)),
         level      : L,
+        exp        : _exp,
+        exp_next   : _exp_next,
         hp         : hpmax,
         maxhp      : hpmax,
         hp_max     : hpmax,
@@ -132,7 +151,7 @@ function pokemon_factory_create(_sid, _level, _opts){
         ot         : _ot,
         idno       : _idno,
         icon       : _icon,
-        shiny      : (variable_struct_exists(_o, "shiny") ? !!_o.shiny : false),
+        shiny      : __pfc_bool((variable_struct_exists(_o, "shiny") ? _o.shiny : undefined), false),
         type1      : _t1,
         type2      : _t2,
         types      : _types_arr,

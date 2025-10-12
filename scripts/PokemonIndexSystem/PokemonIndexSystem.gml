@@ -359,6 +359,21 @@ function scr_poke_describe(_sid, _lvl){
         var p = future_pairs[_k];
         array_push(future, { lvl:p.lvl, id:p.mid, name:scr_move_name_by_id(p.mid), desc:scr_move_desc_by_id(p.mid) });
     }
+    // Experience / growth info (if available)
+    var growth_id = -1;
+    if (variable_global_exists("_pokemon") && is_array(global._pokemon) && _sid >= 0 && _sid < array_length(global._pokemon)){
+        var prec = global._pokemon[_sid];
+        if (is_struct(prec) && variable_struct_exists(prec, "growth_rate_id") && is_real(prec.growth_rate_id)) growth_id = floor(prec.growth_rate_id);
+        else if (is_struct(prec) && variable_struct_exists(prec, "_growth_rate") && is_real(prec._growth_rate)) growth_id = floor(prec._growth_rate);
+    }
+    var exp_cur = -1; var exp_next = -1;
+    if (is_real(growth_id) && growth_id >= 0){
+        var vcur = scr_get_exp_for_level(growth_id, lvl);
+        var vnext = scr_get_exp_for_level(growth_id, lvl + 1);
+        if (is_real(vcur)) exp_cur = vcur;
+        if (is_real(vnext)) exp_next = vnext;
+    }
+
     return {
         species_id     : _sid,
         name_ident     : name_ident,
@@ -368,6 +383,9 @@ function scr_poke_describe(_sid, _lvl){
         ability_names  : ability_names,
         moves_learned  : learned,
         moves_future   : future
+        , growth_rate_id: growth_id
+        , exp_current: exp_cur
+        , exp_next: exp_next
     };
 }
 

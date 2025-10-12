@@ -952,7 +952,7 @@ function pkicons__load_icon32_sheet_shiny(_species){
 // Grid helpers (robust 8‑tile inference)
 function pkicons__best_grid8(_w,_h){
     var bestCols=4, bestRows=2, bestTw=_w div 4, bestTh=_h div 2;
-    var bestScore=$1e30;
+    var bestScore = 1000000000;
     var found=false;
 
     var pairs=[ [4,2], [2,4], [8,1], [1,8] ];
@@ -964,8 +964,13 @@ function pkicons__best_grid8(_w,_h){
             var th = _h div r;
             var ratio = (th>0) ? (tw/th) : 999999;
             var fit_score = abs(ratio - 1); // closer to 1 => more square
-            if (fit_score < bestScore){
-                bestScore = fit_score;
+            // Prefer layouts that are square AND whose tile dimensions are close to 32x32.
+            // Compute a size penalty relative to 32px target (smaller is better).
+            var size_penalty = (abs(tw - 32) / 32) + (abs(th - 32) / 32);
+            // Combine shape fit and size penalty. Weight size_penalty moderately to prefer 32px tiles.
+            var combined = fit_score + (size_penalty * 1.2);
+            if (combined < bestScore){
+                bestScore = combined;
                 bestCols = c; bestRows = r; bestTw = tw; bestTh = th;
                 found = true;
             }
@@ -974,47 +979,177 @@ function pkicons__best_grid8(_w,_h){
     return [bestCols, bestRows, bestTw, bestTh, found];
 }
 function pkicons__infer_grid(_w,_h){
+    // Quick exact-case: perfectly divisible by 32 -> grid of 32 tiles
     if (_w mod 32==0 && _h mod 32==0){
         return [_w div 32, _h div 32, 32, 32];
     }
+
+    // Candidate grid layouts to consider (cols, rows). We'll score them by how close the
+    // implied tile sizes are to 32x32, penalize fractional tile sizes (not perfectly divisible),
+    // and prefer near-square tiles.
+    var candidates = [[8,1],[4,2],[2,4],[1,8]];
+    var bestScore = 1000000000;
+    var bestCols = 4; var bestRows = 2; var bestTw = _w div 4; var bestTh = _h div 2; var found=false;
+
+    for (var ci=0; ci<array_length(candidates); ci++){
+        var cols = candidates[ci][0]; var rows = candidates[ci][1];
+        var tw = _w / cols; var th = _h / rows;
+        if (tw < 8 || th < 8) continue; // too small to be an icon
+        // fractional penalty: how far from integer tile sizes
+        var frac_pen = abs(tw - round(tw)) + abs(th - round(th));
+        // size penalty relative to 32px
+        var size_pen = (abs(tw - 32) / 32) + (abs(th - 32) / 32);
+        var ratio_pen = abs((tw/th) - 1);
+        // Combined score: heavily penalize fractional tiles, then size, then shape
+        var cand_score = frac_pen * 6.0 + size_pen * 1.5 + ratio_pen * 0.5;
+        if (cand_score < bestScore){
+            bestScore = cand_score;
+            bestCols = cols; bestRows = rows; bestTw = max(1, round(tw)); bestTh = max(1, round(th)); found = true;
+        }
+    }
+
+    if (found) return [bestCols, bestRows, bestTw, bestTh];
+
+    // Fallback to previous heuristic
     var best = pkicons__best_grid8(_w, _h);
     if (best[4]) return [best[0], best[1], best[2], best[3]];
-    return [4, 2, _w div 4, _h div 2];
+    return [4, 2, max(1, _w div 4), max(1, _h div 2)];
 }
 
 // Build 8‑frame strip, centered in 32×32
 function pkicons__get_icon32_strip(_species){
     var key="STRIP|"+string(_species);
-    if (variable_struct_exists(PKICONS.icon_strip_cache,key)){
-        var c=variable_struct_get(PKICONS.icon_strip_cache,key);
-        if (sprite_exists(c)) return c;
-    }
+    // Read cache if present but don't necessarily return immediately — we may need to
+    // regenerate and overwrite the cache when the forced ordering rule applies.
+    var cached = undefined;
+    if (variable_struct_exists(PKICONS.icon_strip_cache,key)) cached = variable_struct_get(PKICONS.icon_strip_cache,key);
 
     var sheet=pkicons__load_icon32_sheet(_species);
     if (!sprite_exists(sheet)) return PKICONS.missing_icon32;
 
+    // Defensive: sometimes an art96 sprite (multi-frame large art) is returned as the "sheet" when
+    // the intended 32×32 icon file is missing or misnamed. Detect that case (multi-frame + large)
+    // and synthesize a proper 8-frame 32×32 strip by scaling the art frame(s) down. This avoids
+    // returning a large 96×96 art asset where a 32×32 icon is expected (observed for species 383).
+    var sheetFrames = 1;
+    try { sheetFrames = sprite_get_number(sheet); } catch (e) { sheetFrames = 1; }
     var fullW=sprite_get_width(sheet);
     var fullH=sprite_get_height(sheet);
-    var info=pkicons__infer_grid(fullW,fullH);
-    var cols=info[0],rows=info[1],tileW=max(1,info[2]),tileH=max(1,info[3]);
+    // If the loaded sheet looks like an art sprite (multiple frames and reasonably large),
+    // produce an 8-frame 32×32 strip by scaling the first frame into each slot.
+    if (sheetFrames > 1 && (fullW >= 64 || fullH >= 64)){
+        var surf_def = surface_create(32,32);
+        if (!surface_exists(surf_def)) return PKICONS.missing_icon32;
+        var outStrip = -1;
+        for (var i=0;i<8;i++){
+            surface_set_target(surf_def);
+            draw_clear_alpha(c_black,0);
+            // draw the first frame (0) scaled to fit 32x32, centered
+            var fw = fullW; var fh = fullH;
+            var sc = min(32/fw, 32/fh);
+            var offX = (32 - fw*sc) * 0.5;
+            var offY = (32 - fh*sc) * 0.5;
+            // draw_sprite_ext with subimage 0
+            draw_sprite_ext(sheet,0,offX,offY,sc,sc,0,c_white,1);
+            surface_reset_target();
+            if (i==0) outStrip = sprite_create_from_surface(surf_def,0,0,32,32,false,false,0,0);
+            else if (sprite_exists(outStrip)) sprite_add_from_surface(outStrip,surf_def,0,0,32,32,false,false);
+        }
+        surface_free(surf_def);
+        if (!sprite_exists(outStrip)) outStrip = PKICONS.missing_icon32;
+        variable_struct_set(PKICONS.icon_strip_cache,key,outStrip);
+        return outStrip;
+    }
 
-    var total=cols*rows;
-    var sc=min(32/tileW,32/tileH);
-    var surf=surface_create(32,32);
+    // Robust tiling: pick cols/rows near 32px, ensure cols*rows >= 8, and distribute leftover pixels
+    var cols = max(1, round(fullW / 32));
+    var rows = max(1, round(fullH / 32));
+    // Grow cols/rows until we have at least 8 cells
+    while (cols * rows < 8){
+        if (cols <= rows) cols += 1; else rows += 1;
+    }
+
+    // Distribute widths/heights so they sum to full dimensions (columns/rows differ by at most 1 px)
+    var baseW = fullW div cols; var extraW = fullW mod cols;
+    var colWidths = [];
+    for (var ci=0; ci<cols; ci++) array_push(colWidths, baseW + (ci < extraW ? 1 : 0));
+    var baseH = fullH div rows; var extraH = fullH mod rows;
+    var rowHeights = [];
+    for (var ri=0; ri<rows; ri++) array_push(rowHeights, baseH + (ri < extraH ? 1 : 0));
+
+    // Build x offsets and y offsets
+    var xOffsets = []; var acc = 0;
+    for (var ci2=0; ci2<cols; ci2++){ array_push(xOffsets, acc); acc += colWidths[ci2]; }
+    var yOffsets = []; acc = 0;
+    for (var ri2=0; ri2<rows; ri2++){ array_push(yOffsets, acc); acc += rowHeights[ri2]; }
+
+    var total = cols * rows;
+    var surf = surface_create(32,32);
     if (!surface_exists(surf)) return PKICONS.missing_icon32;
+    var strip = -1;
+    // Choose iteration order. If we detect an exact 32×32 tile layout with >=3 cols and
+    // >=4 rows (the problematic case reported), force the per-row-first-two-columns
+    // ordering [0,1, 3,4, 6,7, 9,10] to match directional frames used by the UI.
+    var tileW = colWidths[0]; var tileH = rowHeights[0];
+    var force_perrow_two = (tileW == 32 && tileH == 32 && cols >= 3 && rows >= 4);
 
-    var strip=-1;
+    // If a cached strip exists and we're not forcing a regeneration for this layout,
+    // return the cached sprite immediately for performance.
+    if (!force_perrow_two && !is_undefined(cached) && sprite_exists(cached)) return cached;
+
+    var indices = [];
+    if (force_perrow_two){
+        // deterministic indices for 3+ cols, 4+ rows, 32x32 tiles.
+        // Allow a small rotation variant to accommodate different sheet conventions:
+        // PKICONS_PERROW_ORDER_VARIANT = 0..3 (default 0) rotates which row becomes the first.
+        var variant = 0; if (variable_global_exists("PKICONS_PERROW_ORDER_VARIANT")) variant = max(0, floor(global.PKICONS_PERROW_ORDER_VARIANT) mod 4);
+        var takeRows = min(4, rows);
+        // Build row pairs [r0c0,r0c1, r1c0,r1c1, ...]
+        var rowPairs = [];
+        for (var rrp=0; rrp<takeRows; rrp++){ array_push(rowPairs, rrp * cols + 0); array_push(rowPairs, rrp * cols + 1); }
+        // Rotate by variant
+        for (var rrot=0; rrot<takeRows; rrot++){
+            var srcRow = (rrot + variant) mod takeRows;
+            array_push(indices, rowPairs[srcRow*2 + 0]);
+            array_push(indices, rowPairs[srcRow*2 + 1]);
+        }
+    } else {
+        // Choose iteration order: normally row-major (left-to-right, top-to-bottom). For tall
+        // sheets where frames are stacked vertically, prefer column-major so we take top->bottom
+        // then next column (matches many icon strip layouts).
+        var prefer_column_major = (rows >= 8) || (rows > cols && rows >= 4);
+        for (var i=0;i<8;i++){
+            var ii=(i<total)?i:(total-1);
+            if (prefer_column_major){
+                var col = floor(ii / rows);
+                var row = ii mod rows;
+                array_push(indices, col * rows + row);
+            } else {
+                array_push(indices, ii);
+            }
+        }
+    }
+
+    // Ensure indices length >=8 by repeating the last index if necessary
+    while (array_length(indices) < 8){ array_push(indices, indices[array_length(indices)-1]); }
+
     for (var i=0;i<8;i++){
-        var ii=(i<total)?i:(total-1);
-        var sx=(ii mod cols)*tileW;
-        var sy=(ii div cols)*tileH;
+        var ii = indices[i];
+        if (ii >= total) ii = total - 1;
+        var rr = ii div cols;
+        var cc = ii mod cols;
+        var sx = xOffsets[cc];
+        var sy = yOffsets[rr];
+        var tw = colWidths[cc];
+        var th = rowHeights[rr];
 
         surface_set_target(surf);
         draw_clear_alpha(c_black,0);
 
-        var offX=(32 - tileW*sc) * 0.5;
-        var offY=(32 - tileH*sc) * 0.5;
-        draw_sprite_part_ext(sheet,0,sx,sy,tileW,tileH,offX,offY,sc,sc,c_white,1);
+    var sc = min(32 / tw, 32 / th);
+    var offX=(32 - tw*sc) * 0.5;
+    var offY=(32 - th*sc) * 0.5;
+    draw_sprite_part_ext(sheet,0,sx,sy,tw,th,offX,offY,sc,sc,c_white,1);
 
         surface_reset_target();
 
@@ -1032,24 +1167,74 @@ function pkicons__get_icon32_strip(_species){
 
 function pkicons__get_icon32_strip_shiny(_species){
     var key="STRIP|S|"+string(_species);
-    if (variable_struct_exists(PKICONS.icon_strip_cache,key)){
-        var c=variable_struct_get(PKICONS.icon_strip_cache,key);
-        if (sprite_exists(c)) return c;
-    }
+    var cached_shiny = undefined;
+    if (variable_struct_exists(PKICONS.icon_strip_cache,key)) cached_shiny = variable_struct_get(PKICONS.icon_strip_cache,key);
     var sheet=pkicons__load_icon32_sheet_shiny(_species);
     if (!sprite_exists(sheet)) return PKICONS.missing_icon32;
+    var sheetFrames = 1;
+    try { sheetFrames = sprite_get_number(sheet); } catch (e) { sheetFrames = 1; }
     var fullW=sprite_get_width(sheet);
     var fullH=sprite_get_height(sheet);
+    if (sheetFrames > 1 && (fullW >= 64 || fullH >= 64)){
+        var surf_def = surface_create(32,32);
+        if (!surface_exists(surf_def)) return PKICONS.missing_icon32;
+        var outStrip = -1;
+        for (var i=0;i<8;i++){
+            surface_set_target(surf_def); draw_clear_alpha(c_black,0);
+            var fw = fullW; var fh = fullH;
+            var sc = min(32/fw, 32/fh);
+            var offX = (32 - fw*sc) * 0.5; var offY = (32 - fh*sc) * 0.5;
+            draw_sprite_ext(sheet,0,offX,offY,sc,sc,0,c_white,1);
+            surface_reset_target();
+            if (i==0) outStrip = sprite_create_from_surface(surf_def,0,0,32,32,false,false,0,0); else if (sprite_exists(outStrip)) sprite_add_from_surface(outStrip,surf_def,0,0,32,32,false,false);
+        }
+        surface_free(surf_def);
+        if (!sprite_exists(outStrip)) outStrip = PKICONS.missing_icon32;
+        variable_struct_set(PKICONS.icon_strip_cache,key,outStrip);
+        return outStrip;
+    }
     var info=pkicons__infer_grid(fullW,fullH);
     var cols=info[0],rows=info[1],tileW=max(1,info[2]),tileH=max(1,info[3]);
     var total=cols*rows;
     var sc=min(32/tileW,32/tileH);
     var surf=surface_create(32,32); if (!surface_exists(surf)) return PKICONS.missing_icon32;
     var strip=-1;
+    // Mirror the same forced-ordering policy for shiny strips. Only return a cached
+    // shiny strip early when we don't need to force a regeneration.
+    var tileW_sh = tileW; var tileH_sh = tileH;
+    var force_perrow_two_sh = (tileW_sh == 32 && tileH_sh == 32 && cols >= 3 && rows >= 4);
+    if (!force_perrow_two_sh && !is_undefined(cached_shiny) && sprite_exists(cached_shiny)) return cached_shiny;
+
+    var indices_shiny = [];
+    if (force_perrow_two_sh){
+        var variant_sh = 0; if (variable_global_exists("PKICONS_PERROW_ORDER_VARIANT")) variant_sh = max(0, floor(global.PKICONS_PERROW_ORDER_VARIANT) mod 4);
+        var takeRows_sh = min(4, rows);
+        var rowPairs_sh = [];
+        for (var rrps=0; rrps<takeRows_sh; rrps++){ array_push(rowPairs_sh, rrps * cols + 0); array_push(rowPairs_sh, rrps * cols + 1); }
+        for (var rrots=0; rrots<takeRows_sh; rrots++){
+            var srcRow_sh = (rrots + variant_sh) mod takeRows_sh;
+            array_push(indices_shiny, rowPairs_sh[srcRow_sh*2 + 0]);
+            array_push(indices_shiny, rowPairs_sh[srcRow_sh*2 + 1]);
+        }
+    } else {
+        var prefer_column_major_sh = (rows >= 8) || (rows > cols && rows >= 4);
+        for (var i_sh=0;i_sh<8;i_sh++){
+            var ii_sh=(i_sh<total)?i_sh:(total-1);
+            if (prefer_column_major_sh){
+                var col_sh = floor(ii_sh / rows);
+                var row_sh = ii_sh mod rows;
+                array_push(indices_shiny, col_sh * rows + row_sh);
+            } else {
+                array_push(indices_shiny, ii_sh);
+            }
+        }
+    }
+    while (array_length(indices_shiny) < 8) array_push(indices_shiny, indices_shiny[array_length(indices_shiny)-1]);
     for (var i=0;i<8;i++){
-        var ii=(i<total)?i:(total-1);
-        var sx=(ii mod cols)*tileW;
-        var sy=(ii div cols)*tileH;
+        var ii = indices_shiny[i];
+        if (ii >= total) ii = total - 1;
+        var sx = (ii mod cols) * tileW;
+        var sy = (ii div cols) * tileH;
         surface_set_target(surf); draw_clear_alpha(c_black,0);
         var offX=(32 - tileW*sc) * 0.5; var offY=(32 - tileH*sc) * 0.5;
         draw_sprite_part_ext(sheet,0,sx,sy,tileW,tileH,offX,offY,sc,sc,c_white,1); surface_reset_target();
@@ -1079,6 +1264,151 @@ function pkicons__make_dir_from_strip(_sprStrip,_sub0,_sub1){
 
     surface_free(surf);
     return spr_dir;
+}
+
+// Debug helper: inspect how an icon sheet will be sliced for a given species.
+// Call with PKICONS.debug = true to emit logs.
+function pkicons_debug_inspect_icon(_species){
+    pkicons_init();
+    var sheet = pkicons__load_icon32_sheet(_species);
+    var shinySheet = pkicons__load_icon32_sheet_shiny(_species);
+    var report = "[pkicons.inspect] species="+string(_species)+"\n";
+    if (!sprite_exists(sheet)){ report += " normal sheet: missing\n"; } else { report += " normal sheet: ok id="+string(sheet)+" w="+string(sprite_get_width(sheet))+" h="+string(sprite_get_height(sheet))+" frames="+string(sprite_get_number(sheet))+"\n"; }
+    if (!sprite_exists(shinySheet)){ report += " shiny sheet: missing\n"; } else { report += " shiny sheet: ok id="+string(shinySheet)+" w="+string(sprite_get_width(shinySheet))+" h="+string(sprite_get_height(shinySheet))+" frames="+string(sprite_get_number(shinySheet))+"\n"; }
+
+    if (sprite_exists(sheet)){
+        var fullW = sprite_get_width(sheet); var fullH = sprite_get_height(sheet);
+        // Recompute tiling exactly like the strip builder
+        var cols = max(1, round(fullW / 32));
+        var rows = max(1, round(fullH / 32));
+        while (cols * rows < 8){ if (cols <= rows) cols += 1; else rows += 1; }
+
+        var baseW = fullW div cols; var extraW = fullW mod cols;
+        var colWidths = []; for (var ci=0; ci<cols; ci++) array_push(colWidths, baseW + (ci < extraW ? 1 : 0));
+        var baseH = fullH div rows; var extraH = fullH mod rows;
+        var rowHeights = []; for (var ri=0; ri<rows; ri++) array_push(rowHeights, baseH + (ri < extraH ? 1 : 0));
+        var xOffsets = []; var acc = 0; for (var ci2=0; ci2<cols; ci2++){ array_push(xOffsets, acc); acc += colWidths[ci2]; }
+        var yOffsets = []; acc = 0; for (var ri2=0; ri2<rows; ri2++){ array_push(yOffsets, acc); acc += rowHeights[ri2]; }
+
+        report += " inferred grid: cols="+string(cols)+" rows="+string(rows)+"\n";
+        report += " colWidths="+string(colWidths)+" rowHeights="+string(rowHeights)+"\n";
+
+        // Build indices same as builder
+        var indices = [];
+        if (cols >= 2 && rows >= 4 && colWidths[0] == 32 && rowHeights[0] == 32){
+            var takeRows = min(4, rows);
+            for (var rr=0; rr<takeRows; rr++){ array_push(indices, rr * cols + 0); array_push(indices, rr * cols + 1); }
+        } else {
+            var prefer_column_major = (rows >= 8) || (rows > cols && rows >= 4);
+            var total = cols * rows;
+            for (var i2=0;i2<8;i2++){
+                var ii=(i2<total)?i2:(total-1);
+                if (prefer_column_major){ var col = floor(ii / rows); var row = ii mod rows; array_push(indices, col * rows + row); }
+                else array_push(indices, ii);
+            }
+        }
+        while (array_length(indices) < 8) array_push(indices, indices[array_length(indices)-1]);
+
+    // Report current global variant (if set)
+    var curVar = 0; if (variable_global_exists("PKICONS_PERROW_ORDER_VARIANT")) curVar = max(0, floor(global.PKICONS_PERROW_ORDER_VARIANT) mod 4);
+    report += " indices="+string(indices)+"  (variant="+string(curVar)+")\n";
+        var total = cols * rows;
+        for (var i3=0;i3<8;i3++){
+            var ii = indices[i3]; if (ii >= total) ii = total - 1;
+            var rr = ii div cols; var cc = ii mod cols;
+            var sx = xOffsets[cc]; var sy = yOffsets[rr]; var tw = colWidths[cc]; var th = rowHeights[rr];
+            report += " sub["+string(i3)+"] -> idx="+string(ii)+" x="+string(sx)+" y="+string(sy)+" w="+string(tw)+" h="+string(th)+"\n";
+        }
+    }
+    pkicons__log(report);
+    return true;
+}
+
+    // Build per-row-first-two-columns indices with an optional rotation variant (0..3).
+    function pkicons__perrow_indices(cols, rows, variant){
+        var indices = [];
+        var takeRows = min(4, rows);
+        var rowPairs = [];
+        for (var r=0; r<takeRows; r++){
+            array_push(rowPairs, r * cols + 0);
+            array_push(rowPairs, r * cols + 1);
+        }
+        variant = max(0, floor(variant) mod 4);
+        for (var rr=0; rr<takeRows; rr++){
+            var src = (rr + variant) mod takeRows;
+            array_push(indices, rowPairs[src*2 + 0]);
+            array_push(indices, rowPairs[src*2 + 1]);
+        }
+        return indices;
+    }
+
+    // Auto-detect the best PKICONS_PERROW_ORDER_VARIANT for a species by sampling
+    // subimage non-transparent pixel counts. Returns chosen variant (0..3) or -1 on fail.
+    function pkicons_auto_detect_perrow_variant(_species){
+        pkicons_init();
+        var sheet = pkicons__load_icon32_sheet(_species);
+        if (!sprite_exists(sheet)) return -1;
+        var fullW = sprite_get_width(sheet); var fullH = sprite_get_height(sheet);
+        var cols = max(1, round(fullW / 32)); var rows = max(1, round(fullH / 32));
+        while (cols * rows < 8){ if (cols <= rows) cols += 1; else rows += 1; }
+        if (!(cols >= 3 && rows >= 4)) return -1;
+
+        // compute colWidths/rowHeights/xOffsets/yOffsets same as builder
+        var baseW = fullW div cols; var extraW = fullW mod cols; var colWidths = [];
+        for (var ci=0; ci<cols; ci++) array_push(colWidths, baseW + (ci < extraW ? 1 : 0));
+        var baseH = fullH div rows; var extraH = fullH mod rows; var rowHeights = [];
+        for (var ri=0; ri<rows; ri++) array_push(rowHeights, baseH + (ri < extraH ? 1 : 0));
+        var xOffsets = []; var acc = 0; for (var ci2=0; ci2<cols; ci2++){ array_push(xOffsets, acc); acc += colWidths[ci2]; }
+        var yOffsets = []; acc = 0; for (var ri2=0; ri2<rows; ri2++){ array_push(yOffsets, acc); acc += rowHeights[ri2]; }
+
+        // Helper: score a single tile by sampling a 3x3 grid inside the 32x32 area
+        function _score_tile(sx, sy, tw, th){
+            var surf = surface_create(32,32);
+            if (!surface_exists(surf)) return 0;
+            surface_set_target(surf); draw_clear_alpha(c_black,0);
+            var sc = min(32 / tw, 32 / th);
+            var offX = (32 - tw * sc) * 0.5; var offY = (32 - th * sc) * 0.5;
+            draw_sprite_part_ext(sheet,0,sx,sy,tw,th,offX,offY,sc,sc,c_white,1);
+            surface_reset_target();
+            var pts = [8,16,24]; var cnt = 0;
+            for (var px=0; px<3; px++) for (var py=0; py<3; py++){
+                var col = surface_getpixel(surf, pts[px], pts[py]);
+                var a = color_get_alpha(col);
+                if (a > 0) cnt += 1;
+            }
+            surface_free(surf);
+            return cnt;
+        }
+
+        var bestVar = 0; var bestScore = -1;
+        for (var v=0; v<4; v++){
+            var indices = pkicons__perrow_indices(cols, rows, v);
+            var variant_score = 0;
+            for (var i=0; i<8; i++){
+                var ii = indices[i]; if (ii >= cols*rows) ii = cols*rows - 1;
+                var rr = ii div cols; var cc = ii mod cols;
+                var sx = xOffsets[cc]; var sy = yOffsets[rr]; var tw = colWidths[cc]; var th = rowHeights[rr];
+                variant_score += _score_tile(sx, sy, tw, th);
+            }
+            if (variant_score > bestScore){ bestScore = variant_score; bestVar = v; }
+        }
+
+        // Persist chosen variant globally for subsequent loads
+        global.PKICONS_PERROW_ORDER_VARIANT = bestVar;
+        // Clear caches so new ordering is used immediately
+        pkicons_clear_icon_cache(_species);
+        return bestVar;
+    }
+
+// Clear cached icon assets for a species so they will be regenerated on next request.
+function pkicons_clear_icon_cache(_species){
+    pkicons_init();
+    // Clear the primary caches for icons/sheets/dirs so regenerated assets will be created on demand.
+    variable_struct_set(PKICONS, "icon_strip_cache", {});
+    variable_struct_set(PKICONS, "icon_sheet_cache", {});
+    variable_struct_set(PKICONS, "icon_dir_cache", {});
+    // Note: we don't clear global PKICONS.item_icon_cache here to avoid removing externally
+    // configured item icon mappings. If you want a full flush, set PKICONS.item_icon_cache = {} manually.
 }
 
 // 32×32 directional icon resolver (restored)

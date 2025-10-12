@@ -305,6 +305,8 @@
     {"id":{"name":"Sprite34","path":"sprites/Sprite34/Sprite34.yy",},},
     {"id":{"name":"Sprite36_fixed_1","path":"sprites/Sprite36_fixed_1/Sprite36_fixed_1.yy",},},
     {"id":{"name":"Sprite36","path":"sprites/Sprite36/Sprite36.yy",},},
+    {"id":{"name":"Sprite40","path":"sprites/Sprite40/Sprite40.yy",},},
+    {"id":{"name":"Sprite41","path":"sprites/Sprite41/Sprite41.yy",},},
     {"id":{"name":"Sprite6","path":"sprites/Sprite6/Sprite6.yy",},},
     {"id":{"name":"Sprite7","path":"sprites/Sprite7/Sprite7.yy",},},
     {"id":{"name":"test_set","path":"tilesets/test_set/test_set.yy",},},

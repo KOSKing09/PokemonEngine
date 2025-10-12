@@ -1,8 +1,9 @@
-// [Battle] PokemonBattleSystem — Build v0.1.34 (basic turn engine)
-// Updated 2025-10-08
-// - NEW: Turn engine (player/enemy actions resolved by Speed)
-// - NEW: Accuracy, damage, crit, variance (with scr_* move data if present; sane fallbacks)
-// - NEW: Faint handling & simple win/lose flow (uses dialog; closes on victory/defeat)
+// [Battle] PokemonBattleSystem — Build v0.1.35 (rewards & flow)
+// Updated 2025-10-11
+// - NEW: Rewards — EXP on victory (b * L / 7), simple level-up (stubbed stat bumps)
+// - NEW: Escape formula — probability scales with Speed and repeated attempts
+// - NEW: Catch flow stub — success scales with foe HP% (for later Bag integration)
+// -----------------------------------------------------------------------------
 // - Keeps: wrap ellipsis, switch-in midpoint apply, cry-trigger grow, PID-aware input, no built-in `id` collisions
 // -----------------------------------------------------------------------------
 // CALLS you’ll use in objects:
@@ -18,7 +19,45 @@ function __battle_ensure_slot(_pid){
     if (!variable_global_exists("sys_battles") || !is_array(global.sys_battles)) global.sys_battles = [];
     if (array_length(global.sys_battles) <= _pid) array_resize(global.sys_battles, _pid + 1);
     var _B = global.sys_battles[_pid];
-    if (!is_struct(_B)) { _B = { sys_open:false }; global.sys_battles[_pid] = _B; }
+    if (!is_struct(_B)) {
+        // Provide a conservative default shape so static analyzers can resolve fields.
+        _B = {
+            sys_open: false,
+            phase: "",
+            phase_durs: {},
+            phase_start_ms: 0,
+            phase_progress: 0,
+            _intro_completed: false,
+            _pending_close: false,
+            sys_ui: { menu: "root", selX:0, selY:0, msg_list: undefined },
+            sys_anim: { active: [] },
+            actor: [],
+            turn_queue: undefined,
+            turn_i: 0,
+            turn_action_player: undefined,
+            turn_action_enemy: undefined,
+            theme: {},
+            _ui: undefined,
+            // caller/trainer visuals
+            caller: undefined,
+            caller_battleAnim: undefined,
+            // phase holds / switching helpers
+            phase_holds: {},
+            _switch_target_idx: undefined,
+            _switch_opts: {},
+            _switch_applied: false,
+            _cry_played_enemy: false,
+            _cry_played_player: false,
+            _cry_play_start_ms_enemy: undefined,
+            _cry_play_start_ms_player: undefined,
+            _cry_queued_from_switch: false,
+            // dialog state
+            _dlg_active: false,
+            _dlg_page_last: -1,
+            _last_phase: ""
+        };
+        global.sys_battles[_pid] = _B;
+    }
     return _B;
 }
 function battle_is_open(_pid){
@@ -411,7 +450,13 @@ function __battle_process_input(_pid){
             }
         }
     }
+    // Dev hotkey: press 'C' to attempt a catch (stub) on root menu
+    if (keyboard_check_pressed(ord("C"))){
+        __battle_try_catch(_pid);
+        return;
+    }
 }
+
 
 // ===== Turn engine =====
 function __battle_build_turn_actions(_pid){
@@ -463,14 +508,25 @@ function __battle_step_turn_if_ready(_pid){
         var A0 = _B.actor[0];
         var A1 = _B.actor[1];
 
-        if (A1.hp_now <= 0){
-            var msg = "The wild " + string(A1.name) + " fainted!\nYou won!";
-            __battle_stub_dialog(_pid, msg);
-            _B.result = "win";
-            _B._pending_close = true;
-            _B.phase = "command"; // phase doesn't matter; dialog-close will end battle
-            return;
+        
+if (A1.hp_now <= 0){
+    // Compute EXP: floor(base_exp * enemy_level / 7)
+    var base_exp = 50;
+    if (variable_global_exists("_pokemon") && is_array(global._pokemon) && A1.species >= 0 && A1.species < array_length(global._pokemon)){
+        var _rec = global._pokemon[A1.species];
+        if (is_struct(_rec) && variable_struct_exists(_rec, "_base_exp")){
+            base_exp = max(1, real(_rec._base_exp));
         }
+    }
+    var gain = floor((base_exp * max(1, A1.level)) / 7);
+    __battle_award_exp(_pid, gain);
+
+    _B.result = "win";
+    _B._pending_close = true;
+    _B.phase = "command";
+    return;
+}
+
 
         if (A0.hp_now <= 0){
             // Try to find another alive mon in party
@@ -618,16 +674,29 @@ function __battle_move_accuracy(_code){
 }
 // (action helpers moved to battle_actions.gml)
 
+
 function __battle_try_escape(_pid){
     var _B = __battle_ensure_slot(_pid);
-    _B.result = "escaped";
-    if (!is_undefined(dialog2p_open_text)){
-        dialog2p_open_text(_pid, "Got away safely!\n");
+    var A0 = _B.actor[0], A1 = _B.actor[1];
+    if (!is_struct(A0) || !is_struct(A1)){
+        _B.result = "escaped"; __battle_stub_dialog(_pid, "Got away safely!"); _B._pending_close = true; return;
+    }
+    if (!variable_struct_exists(_B, "run_tries")) _B.run_tries = 0;
+    // Use the stat getter to safely retrieve Speed (handles missing fields and fallbacks)
+    var s0 = max(1, is_real(__battle_stat_get(A0, "spd")) ? __battle_stat_get(A0, "spd") : 30);
+    var s1 = max(1, is_real(__battle_stat_get(A1, "spd")) ? __battle_stat_get(A1, "spd") : 30);
+    var chance = clamp(floor((s0 * 128) / s1) + (30 * _B.run_tries), 0, 255);
+    var roll = irandom(255);
+    if (roll < chance){
+        _B.result = "escaped";
+        __battle_stub_dialog(_pid, "Got away safely!\n");
         _B._pending_close = true;
     } else {
-        battle_close(_pid);
+        _B.run_tries += 1;
+        __battle_stub_dialog(_pid, "Can't escape!");
     }
 }
+
 function __battle_stub_dialog(_pid, _text){
     if (!is_undefined(dialog2p_open_text)){
         dialog2p_open_text(_pid, _text);
@@ -758,6 +827,51 @@ function __battle_actor_from_party_mon(_M){
     if (variable_struct_exists(_M,"level")) _lvl = _M.level;
     else if (variable_struct_exists(_M,"lvl")) _lvl = _M.lvl;
 
+    // If the party mon struct is provided, return it directly as the actor so the battle system
+    // operates on the canonical party data. We still ensure common aliases exist so existing
+    // battle code that expects fields like `hp_now` or `hp_max` works.
+    if (is_struct(_M)){
+        var A = _M;
+
+        // Ensure species_id canonical field
+        if ((!variable_struct_exists(A, "species_id") || !is_real(A.species_id))) {
+            if (variable_struct_exists(A, "id") && is_real(A.id)) A.species_id = A.id;
+            else if (variable_struct_exists(A, "species") && is_real(A.species)) A.species_id = A.species;
+        }
+
+        // Ensure readable top-level aliases used by battle code
+        if (!variable_struct_exists(A, "level") && variable_struct_exists(A, "lvl")) A.level = A.lvl;
+        if (!variable_struct_exists(A, "lvl") && variable_struct_exists(A, "level")) A.lvl = A.level;
+
+        if (!variable_struct_exists(A, "hp_now") && variable_struct_exists(A, "hp")) A.hp_now = A.hp;
+        if (!variable_struct_exists(A, "hp") && variable_struct_exists(A, "hp_now")) A.hp = A.hp_now;
+
+        if (!variable_struct_exists(A, "hp_max") && variable_struct_exists(A, "maxhp")) A.hp_max = A.maxhp;
+        if (!variable_struct_exists(A, "maxhp") && variable_struct_exists(A, "hp_max")) A.maxhp = A.hp_max;
+
+        if (!variable_struct_exists(A, "name") && is_string(_nm)) A.name = _nm;
+
+        if (!variable_struct_exists(A, "moves")) A.moves = [-1,-1,-1,-1];
+        if (!variable_struct_exists(A, "pps"))   A.pps   = [0,0,0,0];
+
+        if (!variable_struct_exists(A, "exp")) A.exp = 0;
+        if (!variable_struct_exists(A, "exp_next")) A.exp_next = max(20, (is_real(A.level) ? A.level : _lvl) * (is_real(A.level) ? A.level : _lvl) * 2);
+
+        // Provide a `.mon` alias pointing to itself so code that checks for `.mon` continues to work
+        if (!variable_struct_exists(A, "mon")) A.mon = A;
+
+        // Ensure `species` is the numeric id used by lookup tables. If a name string was stored in
+        // `species`, prefer the numeric `species_id` when available to avoid runtime conversion errors.
+        if (variable_struct_exists(A, "species_id") && is_real(A.species_id)){
+            A.species = A.species_id;
+        } else if (!variable_struct_exists(A, "species") && variable_struct_exists(A, "species_id")){
+            A.species = A.species_id;
+        }
+
+        return A;
+    }
+
+    // No party mon provided: return a minimal actor struct (same shape as before)
     var _actor = {
         species : _sid,
         level   : _lvl,
@@ -767,34 +881,57 @@ function __battle_actor_from_party_mon(_M){
         moves   : [-1,-1,-1,-1],
         pps     : [0,0,0,0]
     };
-    if (is_struct(_M)) {
-        _actor.mon = _M;
-        if ((!variable_struct_exists(_actor.mon, "species_id") || !is_real(_actor.mon.species_id))) {
-            if (variable_struct_exists(_actor.mon, "id") && is_real(_actor.mon.id)) {
-                _actor.mon.species_id = _actor.mon.id;
-            } else if (variable_struct_exists(_actor.mon, "species") && is_real(_actor.mon.species)) {
-                _actor.mon.species_id = _actor.mon.species;
-            }
-        }
-    } else {
-        _actor.mon = { species_id:_sid, shiny:false };
-    }
+    _actor.mon = { species_id:_sid, shiny:false, level:_lvl, hp:_hpNow, hp_max:_hpMax };
     return _actor;
 }
+
 function __battle_actor_from_species_level(_sp,_lvl){
     var _nm = scr_poke_name_by_id(_sp);
+    // base stats from data loader (fallbacks if missing)
+    var _spe = 45;
+    if (variable_global_exists("_poke_stats") && is_array(global._poke_stats) && _sp >= 0 && _sp < array_length(global._poke_stats)){
+        var _st = global._poke_stats[_sp];
+        if (is_struct(_st) && variable_struct_exists(_st, "spe")) _spe = max(1, real(_st.spe));
+    }
+    var _hpMax = 30;
+    if (variable_global_exists("_poke_stats") && is_array(global._poke_stats) && _sp >= 0 && _sp < array_length(global._poke_stats)){
+        var _st2 = global._poke_stats[_sp];
+        if (is_struct(_st2) && variable_struct_exists(_st2, "hp")) _hpMax = max(10, 10 + floor(_st2.hp * 0.8) + _lvl); // very rough
+    }
+
     var _actor = {
         species:_sp,
         level:_lvl,
         name:_nm,
-        hp_now:30,
-        hp_max:30,
+        hp_now:_hpMax,
+        hp_max:_hpMax,
         moves:[-1,-1,-1,-1],
-        pps:[0,0,0,0]
+        pps:[0,0,0,0],
+        spe:_spe,
+        exp:0,
+        exp_next:max(20, _lvl * _lvl * 2) // simple curve placeholder
     };
     _actor.mon = { species_id:_sp, shiny:false };
+
+    // Ensure the wild mon has canonical fields so downstream code can query growth/exp reliably
+    // Provide numeric species aliases
+    _actor.species = _sp;
+    if (!variable_struct_exists(_actor.mon, "species_id") || !is_real(_actor.mon.species_id)) _actor.mon.species_id = _sp;
+    // set level on mon
+    if (!variable_struct_exists(_actor.mon, "level") || !is_real(_actor.mon.level)) _actor.mon.level = _lvl;
+
+    // Try to copy growth id from the master species table if available
+    if (variable_global_exists("_pokemon") && is_array(global._pokemon) && _sp >= 0 && _sp < array_length(global._pokemon)){
+        var __rec = global._pokemon[_sp];
+        if (is_struct(__rec)){
+            if (variable_struct_exists(__rec, "growth_rate_id") && is_real(__rec.growth_rate_id)) variable_struct_set(_actor.mon, "growth_id", __rec.growth_rate_id);
+            else if (variable_struct_exists(__rec, "growth_id") && is_real(__rec.growth_id)) variable_struct_set(_actor.mon, "growth_id", __rec.growth_id);
+            else if (variable_struct_exists(__rec, "growth") && is_real(__rec.growth)) variable_struct_set(_actor.mon, "growth_id", __rec.growth);
+        }
+    }
     return _actor;
 }
+ 
 
 // ===== Move population =====
 function __battle_ensure_moves_from_levelup(_A){
@@ -949,9 +1086,29 @@ function __battle_apply_party_moves(_A){
 function __battle_stat_get(_A, _stat){
     // Pull from mon if present, else derive from level
     var lvl = (is_struct(_A) && is_real(_A.level)) ? _A.level : 5;
+    // Only check exact assigned fields. For speed, use `spe` only (actor then mon).
+    if (is_struct(_A)){
+        if (_stat == "spd"){
+            if (variable_struct_exists(_A, "spe") && is_real(_A.spe)) return _A.spe;
+        } else if (_stat == "atk"){
+            if (variable_struct_exists(_A, "atk") && is_real(_A.atk)) return _A.atk;
+        } else if (_stat == "def"){
+            if (variable_struct_exists(_A, "def") && is_real(_A.def)) return _A.def;
+        }
+    }
+
     var m = (is_struct(_A) && variable_struct_exists(_A,"mon")) ? _A.mon : undefined;
 
     if (is_struct(m)){
+        if (_stat=="atk"){
+            if (variable_struct_exists(m,"atk") && is_real(m.atk)) return m.atk;
+        }
+        if (_stat=="def"){
+            if (variable_struct_exists(m,"def") && is_real(m.def)) return m.def;
+        }
+        if (_stat=="spd"){
+            if (variable_struct_exists(m,"spe") && is_real(m.spe)) return m.spe;
+        }
         if (_stat=="atk"){
             if (variable_struct_exists(m,"atk") && is_real(m.atk)) return m.atk;
             if (variable_struct_exists(m,"attack") && is_real(m.attack)) return m.attack;
@@ -1111,3 +1268,98 @@ function __battle_draw_battlers(_pid, _B) {
     __battle_draw_enemy(_pid, _B, fx, fy);
     __battle_draw_player(_pid, _B, mx, my, tx, ty);
 }
+
+// ===== Rewards: EXP & Level-Up (simple placeholders) =====
+function __battle_award_exp(_pid, _amount){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !is_array(_B.actor)) return;
+    var A0 = _B.actor[0]; if (!is_struct(A0)) return;
+    var _gain = max(0, floor(real(_amount)));
+    // Determine target struct: prefer the canonical mon (party slot) when available so changes persist
+    var T = (is_struct(A0) && variable_struct_exists(A0, "mon") && is_struct(A0.mon)) ? A0.mon : A0;
+
+    // Ensure exp fields exist on the target
+    if (!variable_struct_exists(T, "exp") || !is_real(T.exp)) T.exp = 0;
+    if (!variable_struct_exists(T, "exp_next") || !is_real(T.exp_next)) T.exp_next = max(20, (is_real(T.level) ? T.level : (is_real(A0.level) ? A0.level : 1)) * (is_real(T.level) ? T.level : (is_real(A0.level) ? A0.level : 1)) * 2);
+
+    // Apply gain to canonical target
+    T.exp = max(0, real(T.exp)) + _gain;
+
+    // level-up loop (prevent runaway)
+    var _ups = 0;
+    while (is_real(T.exp) && is_real(T.exp_next) && T.exp >= T.exp_next && _ups < 10){
+        // Prevent leveling past 100 (CSV only defines up to 100)
+        if (!is_real(T.level)) T.level = 1;
+        if (T.level >= 100) { T.exp = min(T.exp, T.exp_next - 1); break; }
+        T.exp -= T.exp_next;
+        T.level += 1;
+        _ups++;
+        // bump stats (very light): +3 HP, heal +3
+        if (!is_real(T.hp_max)) T.hp_max = 20; T.hp_max += 3;
+        if (!is_real(T.hp_now)) T.hp_now = T.hp_max; else T.hp_now = min(T.hp_max, T.hp_now + 3);
+        T.exp_next = max(20, T.level * T.level * 2);
+        // If we've reached level cap, ensure exp_next won't fire again
+        if (T.level >= 100) T.exp_next = 1e12;
+    }
+
+    // Mirror values back to the top-level actor for compatibility with existing UI/battle code
+    if (is_struct(A0)){
+        if (variable_struct_exists(T, "exp")) A0.exp = T.exp;
+        if (variable_struct_exists(T, "exp_next")) A0.exp_next = T.exp_next;
+        if (variable_struct_exists(T, "level")) A0.level = T.level;
+        if (variable_struct_exists(T, "hp_now")) A0.hp_now = T.hp_now;
+        if (variable_struct_exists(T, "hp_max")) A0.hp_max = T.hp_max;
+        if (variable_struct_exists(T, "name")) A0.name = T.name;
+    }
+
+    if (_ups > 0){
+        __battle_stub_dialog(_pid, string(_gain) + " EXP gained!\n" + string(A0.name) + " grew to Lv" + string(A0.level) + "!");
+    } else {
+        __battle_stub_dialog(_pid, string(_gain) + " EXP gained!");
+    }
+}
+
+
+// ===== Catch Flow (stub): success scales with foe HP% =====
+function __battle_try_catch(_pid){
+    var _B = __battle_ensure_slot(_pid);
+    var A1 = _B.actor[1]; if (!is_struct(A1)) return;
+    var hpPct = max(0, min(1, A1.hp_now / max(1, A1.hp_max)));
+    var chance = clamp(floor((1 - hpPct) * 70) + 20, 5, 95); // 20–90% typical
+    if (irandom(99) < chance){
+        _B.result = "caught";
+        // When caught, if the actor is a wild mon (actor[1].mon or actor[1] itself), prepare a party-style mon
+        var caught = undefined;
+        if (variable_struct_exists(A1, "mon") && is_struct(A1.mon)) caught = A1.mon;
+        else if (is_struct(A1)) caught = A1;
+
+        // Ensure exp fields reflect the growth curve where possible
+        if (is_struct(caught)){
+            // Attempt to read growth_id from data tables; prefer fields commonly used in loaders
+            var growth_id = undefined;
+            if (variable_struct_exists(caught, "growth_id") && is_real(variable_struct_get(caught, "growth_id"))) growth_id = variable_struct_get(caught, "growth_id");
+            else if (variable_struct_exists(caught, "growth") && is_real(variable_struct_get(caught, "growth"))) growth_id = variable_struct_get(caught, "growth");
+            else if (variable_struct_exists(caught, "growth_rate_id") && is_real(variable_struct_get(caught, "growth_rate_id"))) growth_id = variable_struct_get(caught, "growth_rate_id");
+
+            var lvl = 1;
+            if (variable_struct_exists(caught, "level") && is_real(variable_struct_get(caught, "level"))) lvl = floor(variable_struct_get(caught, "level"));
+            else if (variable_struct_exists(caught, "lvl") && is_real(variable_struct_get(caught, "lvl"))) lvl = floor(variable_struct_get(caught, "lvl"));
+
+            if (!is_undefined(scr_get_exp_for_level) && is_real(growth_id)){
+                var cur_exp = scr_get_exp_for_level(growth_id, lvl);
+                if (is_real(cur_exp) && cur_exp >= 0) variable_struct_set(caught, "exp", cur_exp);
+                var next_exp = scr_get_exp_for_level(growth_id, min(100, lvl + 1));
+                if (is_real(next_exp) && next_exp > 0) variable_struct_set(caught, "exp_next", next_exp);
+            }
+            // fallback: ensure fields exist
+            if (!variable_struct_exists(caught, "exp")) variable_struct_set(caught, "exp", 0);
+            if (!variable_struct_exists(caught, "exp_next")) variable_struct_set(caught, "exp_next", max(20, lvl * lvl * 2));
+        }
+
+        __battle_stub_dialog(_pid, "Gotcha!\nYou caught " + string(A1.name) + "!");
+        _B._pending_close = true;
+    } else {
+        __battle_stub_dialog(_pid, "Oh no! The Pokémon broke free!");
+    }
+}
+
