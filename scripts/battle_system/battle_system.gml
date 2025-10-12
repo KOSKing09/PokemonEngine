@@ -235,10 +235,15 @@ function battle_update(_pid){
             _B._pending_close = false; battle_close(_pid); return;
         }
         // don't reset menu during turn resolution
-        if (string(_B.phase) == "command"){
-            _B.sys_ui.menu = "root";
-            _B.sys_ui.selX = 0; _B.sys_ui.selY = 0;
-        }
+        // NOTE: previously we force-reset the root menu selection when
+        // a dialog closed while in the command phase. That made the
+        // selector jump back to FIGHT (0,0) after showing temporary
+        // dialogs such as the Bag stub, causing accidental inputs.
+        //
+        // Keep the current menu/selection intact on dialog close so
+        // the player returns to the same spot they had selected.
+        // Individual code paths that need to force a reset should set
+        // `_B.sys_ui.menu`/`selX`/`selY` explicitly.
     }
 
     // Phase timing (intros + switch)
@@ -280,7 +285,7 @@ function battle_update(_pid){
             if (_B.phase_progress >= 0.5 && (!variable_struct_exists(_B, "_switch_applied") || !_B._switch_applied)){
                 var idx = (variable_struct_exists(_B, "_switch_target_idx") ? _B._switch_target_idx : undefined);
                 var opts = (variable_struct_exists(_B, "_switch_opts") ? _B._switch_opts : {});
-                var auto_apply = !(variable_struct_exists(opts, "auto_apply") && opts.auto_apply == false);
+                var auto_apply = !(variable_struct_exists(opts, "auto_apply") && variable_struct_get(opts, "auto_apply") == false);
                 if (auto_apply && !is_undefined(party_ensure) && !is_undefined(idx) && is_real(idx)){
                     var P = party_ensure(_pid);
                     if (is_array(P.mons) && idx >= 0 && idx < array_length(P.mons)){
@@ -437,9 +442,21 @@ function __battle_process_input(_pid){
             var pp = A.pps[move_idx];
 
             if (!is_real(mv) || mv < 0){
+                // No move in that slot: show a message but still let the enemy act this turn.
                 __battle_stub_dialog(_pid, "No move registered there.\n(Try another slot.)");
+                _B.turn_action_player = undefined;
+                _B.turn_action_enemy  = __battle_enemy_choose_action(_pid);
+                _B.turn_queue = __battle_build_turn_actions(_pid);
+                _B.turn_i = 0;
+                _B.phase = "turn";
             } else if (pp <= 0){
+                // No PP: inform player but still proceed with enemy action (player effectively skips this turn)
                 __battle_stub_dialog(_pid, "There's no PP left for that move!\n(TODO: implement Struggle.)");
+                _B.turn_action_player = undefined;
+                _B.turn_action_enemy  = __battle_enemy_choose_action(_pid);
+                _B.turn_queue = __battle_build_turn_actions(_pid);
+                _B.turn_i = 0;
+                _B.phase = "turn";
             } else {
                 // Queue the player's choice and kick off the turn
                 _B.turn_action_player = { slot: move_idx, move_id: mv };
@@ -466,9 +483,17 @@ function __battle_build_turn_actions(_pid){
     var actP = _B.turn_action_player; // struct or undefined
     var actE = _B.turn_action_enemy;
 
+    // If an enemy action wasn't preselected (some input paths may not set it), pick one now so
+    // the CPU doesn't become inert when the player mis-presses unavailable options.
+    if (!is_struct(actE)){
+        actE = __battle_enemy_choose_action(_pid);
+        // store back so subsequent logic or UI can inspect it if needed
+        _B.turn_action_enemy = actE;
+    }
+
     // Default targets: single-target to the opposite side
-    if (is_struct(actP)){ actP.actor_index = 0; actP.target_index = 1; }
-    if (is_struct(actE)){ actE.actor_index = 1; actE.target_index = 0; }
+    if (is_struct(actP)){ variable_struct_set(actP, "actor_index", 0); variable_struct_set(actP, "target_index", 1); }
+    if (is_struct(actE)){ variable_struct_set(actE, "actor_index", 1); variable_struct_set(actE, "target_index", 0); }
 
     // Determine order by Speed (tie-break: random)
     var spP = __battle_stat_get(_B.actor[0], "spd");
@@ -857,6 +882,18 @@ function __battle_actor_from_party_mon(_M){
         if (!variable_struct_exists(A, "exp")) A.exp = 0;
         if (!variable_struct_exists(A, "exp_next")) A.exp_next = max(20, (is_real(A.level) ? A.level : _lvl) * (is_real(A.level) ? A.level : _lvl) * 2);
 
+        // Ensure growth_id exists on party mons so experience lookups can reference the correct growth curve
+        if (!variable_struct_exists(A, "growth_id") || !is_real(A.growth_id)){
+            if (variable_struct_exists(A, "species_id") && is_real(A.species_id) && variable_global_exists("_pokemon") && is_array(global._pokemon) && A.species_id >= 0 && A.species_id < array_length(global._pokemon)){
+                var __rec_g = global._pokemon[A.species_id];
+                if (is_struct(__rec_g)){
+                    if (variable_struct_exists(__rec_g, "growth_rate_id") && is_real(__rec_g.growth_rate_id)) A.growth_id = floor(__rec_g.growth_rate_id);
+                    else if (variable_struct_exists(__rec_g, "_growth_rate") && is_real(__rec_g._growth_rate)) A.growth_id = floor(__rec_g._growth_rate);
+                    else if (variable_struct_exists(__rec_g, "growth") && is_real(__rec_g.growth)) A.growth_id = floor(__rec_g.growth);
+                }
+            }
+        }
+
         // Provide a `.mon` alias pointing to itself so code that checks for `.mon` continues to work
         if (!variable_struct_exists(A, "mon")) A.mon = A;
 
@@ -946,12 +983,16 @@ function __battle_ensure_moves_from_levelup(_A){
             for (var j = 0; j < array_length(pool); ++j){
                 var entry = pool[j];
                 var mv = -1, reqLv = -1;
-                if (is_array(entry)){
-                    if (array_length(entry) >= 1 && is_real(entry[0])) mv = entry[0];
-                    if (array_length(entry) >= 2 && is_real(entry[1])) reqLv = entry[1];
-                } else if (is_real(entry)){
-                    mv = entry;
-                }
+                    if (is_array(entry)){
+                        if (array_length(entry) >= 1 && is_real(entry[0])) mv = entry[0];
+                        if (array_length(entry) >= 2 && is_real(entry[1])) reqLv = entry[1];
+                    } else if (is_struct(entry)){
+                        if (variable_struct_exists(entry, "mid") && is_real(variable_struct_get(entry, "mid"))) mv = variable_struct_get(entry, "mid");
+                        else if (variable_struct_exists(entry, "move") && is_real(variable_struct_get(entry, "move"))) mv = variable_struct_get(entry, "move");
+                        if (variable_struct_exists(entry, "lvl") && is_real(variable_struct_get(entry, "lvl"))) reqLv = variable_struct_get(entry, "lvl");
+                    } else if (is_real(entry)){
+                        mv = entry;
+                    }
                 if (is_real(mv) && mv >= 0 && (reqLv < 0 || _A.level >= reqLv)){
                     cand[array_length(cand)] = mv;
                 }
@@ -964,6 +1005,10 @@ function __battle_ensure_moves_from_levelup(_A){
                 if (is_array(entry2)){
                     if (array_length(entry2) >= 1 && is_real(entry2[0])) mv2 = entry2[0];
                     if (array_length(entry2) >= 2 && is_real(entry2[1])) reqLv2 = entry2[1];
+                } else if (is_struct(entry2)){
+                    if (variable_struct_exists(entry2, "mid") && is_real(variable_struct_get(entry2, "mid"))) mv2 = variable_struct_get(entry2, "mid");
+                    else if (variable_struct_exists(entry2, "move") && is_real(variable_struct_get(entry2, "move"))) mv2 = variable_struct_get(entry2, "move");
+                    if (variable_struct_exists(entry2, "lvl") && is_real(variable_struct_get(entry2, "lvl"))) reqLv2 = variable_struct_get(entry2, "lvl");
                 } else if (is_real(entry2)){
                     mv2 = entry2;
                 }
@@ -975,6 +1020,20 @@ function __battle_ensure_moves_from_levelup(_A){
     }
 
     var total = array_length(cand);
+    // Deduplicate candidates while preserving order (learn order). This prevents the
+    // same move appearing multiple times in the final picks.
+    if (total > 1){
+        var seen = [];
+        var uniq = [];
+        for (var ui = 0; ui < array_length(cand); ui++){
+            var mvv = cand[ui];
+            var ok = true;
+            for (var si = 0; si < array_length(seen); si++) if (seen[si] == mvv) { ok = false; break; }
+            if (ok){ array_push(seen, mvv); array_push(uniq, mvv); }
+        }
+        cand = uniq;
+        total = array_length(cand);
+    }
     if (total > 0){
         var take = min(4, total);
         for (var m = 0; m < take; ++m){
@@ -1287,19 +1346,55 @@ function __battle_award_exp(_pid, _amount){
 
     // level-up loop (prevent runaway)
     var _ups = 0;
-    while (is_real(T.exp) && is_real(T.exp_next) && T.exp >= T.exp_next && _ups < 10){
-        // Prevent leveling past 100 (CSV only defines up to 100)
+    // Use CSV-driven thresholds (emerald-style) when available. Fallback to simple quadratic curve.
+    while (_ups < 10){
         if (!is_real(T.level)) T.level = 1;
-        if (T.level >= 100) { T.exp = min(T.exp, T.exp_next - 1); break; }
-        T.exp -= T.exp_next;
-        T.level += 1;
-        _ups++;
-        // bump stats (very light): +3 HP, heal +3
-        if (!is_real(T.hp_max)) T.hp_max = 20; T.hp_max += 3;
-        if (!is_real(T.hp_now)) T.hp_now = T.hp_max; else T.hp_now = min(T.hp_max, T.hp_now + 3);
-        T.exp_next = max(20, T.level * T.level * 2);
-        // If we've reached level cap, ensure exp_next won't fire again
-        if (T.level >= 100) T.exp_next = 1e12;
+        if (T.level >= 100){
+            // cap: clamp exp so it won't trigger further ups
+            if (is_real(T.exp_next)) T.exp = min(T.exp, T.exp_next - 1);
+            break;
+        }
+
+        // Determine next threshold: prefer mon.growth_id -> use scr_get_exp_for_level
+        var nextThresh = -1;
+        var gid_probe = undefined;
+        if (variable_struct_exists(T, "growth_id") && is_real(T.growth_id)) gid_probe = T.growth_id;
+        else if (variable_struct_exists(T, "growth") && is_real(T.growth)) gid_probe = T.growth;
+        else if (variable_struct_exists(T, "growth_rate_id") && is_real(T.growth_rate_id)) gid_probe = T.growth_rate_id;
+
+        if (!is_undefined(gid_probe) && is_real(gid_probe) && !is_undefined(scr_get_exp_for_level)){
+            nextThresh = scr_get_exp_for_level(gid_probe, T.level + 1);
+        }
+        if (!is_real(nextThresh) || nextThresh <= 0) nextThresh = max(20, (T.level + 1) * (T.level + 1) * 2);
+
+        // If current exp reaches nextThresh -> level up
+        if (is_real(T.exp) && T.exp >= nextThresh){
+            // subtract threshold as Emerald does (exp is cumulative: T.exp stores cumulative total)
+            T.exp = T.exp - nextThresh;
+            T.level += 1;
+            _ups += 1;
+
+            // bump stats (very light): +3 HP, heal +3
+            if (!is_real(T.hp_max)) T.hp_max = 20; T.hp_max += 3;
+            if (!is_real(T.hp_now)) T.hp_now = T.hp_max; else T.hp_now = min(T.hp_max, T.hp_now + 3);
+
+            // recompute next threshold for the new level
+            if (!is_undefined(gid_probe) && is_real(gid_probe) && !is_undefined(scr_get_exp_for_level)){
+                var nxt = scr_get_exp_for_level(gid_probe, min(100, T.level + 1));
+                if (is_real(nxt) && nxt > 0) T.exp_next = nxt;
+                else T.exp_next = max(20, T.level * T.level * 2);
+            } else {
+                T.exp_next = max(20, T.level * T.level * 2);
+            }
+
+            if (T.level >= 100){ T.exp_next = $1e12; break; }
+            // loop to see if multiple level-ups
+            continue;
+        }
+        // Not enough exp to level up
+        // Set exp_next for UI if available
+        T.exp_next = nextThresh;
+        break;
     }
 
     // Mirror values back to the top-level actor for compatibility with existing UI/battle code

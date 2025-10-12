@@ -29,6 +29,18 @@ function __pfc_last4_levelup_moves(_sid, _level) {
         var mid = __pfc_int(r.mid, -1);
         if (mid > 0 && lvl <= _level) array_push(elig, mid);
     }
+    // Deduplicate while preserving order (so the same move isn't learned multiple times)
+    if (array_length(elig) > 1){
+        var seen2 = [];
+        var uniq2 = [];
+        for (var ii = 0; ii < array_length(elig); ii++){
+            var mvv = elig[ii];
+            var already = false;
+            for (var jj = 0; jj < array_length(seen2); jj++) if (seen2[jj] == mvv) { already = true; break; }
+            if (!already){ array_push(seen2, mvv); array_push(uniq2, mvv); }
+        }
+        elig = uniq2;
+    }
     var n = array_length(elig);
     if (n <= 0) return out;
     var k = 0;
@@ -161,5 +173,29 @@ function pokemon_factory_create(_sid, _level, _opts){
         held_item_id   : held_item_id,
         held_item_meta : held_item_meta
     };
+    // Attach growth_id from species master record when available so experience lookups work
+    if (variable_global_exists("_pokemon") && is_array(global._pokemon) && _s >= 0 && _s < array_length(global._pokemon)){
+        var __rec2 = global._pokemon[_s];
+        if (is_struct(__rec2)){
+            if (variable_struct_exists(__rec2, "growth_rate_id") && is_real(__rec2.growth_rate_id)) mon.growth_id = floor(__rec2.growth_rate_id);
+            else if (variable_struct_exists(__rec2, "_growth_rate") && is_real(__rec2._growth_rate)) mon.growth_id = floor(__rec2._growth_rate);
+            else if (variable_struct_exists(__rec2, "growth") && is_real(__rec2.growth)) mon.growth_id = floor(__rec2.growth);
+        }
+    }
+
+    // If a CSV-driven experience table exists, initialize the mon.exp to the cumulative exp for its current level
+    // Safely initialize exp/exp_next from CSV if growth_id and level are available
+    var _has_exp_field = (variable_struct_exists(mon, "exp") && is_real(variable_struct_get(mon, "exp")));
+    var _exp_val = _has_exp_field ? variable_struct_get(mon, "exp") : undefined;
+    var _has_growth = (variable_struct_exists(mon, "growth_id") && is_real(variable_struct_get(mon, "growth_id")));
+    var _has_level = (variable_struct_exists(mon, "level") && is_real(variable_struct_get(mon, "level")));
+    if ((!_has_exp_field || _exp_val <= 0) && _has_growth && _has_level && !is_undefined(scr_get_exp_for_level)){
+        var _gid = variable_struct_get(mon, "growth_id");
+        var _lvl = variable_struct_get(mon, "level");
+        var _cur_e = scr_get_exp_for_level(_gid, _lvl);
+        if (is_real(_cur_e) && _cur_e >= 0) variable_struct_set(mon, "exp", _cur_e);
+        var _nxt_e = scr_get_exp_for_level(_gid, min(100, _lvl + 1));
+        if (is_real(_nxt_e) && _nxt_e > 0) variable_struct_set(mon, "exp_next", _nxt_e);
+    }
     return mon;
 }

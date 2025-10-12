@@ -263,6 +263,46 @@ function scr_move_desc_by_id(_mid){
     return is_undefined(t.short_desc) ? "" : t.short_desc;
 }
 
+// Debug helper: dump a species' level-up moves and which are eligible at a given level
+function scr_debug_species_moves(_sid, _level){
+    if (!is_real(_sid)) { show_debug_message("[DBG][moves] invalid species id: " + string(_sid)); return; }
+    var sid = floor(_sid);
+    var L = (is_real(_level) ? floor(_level) : 1);
+    show_debug_message("[DBG][moves] species=" + string(sid) + " level=" + string(L));
+    if (!variable_global_exists("_species_moves") || !is_array(global._species_moves)){
+        show_debug_message("[DBG][moves] no global._species_moves loaded"); return;
+    }
+    if (sid < 0 || sid >= array_length(global._species_moves)){ show_debug_message("[DBG][moves] sid out of range"); return; }
+    var rows = global._species_moves[sid];
+    if (!is_array(rows)){ show_debug_message("[DBG][moves] no rows for species " + string(sid)); return; }
+    show_debug_message("[DBG][moves] total rows=" + string(array_length(rows)));
+    var elig = [];
+    for (var i = 0; i < array_length(rows); i++){
+        var r = rows[i];
+        if (!is_struct(r)) { show_debug_message("  row[" + string(i) + "] not struct"); continue; }
+        var lvl = (variable_struct_exists(r,"lvl") && is_real(r.lvl)) ? floor(r.lvl) : -1;
+        var mid = (variable_struct_exists(r,"mid") && is_real(r.mid)) ? floor(r.mid) : -1;
+        show_debug_message("  row[" + string(i) + "] lvl=" + string(lvl) + " mid=" + string(mid) + " name=" + string(scr_move_name_by_id(mid)) );
+        if (mid > 0 && lvl <= L) array_push(elig, mid);
+    }
+    // Deduplicate eligible moves while preserving order so debug output matches
+    // what the factory/battle selection will pick.
+    var elig_unique = [];
+    if (array_length(elig) > 0){
+        var seen = [];
+        for (var ei = 0; ei < array_length(elig); ei++){
+            var mv = elig[ei];
+            var dup = false;
+            for (var si = 0; si < array_length(seen); si++) if (seen[si] == mv) { dup = true; break; }
+            if (!dup){ array_push(seen, mv); array_push(elig_unique, mv); }
+        }
+    }
+    show_debug_message("[DBG][moves] eligible_count=" + string(array_length(elig)) + " unique=" + string(array_length(elig_unique)) + " -> last4:");
+    // show last up to 4 unique picks
+    var n = array_length(elig_unique);
+    for (var j = max(0, n - 4); j < n; j++) show_debug_message("   pick: " + string(elig_unique[j]) + " " + string(scr_move_name_by_id(elig_unique[j])) );
+}
+
 function scr_ability_name_by_id(_aid){
     if (!is_real(_aid) || _aid <= 0) return "";
     if (variable_global_exists("_ability_text") && is_array(global._ability_text) && _aid < array_length(global._ability_text)){

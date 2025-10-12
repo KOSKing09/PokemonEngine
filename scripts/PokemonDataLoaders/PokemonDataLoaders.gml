@@ -460,7 +460,8 @@ function data_load_all_structs_ext(){
     data_load_ability_text_structs();    // UPDATED to PokeAPI flavor text
     data_load_species_abilities_structs();
     data_load_species_moves_structs();
-    // Experience / growth tables
+    // Growth rates table + Experience
+    data_load_growth_rates_structs();
     data_load_experience_structs();
     // Items + item categories
     data_load_items_structs();
@@ -470,6 +471,49 @@ function data_load_all_structs_ext(){
     data_load_item_flag_prose_structs();
     data_load_item_flag_map_structs();
     data_debug("[DATA][structs_ext] done.");
+}
+
+// ---------- DATA: growth_rates.csv -> global._growth_rates[growth_rate_id] = { id, identifier, name, description }
+function data_load_growth_rates_structs(){
+    var path = working_directory + "/data/csv/growth_rates.csv";
+    var g = load_csv(path);
+    if (g == -1) { data_debug("[DATA][growth_rates] SKIP: " + path); global._growth_rates = []; return; }
+
+    var H = ds_grid_height(g);
+    var ci_id = __col_find_ci(g, "growth_rate_id");
+    var ci_ident = __col_find_ci(g, "identifier");
+    var ci_name = __col_find_ci(g, "name");
+    var ci_desc = __col_find_ci(g, "description");
+    if (ci_id < 0) { data_debug("[DATA][growth_rates] ERROR: missing growth_rate_id column"); global._growth_rates = []; return; }
+
+    // find max id
+    var max_id = 0;
+    for (var r = 1; r < H; r++){
+        var idv = __to_int_safe(__grid(g, ci_id, r, 0), 0);
+        if (idv > max_id) max_id = idv;
+    }
+
+    global._growth_rates = []; array_resize(global._growth_rates, max_id + 1);
+    var rows = 0;
+    for (var r2 = 1; r2 < H; r2++){
+        var gid = __to_int_safe(__grid(g, ci_id, r2, 0), 0);
+        if (gid <= 0) continue;
+        var ident = (ci_ident >= 0) ? __s_trim(__grid(g, ci_ident, r2, "")) : string(gid);
+        var namev = (ci_name >= 0) ? __s_trim(__grid(g, ci_name, r2, "")) : ident;
+        var descv = (ci_desc >= 0) ? __text_clean_spaces(__grid(g, ci_desc, r2, "")) : "";
+        global._growth_rates[gid] = { id: gid, identifier: ident, name: namev, description: descv };
+        rows++;
+    }
+    data_debug("[DATA][growth_rates] rows=" + string(rows));
+}
+
+// Helper: returns growth rate metadata struct or undefined
+function scr_get_growth_rate_meta(_gid){
+    if (!is_real(_gid)) return undefined;
+    if (!variable_global_exists("_growth_rates") || !is_array(global._growth_rates)) return undefined;
+    var g = floor(_gid);
+    if (g < 0 || g >= array_length(global._growth_rates)) return undefined;
+    return global._growth_rates[g];
 }
 
 // ---------- DATA: experience.csv -> global._experience[growth_rate_id] = [exp_by_level]

@@ -112,6 +112,8 @@ party_init();               // must be before demo seed (party_ensure uses it)
 //global.DEMO_FORCE_SPECIES = [250, 249]; // optional, you can change or remove
 scr_poke_runtime_demo_init_random(6);           // seeds PARTY[0] (and [1] if present)
 
+// (Debug call to scr_debug_species_moves removed - use manual call if needed)
+
 // Bags after party is fine
 bags_init(1);
 bag_inventory_add_item(0, 4, 10);

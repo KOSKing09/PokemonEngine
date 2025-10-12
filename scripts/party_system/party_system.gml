@@ -185,7 +185,8 @@ function __party_mon_get(_P, _pid){
     return party_model_get_mon(_pid, _P.sel);
 }
 function __party_move_name(_id){
-    if (!is_real(_id)) return "—";
+    // Treat non-positive IDs as empty slots
+    if (!is_real(_id) || _id <= 0) return "—";
     if (is_undefined(scr_move_name_by_id)) return "Move#" + string(_id);
     var _t = scr_move_name_by_id(_id);
     if (is_string(_t) && string_length(_t) > 0) return _t;
