@@ -94,6 +94,10 @@ function battle_open(_a0, _a1){
     _B.phase_durs = { transition: 300, enemy: 400, call: 700, player: 400, switch_in: 600 };
     _B._intro_completed = false;
 
+    // Clear any leftover catch animation state from previous battles
+    if (variable_struct_exists(_B, "_catch_anim")) _B._catch_anim = undefined;
+    if (variable_struct_exists(_B, "_queued_catch")) _B._queued_catch = undefined;
+
     // Cry/switch state & turn queue
     _B._cry_played_enemy = false;
     _B._cry_played_player = false;
@@ -139,10 +143,12 @@ function battle_open(_a0, _a1){
     _B.actor[1] = __battle_actor_from_species_level(_sp, _wildLevel);
 
     _B.caller = _caller;
-    if (_B.caller != noone && instance_exists(_B.caller) && variable_instance_exists(_B.caller, "battleAnim") && sprite_exists(_B.caller.battleAnim)){
-        _B.caller_battleAnim = _B.caller.battleAnim;
-    } else if (variable_global_exists("battleAnim") && sprite_exists(battleAnim)){
-        _B.caller_battleAnim = battleAnim;
+    if (_B.caller != noone && instance_exists(_B.caller) && variable_instance_exists(_B.caller, "battleAnim")){
+        var _tmpba = variable_instance_get(_B.caller, "battleAnim");
+        if (is_real(_tmpba) && sprite_exists(_tmpba)) _B.caller_battleAnim = _tmpba;
+        else _B.caller_battleAnim = undefined;
+    } else if (variable_global_exists("battleAnim") && sprite_exists(variable_global_get("battleAnim"))){
+        _B.caller_battleAnim = variable_global_get("battleAnim");
     } else {
         _B.caller_battleAnim = undefined;
     }
@@ -169,6 +175,9 @@ function battle_close(_pid){
             ds_list_destroy(_B.sys_ui.msg_list);
         }
     }
+    // Clear transient animation state to avoid bleed into subsequent battles
+    if (variable_struct_exists(_B, "_catch_anim")) _B._catch_anim = undefined;
+    if (variable_struct_exists(_B, "_queued_catch")) _B._queued_catch = undefined;
     _B.sys_open = false;
 }
 
@@ -176,6 +185,43 @@ function battle_close(_pid){
 function battle_update(_pid){
     if (!battle_is_open(_pid)) return;
     var _B = __battle_ensure_slot(_pid);
+
+    // If the bag enqueued a catch request, process it here so the call stays inside battle code
+    if (variable_struct_exists(_B, "_queued_catch")){
+        var _q = variable_struct_get(_B, "_queued_catch");
+        if (is_struct(_q) && variable_struct_exists(_q, "ball_mult")){
+            if (!is_undefined(__battle_try_catch)){
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][debug] processing queued catch pid=" + string(_pid) + ", iid=" + string((variable_struct_exists(_q, "item_id") ? variable_struct_get(_q, "item_id") : -1)) + ", mult=" + string(variable_struct_get(_q, "ball_mult")));
+                __battle_try_catch(_pid, variable_struct_get(_q, "ball_mult"), (variable_struct_exists(_q, "item_id") ? variable_struct_get(_q, "item_id") : undefined));
+            }
+        }
+        _B._queued_catch = undefined;
+    }
+
+    // Advance any active slot animations (catch animation, etc.)
+    if (!is_undefined(__battle_update_animations)) __battle_update_animations(_pid);
+
+    // If the Bag UI is open for this player, or a catch animation is active,
+    // pause battle progression (turn resolution/input processing) so the
+    // battle doesn't continue while the player is navigating the bag or
+    // while a ball throw/impact/shake animation is underway.
+    // Note: __battle_update_animations has already been called above so
+    // catch animations will still advance.
+    var _bag_open_here = (is_undefined(bag_is_open) ? false : bag_is_open(_pid));
+    if (_bag_open_here) return;
+    if (is_struct(_B) && variable_struct_exists(_B, "_catch_anim")){
+        var _ca = variable_struct_get(_B, "_catch_anim");
+        if (is_struct(_ca) && variable_struct_exists(_ca, "active") && _ca.active){
+            // Allow progression if the animation is in a persistent 'caught' state
+            // (we want the dialog/close flow to proceed). Otherwise, keep
+            // animations running but don't progress the battle state.
+            var _cphase = (variable_struct_exists(_ca, "phase") ? string(variable_struct_get(_ca, "phase")) : "");
+            var _persist = (variable_struct_exists(_ca, "persistent") && variable_struct_get(_ca, "persistent"));
+            if (!(_cphase == "caught" && _persist)){
+                return;
+            }
+        }
+    }
 
     // Detect phase entry and run on-enter actions once
     var _curr_phase = (variable_struct_exists(_B, "phase") ? string(_B.phase) : "");
@@ -247,6 +293,17 @@ function battle_update(_pid){
                 _B.phase = "turn";
                 return;
             }
+        }
+        // If a pending item use was queued while the dialog was open (e.g. "You used a Poke Ball!"),
+        // start the catch animation now that the dialog has closed.
+        if (variable_struct_exists(_B, "_pending_item_use") && is_struct(variable_struct_get(_B, "_pending_item_use"))){
+            var _pi_temp = variable_struct_get(_B, "_pending_item_use");
+            var _iid_temp = (variable_struct_exists(_pi_temp, "item_id") ? variable_struct_get(_pi_temp, "item_id") : undefined);
+            var _mult_temp = (variable_struct_exists(_pi_temp, "ball_mult") ? variable_struct_get(_pi_temp, "ball_mult") : undefined);
+            if (!is_undefined(__battle_try_catch)) __battle_try_catch(_pid, _mult_temp, _iid_temp);
+            _B._pending_item_use = undefined;
+            // Let the animation run; __battle_step_turn_if_ready will pause execution while catch anim is active.
+            return;
         }
         // don't reset menu during turn resolution
         // NOTE: previously we force-reset the root menu selection when
@@ -409,6 +466,9 @@ function __battle_pressed(_pid, _name){
 }
 function __battle_process_input(_pid){
     var _B = __battle_ensure_slot(_pid);
+    // If the Bag or Party UI is open for this player, block battle input
+    if ((is_undefined(bag_is_open) ? false : bag_is_open(_pid))) return;
+    if ((is_undefined(party_is_open) ? false : party_is_open(_pid))) return;
     if (string(_B.phase) != "command") return;
 
     var _l = __battle_pressed(_pid,"Left");
@@ -425,6 +485,19 @@ function __battle_process_input(_pid){
         var _g = variable_struct_get(_B, "_input_grace_until");
         if (is_real(_g) && _nowt <= _g){
             _l = false; _r = false; _u = false; _d = false; _a = false; _b = false;
+        }
+    }
+
+    // Block inputs while a catch animation is active (throw/impact/shake/resolve).
+    // This prevents the player from advancing dialogs or switching menus mid-catch
+    // which could cause the battle to close or jump out of the bag.
+    if (is_struct(_B) && variable_struct_exists(_B, "_catch_anim")){
+        var _catchA = variable_struct_get(_B, "_catch_anim");
+        if (is_struct(_catchA) && variable_struct_exists(_catchA, "active") && variable_struct_get(_catchA, "active")){
+            var _cphase = (variable_struct_exists(_catchA, "phase") ? string(variable_struct_get(_catchA, "phase")) : "");
+            if (_cphase != "caught" && _cphase != "escape"){
+                _l = false; _r = false; _u = false; _d = false; _a = false; _b = false;
+            }
         }
     }
 
@@ -508,11 +581,7 @@ function __battle_process_input(_pid){
             }
         }
     }
-    // Dev hotkey: press 'C' to attempt a catch (stub) on root menu
-    if (keyboard_check_pressed(ord("C"))){
-        __battle_try_catch(_pid);
-        return;
-    }
+
 }
 
 
@@ -540,6 +609,13 @@ function __battle_build_turn_actions(_pid){
     var spP = __battle_stat_get(_B.actor[0], "spd");
     var spE = __battle_stat_get(_B.actor[1], "spd");
     var firstEnemy = (spE > spP) || (spE == spP && choose(true,false));
+
+    // If the player's action is an item_use (Poké Ball), force the player to act first
+    // so the catch animation can run before the enemy acts. This allows the animation
+    // to resolve (caught/escape) before enemy actions proceed.
+    if (is_struct(actP) && variable_struct_exists(actP, "item_use") && variable_struct_get(actP, "item_use") == true){
+        firstEnemy = false;
+    }
 
     if (is_struct(actP) && is_struct(actE)){
         if (firstEnemy){ actions[0] = actE; actions[1] = actP; }
@@ -638,9 +714,25 @@ if (A1.hp_now <= 0){
     if (A.hp_now <= 0){ _B.turn_i += 1; __battle_step_turn_if_ready(_pid); return; }
 
     // Perform the action -> returns a dialog string
-    // DEBUG: log which actor is about to act (only when turn_i matches debug state to avoid repeats)
-    // (debug removed)
     var out_msg = __battle_perform_action(_pid, step);
+
+    // If the action was an item_use (e.g., Poké Ball) and it started a catch animation,
+    // wait here until the animation resolves instead of advancing to the next action.
+    if (is_struct(step) && variable_struct_exists(step, "item_use") && step.item_use == true){
+        if (variable_struct_exists(_B, "_catch_anim")){
+            var _ca = variable_struct_get(_B, "_catch_anim");
+            if (is_struct(_ca) && variable_struct_exists(_ca, "active") && _ca.active){
+                var _cphase = (variable_struct_exists(_ca, "phase") ? string(_ca.phase) : "");
+                var _persist = (variable_struct_exists(_ca, "persistent") && _ca.persistent);
+                if (!(_cphase == "caught" && _persist)){
+                    // Don't advance turn_i; let battle_update loop (which also advances animations)
+                    // detect the active animation and pause progression until it's done.
+                    return;
+                }
+            }
+        }
+    }
+
     if (string_length(out_msg) <= 0){
         // No text? move on silently
         _B.turn_i += 1;
@@ -656,6 +748,32 @@ function __battle_perform_action(_pid, _step){
     var _B = __battle_ensure_slot(_pid);
     var A = _B.actor[_step.actor_index];
     var D = _B.actor[_step.target_index];
+
+    // Item-use action (e.g., Poké Ball) are represented as { item_use: true, item_id:..., ball_mult:... }
+    // Handle them here by kicking off the catch flow and returning no dialog so the turn engine
+    // continues to the next action (the enemy will still act if ordered to do so).
+    if (is_struct(_step) && variable_struct_exists(_step, "item_use") && _step.item_use == true){
+        var item_id = (variable_struct_exists(_step, "item_id") ? variable_struct_get(_step, "item_id") : undefined);
+        var ball_mult = (variable_struct_exists(_step, "ball_mult") ? variable_struct_get(_step, "ball_mult") : undefined);
+        // Defer the actual catch animation until after the 'used item' dialog closes.
+        variable_struct_set(_B, "_pending_item_use", { item_id: item_id, ball_mult: ball_mult });
+        // Build a friendly dialog message: try to obtain a display name for the item
+        var disp = "item";
+        if (!is_undefined(variable_global_exists) && variable_global_exists("_items") && is_array(global._items) && is_real(item_id) && item_id >= 0 && item_id < array_length(global._items)){
+            var it = global._items[item_id];
+            if (is_struct(it) && variable_struct_exists(it, "name")) disp = (is_undefined(bag__clean_display_name) ? string(variable_struct_get(it, "name")) : bag__clean_display_name(variable_struct_get(it, "name")));
+        }
+        var trainer = "You";
+        if (!is_undefined(party_ensure)){
+            var P = party_ensure(_pid);
+            if (is_struct(P) && variable_struct_exists(P, "name") && string_length(string(variable_struct_get(P, "name"))) > 0) trainer = string(variable_struct_get(P, "name"));
+            else if (variable_global_exists("PLAYER_NAME")) trainer = string(global.PLAYER_NAME);
+        } else if (variable_global_exists("PLAYER_NAME")) trainer = string(global.PLAYER_NAME);
+    // Choose correct indefinite article (a/an) by vowel sound heuristic on first letter
+    var _first = (string_length(string(disp)) > 0) ? string_lower(string_copy(string(disp), 1, 1)) : "";
+    var _article = (string_pos(_first, "aeiou") == 1) ? "an" : "a";
+    return string(trainer) + " used " + string(_article) + " " + string(disp) + ".";
+    }
 
     var move_slot = _step.slot;
     var move_id   = _step.move_id;
@@ -1457,45 +1575,138 @@ function __battle_award_exp(_pid, _amount){
 
 
 // ===== Catch Flow (stub): success scales with foe HP% =====
-function __battle_try_catch(_pid){
+function __battle_try_catch(_pid, _ball_mult, _item_id){
     var _B = __battle_ensure_slot(_pid);
     var A1 = _B.actor[1]; if (!is_struct(A1)) return;
+    // compute chance as before but defer dialog/resolution to animation
     var hpPct = max(0, min(1, A1.hp_now / max(1, A1.hp_max)));
-    var chance = clamp(floor((1 - hpPct) * 70) + 20, 5, 95); // 20–90% typical
-    if (irandom(99) < chance){
-        _B.result = "caught";
-        // When caught, if the actor is a wild mon (actor[1].mon or actor[1] itself), prepare a party-style mon
-        var caught = undefined;
-        if (variable_struct_exists(A1, "mon") && is_struct(A1.mon)) caught = A1.mon;
-        else if (is_struct(A1)) caught = A1;
+    var baseChance = clamp(floor((1 - hpPct) * 70) + 20, 5, 95); // 20–90% typical
+    var mult = (is_undefined(_ball_mult) || !is_real(_ball_mult)) ? 1.0 : max(0.01, _ball_mult);
+    var chance = clamp(floor(baseChance * mult), 1, 100);
+    var success = (irandom(99) < chance);
 
-        // Ensure exp fields reflect the growth curve where possible
-        if (is_struct(caught)){
-            // Attempt to read growth_id from data tables; prefer fields commonly used in loaders
-            var growth_id = undefined;
-            if (variable_struct_exists(caught, "growth_id") && is_real(variable_struct_get(caught, "growth_id"))) growth_id = variable_struct_get(caught, "growth_id");
-            else if (variable_struct_exists(caught, "growth") && is_real(variable_struct_get(caught, "growth"))) growth_id = variable_struct_get(caught, "growth");
-            else if (variable_struct_exists(caught, "growth_rate_id") && is_real(variable_struct_get(caught, "growth_rate_id"))) growth_id = variable_struct_get(caught, "growth_rate_id");
+    // Prepare captured mon data when success to reuse later
+    var caught = undefined;
+    if (variable_struct_exists(A1, "mon") && is_struct(A1.mon)) caught = A1.mon;
+    else if (is_struct(A1)) caught = A1;
 
-            var lvl = 1;
-            if (variable_struct_exists(caught, "level") && is_real(variable_struct_get(caught, "level"))) lvl = floor(variable_struct_get(caught, "level"));
-            else if (variable_struct_exists(caught, "lvl") && is_real(variable_struct_get(caught, "lvl"))) lvl = floor(variable_struct_get(caught, "lvl"));
+    // create an animation state on the battle slot so the draw/update code can render it
+    // durations in ms
+    var now = current_time;
+    var ball_spr = undefined;
+    if (!is_undefined(pkicons_get_item_icon_by_id) && is_real(_item_id) && _item_id > 0){
+        try { var s_try = pkicons_get_item_icon_by_id(floor(_item_id)); if (!is_undefined(s_try) && sprite_exists(s_try)) ball_spr = s_try; } catch (e) { ball_spr = undefined; }
+    }
 
-            if (!is_undefined(scr_get_exp_for_level) && is_real(growth_id)){
-                var cur_exp = scr_get_exp_for_level(growth_id, lvl);
-                if (is_real(cur_exp) && cur_exp >= 0) variable_struct_set(caught, "exp", cur_exp);
-                var next_exp = scr_get_exp_for_level(growth_id, min(100, lvl + 1));
-                if (is_real(next_exp) && next_exp > 0) variable_struct_set(caught, "exp_next", next_exp);
-            }
-            // fallback: ensure fields exist
-            if (!variable_struct_exists(caught, "exp")) variable_struct_set(caught, "exp", 0);
-            if (!variable_struct_exists(caught, "exp_next")) variable_struct_set(caught, "exp_next", max(20, lvl * lvl * 2));
+    _B._catch_anim = {
+        active: true,
+        start_ms: now,
+        phase: "throw", // throw -> impact -> shake -> resolve
+        throw_dur: 380,
+        impact_dur: 220,
+        shakes: 3,
+        // make each shake ~300ms so total shake_dur = shakes * 300
+        shake_dur: 3 * 300,
+        outcome: success,
+    ball_sprite: (is_undefined(ball_spr) ? (variable_global_exists("sbagpokeball") ? sbagpokeball : undefined) : ball_spr),
+        ball_frame: 0,
+        // positions (px coords will be computed in draw using layout helpers)
+        start_x: undefined,
+        start_y: undefined,
+        target_x: undefined,
+        target_y: undefined,
+        enemy_orig_scale: undefined,
+        enemy_scale_now: undefined,
+        // carry the prepared caught struct so it can be finalized after animation
+        caught_struct: caught
+    };
+
+    // mark that the battle slot has a pending non-dialog resolution; dialog will be opened by animation end
+    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][debug] _catch_anim created pid=" + string(_pid) + ", outcome=" + string(success));
+    // don't immediately change _B.result here; do it after animation resolves.
+}
+
+// Progress and resolve per-slot animations (catch sequence)
+function __battle_update_animations(_pid){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B)) return;
+    if (!variable_struct_exists(_B, "_catch_anim")) return;
+    var A = _B._catch_anim;
+    if (!is_struct(A) || !variable_struct_exists(A, "active") || !A.active) return;
+
+    var now = current_time;
+    var elapsed = now - (variable_struct_exists(A, "start_ms") ? A.start_ms : now);
+
+    // Phase progression
+    if (string(A.phase) == "throw"){
+        if (elapsed >= A.throw_dur){
+            A.phase = "impact";
+            A.phase_start = now;
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][debug] catch phase -> impact (pid=" + string(_pid) + ")");
         }
+    } else if (string(A.phase) == "impact"){
+        var e = now - (variable_struct_exists(A, "phase_start") ? A.phase_start : now);
+        if (e >= A.impact_dur){
+            A.phase = "shake";
+            A.phase_start = now;
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][debug] catch phase -> shake (pid=" + string(_pid) + ")");
+        }
+    } else if (string(A.phase) == "shake"){
+        var e2 = now - (variable_struct_exists(A, "phase_start") ? A.phase_start : now);
+        if (e2 >= A.shake_dur){
+            A.phase = "resolve";
+            A.phase_start = now;
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][debug] catch phase -> resolve (pid=" + string(_pid) + ") outcome=" + string(A.outcome));
+        }
+    } else if (string(A.phase) == "resolve"){
+        // finalize outcome: success is immediate; failure transitions to escape animation
+        if (variable_struct_exists(A, "outcome") && A.outcome){
+            // success: mark as caught and prepare mon fields
+            _B.result = "caught";
+            var A1 = _B.actor[1];
+            var caught = A.caught_struct;
+            // copy exp/growth fields similar to previous implementation
+            if (is_struct(caught)){
+                var growth_id = undefined;
+                if (variable_struct_exists(caught, "growth_id") && is_real(variable_struct_get(caught, "growth_id"))) growth_id = variable_struct_get(caught, "growth_id");
+                else if (variable_struct_exists(caught, "growth") && is_real(variable_struct_get(caught, "growth"))) growth_id = variable_struct_get(caught, "growth");
+                else if (variable_struct_exists(caught, "growth_rate_id") && is_real(variable_struct_get(caught, "growth_rate_id"))) growth_id = variable_struct_get(caught, "growth_rate_id");
 
-        __battle_stub_dialog(_pid, "Gotcha!\nYou caught " + string(A1.name) + "!");
-        _B._pending_close = true;
-    } else {
-        __battle_stub_dialog(_pid, "Oh no! The Pokémon broke free!");
+                var lvl = 1;
+                if (variable_struct_exists(caught, "level") && is_real(variable_struct_get(caught, "level"))) lvl = floor(variable_struct_get(caught, "level"));
+                else if (variable_struct_exists(caught, "lvl") && is_real(variable_struct_get(caught, "lvl"))) lvl = floor(variable_struct_get(caught, "lvl"));
+
+                if (!is_undefined(scr_get_exp_for_level) && is_real(growth_id)){
+                    var cur_exp = scr_get_exp_for_level(growth_id, lvl);
+                    if (is_real(cur_exp) && cur_exp >= 0) variable_struct_set(caught, "exp", cur_exp);
+                    var next_exp = scr_get_exp_for_level(growth_id, min(100, lvl + 1));
+                    if (is_real(next_exp) && next_exp > 0) variable_struct_set(caught, "exp_next", next_exp);
+                }
+                if (!variable_struct_exists(caught, "exp")) variable_struct_set(caught, "exp", 0);
+                if (!variable_struct_exists(caught, "exp_next")) variable_struct_set(caught, "exp_next", max(20, lvl * lvl * 2));
+            }
+            // show dialog and keep a persistent caught visual state (ball stays on-screen with mon hidden)
+            __battle_stub_dialog(_pid, "Gotcha!\nYou caught " + string(_B.actor[1].name) + "!");
+            _B._pending_close = true;
+            // instead of clearing animation, freeze it into a 'caught' phase so the ball remains drawn
+            A.phase = "caught";
+            A.phase_start = now;
+            A.persistent = true;
+        } else {
+            // failed capture: transition to escape phase where the Pokémon regrows and ball fades
+            A.phase = "escape";
+            A.phase_start = now;
+            A.escape_dur = 320;
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][debug] catch phase -> escape (pid=" + string(_pid) + ")");
+        }
+    } else if (string(A.phase) == "escape"){
+        var e5 = now - (variable_struct_exists(A, "phase_start") ? A.phase_start : now);
+        if (e5 >= (is_real(A.escape_dur) ? A.escape_dur : 320)){
+            // end escape: show broke free dialog and clear animation
+            __battle_stub_dialog(_pid, "Oh no! The Pokémon broke free!");
+            A.active = false;
+            _B._catch_anim = undefined;
+        }
     }
 }
 

@@ -90,6 +90,66 @@ function bag__item_to_page(_iid, _it){
     return page;
 }
 
+// Read an item's prose entry to extract a numeric ball multiplier (e.g. "1.5x" or "×2").
+// Returns 1.0 when no multiplier is found or on error.
+function bag__get_ball_modifier(_iid){
+    if (!is_real(_iid) || _iid <= 0) return 1.0;
+    if (!variable_global_exists("_item_prose") || !is_array(global._item_prose)) return 1.0;
+    if (_iid >= array_length(global._item_prose)) return 1.0;
+    var rec = global._item_prose[_iid]; if (!is_struct(rec)) return 1.0;
+    var txt = "";
+    if (variable_struct_exists(rec, "short_effect")) txt = string_trim(string(variable_struct_get(rec, "short_effect")));
+    else if (variable_struct_exists(rec, "effect")) txt = string_trim(string(variable_struct_get(rec, "effect")));
+    if (string_length(txt) == 0) return 1.0;
+
+    // normalize multiplication sign
+    txt = string_replace_all(txt, "×", "x");
+    txt = string_lower(txt);
+
+    // try to find an explicit 'x' multiplier (e.g. "x1.5" or "1.5x")
+    var ix = string_pos("x", txt);
+    if (ix > 0){
+        // try number after the x
+        var after = string_trim(string_copy(txt, ix + 1, 256));
+        var num = "";
+        for (var i = 1; i <= string_length(after); i++){
+            var ch = string_copy(after, i, 1);
+            if ((ch >= "0" && ch <= "9") || ch == ".") num += ch; else break;
+        }
+        if (string_length(num) > 0){
+            // ensure there's at least one digit (avoid lone ".") before converting
+            var _hasd = false;
+            for (var _di = 1; _di <= string_length(num); _di++){ var _chd = string_copy(num, _di, 1); if (_chd >= "0" && _chd <= "9") { _hasd = true; break; } }
+            if (_hasd){ var v = real(num); if (is_real(v) && v > 0) return v; }
+        }
+
+        // try number before the x
+        var before = string_trim(string_copy(txt, 1, ix - 1));
+        var num2 = "";
+    for (var j = string_length(before); j >= 1; j--){ var ch2 = string_copy(before, j, 1); if ((ch2 >= "0" && ch2 <= "9") || ch2 == ".") num2 = ch2 + num2; else break; }
+        if (string_length(num2) > 0){
+            var _hasd2 = false;
+            for (var _di2 = 1; _di2 <= string_length(num2); _di2++){ var _chd2 = string_copy(num2, _di2, 1); if (_chd2 >= "0" && _chd2 <= "9") { _hasd2 = true; break; } }
+            if (_hasd2){ var v2 = real(num2); if (is_real(v2) && v2 > 0) return v2; }
+        }
+    }
+
+    // fallback: attempt to extract first floating number in the text
+    var acc = "";
+    for (var k = 1; k <= string_length(txt); k++){
+        var c = string_copy(txt, k, 1);
+    if ((c >= "0" && c <= "9") || c == ".") acc += c;
+        else if (string_length(acc) > 0) break;
+    }
+    if (string_length(acc) > 0){
+        var _hasd3 = false;
+        for (var _di3 = 1; _di3 <= string_length(acc); _di3++){ var _chd3 = string_copy(acc, _di3, 1); if (_chd3 >= "0" && _chd3 <= "9") { _hasd3 = true; break; } }
+        if (_hasd3){ var v3 = real(acc); if (is_real(v3) && v3 > 0) return v3; }
+    }
+
+    return 1.0;
+}
+
 // Clean a display name: remove hyphens and collapse multiple spaces
 function bag__clean_display_name(_s){
     if (!is_string(_s)) _s = string(_s);
@@ -250,29 +310,44 @@ function bag__use_item_on_self(_pid, _row){
             return false;
         }
 
-        var a1_hp_now = (variable_struct_exists(A1, "hp_now") ? variable_struct_get(A1, "hp_now") : (variable_struct_exists(A1, "hp") ? variable_struct_get(A1, "hp") : 0));
-        var a1_hp_max = (variable_struct_exists(A1, "hp_max") ? variable_struct_get(A1, "hp_max") : (variable_struct_exists(A1, "maxhp") ? variable_struct_get(A1, "maxhp") : 1));
-        var hpPct = max(0, min(1, a1_hp_now / max(1, a1_hp_max)));
-        var chance = clamp(floor((1 - hpPct) * 70) + 20, 5, 95);
-        var success = (irandom(99) < chance);
-        if (success){
-            variable_struct_set(_B, "result", "caught");
-            // prepare caught mon fields similar to __battle_try_catch
-            var caught = undefined;
-            if (variable_struct_exists(A1, "mon") && is_struct(variable_struct_get(A1, "mon"))) caught = variable_struct_get(A1, "mon");
-            else if (is_struct(A1)) caught = A1;
-            if (is_struct(caught)){
-                if (!variable_struct_exists(caught, "exp")) variable_struct_set(caught, "exp", 0);
-                var clevel = (variable_struct_exists(caught, "level") && is_real(variable_struct_get(caught, "level"))) ? variable_struct_get(caught, "level") : 1;
-                if (!variable_struct_exists(caught, "exp_next")) variable_struct_set(caught, "exp_next", max(20, clevel * clevel * 2));
-            }
-            var a1name = (variable_struct_exists(A1, "name") ? string(variable_struct_get(A1, "name")) : "?");
-            out_txt += "\nGotcha!\nYou caught " + string(a1name) + "!";
+        // Delegate to battle system: start a throw animation and resolution will occur there
+        var ball_mult = bag__get_ball_modifier(iid);
+        if (true){
+            // Treat item use as the player's action for this turn. This ensures the enemy
+            // will still act afterwards instead of the bag stealing the flow.
+            var actP = { item_use: true, item_id: iid, ball_mult: ball_mult };
+            _B.turn_action_player = actP;
+            _B.turn_action_enemy  = (is_undefined(__battle_enemy_choose_action) ? undefined : __battle_enemy_choose_action(_pid));
+            _B.turn_queue = __battle_build_turn_actions(_pid);
+            _B.turn_i = 0;
+            _B.phase = "turn";
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[bag][debug] queued item as player turn pid=" + string(_pid) + ", iid=" + string(iid) + ", mult=" + string(ball_mult));
             consumed = true;
-            variable_struct_set(_B, "_pending_close", true);
         } else {
-            out_txt += "\nOh no! The Pokémon broke free!";
-            consumed = true;
+            // fallback: immediate chance resolution (legacy)
+            var a1_hp_now = (variable_struct_exists(A1, "hp_now") ? variable_struct_get(A1, "hp_now") : (variable_struct_exists(A1, "hp") ? variable_struct_get(A1, "hp") : 0));
+            var a1_hp_max = (variable_struct_exists(A1, "hp_max") ? variable_struct_get(A1, "hp_max") : (variable_struct_exists(A1, "maxhp") ? variable_struct_get(A1, "maxhp") : 1));
+            var hpPct = max(0, min(1, a1_hp_now / max(1, a1_hp_max)));
+            var chance = clamp(floor((1 - hpPct) * 70) + 20, 5, 95);
+            var success = (irandom(99) < chance);
+            if (success){
+                variable_struct_set(_B, "result", "caught");
+                var caught = undefined;
+                if (variable_struct_exists(A1, "mon") && is_struct(variable_struct_get(A1, "mon"))) caught = variable_struct_get(A1, "mon");
+                else if (is_struct(A1)) caught = A1;
+                if (is_struct(caught)){
+                    if (!variable_struct_exists(caught, "exp")) variable_struct_set(caught, "exp", 0);
+                    var clevel = (variable_struct_exists(caught, "level") && is_real(variable_struct_get(caught, "level"))) ? variable_struct_get(caught, "level") : 1;
+                    if (!variable_struct_exists(caught, "exp_next")) variable_struct_set(caught, "exp_next", max(20, clevel * clevel * 2));
+                }
+                var a1name = (variable_struct_exists(A1, "name") ? string(variable_struct_get(A1, "name")) : "?");
+                out_txt += "\nGotcha!\nYou caught " + string(a1name) + "!";
+                consumed = true;
+                variable_struct_set(_B, "_pending_close", true);
+            } else {
+                out_txt += "\nOh no! The Pokémon broke free!";
+                consumed = true;
+            }
         }
         // remove the item if consumed. If the project provides an item_flag_map
         // then respect the explicit Consumable flag; otherwise fall back to
@@ -286,7 +361,13 @@ function bag__use_item_on_self(_pid, _row){
             bags_seed_from_items(_pid);
         }
         bag_close(_pid);
-    if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, out_txt);
+    // If we enqueued a catch on the battle slot (either via _queued_catch or by
+    // setting turn_action_player with item_use), the battle system will show
+    // the result dialog later. Avoid opening a duplicate dialog now.
+    var _should_open = true;
+    if (variable_struct_exists(_B, "_queued_catch") && is_struct(variable_struct_get(_B, "_queued_catch"))) _should_open = false;
+    if (variable_struct_exists(_B, "turn_action_player") && is_struct(variable_struct_get(_B, "turn_action_player")) && variable_struct_exists(variable_struct_get(_B, "turn_action_player"), "item_use") && variable_struct_get(variable_struct_get(_B, "turn_action_player"), "item_use") == true) _should_open = false;
+        if (_should_open && !is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, out_txt);
         return consumed;
     }
 

@@ -29,6 +29,112 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
     }
     var draw_x = fx - (w*drawScaleE)/2;
     var draw_y = fy - (h*drawScaleE)/2;
+    // If a catch animation is active, allow it to modify the enemy scale and draw a pokéball
+    var catchA = (variable_struct_exists(_B, "_catch_anim") ? _B._catch_anim : undefined);
+    var ball_to_draw = undefined;
+    if (is_struct(catchA) && catchA.active){
+        var now = current_time;
+        var since = now - (variable_struct_exists(catchA, "start_ms") ? catchA.start_ms : now);
+        // Compute phases: throw -> impact -> shake -> resolve -> escape
+        var phase = string(catchA.phase);
+        // safe defaults for durations
+        var throw_dur = (variable_struct_exists(catchA, "throw_dur") ? max(1, real(catchA.throw_dur)) : 380);
+        var impact_dur = (variable_struct_exists(catchA, "impact_dur") ? max(1, real(catchA.impact_dur)) : 220);
+        var shake_dur = (variable_struct_exists(catchA, "shake_dur") ? max(1, real(catchA.shake_dur)) : 900);
+        var escape_dur = (variable_struct_exists(catchA, "escape_dur") ? max(1, real(catchA.escape_dur)) : 320);
+
+        if (phase == "throw"){
+            var t = clamp(since / throw_dur, 0, 1);
+            // ball travels from trainer area (right of screen) to foe center along a parabolic arc
+            var sx = __bxu(_pid, 32);
+            var sy = __byu(_pid, 108);
+            var txp = fx;
+            var typ = fy;
+            // base linear interpolation
+            var bx_lin = lerp(sx, txp, t);
+            var by_lin = lerp(sy, typ, t);
+            // arc height (pixels) proportional to distance between start and target
+            var dx = abs(txp - sx);
+            var dy = abs(typ - sy);
+            var h_arc = max(24, floor((dx + dy) * 0.25));
+            // parabolic offset: peaks at t=0.5, value in range [0, h_arc]
+            var arc = (1 - ((t - 0.5) * 2) * ((t - 0.5) * 2)) * h_arc;
+            var bx = floor(bx_lin);
+            var by = floor(by_lin - arc);
+            // flight: use a slightly smaller ball and do NOT shrink the enemy until impact
+            ball_to_draw = {spr: (is_undefined(catchA.ball_sprite) ? undefined : catchA.ball_sprite), x: bx, y: by, scale: 0.8};
+        } else if (phase == "impact"){
+            var e = now - (variable_struct_exists(catchA, "phase_start") ? catchA.phase_start : now);
+            var t2 = clamp(e / impact_dur, 0, 1);
+            var ease2 = sin(t2 * pi);
+            // shrink the enemy nearly to zero so it appears to be pulled into the ball
+            drawScaleE *= lerp(1, 0, ease2);
+            // ball starts centered on the foe while impact completes
+            var bx2 = fx;
+            var by2 = fy;
+            ball_to_draw = {spr: (is_undefined(catchA.ball_sprite) ? undefined : catchA.ball_sprite), x: bx2, y: by2, scale: 0.8};
+        } else if (phase == "shake"){
+            var e3 = now - (variable_struct_exists(catchA, "phase_start") ? catchA.phase_start : now);
+            var t3 = clamp(e3 / shake_dur, 0, 1);
+            var shakes = max(1, (variable_struct_exists(catchA, "shakes") ? real(catchA.shakes) : 3));
+            // drop fraction: portion of shake where the ball falls to the bottom
+            var drop_phase_frac = 0.25;
+            var drop_prog = clamp(t3 / drop_phase_frac, 0, 1);
+            // logical landing Y: shallow drop (about 15% of full height below center)
+            var enemy_base_bottom = fy + (h * ui_s) * 0.15;
+            // horizontal shake and rotation (use image angle via draw_sprite_ext angle param)
+            var shakeOsc = sin(t3 * shakes * pi * 2);
+            // disable rotation for now
+            var rotDeg = 0;
+            var raw_bob = cos(t3 * shakes * pi * 2) * 2;
+            var bob = raw_bob * (1 - drop_prog); // fade bob as the ball finishes dropping
+            // enemy remains hidden during the shake
+            drawScaleE *= 0;
+            // ball scale slightly shrinks as it drops
+            var ballScale = lerp(0.8, 0.65, drop_prog);
+            // ball Y moves from center (fy) down to the enemy_base_bottom as drop_prog goes 0->1, then small bob
+            var by3 = lerp(fy, enemy_base_bottom, drop_prog) + bob;
+            // keep the ball horizontally centered; rotation (rotDeg) will provide left/right turning visually
+            var bx3 = fx;
+            ball_to_draw = {spr: (is_undefined(catchA.ball_sprite) ? undefined : catchA.ball_sprite), x: bx3, y: by3, scale: ballScale};
+            // keep rotation active during the shake; the ball will lock on phase change to 'resolve'
+        } else if (phase == "resolve" || phase == "caught"){
+            // ball rests at the bottom of the enemy sprite; enemy remains hidden
+            var enemy_base_bottom_res = fy + (h * ui_s) * 0.15;
+            // enemy remains fully hidden after resolve/caught
+            drawScaleE *= 0;
+            ball_to_draw = {spr: (is_undefined(catchA.ball_sprite) ? undefined : catchA.ball_sprite), x: fx, y: enemy_base_bottom_res, scale: 0.65};
+        } else if (phase == "escape"){
+            var e4 = now - (variable_struct_exists(catchA, "phase_start") ? catchA.phase_start : now);
+            var t4 = clamp(e4 / escape_dur, 0, 1);
+            // grow enemy back to normal from the near-zero hidden state
+            // grow enemy back to normal from fully hidden (0 -> 1)
+            drawScaleE *= lerp(0, 1, t4);
+            // ball stays near the bottom while it fades and slightly drifts
+            var enemy_base_bottom_e = fy + (h * ui_s) * 0.15;
+            var bx4 = fx; // locked horizontally
+            var by4 = enemy_base_bottom_e - lerp(0, 24, t4);
+            var scaleb = lerp(0.65, 0.45, t4);
+            ball_to_draw = {spr: (is_undefined(catchA.ball_sprite) ? undefined : catchA.ball_sprite), x: bx4, y: by4, scale: scaleb, alpha: lerp(1, 0, t4)};
+        }
+    }
+    // Debug: avoid spamming the console every frame. Only log on phase change or first missing sprite.
+    if (is_struct(catchA) && catchA.active){
+        var lastp = (variable_struct_exists(catchA, "_dbg_last_phase") ? string(catchA._dbg_last_phase) : "");
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+            if (lastp != string(catchA.phase)){
+                show_debug_message("[battle][debug] catch draw phase change pid=" + string(_pid) + ", phase=" + string(catchA.phase));
+                variable_struct_set(catchA, "_dbg_last_phase", string(catchA.phase));
+            }
+            if (!(is_struct(ball_to_draw) && !is_undefined(ball_to_draw.spr))){
+                var logged_missing = (variable_struct_exists(catchA, "_dbg_missing_logged") ? catchA._dbg_missing_logged : false);
+                if (!logged_missing){
+                    show_debug_message("[battle][debug] catch active but no ball_to_draw or invalid sprite (pid=" + string(_pid) + ", phase=" + string(catchA.phase) + ")");
+                    variable_struct_set(catchA, "_dbg_missing_logged", true);
+                }
+            }
+        }
+    }
     if (string(_B.phase) == "intro_enemy"){
         var p = (variable_struct_exists(_B,"phase_progress") ? _B.phase_progress : 0);
         var start_log = 240 + 40;
@@ -36,7 +142,20 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
         var target_px = fx - (w*drawScaleE)/2;
         var t = 1 - (1 - p) * (1 - p);
         draw_x = floor(lerp(start_px, target_px, t));
+            // If the animation entered 'resolve' (caught) and we still have the state, draw the steady ball
+            if (is_struct(catchA) && catchA.active && string(catchA.phase) == "resolve"){
+                // show ball centered, no rotation
+                ball_to_draw = {spr: (is_undefined(catchA.ball_sprite) ? undefined : catchA.ball_sprite), x: fx, y: fy, scale: 0.8};
+                // keep the enemy small so it looks like it remained inside
+                drawScaleE *= 0.35;
+            }
     }
+    // Recompute draw_x/draw_y now that drawScaleE may have been modified by the catch animation
+    // (this keeps the sprite centered while scaling instead of shifting left/right)
+    // If `intro_enemy` set a custom draw_x we preserve it but still recalc draw_y
+    if (!(string(_B.phase) == "intro_enemy")) draw_x = fx - (w*drawScaleE)/2;
+    draw_y = fy - (h*drawScaleE)/2;
+
     var _breath_amp = 0.03;
     var _breath_period = 2000;
     var _bs_e = 1;
@@ -53,6 +172,34 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
     draw_ellipse(shadow_cx_e - shadow_w_e div 2, shadow_cy_e - shadow_h_e div 2, shadow_cx_e + shadow_w_e div 2, shadow_cy_e + shadow_h_e div 2, false);
     draw_set_alpha(1);
     draw_sprite_ext(sprE, subE, draw_x, draw_y, drawScaleE * _bs_e, drawScaleE, 0, c_white, 1);
+
+    // draw pokéball on top if present
+    if (!is_undefined(ball_to_draw) && !is_undefined(ball_to_draw.spr) && sprite_exists(ball_to_draw.spr)){
+        var fr = 0;
+        if (variable_struct_exists(ball_to_draw, "frame")) fr = variable_struct_get(ball_to_draw, "frame");
+        var bs = ball_to_draw.spr;
+        var bsw = sprite_get_width(bs);
+        var bsh = sprite_get_height(bs);
+        // Center the sprite at ball_to_draw.x,y regardless of its internal origin
+        var origin_x = sprite_get_xoffset(bs);
+        var origin_y = sprite_get_yoffset(bs);
+    // Compute origin->center vector (scaled) and account for UI scale so rotation pivot is correct
+    var bscale_ui = ball_to_draw.scale * ui_s;
+    var cx_off = (bsw * 0.5 - origin_x) * bscale_ui;
+    var cy_off = (bsh * 0.5 - origin_y) * bscale_ui;
+    // rotation disabled — draw sprite upright
+    var rot = 0;
+    var alpha = (variable_struct_exists(ball_to_draw, "alpha") ? real(ball_to_draw.alpha) : 1);
+    // rotate the offset so the visual center stays at ball_to_draw.x,y even when rotated
+    var th = rot * pi / 180;
+    var rx = cx_off * cos(th) - cy_off * sin(th);
+    var ry = cx_off * sin(th) + cy_off * cos(th);
+    // place the sprite origin such that the rotated center is at the desired position
+    var bx_draw = ball_to_draw.x - rx;
+    var by_draw = ball_to_draw.y - ry;
+    draw_sprite_ext(bs, fr, bx_draw, by_draw, ball_to_draw.scale * ui_s, ball_to_draw.scale * ui_s, rot, c_white, alpha);
+    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][debug] drew ball sprite pid=" + string(_pid) + ", spr=" + string(bs) + ", x=" + string(bx_draw) + ", y=" + string(by_draw));
+    }
 }
 
 function __battle_draw_player(_pid, _B, mx, my, tx, ty){
@@ -125,8 +272,8 @@ function __battle_draw_player(_pid, _B, mx, my, tx, ty){
             if (string(_B.phase) == "intro_call") return;
         }
 
-        if (_anim_phase_allowed && variable_global_exists("battleAnim") && sprite_exists(battleAnim)){
-            var bs2 = battleAnim;
+        if (_anim_phase_allowed && variable_global_exists("battleAnim") && sprite_exists(global.battleAnim)){
+            var bs2 = global.battleAnim;
             var frames2 = max(1, sprite_get_number(bs2));
             var now_ms2 = current_time;
             var call_start2 = (variable_struct_exists(_B, "phase_start_ms") ? _B.phase_start_ms : now_ms2);
@@ -238,8 +385,8 @@ function __battle_draw_player(_pid, _B, mx, my, tx, ty){
             if (out_prog >= 1 && variable_struct_exists(_B, "_switch_target_idx")){
                 var idx = _B._switch_target_idx;
                 var opts = (variable_struct_exists(_B, "_switch_opts") ? _B._switch_opts : {});
-                var auto_apply = !(variable_struct_exists(opts, "auto_apply") && opts.auto_apply == false);
-                if (auto_apply && !is_undefined(party_ensure)){
+                var do_auto_apply = !(variable_struct_exists(opts, "auto_apply") && variable_struct_get(opts, "auto_apply") == false);
+                if (do_auto_apply && !is_undefined(party_ensure)){
                     var Pset = party_ensure(_pid);
                     if (is_array(Pset.mons) && idx >= 0 && idx < array_length(Pset.mons)){
                         _B.actor[0] = __battle_actor_from_party_mon(Pset.mons[idx]);
@@ -267,5 +414,4 @@ function __battle_draw_player(_pid, _B, mx, my, tx, ty){
             if (sprite_exists(sprIn)) draw_sprite_ext(sprIn, subIn, draw_x_in, draw_y_in, inScale, inScale, 0, c_white, 1);
         }
     }
-
 }

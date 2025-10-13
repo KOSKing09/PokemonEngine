@@ -97,6 +97,18 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
 
     var _B = __battle_ensure_slot(_pid);
 
+    // If a catch animation is active (throw/impact/shake/resolve), hide the command/root menus
+    // so the UI doesn't reappear after the "used item" dialog.
+    if (variable_struct_exists(_B, "_catch_anim")){
+        var _ca_tmp = variable_struct_get(_B, "_catch_anim");
+        if (is_struct(_ca_tmp) && variable_struct_exists(_ca_tmp, "active") && _ca_tmp.active){
+            var _cph_tmp = (variable_struct_exists(_ca_tmp, "phase") ? string(variable_struct_get(_ca_tmp, "phase")) : "");
+            if (!(_cph_tmp == "caught" || _cph_tmp == "escape")){
+                return;
+            }
+        }
+    }
+
     // FIGHT submenu
     if (string(_B.sys_ui.menu) == "fight"){
         var restoreFont = -1;
