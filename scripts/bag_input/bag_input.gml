@@ -44,7 +44,6 @@ function __bag_impl_bag_item_menu_update(_pid){
     if (!is_array(global.BAGS) || array_length(global.BAGS) <= _pid) return;
     var b = global.BAGS[_pid]; if (!is_struct(b)) return;
     if (!b.open) return;
-    if (!variable_struct_exists(b, "item_menu_open")) b.item_menu_open = false;
 
     // open the menu when Interact is pressed on an item and no other menu is open
     var lst = b.items[b.page]; var n = array_length(lst);
@@ -103,13 +102,15 @@ function __bag_impl_bag_item_menu_update(_pid){
     }
     // Explicit open branch with diagnostics to help debug why Interact may be ignored
     if (controls_pressed(_pid, "Interact")){
-        if (n <= 0){ show_debug_message("[bag] Interact pressed but no items on this page (n=0)"); }
-        else if (b.item_menu_open){ show_debug_message("[bag] Interact pressed but item_menu already open"); }
-        else if (b.lock != 0){ show_debug_message("[bag] Interact pressed but b.lock=" + string(b.lock)); }
-        else {
-            // open the menu
-            b.item_menu_open = true; b.item_menu_sel = 0; b.item_menu_row = b.sel; b.lock = 2; return;
+        // Debug: log state to help diagnose why Interact may be ignored or branch incorrectly
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+            show_debug_message("[bag][debug] Interact pressed: sel=" + string(b.sel) + ", item_menu_open=" + string(b.item_menu_open) + ", lock=" + string(b.lock) + ", n=" + string(n));
+            if (n <= 0){ show_debug_message("[bag] Interact pressed but no items on this page (n=0)"); }
+            else if (b.item_menu_open){ show_debug_message("[bag] Interact pressed but item_menu already open"); }
+            else if (b.lock != 0){ show_debug_message("[bag] Interact pressed but b.lock=" + string(b.lock)); }
         }
+        // open the menu (allow immediate selection — remove short lock)
+        if (!(n <= 0) && !b.item_menu_open && b.lock == 0){ b.item_menu_open = true; b.item_menu_sel = 0; b.item_menu_row = b.sel; b.lock = 0; return; }
     }
 
     if (!b.item_menu_open) return;
@@ -135,7 +136,14 @@ function __bag_impl_bag_item_menu_update(_pid){
         b.item_menu_open = false; b.lock = 2;
         var action = _labelsNav[sel];
         if (action == "Use"){
-            show_debug_message("[bag] Use action not handled in core. Implement bag__use_item_on_self to handle it.");
+            // Log Use selection and call battle-aware use handler if available
+            show_debug_message("[bag][debug] Submenu Use selected for item_id=" + string(it.item_id));
+            if (!is_undefined(bag__use_item_on_self)){
+                var __used = bag__use_item_on_self(_pid, it);
+                show_debug_message("[bag][debug] bag__use_item_on_self returned " + string(__used));
+            } else {
+                show_debug_message("[bag] Use action not handled in core. Implement bag__use_item_on_self to handle it.");
+            }
         } else if (action == "Give"){
             // Close bag, ensure party and set give_pending
             bag_close(_pid);

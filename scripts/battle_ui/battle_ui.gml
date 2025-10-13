@@ -79,6 +79,18 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
             var _fh = (!is_undefined(__dlg_font_h) ? __dlg_font_h() : 8);
             draw_text(_bx + __bwu(_pid,8), _by + __bhu(_pid,6), vis0);
             draw_text(_bx + __bwu(_pid,8), _by + __bhu(_pid,6) + __bhu(_pid, _fh + 2), vis1);
+            // Debug: note that the battle UI dialog branch executed. Only log once the page is fully visible
+            var _page_full_len = string_length(l0 + "\n" + l1);
+            if (is_real(d.char_idx) && d.char_idx >= _page_full_len){
+                // Log once per page when verbose debug enabled
+                    if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE){
+                    var _last = (variable_struct_exists(d, "_dbg_page_last") ? variable_struct_get(d, "_dbg_page_last") : -1);
+                    if (_last != d.page_idx){
+                        show_debug_message("[battle_ui][debug] drawing dialog pid=" + string(_pid) + ", vis0='" + string_copy(vis0,1,min(48,string_length(vis0))) + "', vis1='" + string_copy(vis1,1,min(48,string_length(vis1))) + "'");
+                        variable_struct_set(d, "_dbg_page_last", d.page_idx);
+                    }
+                }
+            }
         }
         return;
     }

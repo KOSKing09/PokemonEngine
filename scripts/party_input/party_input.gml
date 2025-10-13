@@ -134,6 +134,121 @@ function __party_impl_party_update(){
 
                 if (controls_pressed(_pid,"Interact") && _P.lock == 0){
                     var gp = (is_struct(_P) && variable_struct_exists(_P, "give_pending") ? _P.give_pending : undefined);
+                    var up = (is_struct(_P) && variable_struct_exists(_P, "use_pending") ? _P.use_pending : undefined);
+                    // First handle use_pending (consumable application)
+                    if (!is_undefined(up) && is_struct(up)){
+                        var bpid = variable_struct_exists(up, "bag_pid") ? variable_struct_get(up, "bag_pid") : -1;
+                        var item_id = variable_struct_exists(up, "item_id") ? variable_struct_get(up, "item_id") : -1;
+                        // Ensure the bag data is present
+                        if (bpid >= 0){
+                            var _b = bag_inventory_ensure(bpid);
+                            // Apply healing: simple default behavior mirrors bag__use_item_on_self default heal
+                            var target = _P.mons[_P.sel]; if (!is_struct(target)) target = _P.mons[_P.sel] = {};
+                            // Find battle slot and actor to mirror HP if in battle
+                            if (!is_undefined(__battle_ensure_slot) && !is_undefined(battle_is_open) && battle_is_open(_pid)){
+                                var _B = __battle_ensure_slot(_pid);
+                                if (is_struct(_B)){
+                                    var A0 = (is_array(_B.actor) && array_length(_B.actor) > 0) ? _B.actor[0] : undefined;
+                                    // Close the party UI so the dialog can appear unobstructed, then show the
+                                    // standard "Trainer used an item" dialog (if provided by bag)
+                                    if (!is_undefined(party_close)) party_close(_pid);
+                                    if (variable_struct_exists(up, "out_prefix") && string_length(string(variable_struct_get(up, "out_prefix"))) > 0){
+                                        var _dlg_txt = string(variable_struct_get(up, "out_prefix"));
+                                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party][debug] requesting dialog open: pid=" + string(_pid) + ", text_len=" + string(string_length(_dlg_txt)) + ", preview='" + string_copy(_dlg_txt,1,min(48,string_length(_dlg_txt))) + "'");
+                                        if (!is_undefined(__battle_stub_dialog)) __battle_stub_dialog(_pid, _dlg_txt);
+                                        else if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, _dlg_txt);
+                                        // Probe whether dialog system reports open immediately after call (verbose only)
+                                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){ if (!is_undefined(dialog2p_is_open)) show_debug_message("[party][debug] dialog2p_is_open(pid) -> " + string(dialog2p_is_open(_pid))); }
+                                        // Debug: dump the dialog's all_lines so we can see what the dialog system will render
+                                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                                            if (variable_global_exists("DIALOG2P") && is_array(global.DIALOG2P) && array_length(global.DIALOG2P) > _pid){
+                                                var _dref = global.DIALOG2P[_pid];
+                                                if (is_struct(_dref) && variable_struct_exists(_dref, "all_lines")){
+                                                    var _max = min(8, array_length(_dref.all_lines));
+                                                    var _pv = "";
+                                                    for (var _li = 0; _li < _max; _li++){
+                                                        var _ln = string(_dref.all_lines[_li]);
+                                                        _pv += "[" + string(_li) + "]" + string_copy(_ln, 1, min(120, string_length(_ln))) + "; ";
+                                                    }
+                                                    show_debug_message("[dialog][debug] all_lines_preview pid=" + string(_pid) + ", count=" + string(array_length(_dref.all_lines)) + ", preview='" + _pv + "'");
+                                                }
+                                            }
+                                        }
+                                    }
+                                    // Apply structured effects from data loaders
+                                    var target_mon = _P.mons[_P.sel]; if (!is_struct(target_mon)) target_mon = _P.mons[_P.sel] = {};
+                                    var res = undefined;
+                                    if (!is_undefined(scr_apply_item_effects)) res = scr_apply_item_effects(item_id, target_mon, A0);
+                                    else res = { applied:false };
+                                    if (is_struct(res) && res.applied){
+                                        // Remove item and refresh bag
+                                        bag_inventory_remove_item(bpid, item_id, 1);
+                                        bags_seed_from_items(bpid);
+                                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                                            var _healed_val = "0";
+                                            if (is_struct(res) && variable_struct_exists(res, "healed")) _healed_val = string(variable_struct_get(res, "healed"));
+                                            show_debug_message("[party][debug] scr_apply_item_effects result: " + string((is_struct(res) && variable_struct_exists(res, "applied")) ? string(variable_struct_get(res, "applied")) : "false") + ", healed=" + _healed_val);
+                                        }
+                                        // No extra dialog about effect details — dialog was already opened earlier via out_prefix
+                                    }
+                                }
+                                // Reopen/close bag briefly so UI state remains consistent
+                                bag_open(bpid); bag_close(bpid);
+                            }
+
+                            // Debug: report that the use was applied and whether we queued an enemy action
+                            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party][debug] applied use_pending item_id=" + string(item_id) + " on mon_index=" + string(_P.sel));
+                        }
+
+                        // Clear pending and return to list
+                        _P.use_pending = undefined;
+                        _P.mode = "list"; _P.lock = 2;
+
+                        // After consuming an item in battle, allow the enemy to take their turn.
+                        if (!is_undefined(__battle_ensure_slot)){
+                            var _B2 = __battle_ensure_slot(_pid);
+                            if (is_struct(_B2)){
+                                // No player action this turn (item use consumes player's action)
+                                _B2.turn_action_player = undefined;
+                                // Defensive: clear any stale pending_close flags so the battle isn't closed
+                                // immediately if another codepath set _pending_close earlier.
+                                if (variable_struct_exists(_B2, "_pending_close") && _B2._pending_close){
+                                    show_debug_message("[party][debug] Clearing stale _pending_close due to in-battle item use (pid=" + string(_pid) + ")");
+                                    _B2._pending_close = false;
+                                }
+                                // Choose a simple enemy action locally (avoid referencing external helpers)
+                                var actE = undefined;
+                                if (is_array(_B2.actor) && array_length(_B2.actor) > 1){
+                                    var AE = _B2.actor[1];
+                                    if (is_struct(AE)){
+                                        var choices = [];
+                                        for (var __i=0; __i<4; __i++){
+                                            var mv = (is_array(AE.moves) && __i < array_length(AE.moves)) ? AE.moves[__i] : undefined;
+                                            var pp = (is_array(AE.pps) && __i < array_length(AE.pps)) ? AE.pps[__i] : undefined;
+                                            if (is_real(mv) && mv >= 0 && is_real(pp) && pp > 0) array_push(choices, __i);
+                                        }
+                                        if (array_length(choices) > 0){
+                                            var slot = choices[irandom(array_length(choices)-1)];
+                                            actE = { slot: slot, move_id: AE.moves[slot], actor_index: 1, target_index: 0 };
+                                        }
+                                    }
+                                }
+                                if (is_struct(actE)){
+                                    // Queue the enemy action but DO NOT immediately switch to 'turn'.
+                                    // Instead, set a defer flag so `battle_update` will begin the turn
+                                    // only after any open dialog has fully closed.
+                                    _B2.turn_action_enemy = actE;
+                                    _B2.turn_queue = [ actE ];
+                                    _B2.turn_i = 0;
+                                    // Defer starting the turn until after dialog closes
+                                    _B2._defer_turn_until_no_dialog = true;
+                                    show_debug_message("[party][debug] queued enemy action (deferred) for pid=" + string(_pid) + ", slot=" + string(actE.slot));
+                                }
+                            }
+                        }
+                        return;
+                    }
+
                     if (!is_undefined(gp) && is_struct(gp)){
                         var bpid = variable_struct_exists(gp, "bag_pid") ? variable_struct_get(gp, "bag_pid") : -1;
                         var page  = variable_struct_exists(gp, "page") ? variable_struct_get(gp, "page") : 0;

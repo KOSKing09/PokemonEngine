@@ -263,6 +263,7 @@
     {"id":{"name":"PokemonDemo","path":"scripts/PokemonDemo/PokemonDemo.yy",},},
     {"id":{"name":"PokemonIndexSystem","path":"scripts/PokemonIndexSystem/PokemonIndexSystem.yy",},},
     {"id":{"name":"pokemonloader_debug","path":"scripts/pokemonloader_debug/pokemonloader_debug.yy",},},
+    {"id":{"name":"scr_apply_item_effects","path":"scripts/scr_apply_item_effects/scr_apply_item_effects.yy",},},
     {"id":{"name":"scr_controls","path":"scripts/scr_controls/scr_controls.yy",},},
     {"id":{"name":"SkinSystem","path":"scripts/SkinSystem/SkinSystem.yy",},},
     {"id":{"name":"snd_Littleroot_Town","path":"sounds/snd_Littleroot_Town/snd_Littleroot_Town.yy",},},

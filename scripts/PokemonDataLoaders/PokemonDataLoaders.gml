@@ -470,6 +470,11 @@ function data_load_all_structs_ext(){
     // Ensure prose table loads first so map normalization can resolve numeric codes
     data_load_item_flag_prose_structs();
     data_load_item_flag_map_structs();
+    // Normalize numeric flag ids into textual keys (best-effort)
+    data_normalize_item_flag_map();
+    // Item prose (human readable effects) and derived structured effects
+    data_load_item_prose_structs();
+    data_load_item_effects_structs();
     data_debug("[DATA][structs_ext] done.");
 }
 
@@ -964,4 +969,153 @@ function data_get_item_flag_entry(_code){
         }
     }
     return undefined;
+}
+
+// ---------- ITEMS: prose (human readable effects) ----------
+// Loads data/csv/item_prose.csv and produces global._item_prose[item_id] = { short_effect, effect }
+function data_load_item_prose_structs(){
+    var csv_path = working_directory + "/data/csv/item_prose.csv";
+    var g = load_csv(csv_path);
+    if (g == -1) { data_debug("[DATA][item_prose] SKIP: " + csv_path); global._item_prose = []; return; }
+    var H = ds_grid_height(g);
+
+    // detect language id column and filter to English (fallback to id=9)
+    var en_id = 9;
+    var lang_path = working_directory + "/data/csv/languages.csv";
+    var lg = load_csv(lang_path);
+    if (lg != -1){
+        var ci_lid = __col_find_ci(lg, "id");
+        var ci_ident = __col_find_ci(lg, "identifier");
+        if (ci_lid >= 0 && ci_ident >= 0){
+            var HL = ds_grid_height(lg);
+            for (var rr = 1; rr < HL; rr++){
+                var ident = string_lower(__s_trim(__grid(lg, ci_ident, rr, "")));
+                if (ident == "en"){ en_id = __to_int_safe(__grid(lg, ci_lid, rr, 9), 9); break; }
+            }
+        }
+    }
+
+    // find columns
+    var ci_item = __col_find_ci(g, "item_id"); if (ci_item < 0) ci_item = 0;
+    var ci_lang = __col_find_ci(g, "local_language_id"); if (ci_lang < 0) ci_lang = 1;
+    var ci_short = __col_find_ci(g, "short_effect"); if (ci_short < 0) ci_short = 2;
+    var ci_effect = __col_find_ci(g, "effect"); if (ci_effect < 0) ci_effect = ci_short;
+
+    // find max id
+    var max_id = 0;
+    for (var r = 1; r < H; r++){
+        var iid = __to_int_safe(__grid(g, ci_item, r, 0), 0);
+        if (iid > max_id) max_id = iid;
+    }
+
+    global._item_prose = []; array_resize(global._item_prose, max_id + 1);
+    var rows = 0;
+    for (var r2 = 1; r2 < H; r2++){
+        var iid2 = __to_int_safe(__grid(g, ci_item, r2, 0), 0);
+        if (iid2 <= 0) continue;
+        var lgid = __to_int_safe(__grid(g, ci_lang, r2, 0), 0);
+        if (lgid != en_id) continue;
+        var s = __text_clean_spaces(__grid(g, ci_short, r2, ""));
+        var e = __text_clean_spaces(__grid(g, ci_effect, r2, ""));
+        global._item_prose[iid2] = { short_effect: s, effect: e };
+        rows++;
+    }
+    data_debug("[DATA][item_prose] rows=" + string(rows));
+}
+
+// ---------- ITEMS: effect resolver (simple, best-effort) ----------
+// Produces global._item_effects[item_id] = [ { type:..., params:... }, ... ]
+function data_load_item_effects_structs(){
+    if (!variable_global_exists("_item_prose") || !is_array(global._item_prose)) { data_debug("[DATA][item_effects] _item_prose missing"); global._item_effects = []; return; }
+    var max_id = array_length(global._item_prose) - 1;
+    if (max_id < 0) { global._item_effects = []; return; }
+    global._item_effects = []; array_resize(global._item_effects, max_id + 1);
+
+    // simple patterns (English short_effects) - conservative matching order
+    var patterns = [];
+    // heal_flat: "Restores N HP."
+    patterns[0] = { re: "Restores ([0-9]+) HP", type: "heal_flat" };
+    // restore_full: "Restores HP to full"
+    patterns[1] = { re: "Restores HP to full", type: "heal_full" };
+    // revive half/full
+    patterns[2] = { re: "Revives with half HP", type: "revive_half" };
+    patterns[3] = { re: "Revives with full HP", type: "revive_full" };
+    // cure single status: "Cures poison.", "Cures sleep.", etc.
+    patterns[4] = { re: "Cures ([a-zA-Z -]+)\.", type: "cure_status" };
+    // cures any status / confusion combined
+    patterns[5] = { re: "Cures any status ailment", type: "cure_all" };
+    // restores PP: "Restores 10 PP for one move" or "Restores PP to full for one move"
+    patterns[6] = { re: "Restores ([0-9]+) PP for (one move|each move)", type: "restore_pp" };
+    patterns[7] = { re: "Restores PP to full for (one move|each move)", type: "restore_pp_full" };
+    // revives all
+    patterns[8] = { re: "Revives all fainted Pokémon", type: "revive_all" };
+
+    for (var iid = 0; iid <= max_id; iid++){
+        var entry = global._item_prose[iid];
+        if (!is_struct(entry)) continue;
+        var s = entry.short_effect;
+        if (!is_string(s) || string_length(s) == 0) continue;
+        var effects = [];
+        var matched = false;
+
+        // Apply each pattern in sequence
+        // heal_flat
+    var m = string_pos(s, "Restores ");
+    if (m > 0 && string_pos(s, "HP") > 0){
+            // try to extract number
+            var toks = string_split(s, " ");
+            for (var ti = 0; ti < array_length(toks); ti++){
+                var t = string_replace_all(toks[ti], ",", "");
+                var digs = true;
+                for (var c = 1; c <= string_length(t); c++){ var ch = string_copy(t, c, 1); if (ch < "0" || ch > "9") { digs = false; break; } }
+                if (digs && string_length(t) > 0){
+                    var n = __to_int_safe(t, 0);
+                    if (n > 0){ effects[ array_length(effects) ] = { type:"heal_flat", params:{ amount:n } }; matched = true; break; }
+                }
+            }
+            if (matched){ global._item_effects[iid] = effects; continue; }
+        }
+
+        // heal_full
+        if (string_pos("Restores HP to full", s) > 0){ effects[ array_length(effects) ] = { type:"heal_full", params:{} }; global._item_effects[iid] = effects; continue; }
+
+        // revive patterns
+        if (string_pos("Revives with half HP", s) > 0){ effects[ array_length(effects) ] = { type:"revive", params:{ mode:"half" } }; global._item_effects[iid] = effects; continue; }
+        if (string_pos("Revives with full HP", s) > 0){ effects[ array_length(effects) ] = { type:"revive", params:{ mode:"full" } }; global._item_effects[iid] = effects; continue; }
+        if (string_pos("Revives all fainted", s) > 0 || string_pos("Revives all fainted Pokémon", s) > 0){ effects[ array_length(effects) ] = { type:"revive_all", params:{} }; global._item_effects[iid] = effects; continue; }
+
+        // cure all / full-restore
+        if (string_pos("Cures any status ailment", s) > 0 && string_pos("Restores HP to full", s) > 0){ effects[ array_length(effects) ] = { type:"full_restore", params:{} }; global._item_effects[iid] = effects; continue; }
+        if (string_pos("Cures any status ailment", s) > 0){ effects[ array_length(effects) ] = { type:"cure_all", params:{} }; global._item_effects[iid] = effects; continue; }
+
+        // simple single-status cure (e.g., "Cures poison.")
+        var cure_prefix = "Cures ";
+        if (string_pos(cure_prefix, s) > 0){
+            var after = string_delete(s, 1, string_pos(cure_prefix, s)-1);
+            after = string_delete(after, 1, string_length(cure_prefix));
+            // take first word up to period
+            var endp = string_pos(".", after);
+            var status_word = (endp > 0) ? string_copy(after, 1, endp-1) : string_trim(after);
+            status_word = string_lower(string_trim(string_replace_all(status_word, " ", "-")));
+            if (string_length(status_word) > 0){ effects[ array_length(effects) ] = { type:"cure_status", params:{ status:status_word } }; global._item_effects[iid] = effects; continue; }
+        }
+
+        // restore PP numeric or full
+        if (string_pos("Restores", s) > 0 && string_pos("PP", s) > 0){
+            // numeric amount?
+            var toks2 = string_split(s, " ");
+            for (var ti2 = 0; ti2 < array_length(toks2); ti2++){
+                var t2 = string_replace_all(toks2[ti2], ",", "");
+                var okd = true;
+                for (var c2 = 1; c2 <= string_length(t2); c2++){ var ch2 = string_copy(t2, c2, 1); if (ch2 < "0" || ch2 > "9") { okd = false; break; } }
+                if (okd && string_length(t2) > 0){ var n2 = __to_int_safe(t2, 0); if (n2 > 0){ effects[ array_length(effects) ] = { type:"restore_pp", params:{ amount:n2 } }; global._item_effects[iid] = effects; matched = true; break; } }
+            }
+            if (matched) continue;
+            if (string_pos("Restores PP to full", s) > 0){ effects[ array_length(effects) ] = { type:"restore_pp", params:{ full:true } }; global._item_effects[iid] = effects; continue; }
+        }
+
+        // fallback: store empty array so callers know we've parsed but found no structured effects
+        global._item_effects[iid] = [];
+    }
+    data_debug("[DATA][item_effects] parsed up to id=" + string(max_id));
 }

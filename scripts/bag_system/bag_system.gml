@@ -101,10 +101,227 @@ function bag__clean_display_name(_s){
     return string_trim(t);
 }
 
+// Resolve item flags into a convenient struct: reads global._item_flag_map and builds
+// a tolerant flag_set (struct) plus boolean convenience fields.
+function bag__resolve_item_flags(_iid, _it){
+    var out = { flag_arr: [], flag_set: {}, usable_in_battle: false, is_consumable_flagged: false };
+    if (!is_real(_iid) || _iid <= 0) return out;
+    if (variable_global_exists("_item_flag_map") && is_array(global._item_flag_map) && _iid > 0 && _iid < array_length(global._item_flag_map)) out.flag_arr = global._item_flag_map[_iid];
+    if (!is_array(out.flag_arr)) out.flag_arr = [];
+    // build tolerant flag set
+    var fset = {};
+    for (var fi = 0; fi < array_length(out.flag_arr); fi++){
+        var rawf = string_trim(string(out.flag_arr[fi]));
+        if (string_length(rawf) == 0) continue;
+        var resolved_key = undefined;
+        // If token is numeric, try to map to prose entry using data_get_item_flag_entry
+        var only_digits = true;
+        for (var d = 1; d <= string_length(rawf); d++){ var ch = string_copy(rawf, d, 1); if (ch < "0" || ch > "9") { only_digits = false; break; } }
+        if (only_digits && !is_undefined(data_get_item_flag_entry)){
+            var ent = data_get_item_flag_entry(rawf);
+            if (is_struct(ent)){
+                if (variable_struct_exists(ent, "key") && string_length(string_trim(variable_struct_get(ent, "key"))) > 0) resolved_key = string_trim(variable_struct_get(ent, "key"));
+                else if (variable_struct_exists(ent, "name") && string_length(string_trim(variable_struct_get(ent, "name"))) > 0) resolved_key = string_lower(string_trim(variable_struct_get(ent, "name")));
+            }
+        }
+        var k = (is_undefined(resolved_key) ? string_lower(string_trim(rawf)) : string_lower(string_trim(resolved_key)));
+        k = string_replace_all(k, "_", "-");
+        // store both normalized and raw forms for tolerant lookup
+        variable_struct_set(fset, k, true);
+        variable_struct_set(fset, rawf, true);
+    }
+    out.flag_set = fset;
+    out.usable_in_battle = (is_struct(fset) && (variable_struct_exists(fset, "usable-in-battle") || variable_struct_exists(fset, "usable_in_battle") || variable_struct_exists(fset, "usableinbattle")));
+    out.is_consumable_flagged = (is_struct(fset) && (variable_struct_exists(fset, "consumable") || variable_struct_exists(fset, "consumed") ));
+    return out;
+}
+
 function bag_is_open(_pid) { return (variable_global_exists("BAGS") && is_array(global.BAGS) && array_length(global.BAGS) > _pid && global.BAGS[_pid].open); }
 function bag_open(_pid) { if (is_array(global.BAGS) && array_length(global.BAGS) > _pid) global.BAGS[_pid].open = true; }
 function bag_close(_pid){ if (is_array(global.BAGS) && array_length(global.BAGS) > _pid) global.BAGS[_pid].open = false; }
 function bag_toggle(_pid){ if (!variable_global_exists("BAGS") || !is_array(global.BAGS) || array_length(global.BAGS) <= _pid) return; global.BAGS[_pid].open = !global.BAGS[_pid].open; }
+
+// Open the bag in a battle-aware mode. This sets a mode flag so the bag UI
+// and Use/Give/Discard behaviors can adapt while a battle is active.
+function bag_open_for_battle(_pid){
+    var _b = bag_inventory_ensure(_pid);
+    _b.open = true;
+    _b.mode = "battle";
+    _b.lock = 6; // short lock to avoid immediate double-input from menu transition
+    // Clear party-give flags if present
+    if (variable_struct_exists(_b, "give_from_party")) { _b.give_from_party = false; _b.give_to_mon = undefined; }
+}
+
+// Default in-battle Use handler. Call this from the bag UI when the player
+// selects Use while the bag is open in battle mode. It implements a small set
+// of commonly expected behaviors (Poké Ball -> attempt catch, basic Potion
+// healing), and otherwise reports that the item can't be used here.
+// Parameters:
+//   _pid: player id
+//   _row: a bag row struct (as produced by bags_seed_from_items) containing item_id and name
+function bag__use_item_on_self(_pid, _row){
+    if (!is_struct(_row) || !variable_struct_exists(_row, "item_id")) return false;
+    var iid = floor(_row.item_id);
+    var it = undefined;
+    if (variable_global_exists("_items") && is_array(global._items) && iid >= 0 && iid < array_length(global._items)) it = global._items[iid];
+
+    // trainer/name
+    var trainer = "YOU";
+    if (is_undefined(party_ensure) == false){
+        var Pn = party_ensure(_pid);
+        if (is_struct(Pn) && variable_struct_exists(Pn, "name") && string_length(string(variable_struct_get(Pn, "name"))) > 0) trainer = string(variable_struct_get(Pn, "name"));
+        else if (variable_global_exists("PLAYER_NAME")) trainer = string(global.PLAYER_NAME);
+    } else if (variable_global_exists("PLAYER_NAME")) trainer = string(global.PLAYER_NAME);
+
+    var disp = "item";
+    if (variable_struct_exists(_row, "name")) disp = bag__clean_display_name(variable_struct_get(_row, "name"));
+    else if (is_struct(it) && variable_struct_exists(it, "name")) disp = bag__clean_display_name(variable_struct_get(it, "name"));
+    var prefix = string(trainer) + " used a " + string(disp) + "!";
+
+    // If not in battle, fallback to a simple dialog and return
+    if (is_undefined(battle_is_open) || !battle_is_open(_pid)){
+        show_debug_message("[bag][debug] abort: not in battle or battle_is_open missing (pid=" + string(_pid) + ")");
+        if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, prefix);
+        return false;
+    }
+
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B)){
+        show_debug_message("[bag][debug] abort: __battle_ensure_slot returned non-struct for pid=" + string(_pid));
+        return false;
+    }
+
+    // NOTE: flag array and usable_in_battle are determined later. Check moved down after flags are parsed.
+
+    // Heuristic: pokéballs attempt capture
+    var ident = "";
+    if (is_struct(it)){
+        if (variable_struct_exists(it, "identifier")) ident = string_lower(string(variable_struct_get(it, "identifier")));
+        else if (variable_struct_exists(it, "name")) ident = string_lower(string(variable_struct_get(it, "name")));
+    }
+
+    var page = bag__item_to_page(iid, it);
+    var consumed = false;
+    var out_txt = prefix;
+    // Resolve flags using the centralized resolver which also maps numeric tokens
+    // to prose keys using the data loader helpers.
+    var _rf = bag__resolve_item_flags(iid, it);
+    var flag_arr = (is_struct(_rf) && variable_struct_exists(_rf, "flag_arr")) ? variable_struct_get(_rf, "flag_arr") : [];
+    var flag_set = (is_struct(_rf) && variable_struct_exists(_rf, "flag_set")) ? variable_struct_get(_rf, "flag_set") : {};
+    var usable_in_battle = (is_struct(_rf) && variable_struct_exists(_rf, "usable_in_battle")) ? variable_struct_get(_rf, "usable_in_battle") : false;
+    var is_consumable_flagged = (is_struct(_rf) && variable_struct_exists(_rf, "is_consumable_flagged")) ? variable_struct_get(_rf, "is_consumable_flagged") : false;
+
+    // If flag map exists for this item and it explicitly lacks usable-in-battle, block use
+    // Exception: if item is marked consumable (e.g., potions) allow it to proceed so party selection can occur.
+    if (is_array(flag_arr) && array_length(flag_arr) > 0 && !usable_in_battle && !is_consumable_flagged){
+        show_debug_message("[bag][debug] abort: item has flags but not usable_in_battle and not consumable (iid=" + string(iid) + ")");
+        out_txt += "\nYou can't use that here.";
+        if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, out_txt);
+        return false;
+    }
+
+    // Debug: dump resolved flags and decision values when using an item
+    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+        show_debug_message("[bag][debug] use_item_on_self iid=" + string(iid) + ", flag_arr=" + string(flag_arr) + ", usable_in_battle=" + string(usable_in_battle) + ", is_consumable_flagged=" + string(is_consumable_flagged) + ", ident=" + string(ident));
+    }
+
+    // Pokéball behavior — only allowed on wild opponents
+    if (page == 1 || string_pos("ball", ident) > 0){
+        var _actor_arr = (variable_struct_exists(_B, "actor") ? variable_struct_get(_B, "actor") : undefined);
+        var A1 = (is_array(_actor_arr) && array_length(_actor_arr) > 1) ? _actor_arr[1] : undefined;
+        if (!is_struct(A1)){
+            out_txt += "\nBut nothing happened.";
+            if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, out_txt);
+            return false;
+        }
+
+        // Determine if the opponent is a wild Pokémon. We consider the foe wild when
+        // its canonical `.mon` struct does not contain full party fields like `hp`.
+        var is_wild = true;
+        if (variable_struct_exists(A1, "mon") && is_struct(variable_struct_get(A1, "mon")) && variable_struct_exists(variable_struct_get(A1, "mon"), "hp")){
+            // If the nested mon has `hp` it's likely a trainer-owned party mon -> not wild
+            is_wild = false;
+        }
+
+        if (!is_wild){
+            // Explicit feedback for unusable item in this context
+            out_txt += "\nYou can't use that here.";
+            if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, out_txt);
+            return false;
+        }
+
+        var a1_hp_now = (variable_struct_exists(A1, "hp_now") ? variable_struct_get(A1, "hp_now") : (variable_struct_exists(A1, "hp") ? variable_struct_get(A1, "hp") : 0));
+        var a1_hp_max = (variable_struct_exists(A1, "hp_max") ? variable_struct_get(A1, "hp_max") : (variable_struct_exists(A1, "maxhp") ? variable_struct_get(A1, "maxhp") : 1));
+        var hpPct = max(0, min(1, a1_hp_now / max(1, a1_hp_max)));
+        var chance = clamp(floor((1 - hpPct) * 70) + 20, 5, 95);
+        var success = (irandom(99) < chance);
+        if (success){
+            variable_struct_set(_B, "result", "caught");
+            // prepare caught mon fields similar to __battle_try_catch
+            var caught = undefined;
+            if (variable_struct_exists(A1, "mon") && is_struct(variable_struct_get(A1, "mon"))) caught = variable_struct_get(A1, "mon");
+            else if (is_struct(A1)) caught = A1;
+            if (is_struct(caught)){
+                if (!variable_struct_exists(caught, "exp")) variable_struct_set(caught, "exp", 0);
+                var clevel = (variable_struct_exists(caught, "level") && is_real(variable_struct_get(caught, "level"))) ? variable_struct_get(caught, "level") : 1;
+                if (!variable_struct_exists(caught, "exp_next")) variable_struct_set(caught, "exp_next", max(20, clevel * clevel * 2));
+            }
+            var a1name = (variable_struct_exists(A1, "name") ? string(variable_struct_get(A1, "name")) : "?");
+            out_txt += "\nGotcha!\nYou caught " + string(a1name) + "!";
+            consumed = true;
+            variable_struct_set(_B, "_pending_close", true);
+        } else {
+            out_txt += "\nOh no! The Pokémon broke free!";
+            consumed = true;
+        }
+        // remove the item if consumed. If the project provides an item_flag_map
+        // then respect the explicit Consumable flag; otherwise fall back to
+        // legacy behavior and remove consumed items.
+        if (consumed){
+            if (is_array(flag_arr) && array_length(flag_arr) > 0){
+                if (is_consumable_flagged) bag_inventory_remove_item(_pid, iid, 1);
+            } else {
+                bag_inventory_remove_item(_pid, iid, 1);
+            }
+            bags_seed_from_items(_pid);
+        }
+        bag_close(_pid);
+    if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, out_txt);
+        return consumed;
+    }
+
+    // Basic healing items: prefer CSV flags to indicate usability; fall back
+    // to name-based heuristic for potions when flag info is absent.
+    // Allow consumable-flagged items to open the party selector as well
+    if ((usable_in_battle || is_consumable_flagged || (!is_array(flag_arr) || array_length(flag_arr) == 0)) && (string_pos("potion", ident) > 0 || string_pos("potion", string_lower(disp)) > 0)){
+    // Instead of applying immediately to the active battler, open the party
+    // selector so the player can choose which Pokémon to use the consumable on.
+    var _b = bag_inventory_ensure(_pid);
+    // Store a pending-use payload on the party so party_input can apply it when the player selects a mon.
+    if (!is_undefined(party_open) && !is_undefined(party_ensure)){
+        // Close bag and open party in select_item mode with a use_pending struct
+        // Do NOT open the dialog here — the party UI draws on top of the bag and
+        // may also occlude dialog boxes. Instead, party_input will close the
+        // party and open the dialog after the player selects a target.
+        bag_close(_pid);
+        party_open(_pid);
+        var P = party_ensure(_pid);
+        if (is_struct(P)){
+            P.mode = "select_item";
+            P.lock = 4;
+            // use_pending mirrors give_pending shape but denotes a use action
+            P.use_pending = { bag_pid: _pid, page: _b.page, row: _b.sel, item_id: iid, item_real_name: (variable_struct_exists(_row, "real_name") ? variable_struct_get(_row, "real_name") : (is_struct(it) && variable_struct_exists(it, "identifier") ? variable_struct_get(it, "identifier") : "")), out_prefix: out_txt };
+        }
+        return true;
+    }
+    }
+
+    // Default: not usable in battle
+    show_debug_message("[bag][debug] abort: default fallthrough — not usable (iid=" + string(iid) + ")");
+    out_txt += "\nYou can't use that here.";
+    if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, out_txt);
+    return false;
+}
 
 function bags_update(){
     // decrement short locks on bag slots so new menus become actionable quickly
@@ -149,7 +366,6 @@ function bag_inventory_get_qty(_pid, _itemId){
     if (array_length(_arr) > _id) { var _v = _arr[_id]; return is_real(_v) ? _v : 0; }
     return 0;
 }
-
 function bag_inventory_set_qty(_pid, _itemId, _qty){
     var _b = bag_inventory_ensure(_pid);
     var _id = (is_real(_itemId) ? floor(_itemId) : -1);

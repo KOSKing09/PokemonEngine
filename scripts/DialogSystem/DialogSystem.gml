@@ -89,8 +89,6 @@ function __dlg_wrap_text(_text, _box_w){
     }
     return _out;
 }
-
-
 function dialog2p_open_text(_pid, _text){
     var d = global.DIALOG2P[_pid];
 
@@ -101,6 +99,16 @@ function dialog2p_open_text(_pid, _text){
     d.tick       = 0;
     d.arrow_tick = 0;
     d.open       = true;
+
+    // Debug: log dialog opens to help trace timing issues
+    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+        var _preview = string_copy(string(_text), 1, min(80, string_length(string(_text))));
+        show_debug_message("[dialog][debug] opened pid=" + string(_pid) + ", preview='" + _preview + "'");
+    }
+    // Small input-grace window: ignore presses that occurred to open the dialog
+    // (e.g. selecting a Pokémon) so the dialog doesn't immediately advance.
+    // Use a short ms window (120ms) to be forgiving across frame timing.
+    if (is_real(current_time)) variable_struct_set(d, "_open_grace_until", current_time + 120);
 }
 
 // ---------- Optional cosmetics ---------------------------------------------
@@ -127,6 +135,16 @@ function dialog2p_update(_pid){
 
     var advance = controls_pressed(_pid,"Interact") || controls_pressed(_pid,"Inventory");
     var cancel  = controls_pressed(_pid,"Run") || controls_pressed(_pid,"Pause");
+    // respect a small input grace period set at open to avoid immediately
+    // consuming the same 'Interact' press that opened the dialog (e.g. from
+    // party selection). If present, suppress advance until the grace expires.
+    var _now_time = (is_real(current_time) ? current_time : -1);
+    if (is_struct(d) && variable_struct_exists(d, "_open_grace_until") && is_real(_now_time)){
+        var _grace = variable_struct_get(d, "_open_grace_until");
+        if (is_real(_grace) && _now_time <= _grace){
+            advance = false;
+        }
+    }
 
     if (d.char_idx < page_len){
         if (advance){

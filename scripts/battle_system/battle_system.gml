@@ -229,10 +229,24 @@ function battle_update(_pid){
         var now3 = current_time;
         _B._dlg_active = false;
         _B._dlg_page_last = -1;
+        // Small input-grace window: suppress accidental buffered inputs that
+        // occurred while the dialog was open (e.g. the same button that
+        // advanced/closed the dialog). This prevents immediate re-selection
+        // of UI options right after dialog close.
+        if (is_real(now3)) variable_struct_set(_B, "_input_grace_until", now3 + 180);
         if (_B.phase == "intro_call"){
             _B.phase = "intro_player"; _B.phase_start_ms = now3;
         } else if (_B._pending_close){
             _B._pending_close = false; battle_close(_pid); return;
+        }
+        // If some code deferred starting the turn until after dialog closed, do it now.
+        if (variable_struct_exists(_B, "_defer_turn_until_no_dialog") && _B._defer_turn_until_no_dialog){
+            _B._defer_turn_until_no_dialog = false;
+            if (is_array(_B.turn_queue) && array_length(_B.turn_queue) > 0){
+                _B.turn_i = (is_real(_B.turn_i) ? _B.turn_i : 0);
+                _B.phase = "turn";
+                return;
+            }
         }
         // don't reset menu during turn resolution
         // NOTE: previously we force-reset the root menu selection when
@@ -404,6 +418,16 @@ function __battle_process_input(_pid){
     var _a = __battle_pressed(_pid,"A");
     var _b = __battle_pressed(_pid,"B");
 
+    // If an input grace period is active for this battle slot, ignore these
+    // pressed values so buffered inputs don't immediately trigger UI changes.
+    var _nowt = (is_real(current_time) ? current_time : -1);
+    if (is_struct(_B) && variable_struct_exists(_B, "_input_grace_until") && is_real(_nowt)){
+        var _g = variable_struct_get(_B, "_input_grace_until");
+        if (is_real(_g) && _nowt <= _g){
+            _l = false; _r = false; _u = false; _d = false; _a = false; _b = false;
+        }
+    }
+
     if (_l) _B.sys_ui.selX = max(0, _B.sys_ui.selX - 1);
     if (_r) _B.sys_ui.selX = min(1, _B.sys_ui.selX + 1);
     if (_u) _B.sys_ui.selY = max(0, _B.sys_ui.selY - 1);
@@ -414,19 +438,36 @@ function __battle_process_input(_pid){
 
     if (_b){
         if (menu == "fight"){
+            // Return to root menu and restore previous root selection if available
             _B.sys_ui.menu = "root";
-            _B.sys_ui.selX = 0; _B.sys_ui.selY = 0;
+            if (is_struct(_B.sys_ui) && variable_struct_exists(_B.sys_ui, "_prev_root_selX") && variable_struct_exists(_B.sys_ui, "_prev_root_selY")){
+                _B.sys_ui.selX = variable_struct_get(_B.sys_ui, "_prev_root_selX");
+                _B.sys_ui.selY = variable_struct_get(_B.sys_ui, "_prev_root_selY");
+            } else {
+                _B.sys_ui.selX = 0; _B.sys_ui.selY = 0;
+            }
         }
     }
 
     if (_a){
         if (menu == "root"){
             if (idx == 0){
+                // Save the current root selection so we can restore it when returning
+                if (is_struct(_B.sys_ui)){
+                    variable_struct_set(_B.sys_ui, "_prev_root_selX", _B.sys_ui.selX);
+                    variable_struct_set(_B.sys_ui, "_prev_root_selY", _B.sys_ui.selY);
+                }
                 _B.sys_ui.menu = "fight";
                 _B.sys_ui.selX = 0; _B.sys_ui.selY = 0;
             }
             else if (idx == 1){
-                __battle_stub_dialog(_pid, "Your bag isn't hooked up yet.\n(TODO: open bag UI)");
+                // Open the bag UI in battle mode so player can Use/Give/Discard items
+                // Save root selection before opening bag so it can be restored on return
+                if (is_struct(_B.sys_ui)){
+                    variable_struct_set(_B.sys_ui, "_prev_root_selX", _B.sys_ui.selX);
+                    variable_struct_set(_B.sys_ui, "_prev_root_selY", _B.sys_ui.selY);
+                }
+                if (!is_undefined(bag_open_for_battle)) bag_open_for_battle(_pid);
             }
             else if (idx == 2){
                 __battle_stub_dialog(_pid, "You checked your party.\n(TODO: switch Pokémon)");
