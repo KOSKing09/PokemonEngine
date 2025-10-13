@@ -419,6 +419,9 @@ function battle_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         draw_set_alpha(1);
     }
 
+    // Draw any overlays that should appear above the UI (pokéball during catch animation)
+    if (!is_undefined(__battle_draw_ball_overlay)) __battle_draw_ball_overlay(_pid, _B);
+
     __bui_end(_pid);
 }
 
@@ -1598,17 +1601,27 @@ function __battle_try_catch(_pid, _ball_mult, _item_id){
         try { var s_try = pkicons_get_item_icon_by_id(floor(_item_id)); if (!is_undefined(s_try) && sprite_exists(s_try)) ball_spr = s_try; } catch (e) { ball_spr = undefined; }
     }
 
+    // Decide on which hop (1..3) the capture will succeed, if any.
+    // We'll perform up to 3 independent checks; the earliest successful check wins.
+    var hop_total = 3;
+    var succ_hop = 0;
+    for (var hh = 1; hh <= hop_total; hh++){
+        if (irandom(99) < chance){ succ_hop = hh; break; }
+    }
+
     _B._catch_anim = {
         active: true,
         start_ms: now,
-        phase: "throw", // throw -> impact -> shake -> resolve
+        phase: "throw", // throw -> impact -> shake(hopping) -> resolve or escape
         throw_dur: 380,
         impact_dur: 220,
-        shakes: 3,
-        // make each shake ~300ms so total shake_dur = shakes * 300
-        shake_dur: 3 * 300,
-        outcome: success,
-    ball_sprite: (is_undefined(ball_spr) ? (variable_global_exists("sbagpokeball") ? sbagpokeball : undefined) : ball_spr),
+        hop_total: hop_total,
+        hop_index: 0,
+    hop_dur: 700,
+    hop_pause: 350,
+        catch_hop_success: succ_hop, // 0=no success, or hop index where capture occurs
+        outcome: (succ_hop > 0),
+        ball_sprite: (is_undefined(ball_spr) ? (variable_global_exists("sbagpokeball") ? sbagpokeball : undefined) : ball_spr),
         ball_frame: 0,
         // positions (px coords will be computed in draw using layout helpers)
         start_x: undefined,
@@ -1652,11 +1665,36 @@ function __battle_update_animations(_pid){
             if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][debug] catch phase -> shake (pid=" + string(_pid) + ")");
         }
     } else if (string(A.phase) == "shake"){
+        // Hopping sequence: each hop has hop_dur then hop_pause. We track hop_index starting at 1.
         var e2 = now - (variable_struct_exists(A, "phase_start") ? A.phase_start : now);
-        if (e2 >= A.shake_dur){
-            A.phase = "resolve";
-            A.phase_start = now;
-            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][debug] catch phase -> resolve (pid=" + string(_pid) + ") outcome=" + string(A.outcome));
+        var hop_dur = (variable_struct_exists(A, "hop_dur") ? max(1, real(A.hop_dur)) : 320);
+        var hop_pause = (variable_struct_exists(A, "hop_pause") ? max(0, real(A.hop_pause)) : 180);
+        var cycle = hop_dur + hop_pause;
+
+        // If we're just entering the shake state, initialize first hop
+        if (!variable_struct_exists(A, "hop_index") || A.hop_index <= 0){ A.hop_index = 1; A.phase_start = now; e2 = 0; }
+
+        // If current cycle completed
+        if (e2 >= cycle){
+            // If this hop produced success, transition to resolve
+            if (variable_struct_exists(A, "catch_hop_success") && A.catch_hop_success == A.hop_index){
+                A.phase = "resolve";
+                A.phase_start = now;
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][debug] catch resolved on hop " + string(A.hop_index) + " (pid=" + string(_pid) + ")");
+            } else {
+                // Advance to next hop if any
+                if (variable_struct_exists(A, "hop_total") && A.hop_index < A.hop_total){
+                    A.hop_index += 1;
+                    A.phase_start = now;
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][debug] catch hop -> next hop " + string(A.hop_index) + " (pid=" + string(_pid) + ")");
+                } else {
+                    // No success after last hop: go to escape
+                    A.phase = "escape";
+                    A.phase_start = now;
+                    A.escape_dur = 320;
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][debug] catch phase -> escape (pid=" + string(_pid) + ")");
+                }
+            }
         }
     } else if (string(A.phase) == "resolve"){
         // finalize outcome: success is immediate; failure transitions to escape animation

@@ -6,12 +6,24 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
     if (!is_struct(E) || !variable_struct_exists(E, "mon")) return;
     if (string(_B.phase) == "transition_in") return;
     var mE = E.mon;
-    if (is_undefined(pkicons_get_art96_by_mon) || is_undefined(pkicons_get_art96_subimg_by_mon)) return;
-    var sprE = pkicons_get_art96_by_mon(mE);
-    var subE = pkicons_get_art96_subimg_by_mon(mE, false);
-    if (!sprite_exists(sprE)) return;
-    var w = sprite_get_width(sprE);
-    var h = sprite_get_height(sprE);
+    // Try to obtain art; if the pkicons loaders aren't ready or the sprite is missing
+    // we must NOT abort here — draw a placeholder so intro and ball overlay still run.
+    var sprE = undefined;
+    var subE = 0;
+    if (!(is_undefined(pkicons_get_art96_by_mon) || is_undefined(pkicons_get_art96_subimg_by_mon))){
+        sprE = pkicons_get_art96_by_mon(mE);
+        subE = pkicons_get_art96_subimg_by_mon(mE, false);
+    }
+    var _spr_missing = false;
+    var w = 64;
+    var h = 64;
+    if (!is_undefined(sprE) && sprite_exists(sprE)){
+        _spr_missing = false;
+        w = sprite_get_width(sprE);
+        h = sprite_get_height(sprE);
+    } else {
+        _spr_missing = true;
+    }
     var _ui = __battle_ensure_slot(_pid)._ui;
     var ui_s = (is_struct(_ui) && variable_struct_exists(_ui,"s")) ? _ui.s : 1;
     var drawScaleE = scale_foe * ui_s;
@@ -68,41 +80,70 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
             var t2 = clamp(e / impact_dur, 0, 1);
             var ease2 = sin(t2 * pi);
             // shrink the enemy nearly to zero so it appears to be pulled into the ball
-            drawScaleE *= lerp(1, 0, ease2);
+            // Compute target anchor (landing position) and lerp both scale and center toward it
+            var anchor_x = (variable_struct_exists(catchA, "land_x") ? variable_struct_get(catchA, "land_x") : fx);
+            var anchor_y = (variable_struct_exists(catchA, "land_y") ? variable_struct_get(catchA, "land_y") : (fy + (h * ui_s) * 0.15));
+            // Lerp scale down smoothly
+            var target_scale_mult = lerp(1, 0, ease2);
+            drawScaleE *= target_scale_mult;
+            // Lerp the draw center toward the anchor so the sprite appears to be pulled into the ball
+            var cur_cx = fx;
+            var cur_cy = fy;
+            var lerp_cx = lerp(cur_cx, anchor_x, ease2);
+            var lerp_cy = lerp(cur_cy, anchor_y, ease2);
+            // Update draw_x/draw_y to the lerped center after recalc (we'll recalc later once drawScaleE is set)
+            fx = lerp_cx;
+            fy = lerp_cy;
             // ball starts centered on the foe while impact completes
-            var bx2 = fx;
-            var by2 = fy;
-            ball_to_draw = {spr: (is_undefined(catchA.ball_sprite) ? undefined : catchA.ball_sprite), x: bx2, y: by2, scale: 0.8};
+                // Record the landed position once so subsequent hops use this anchor.
+                // Use the enemy_base_bottom (a bit below center) as the anchor so hops don't jump.
+                var _enemy_base_bottom = fy + (h * ui_s) * 0.15;
+                if (!variable_struct_exists(catchA, "land_x")) variable_struct_set(catchA, "land_x", fx);
+                if (!variable_struct_exists(catchA, "land_y")) variable_struct_set(catchA, "land_y", _enemy_base_bottom);
+                var bx2 = variable_struct_exists(catchA, "land_x") ? variable_struct_get(catchA, "land_x") : fx;
+                var by2 = variable_struct_exists(catchA, "land_y") ? variable_struct_get(catchA, "land_y") : _enemy_base_bottom;
+                ball_to_draw = {spr: (is_undefined(catchA.ball_sprite) ? undefined : catchA.ball_sprite), x: bx2, y: by2, scale: 0.8};
         } else if (phase == "shake"){
+            // Hopping logic: during shake we run up to hop_total hops. Each hop consists of hop_dur (up/down) + hop_pause.
+            var hop_total = (variable_struct_exists(catchA, "hop_total") ? real(catchA.hop_total) : 3);
+            var hop_index = (variable_struct_exists(catchA, "hop_index") ? real(catchA.hop_index) : 1);
+            var hop_dur_local = (variable_struct_exists(catchA, "hop_dur") ? max(1, real(catchA.hop_dur)) : 320);
+            var hop_pause_local = (variable_struct_exists(catchA, "hop_pause") ? max(0, real(catchA.hop_pause)) : 180);
+            var cycle = hop_dur_local + hop_pause_local;
             var e3 = now - (variable_struct_exists(catchA, "phase_start") ? catchA.phase_start : now);
-            var t3 = clamp(e3 / shake_dur, 0, 1);
-            var shakes = max(1, (variable_struct_exists(catchA, "shakes") ? real(catchA.shakes) : 3));
-            // drop fraction: portion of shake where the ball falls to the bottom
-            var drop_phase_frac = 0.25;
-            var drop_prog = clamp(t3 / drop_phase_frac, 0, 1);
-            // logical landing Y: shallow drop (about 15% of full height below center)
-            var enemy_base_bottom = fy + (h * ui_s) * 0.15;
-            // horizontal shake and rotation (use image angle via draw_sprite_ext angle param)
-            var shakeOsc = sin(t3 * shakes * pi * 2);
-            // disable rotation for now
-            var rotDeg = 0;
-            var raw_bob = cos(t3 * shakes * pi * 2) * 2;
-            var bob = raw_bob * (1 - drop_prog); // fade bob as the ball finishes dropping
-            // enemy remains hidden during the shake
+            // clamp e3 within current hop cycle
+            var local_t = clamp((e3 % cycle) / hop_dur_local, 0, 1);
+            // hop Y offset: use sine easing for smooth up/down and increase height slightly for visibility
+            var hop_height = max(16, floor((h * ui_s) * 0.18));
+            // eased progress in [0..1] with sine easing (0->1->0 across the hop)
+            var eased = sin(local_t * pi);
+            var arc = eased * hop_height;
+            // if we're in the pause portion (after hop_dur_local), keep at bottom
+            var in_pause = ((e3 % cycle) >= hop_dur_local);
+            var base_x = (variable_struct_exists(catchA, "land_x") ? variable_struct_get(catchA, "land_x") : fx);
+            var base_y = (variable_struct_exists(catchA, "land_y") ? variable_struct_get(catchA, "land_y") : fy);
+            var enemy_base_bottom = base_y;
+            var by3 = in_pause ? enemy_base_bottom : (base_y - arc);
+            // enemy remains hidden while hops run
             drawScaleE *= 0;
-            // ball scale slightly shrinks as it drops
-            var ballScale = lerp(0.8, 0.65, drop_prog);
-            // ball Y moves from center (fy) down to the enemy_base_bottom as drop_prog goes 0->1, then small bob
-            var by3 = lerp(fy, enemy_base_bottom, drop_prog) + bob;
-            // keep the ball horizontally centered; rotation (rotDeg) will provide left/right turning visually
-            var bx3 = fx;
+            var ballScale = (in_pause ? 0.65 : 0.8);
+            var bx3 = base_x;
             ball_to_draw = {spr: (is_undefined(catchA.ball_sprite) ? undefined : catchA.ball_sprite), x: bx3, y: by3, scale: ballScale};
-            // keep rotation active during the shake; the ball will lock on phase change to 'resolve'
         } else if (phase == "resolve" || phase == "caught"){
             // ball rests at the bottom of the enemy sprite; enemy remains hidden
             var enemy_base_bottom_res = fy + (h * ui_s) * 0.15;
-            // enemy remains fully hidden after resolve/caught
-            drawScaleE *= 0;
+            // During resolve/caught, smoothly lerp the remaining tiny scale toward zero and keep center at anchor
+            var res_phase_progress = 1;
+            if (variable_struct_exists(catchA, "phase_progress")) res_phase_progress = real(catchA.phase_progress);
+            // Use a small ease to finish the shrink
+            var res_ease = sin(res_phase_progress * pi);
+            // Reduce scale to near zero
+            drawScaleE *= lerp(0, 0, res_ease); // effectively zero but keeps timing consistent
+            // Ensure the center is anchored at the landing spot
+            var anchor_x2 = (variable_struct_exists(catchA, "land_x") ? variable_struct_get(catchA, "land_x") : fx);
+            var anchor_y2 = (variable_struct_exists(catchA, "land_y") ? variable_struct_get(catchA, "land_y") : enemy_base_bottom_res);
+            fx = anchor_x2;
+            fy = anchor_y2;
             ball_to_draw = {spr: (is_undefined(catchA.ball_sprite) ? undefined : catchA.ball_sprite), x: fx, y: enemy_base_bottom_res, scale: 0.65};
         } else if (phase == "escape"){
             var e4 = now - (variable_struct_exists(catchA, "phase_start") ? catchA.phase_start : now);
@@ -171,34 +212,98 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
     var shadow_cy_e = floor(draw_y + (h * drawScaleE) * 0.5 + shadow_h_e * 0.8 + floor(15 * ui_s));
     draw_ellipse(shadow_cx_e - shadow_w_e div 2, shadow_cy_e - shadow_h_e div 2, shadow_cx_e + shadow_w_e div 2, shadow_cy_e + shadow_h_e div 2, false);
     draw_set_alpha(1);
-    draw_sprite_ext(sprE, subE, draw_x, draw_y, drawScaleE * _bs_e, drawScaleE, 0, c_white, 1);
+    if (!_spr_missing && sprite_exists(sprE)){
+        draw_sprite_ext(sprE, subE, draw_x, draw_y, drawScaleE * _bs_e, drawScaleE, 0, c_white, 1);
+    } else {
+        // Fallback: draw a simple placeholder so enemy isn't invisible (matches player fallback)
+        draw_set_color(make_color_rgb(20,20,20)); draw_set_alpha(0.45);
+        var fw = max(8, floor(64 * ui_s * drawScaleE));
+        var fh = max(8, floor(64 * ui_s * drawScaleE));
+        var cx = draw_x + (w * drawScaleE) * 0.5;
+        var cy = draw_y + (h * drawScaleE) * 0.5;
+        draw_ellipse(cx - fw/2, cy - fh/2, cx + fw/2, cy + fh/2, false);
+        draw_set_alpha(1);
+        draw_set_color(c_white);
+        var name_txt = (is_struct(E) && variable_struct_exists(E, "name") ? string(E.name) : (is_struct(mE) && variable_struct_exists(mE, "name") ? string(mE.name) : "Enemy"));
+        draw_text(cx - fw/2, cy - fh/2 - __bhu(_pid,6), name_txt);
+    }
 
-    // draw pokéball on top if present
+    // Prepare ball overlay info into the catch animation so it can be drawn later on top of UI
     if (!is_undefined(ball_to_draw) && !is_undefined(ball_to_draw.spr) && sprite_exists(ball_to_draw.spr)){
         var fr = 0;
         if (variable_struct_exists(ball_to_draw, "frame")) fr = variable_struct_get(ball_to_draw, "frame");
         var bs = ball_to_draw.spr;
         var bsw = sprite_get_width(bs);
         var bsh = sprite_get_height(bs);
-        // Center the sprite at ball_to_draw.x,y regardless of its internal origin
         var origin_x = sprite_get_xoffset(bs);
         var origin_y = sprite_get_yoffset(bs);
-    // Compute origin->center vector (scaled) and account for UI scale so rotation pivot is correct
-    var bscale_ui = ball_to_draw.scale * ui_s;
-    var cx_off = (bsw * 0.5 - origin_x) * bscale_ui;
-    var cy_off = (bsh * 0.5 - origin_y) * bscale_ui;
-    // rotation disabled — draw sprite upright
-    var rot = 0;
-    var alpha = (variable_struct_exists(ball_to_draw, "alpha") ? real(ball_to_draw.alpha) : 1);
-    // rotate the offset so the visual center stays at ball_to_draw.x,y even when rotated
-    var th = rot * pi / 180;
-    var rx = cx_off * cos(th) - cy_off * sin(th);
-    var ry = cx_off * sin(th) + cy_off * cos(th);
-    // place the sprite origin such that the rotated center is at the desired position
-    var bx_draw = ball_to_draw.x - rx;
-    var by_draw = ball_to_draw.y - ry;
-    draw_sprite_ext(bs, fr, bx_draw, by_draw, ball_to_draw.scale * ui_s, ball_to_draw.scale * ui_s, rot, c_white, alpha);
-    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][debug] drew ball sprite pid=" + string(_pid) + ", spr=" + string(bs) + ", x=" + string(bx_draw) + ", y=" + string(by_draw));
+        var bscale_ui = ball_to_draw.scale * ui_s;
+        var cx_off = (bsw * 0.5 - origin_x) * bscale_ui;
+        var cy_off = (bsh * 0.5 - origin_y) * bscale_ui;
+        var rot = 0;
+        var alpha = (variable_struct_exists(ball_to_draw, "alpha") ? real(ball_to_draw.alpha) : 1);
+        var th = rot * pi / 180;
+        var rx = cx_off * cos(th) - cy_off * sin(th);
+        var ry = cx_off * sin(th) + cy_off * cos(th);
+        var bx_draw = ball_to_draw.x - rx;
+        var by_draw = ball_to_draw.y - ry;
+    var base_x = (variable_struct_exists(catchA, "land_x") ? variable_struct_get(catchA, "land_x") : ball_to_draw.x);
+    var base_y = (variable_struct_exists(catchA, "land_y") ? variable_struct_get(catchA, "land_y") : (fy + (h * ui_s) * 0.15));
+    var hop_est = max(16, floor((h * ui_s) * 0.18));
+    var store = { spr: bs, frame: fr, bx: bx_draw, by: by_draw, scale: ball_to_draw.scale, alpha: alpha, base_x: base_x, base_y: base_y, bsw: bsw, ui_s: ui_s, hop_est: hop_est };
+        variable_struct_set(catchA, "_ball_to_draw", store);
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][debug] prepared ball overlay pid=" + string(_pid) + ", x=" + string(bx_draw) + ", y=" + string(by_draw));
+    }
+}
+
+// Draw the prepared ball overlay (shadow + ball) on top of UI
+function __battle_draw_ball_overlay(_pid, _B){
+    if (is_undefined(_B)) return;
+    if (!variable_struct_exists(_B, "_catch_anim")) return;
+    var catchA = variable_struct_get(_B, "_catch_anim");
+    if (is_undefined(catchA)) return;
+    if (!variable_struct_exists(catchA, "_ball_to_draw")) return;
+    var bd = variable_struct_get(catchA, "_ball_to_draw");
+    if (is_undefined(bd) || !variable_struct_exists(bd, "spr")) return;
+    var bs = bd.spr;
+    var _ball_sprite_exists = (!is_undefined(bs) && sprite_exists(bs));
+    var fr = bd.frame;
+    var bx_draw = bd.bx;
+    var by_draw = bd.by;
+    var alpha = bd.alpha;
+    var scale = bd.scale;
+    var base_x = bd.base_x;
+    var base_y = bd.base_y;
+    var bsw = bd.bsw;
+    // Shadow: bring it up 2 pixels as requested. Use stored ui_s/hop_est so we don't rely on outer locals.
+    var _u = (variable_struct_exists(bd, "ui_s") ? bd.ui_s : 1);
+    var _hop_est_local = (variable_struct_exists(bd, "hop_est") ? bd.hop_est : 16);
+    // Move the pokéball shadow up 4 pixels relative to base then adjust down 2 pixels (net -2)
+    var _shadow_base_y = base_y + (6 * _u) - 2;
+    var _hop_height_est = _hop_est_local;
+    var _dist = max(0, (_shadow_base_y - by_draw));
+    var _shadow_alpha = clamp(1 - (_dist / (_hop_height_est * 1.5)), 0, 1) * alpha;
+    var _sw = (bsw * scale * _u) * 0.6;
+    var _sh = max(2, _sw * 0.18);
+    var _cx = base_x;
+    var _cy = _shadow_base_y + (_sh * 0.25);
+    draw_set_color(c_black);
+    draw_set_alpha(_shadow_alpha * 0.8);
+    draw_ellipse(_cx - _sw / 2, _cy - _sh / 2, _cx + _sw / 2, _cy + _sh / 2, false);
+    draw_set_alpha(1);
+    // Draw the ball sprite (or a circular placeholder if sprite missing)
+    if (_ball_sprite_exists){
+        draw_sprite_ext(bs, fr, bx_draw, by_draw, scale * _u, scale * _u, 0, c_white, alpha);
+    } else {
+        // compute a visual size and center for the placeholder
+        var raw_bsw = (variable_struct_exists(bd, "bsw") ? bd.bsw : 16);
+        var vis_w = max(8, floor(raw_bsw * scale * _u));
+        var cx = bx_draw + vis_w * 0.5;
+        var cy = by_draw + vis_w * 0.5;
+        draw_set_color(c_white);
+        draw_set_alpha(alpha);
+        draw_ellipse(cx - vis_w/2, cy - vis_w/2, cx + vis_w/2, cy + vis_w/2, false);
+        draw_set_alpha(1);
     }
 }
 
