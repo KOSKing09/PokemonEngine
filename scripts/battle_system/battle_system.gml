@@ -65,6 +65,64 @@ function battle_is_open(_pid){
     return (_B.sys_open == true);
 }
 
+// Helper: stop any battle audio and restore previously captured audio
+function __battle_restore_prev_audio(_pid){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B)) return;
+    // Stop bgm handle or resource
+    try {
+        if (!is_undefined(_B._bgm_handle) && !is_undefined(audio_channel_stop)){
+            audio_channel_stop(_B._bgm_handle);
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_channel_stop on bgm_handle="+string(_B._bgm_handle));
+        } else {
+            var _stop_res = (variable_struct_exists(_B, "_battle_music") ? _B._battle_music : undefined);
+            if (!is_undefined(_stop_res) && !is_undefined(audio_stop_sound)){
+                audio_stop_sound(_stop_res);
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_stop_sound on _battle_music="+string(_stop_res));
+            }
+        }
+    } catch (e_stop) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed stopping bgm: " + string(e_stop)); }
+
+    // Stop defeated handle/resource if present
+    try { if (!is_undefined(_B._defeated_handle) && !is_undefined(audio_channel_stop)) audio_channel_stop(_B._defeated_handle); } catch (e) {}
+    try {
+        var _def_res = (variable_struct_exists(_B, "_battle_defeated_music") ? _B._battle_defeated_music : undefined);
+        if (!is_undefined(_def_res) && !is_undefined(audio_stop_sound)) audio_stop_sound(_def_res);
+    } catch (e) {}
+
+    // Prefer playing region music (global._REGIONMUSIC) when available; otherwise
+    // fall back to restoring previously captured audio. Keep guards so this
+    // works on runtimes that don't expose the audio_* APIs.
+    try {
+        var _played = false;
+        var _region = undefined;
+        if (variable_global_exists("_REGIONMUSIC")) _region = variable_global_get("_REGIONMUSIC");
+        if (!is_undefined(_region) && !is_undefined(audio_play_sound)){
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] playing region music: " + string(_region));
+            try { audio_play_sound(_region, 1, true); _played = true; } catch (e_pr) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to play region music: " + string(e_pr)); }
+        }
+
+        if (!_played){
+            // Restore previously playing audio if we captured any
+            if (!is_undefined(_B._prev_audio) && !is_undefined(audio_play_sound)){
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] restoring prev audio: " + string(_B._prev_audio));
+                if (is_real(_B._prev_audio) || is_string(_B._prev_audio)){
+                    try { audio_play_sound(_B._prev_audio, 1, true); } catch (e_p) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to play prev audio: " + string(e_p)); }
+                } else if (is_array(_B._prev_audio)){
+                    for (var _i = 0; _i < array_length(_B._prev_audio); ++_i){
+                        var _pv = _B._prev_audio[_i];
+                        try { audio_play_sound(_pv, 1, true); } catch (e_p2) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to play prev audio entry: " + string(e_p2)); }
+                    }
+                }
+            }
+        }
+    } catch (e_r) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to restore/play audio: " + string(e_r)); }
+
+    // Clear handles to avoid accidental reuse
+    _B._bgm_handle = undefined;
+    _B._defeated_handle = undefined;
+}
+
 // ===== Open / Close =====
 function battle_open(_a0, _a1){
     var _pid = 0, _wildLevel = 5;
@@ -93,6 +151,39 @@ function battle_open(_a0, _a1){
     _B.phase_start_ms = current_time;
     _B.phase_durs = { transition: 300, enemy: 400, call: 700, player: 400, switch_in: 600 };
     _B._intro_completed = false;
+
+    // Music: configurable per-battle so we can change by region/area later
+    // Default names (strings referencing sound resource names)
+    // Default to the project's sound resource names; these should be declared in the resource tree
+    // Default to the project's sound resource constants; override with globals if set
+    _B._battle_music = (variable_global_exists("_BATTLE_MUSIC_OVERRIDE") ? variable_global_get("_BATTLE_MUSIC_OVERRIDE") : snd_WildPokemonBattle);
+    _B._battle_defeated_music = (variable_global_exists("_BATTLE_DEFEATED_OVERRIDE") ? variable_global_get("_BATTLE_DEFEATED_OVERRIDE") : snd_WildPokemonDefeated);
+    _B._bgm_handle = undefined;
+    _B._defeated_handle = undefined;
+    // Preserve any previously playing audio so we can restore it after the battle
+    _B._prev_audio = undefined;
+    try {
+        if (!is_undefined(audio_get_playing)){
+            // audio_get_playing may return an array/list or a single handle depending on runtime
+            var _cur = audio_get_playing();
+            _B._prev_audio = _cur;
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] previous audio captured: " + string(_cur));
+        }
+    } catch (e_prev) {
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_get_playing unavailable: " + string(e_prev));
+        _B._prev_audio = undefined;
+    }
+
+    // Stop all other audio before starting battle music so nothing overlaps
+    try { if (!is_undefined(audio_stop_all)) { audio_stop_all(); if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] called audio_stop_all() before starting battle music"); } } catch (e_stop_all) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_stop_all() failed: " + string(e_stop_all)); }
+
+    // Start background battle music (looped) if available
+    if (!is_undefined(_B._battle_music)){
+        try {
+            _B._bgm_handle = audio_play_sound(_B._battle_music, 1, true);
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] played bgm="+string(_B._battle_music)+" handle="+string(_B._bgm_handle));
+        } catch (e) { _B._bgm_handle = undefined; if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to play bgm="+string(_B._battle_music)); }
+    }
 
     // Clear any leftover catch animation state from previous battles
     if (variable_struct_exists(_B, "_catch_anim")) _B._catch_anim = undefined;
@@ -178,7 +269,73 @@ function battle_close(_pid){
     // Clear transient animation state to avoid bleed into subsequent battles
     if (variable_struct_exists(_B, "_catch_anim")) _B._catch_anim = undefined;
     if (variable_struct_exists(_B, "_queued_catch")) _B._queued_catch = undefined;
+    // Stop any playing battle audio (add debug logs when enabled)
+    try {
+        if (!is_undefined(_B._bgm_handle) && !is_undefined(audio_channel_stop)){
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] stopping bgm handle="+string(_B._bgm_handle));
+            audio_channel_stop(_B._bgm_handle);
+        }
+    } catch (e1) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to stop bgm handle: " + string(e1)); }
+    try {
+        if (!is_undefined(_B._defeated_handle) && !is_undefined(audio_channel_stop)){
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] stopping defeated handle="+string(_B._defeated_handle));
+            audio_channel_stop(_B._defeated_handle);
+        }
+    } catch (e2) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to stop defeated handle: " + string(e2)); }
+    try {
+        if (!is_undefined(sound_stop)) {
+            if (!is_undefined(_B._battle_music)){
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] calling sound_stop on _battle_music");
+                sound_stop(_B._battle_music);
+            }
+            if (!is_undefined(_B._battle_defeated_music)){
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] calling sound_stop on _battle_defeated_music");
+                sound_stop(_B._battle_defeated_music);
+            }
+        }
+    } catch (e3) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to call sound_stop: " + string(e3)); }
     _B.sys_open = false;
+
+    // Ensure the battle music (bgm) is stopped (use stored resource when possible)
+    try {
+        var _stop_bgm_res = (variable_struct_exists(_B, "_battle_music") ? _B._battle_music : undefined);
+        if (!is_undefined(_stop_bgm_res)){
+            try {
+                if (!is_undefined(audio_stop_sound)){
+                    audio_stop_sound(_stop_bgm_res);
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_stop_sound called on battle_res=" + string(_stop_bgm_res));
+                } else if (!is_undefined(audio_channel_stop) && !is_undefined(_B._bgm_handle)){
+                    audio_channel_stop(_B._bgm_handle);
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_channel_stop called on bgm_handle=" + string(_B._bgm_handle));
+                } else if (!is_undefined(audio_stop_all)){
+                    audio_stop_all();
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] fallback audio_stop_all() called to stop battle music");
+                }
+            } catch (e_stop_b) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed stopping battle music: " + string(e_stop_b)); }
+        }
+    } catch (e_b_all) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] error while attempting to stop battle music: " + string(e_b_all)); }
+
+    // Ensure the defeated/victory music is stopped (use stored resource when possible)
+    try {
+        var _stop_res = (variable_struct_exists(_B, "_battle_defeated_music") ? _B._battle_defeated_music : undefined);
+        if (!is_undefined(_stop_res)){
+            try {
+                if (!is_undefined(audio_stop_sound)){
+                    audio_stop_sound(_stop_res);
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_stop_sound called on defeated_res=" + string(_stop_res));
+                } else if (!is_undefined(audio_channel_stop) && !is_undefined(_B._defeated_handle)){
+                    audio_channel_stop(_B._defeated_handle);
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_channel_stop called on defeated_handle=" + string(_B._defeated_handle));
+                } else if (!is_undefined(audio_stop_all)){
+                    audio_stop_all();
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] fallback audio_stop_all() called to stop defeated music");
+                }
+            } catch (e_stop_d) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed stopping defeated music: " + string(e_stop_d)); }
+        }
+    } catch (e_all_stop) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] error while attempting to stop defeated music: " + string(e_all_stop)); }
+
+    // Centralized restore: stop any battle audio and restore previously playing audio
+    try { __battle_restore_prev_audio(_pid); } catch (e_rr) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] __battle_restore_prev_audio failed: " + string(e_rr)); }
 }
 
 // ===== Update / Draw =====
@@ -191,7 +348,8 @@ function battle_update(_pid){
         var _q = variable_struct_get(_B, "_queued_catch");
         if (is_struct(_q) && variable_struct_exists(_q, "ball_mult")){
             if (!is_undefined(__battle_try_catch)){
-                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][debug] processing queued catch pid=" + string(_pid) + ", iid=" + string((variable_struct_exists(_q, "item_id") ? variable_struct_get(_q, "item_id") : -1)) + ", mult=" + string(variable_struct_get(_q, "ball_mult")));
+                // Quiet: remove verbose queued-catch debug spam. Enable only when explicitly asked via DATA_DEBUG_VERBOSE.
+                if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][debug] processing queued catch pid=" + string(_pid) + ", iid=" + string((variable_struct_exists(_q, "item_id") ? variable_struct_get(_q, "item_id") : -1)) + ", mult=" + string(variable_struct_get(_q, "ball_mult")));
                 __battle_try_catch(_pid, variable_struct_get(_q, "ball_mult"), (variable_struct_exists(_q, "item_id") ? variable_struct_get(_q, "item_id") : undefined));
             }
         }
@@ -667,6 +825,49 @@ if (A1.hp_now <= 0){
     __battle_award_exp(_pid, gain);
 
     _B.result = "win";
+    // Stop battle BGM and play defeated loop if available
+    try {
+        if (!is_undefined(_B._bgm_handle) && !is_undefined(audio_channel_stop)) audio_channel_stop(_B._bgm_handle);
+    } catch (e_stop) {}
+    _B._bgm_handle = undefined;
+    try {
+        var _def_res = (variable_global_exists(_B._battle_defeated_music) ? variable_global_get(_B._battle_defeated_music) : undefined);
+    } catch (e_def) { var _def_res = undefined; }
+    if (is_undefined(_def_res) && variable_global_exists(_B._battle_defeated_music)) _def_res = variable_global_get(_B._battle_defeated_music);
+    if (!is_undefined(_def_res)){
+        // Check if battle music is playing and stop it with audio_stop_sound when available
+        try {
+            if (!is_undefined(audio_is_playing)){
+                var _isPlaying = false;
+                try {
+                    if (!is_undefined(_B._bgm_handle)) _isPlaying = audio_is_playing(_B._bgm_handle);
+                    else _isPlaying = audio_is_playing(_B._battle_music);
+                } catch (e_ip) { _isPlaying = false; }
+                    if (_isPlaying){
+                        try {
+                            // Store the sound resource to a local variable so audio_stop_sound() acts on the exact value
+                            var _stop_res = _B._battle_music;
+                            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] stopping _stop_res=" + string(_stop_res));
+                            if (!is_undefined(audio_stop_sound)){
+                                audio_stop_sound(_stop_res);
+                                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_stop_sound called on _stop_res");
+                            } else if (!is_undefined(audio_channel_stop) && !is_undefined(_B._bgm_handle)){
+                                audio_channel_stop(_B._bgm_handle);
+                                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_channel_stop called on bgm_handle");
+                            }
+                        } catch (e_s) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to stop bgm: " + string(e_s)); }
+                    }
+            }
+        } catch (e_top) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] error checking audio_is_playing: " + string(e_top)); }
+
+        try {
+            _B._defeated_handle = audio_play_sound(_def_res, 1, true);
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] played defeated_res="+string(_def_res)+" handle="+string(_B._defeated_handle));
+        } catch (e) {
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to play defeated_res="+string(_def_res)+" err="+string(e));
+            if (!is_undefined(sound_play)) sound_play(_B._battle_defeated_music);
+        }
+    }
     _B._pending_close = true;
     _B.phase = "command";
     return;
@@ -1635,7 +1836,7 @@ function __battle_try_catch(_pid, _ball_mult, _item_id){
     };
 
     // mark that the battle slot has a pending non-dialog resolution; dialog will be opened by animation end
-    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][debug] _catch_anim created pid=" + string(_pid) + ", outcome=" + string(success));
+    if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][debug] _catch_anim created pid=" + string(_pid) + ", outcome=" + string(success));
     // don't immediately change _B.result here; do it after animation resolves.
 }
 
@@ -1655,14 +1856,14 @@ function __battle_update_animations(_pid){
         if (elapsed >= A.throw_dur){
             A.phase = "impact";
             A.phase_start = now;
-            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][debug] catch phase -> impact (pid=" + string(_pid) + ")");
+            if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][debug] catch phase -> impact (pid=" + string(_pid) + ")");
         }
     } else if (string(A.phase) == "impact"){
         var e = now - (variable_struct_exists(A, "phase_start") ? A.phase_start : now);
         if (e >= A.impact_dur){
             A.phase = "shake";
             A.phase_start = now;
-            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][debug] catch phase -> shake (pid=" + string(_pid) + ")");
+            if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][debug] catch phase -> shake (pid=" + string(_pid) + ")");
         }
     } else if (string(A.phase) == "shake"){
         // Hopping sequence: each hop has hop_dur then hop_pause. We track hop_index starting at 1.
@@ -1680,19 +1881,19 @@ function __battle_update_animations(_pid){
             if (variable_struct_exists(A, "catch_hop_success") && A.catch_hop_success == A.hop_index){
                 A.phase = "resolve";
                 A.phase_start = now;
-                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][debug] catch resolved on hop " + string(A.hop_index) + " (pid=" + string(_pid) + ")");
+                if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][debug] catch resolved on hop " + string(A.hop_index) + " (pid=" + string(_pid) + ")");
             } else {
                 // Advance to next hop if any
                 if (variable_struct_exists(A, "hop_total") && A.hop_index < A.hop_total){
                     A.hop_index += 1;
                     A.phase_start = now;
-                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][debug] catch hop -> next hop " + string(A.hop_index) + " (pid=" + string(_pid) + ")");
+                    if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][debug] catch hop -> next hop " + string(A.hop_index) + " (pid=" + string(_pid) + ")");
                 } else {
                     // No success after last hop: go to escape
                     A.phase = "escape";
                     A.phase_start = now;
                     A.escape_dur = 320;
-                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][debug] catch phase -> escape (pid=" + string(_pid) + ")");
+                    if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][debug] catch phase -> escape (pid=" + string(_pid) + ")");
                 }
             }
         }
@@ -1724,8 +1925,40 @@ function __battle_update_animations(_pid){
                 if (!variable_struct_exists(caught, "exp_next")) variable_struct_set(caught, "exp_next", max(20, lvl * lvl * 2));
             }
             // show dialog and keep a persistent caught visual state (ball stays on-screen with mon hidden)
-            __battle_stub_dialog(_pid, "Gotcha!\nYou caught " + string(_B.actor[1].name) + "!");
+            // Emerald-like behavior: if the player's party is full, the mon should be sent to the PC.
+            // The PC system is not implemented yet; show a TODO dialog and mark pending close.
+            var _P = undefined;
+            if (!is_undefined(party_ensure)) _P = party_ensure(_pid);
+            var party_full = false;
+            if (is_struct(_P) && is_array(_P.mons)){
+                party_full = (array_length(_P.mons) >= 6);
+            }
+            if (party_full){
+                __battle_stub_dialog(_pid, "Gotcha!\nYou caught " + string(_B.actor[1].name) + "!\nYour party is full — the Pokémon will be sent to the PC (TODO).");
+            } else {
+                __battle_stub_dialog(_pid, "Gotcha!\nYou caught " + string(_B.actor[1].name) + "!");
+                // TODO: Add the caught mon to the player's party here when party API is available.
+            }
             _B._pending_close = true;
+            // Stop battle BGM (use audio_stop_sound on stored resource) and start defeated loop if available
+            try {
+                var _stop_res = _B._battle_music;
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] stopping before defeated music: " + string(_stop_res));
+                if (!is_undefined(audio_stop_sound)){
+                    audio_stop_sound(_stop_res);
+                } else if (!is_undefined(audio_channel_stop) && !is_undefined(_B._bgm_handle)){
+                    audio_channel_stop(_B._bgm_handle);
+                } else if (!is_undefined(audio_stop_all)){
+                    audio_stop_all();
+                }
+            } catch (e_stop_b) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed stopping bgm before defeated: " + string(e_stop_b)); }
+            _B._bgm_handle = undefined;
+            try {
+                if (!is_undefined(_B._battle_defeated_music)){
+                    _B._defeated_handle = audio_play_sound(_B._battle_defeated_music, 1, true);
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] played defeated_music="+string(_B._battle_defeated_music)+" handle="+string(_B._defeated_handle));
+                }
+            } catch (e_play_d) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to play defeated_music="+string(_B._battle_defeated_music)+" err="+string(e_play_d)); }
             // instead of clearing animation, freeze it into a 'caught' phase so the ball remains drawn
             A.phase = "caught";
             A.phase_start = now;

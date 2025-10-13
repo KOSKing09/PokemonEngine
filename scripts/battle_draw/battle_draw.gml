@@ -164,13 +164,13 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
         var lastp = (variable_struct_exists(catchA, "_dbg_last_phase") ? string(catchA._dbg_last_phase) : "");
         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
             if (lastp != string(catchA.phase)){
-                show_debug_message("[battle][debug] catch draw phase change pid=" + string(_pid) + ", phase=" + string(catchA.phase));
+                if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][debug] catch draw phase change pid=" + string(_pid) + ", phase=" + string(catchA.phase));
                 variable_struct_set(catchA, "_dbg_last_phase", string(catchA.phase));
             }
             if (!(is_struct(ball_to_draw) && !is_undefined(ball_to_draw.spr))){
                 var logged_missing = (variable_struct_exists(catchA, "_dbg_missing_logged") ? catchA._dbg_missing_logged : false);
                 if (!logged_missing){
-                    show_debug_message("[battle][debug] catch active but no ball_to_draw or invalid sprite (pid=" + string(_pid) + ", phase=" + string(catchA.phase) + ")");
+                    if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][debug] catch active but no ball_to_draw or invalid sprite (pid=" + string(_pid) + ", phase=" + string(catchA.phase) + ")");
                     variable_struct_set(catchA, "_dbg_missing_logged", true);
                 }
             }
@@ -252,7 +252,7 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
     var hop_est = max(16, floor((h * ui_s) * 0.18));
     var store = { spr: bs, frame: fr, bx: bx_draw, by: by_draw, scale: ball_to_draw.scale, alpha: alpha, base_x: base_x, base_y: base_y, bsw: bsw, ui_s: ui_s, hop_est: hop_est };
         variable_struct_set(catchA, "_ball_to_draw", store);
-        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][debug] prepared ball overlay pid=" + string(_pid) + ", x=" + string(bx_draw) + ", y=" + string(by_draw));
+    if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][debug] prepared ball overlay pid=" + string(_pid) + ", x=" + string(bx_draw) + ", y=" + string(by_draw));
     }
 }
 

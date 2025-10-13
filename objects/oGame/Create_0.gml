@@ -104,6 +104,9 @@ global.PARTY_ASSETS = {
     ball: "spr_bag_pokeball_small"
 };
 
+// Region music default (used by battle system to restore pre-battle music)
+global._REGIONMUSIC = snd_Littleroot_Town;
+
 // --- PARTY / BAGS / PLAYERS -----------------------------------------------
 party_init(); // must be before demo seed (party_ensure uses it)
 // global.DEMO_FORCE_SPECIES = [250, 249]; // optional override
@@ -138,5 +141,5 @@ CTRL.pad_index = [0,1];
 
 // --- WORLD COLLISION SETUP ------------------------------------------------
 wc_reset();
-wc_bind_layers(["WALL"]);
+wc_bind_layers(["WALL", "BLOCKS"]);
 wc_set_solids([noone]); // add object ids here if you have solid instances
