@@ -238,17 +238,23 @@ function bag__use_item_on_self(_pid, _row){
     else if (is_struct(it) && variable_struct_exists(it, "name")) disp = bag__clean_display_name(variable_struct_get(it, "name"));
     var prefix = string(trainer) + " used a " + string(disp) + "!";
 
-    // If not in battle, fallback to a simple dialog and return
-    if (is_undefined(battle_is_open) || !battle_is_open(_pid)){
-        show_debug_message("[bag][debug] abort: not in battle or battle_is_open missing (pid=" + string(_pid) + ")");
-        if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, prefix);
-        return false;
+    // Determine whether we're in a battle. Some item behaviors (Poké Balls)
+    // are battle-only; others (consumables like Potions) should work outside
+    // of battle and open the party selector. We avoid an early-return here
+    // so out-of-battle handlers below can run.
+    var inBattle = (!is_undefined(battle_is_open) && battle_is_open(_pid));
+    if (!inBattle){
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[bag][debug] not in battle: proceeding with out-of-battle handlers (pid=" + string(_pid) + ")");
     }
 
-    var _B = __battle_ensure_slot(_pid);
-    if (!is_struct(_B)){
-        show_debug_message("[bag][debug] abort: __battle_ensure_slot returned non-struct for pid=" + string(_pid));
-        return false;
+    // When inBattle only: ensure slot state
+    var _B = undefined;
+    if (inBattle){
+        _B = __battle_ensure_slot(_pid);
+        if (!is_struct(_B)){
+            show_debug_message("[bag][debug] abort: __battle_ensure_slot returned non-struct for pid=" + string(_pid));
+            return false;
+        }
     }
 
     // NOTE: flag array and usable_in_battle are determined later. Check moved down after flags are parsed.
@@ -285,8 +291,13 @@ function bag__use_item_on_self(_pid, _row){
         show_debug_message("[bag][debug] use_item_on_self iid=" + string(iid) + ", flag_arr=" + string(flag_arr) + ", usable_in_battle=" + string(usable_in_battle) + ", is_consumable_flagged=" + string(is_consumable_flagged) + ", ident=" + string(ident));
     }
 
-    // Pokéball behavior — only allowed on wild opponents
+    // Pokéball behavior — only allowed on wild opponents (battle-only)
     if (page == 1 || string_pos("ball", ident) > 0){
+        if (!inBattle){
+            out_txt += "\nYou can't use that here.";
+            if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, out_txt);
+            return false;
+        }
         var _actor_arr = (variable_struct_exists(_B, "actor") ? variable_struct_get(_B, "actor") : undefined);
         var A1 = (is_array(_actor_arr) && array_length(_actor_arr) > 1) ? _actor_arr[1] : undefined;
         if (!is_struct(A1)){
@@ -316,11 +327,11 @@ function bag__use_item_on_self(_pid, _row){
             // Treat item use as the player's action for this turn. This ensures the enemy
             // will still act afterwards instead of the bag stealing the flow.
             var actP = { item_use: true, item_id: iid, ball_mult: ball_mult };
-            _B.turn_action_player = actP;
-            _B.turn_action_enemy  = (is_undefined(__battle_enemy_choose_action) ? undefined : __battle_enemy_choose_action(_pid));
-            _B.turn_queue = __battle_build_turn_actions(_pid);
-            _B.turn_i = 0;
-            _B.phase = "turn";
+            if (is_struct(_B)) variable_struct_set(_B, "turn_action_player", actP);
+            if (is_struct(_B)) variable_struct_set(_B, "turn_action_enemy", (is_undefined(__battle_enemy_choose_action) ? undefined : __battle_enemy_choose_action(_pid)));
+            if (is_struct(_B)) variable_struct_set(_B, "turn_queue", (is_undefined(__battle_build_turn_actions) ? undefined : __battle_build_turn_actions(_pid)));
+            if (is_struct(_B)) variable_struct_set(_B, "turn_i", 0);
+            if (is_struct(_B)) variable_struct_set(_B, "phase", "turn");
             if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[bag][debug] queued item as player turn pid=" + string(_pid) + ", iid=" + string(iid) + ", mult=" + string(ball_mult));
             consumed = true;
         } else {
