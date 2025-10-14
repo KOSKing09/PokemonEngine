@@ -241,6 +241,97 @@ function data_load_natures_structs(){
     }
     data_debug("[DATA][natures] loaded rows=" + string(rows));
 }
+
+// Load pokemon_species_flavor_text.csv (PokeAPI) -> global._species_flavor_text[sid] = "text"
+function data_load_species_flavor_text_structs(){
+    var path = working_directory + "/data/csv/pokemon_species_flavor_text.csv";
+    var g = load_csv(path);
+    if (g == -1) {
+        // try fallback: flavor summaries CSV
+        var p2 = working_directory + "/data/csv/pokemon_species_flavor_summaries.csv";
+        var g2 = load_csv(p2);
+        if (g2 == -1) { data_debug("[DATA][species_flavor_text] SKIP: no flavor CSVs"); global._species_flavor_text = []; return; }
+        // use summaries fallback
+        var H2 = ds_grid_height(g2);
+        var ci_sid2 = __col_find_ci(g2, "pokemon_species_id");
+        var ci_text2 = __col_find_ci(g2, "flavor_summary");
+        if (ci_sid2 < 0 || ci_text2 < 0){ data_debug("[DATA][species_flavor_text] fallback missing columns"); global._species_flavor_text = []; return; }
+        var maxsid = 0;
+        for (var r = 1; r < H2; r++){ var sid = __to_int_safe(__grid(g2, ci_sid2, r, 0), 0); if (sid > maxsid) maxsid = sid; }
+        global._species_flavor_text = []; array_resize(global._species_flavor_text, maxsid + 1);
+        var rows = 0;
+        for (var r2 = 1; r2 < H2; r2++){
+            var sid = __to_int_safe(__grid(g2, ci_sid2, r2, 0), 0);
+            if (sid <= 0) continue;
+            var txt = __text_clean_spaces(__grid(g2, ci_text2, r2, ""));
+            if (string_length(txt) == 0) continue;
+            global._species_flavor_text[sid] = txt;
+            // Targeted debug: help trace why certain sids (e.g., 173) may end up empty or incorrect
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG && sid == 173) {
+                show_debug_message("[DATA_DBG][species_flavor_text] assigned sid=173 -> '" + string(txt) + "'");
+            }
+            rows++;
+        }
+        data_debug("[DATA][species_flavor_text] loaded fallback rows=" + string(rows));
+        // Normalize: ensure unfilled or numeric slots don't contain raw 0 values
+        if (variable_global_exists("_species_flavor_text") && is_array(global._species_flavor_text)){
+            for (var _i = 0; _i < array_length(global._species_flavor_text); _i++){
+                var _v = global._species_flavor_text[_i];
+                if (!(is_string(_v) || is_struct(_v))) global._species_flavor_text[_i] = "";
+            }
+        }
+        return;
+    }
+
+    var H = ds_grid_height(g);
+    // Determine EN language id from languages.csv if present (fallback to 9)
+    var en_id = 9;
+    var lg = load_csv(working_directory + "/data/csv/languages.csv");
+    if (lg != -1){ var ci_lid = __col_find_ci(lg, "id"); var ci_ident = __col_find_ci(lg, "identifier"); if (ci_lid >= 0 && ci_ident >= 0){ var HL = ds_grid_height(lg); for (var rr = 1; rr < HL; rr++){ var ident = string_lower(__s_trim(__grid(lg, ci_ident, rr, ""))); if (ident == "en"){ en_id = __to_int_safe(__grid(lg, ci_lid, rr, 9), 9); break; } } } }
+
+    var ci_sid = __col_find_ci(g, "species_id");
+    var ci_lang = __col_find_ci(g, "language_id");
+    var ci_text = __col_find_ci(g, "flavor_text");
+    if (ci_sid < 0 || ci_lang < 0 || ci_text < 0){ data_debug("[DATA][species_flavor_text] ERROR: missing columns"); global._species_flavor_text = []; return; }
+
+    // determine max sid
+    var maxsid = 0;
+    for (var r3 = 1; r3 < H; r3++){ var sid3 = __to_int_safe(__grid(g, ci_sid, r3, 0), 0); if (sid3 > maxsid) maxsid = sid3; }
+    global._species_flavor_text = []; array_resize(global._species_flavor_text, maxsid + 1);
+
+    // We'll pick the first/latest flavor text per species in EN (no version grouping for now)
+    var rows = 0;
+    for (var r4 = 1; r4 < H; r4++){
+        var sid4 = __to_int_safe(__grid(g, ci_sid, r4, 0), 0);
+        if (sid4 <= 0) continue;
+        var lgid = __to_int_safe(__grid(g, ci_lang, r4, 0), 0);
+        if (lgid != en_id) continue;
+        var raw_cell = string(__grid(g, ci_text, r4, ""));
+        var txt = __text_clean_spaces(raw_cell);
+        // If cleaning removed everything (rare), try the raw trimmed cell as a fallback
+        if (string_length(txt) == 0){
+            var raw_trim = string_trim(raw_cell);
+            if (string_length(raw_trim) > 0) txt = raw_trim;
+            else continue;
+        }
+        // prefer first seen; if already set, skip.
+        // Note: array_resize initializes slots to numeric 0 which stringifies to "0",
+        // so use an explicit is_string check + trimmed-length test to detect real non-empty strings.
+        var _curr = global._species_flavor_text[sid4];
+        if (!is_string(_curr) || string_length(__s_trim(_curr)) == 0) {
+            global._species_flavor_text[sid4] = txt;
+            rows++;
+        }
+    }
+    data_debug("[DATA][species_flavor_text] loaded rows=" + string(rows));
+    // Normalize: ensure unfilled or numeric slots don't contain raw 0 values
+    if (variable_global_exists("_species_flavor_text") && is_array(global._species_flavor_text)){
+        for (var _i2 = 0; _i2 < array_length(global._species_flavor_text); _i2++){
+            var _vv = global._species_flavor_text[_i2];
+            if (!(is_string(_vv) || is_struct(_vv))) global._species_flavor_text[_i2] = "";
+        }
+    }
+}
 // Simple data debug gate: use global.DATA_DEBUG to enable/disable data loader messages
 function data_debug(_msg){
     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message(_msg);
@@ -536,6 +627,8 @@ function data_load_all_structs_ext(){
     data_load_ability_text_structs();    // UPDATED to PokeAPI flavor text
     data_load_species_abilities_structs();
     data_load_species_moves_structs();
+    // Optional: per-species flavor text/prose (pokemon_species_flavor_text.csv / pokemon_species_flavor_summaries.csv)
+    if (is_undefined(data_load_species_flavor_text_structs) == false) data_load_species_flavor_text_structs();
     // Growth rates table + Experience
     data_load_growth_rates_structs();
     data_load_experience_structs();

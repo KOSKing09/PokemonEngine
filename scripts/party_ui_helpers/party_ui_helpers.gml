@@ -22,12 +22,13 @@ function __party_impl_draw_summary(_pid, _P, _OX, _OY, _S){
     var _leftInfo = __party_impl_draw_left_panel(_P, _M, _OX, _OY, _S, _LEFT_X, _LEFT_Y, _LEFT_W, _LEFT_H);
     var _rightInfo = __party_impl_draw_right_frame(_OX, _OY, _S, _RIGHT_X, _RIGHT_Y, _RIGHT_W, _RIGHT_H);
 
-    var _descPad = _leftInfo.descPad;
-    var _descAreaH = _leftInfo.descAreaH;
-    var _descX = _leftInfo.descX;
-    var _descY = _leftInfo.descY;
-    var _descW = _leftInfo.descW;
-    var _descH = _leftInfo.descH;
+    // Defensive reads for leftInfo geometry
+    var _descPad = (is_struct(_leftInfo) && variable_struct_exists(_leftInfo, "descPad")) ? variable_struct_get(_leftInfo, "descPad") : (3 * _S);
+    var _descAreaH = (is_struct(_leftInfo) && variable_struct_exists(_leftInfo, "descAreaH")) ? variable_struct_get(_leftInfo, "descAreaH") : (38 * _S);
+    var _descX = (is_struct(_leftInfo) && variable_struct_exists(_leftInfo, "descX")) ? variable_struct_get(_leftInfo, "descX") : (_OX + _LEFT_X * _S + (3 * _S));
+    var _descY = (is_struct(_leftInfo) && variable_struct_exists(_leftInfo, "descY")) ? variable_struct_get(_leftInfo, "descY") : ((_OY + (_LEFT_Y + _LEFT_H) * _S) - (38 * _S) + (3 * _S));
+    var _descW = (is_struct(_leftInfo) && variable_struct_exists(_leftInfo, "descW")) ? variable_struct_get(_leftInfo, "descW") : (min((_LEFT_W + 10) * _S, (108 - _LEFT_X - 4) * _S) - (3 * _S) * 2);
+    var _descH = (is_struct(_leftInfo) && variable_struct_exists(_leftInfo, "descH")) ? variable_struct_get(_leftInfo, "descH") : ((_descAreaH) - (_descPad) * 2);
 
     var _descText = __party_get_desc_text(_P, _M);
     if (string_length(_descText) > 0) {
@@ -79,12 +80,15 @@ function __party_impl_draw_profile_block(_M, _x, _y, _w, _h, _S){
             if (string_length(cur) > 0 && string_char_at(cur,1) == "#"){
                 var nid = real(string_delete(cur,1,1));
                 var resolved = "";
-                if (variable_global_exists("TYPE_ID_BY_NAME") && ds_exists(TYPE_ID_BY_NAME, ds_type_map)){
-                    var _k = ds_map_find_first(TYPE_ID_BY_NAME);
-                    while(_k != undefined){
-                        var _v = ds_map_find_value(TYPE_ID_BY_NAME, _k);
-                        if (is_real(_v) && _v == nid){ resolved = string(_k); break; }
-                        _k = ds_map_find_next(TYPE_ID_BY_NAME, _k);
+                if (variable_global_exists("TYPE_ID_BY_NAME")){
+                    var _map_tmp = variable_global_get("TYPE_ID_BY_NAME");
+                    if (!is_undefined(_map_tmp) && ds_exists(_map_tmp, ds_type_map)){
+                        var _k = ds_map_find_first(_map_tmp);
+                        while(_k != undefined){
+                            var _v = ds_map_find_value(_map_tmp, _k);
+                            if (is_real(_v) && _v == nid){ resolved = string(_k); break; }
+                            _k = ds_map_find_next(_map_tmp, _k);
+                        }
                     }
                 }
                 if (string_length(resolved) == 0){

@@ -526,14 +526,75 @@ function __party_draw_right_frame(_OX, _OY, _S, _RIGHT_X, _RIGHT_Y, _RIGHT_W, _R
 function __party_get_desc_text(_P, _M){
     var _descText = "";
     if (string(_P.mode) == "summary_profile") {
+        // Resolve species id into a safe integer (accept real or numeric string)
+        var _sid_desc_raw = -1;
+        if (variable_struct_exists(_M,"species_id")) _sid_desc_raw = variable_struct_get(_M, "species_id");
+        else if (variable_struct_exists(_M,"_id"))   _sid_desc_raw = variable_struct_get(_M, "_id");
+        // coerce to integer safely
         var _sid_desc = -1;
-        if (variable_struct_exists(_M,"species_id")) _sid_desc = _M.species_id;
-        else if (variable_struct_exists(_M,"_id"))   _sid_desc = _M._id;
+        if (is_real(_sid_desc_raw)) _sid_desc = floor(_sid_desc_raw);
+        else if (is_string(_sid_desc_raw)) {
+            var _st = string_trim(_sid_desc_raw);
+            if (string_length(_st) > 0) {
+                // try to parse numeric content
+                var _val = 0;
+                try { _val = real(_st); } catch (ee) { _val = -1; }
+                if (is_real(_val)) _sid_desc = floor(_val);
+            }
+        }
+
         if (_sid_desc >= 0 && variable_global_exists("_species_flavor_text")) {
             var _sarr = global._species_flavor_text;
+            var _sv = undefined;
+            // Array-backed lookup
             if (is_array(_sarr) && _sid_desc < array_length(_sarr)) {
-                var _sv = _sarr[_sid_desc];
-                if (!is_undefined(_sv)) _descText = string(_sv);
+                _sv = _sarr[_sid_desc];
+            }
+            // Struct-backed lookup (keys may be numeric strings)
+            else if (is_struct(_sarr)) {
+                var _k = string(_sid_desc);
+                if (variable_struct_exists(_sarr, _k)) _sv = variable_struct_get(_sarr, _k);
+            }
+            // ds_map-backed lookup
+            else if (is_real(_sarr) && ds_exists(_sarr, ds_type_map)) {
+                var _k2 = string(_sid_desc);
+                if (ds_map_exists(_sarr, _k2)) _sv = ds_map_find_value(_sarr, _k2);
+            }
+
+            // DEBUG: report what we found when DATA_DEBUG is set
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) {
+                var _typeStr = is_string(_sv) ? "string" : (is_struct(_sv) ? "struct" : (is_real(_sv) ? "real" : "other"));
+                var _rawPreview = "";
+                if (is_string(_sv)) _rawPreview = string_trim(_sv);
+                else if (is_real(_sv)) _rawPreview = string(_sv);
+                else if (is_struct(_sv)) {
+                    var _has_short = variable_struct_exists(_sv, "short_desc");
+                    var _has_eff = variable_struct_exists(_sv, "effect");
+                    var _sdv = _has_short ? string(variable_struct_get(_sv, "short_desc")) : "";
+                    var _efv = _has_eff ? string(variable_struct_get(_sv, "effect")) : "";
+                    _rawPreview = "short_len=" + string(string_length(string_trim(_sdv))) + ",eff_len=" + string(string_length(string_trim(_efv)));
+                }
+                show_debug_message("[DBG][party_desc] sid=" + string(_sid_desc) + " arr_type=" + string(is_array(_sarr) ? "array" : (is_struct(_sarr) ? "struct" : (is_real(_sarr) && ds_exists(_sarr, ds_type_map) ? "ds_map" : "other"))) + " type=" + _typeStr + " preview='" + _rawPreview + "'");
+            }
+
+            // Accept if it's a non-empty string
+            if (is_string(_sv) && string_length(string_trim(_sv)) > 0) {
+                _descText = string_trim(string(_sv));
+            }
+            // Some loaders may store a struct with keys like short_desc/effect
+            else if (is_struct(_sv)) {
+                var _sd = variable_struct_exists(_sv, "short_desc") ? string(variable_struct_get(_sv, "short_desc")) : "";
+                var _ef = variable_struct_exists(_sv, "effect") ? string(variable_struct_get(_sv, "effect")) : "";
+                if (string_length(string_trim(_sd)) > 0) _descText = string_trim(_sd);
+                else if (string_length(string_trim(_ef)) > 0) _descText = string_trim(_ef);
+            }
+            // otherwise ignore numeric 0 or undefined entries to avoid rendering "0"
+        }
+        // Fallback: if no flavor text, show the species display name if available
+        if (string_length(string_trim(_descText)) == 0) {
+            if (!is_undefined(scr_poke_name_by_id)) {
+                var _nm = scr_poke_name_by_id(_sid_desc);
+                if (is_string(_nm) && string_length(string_trim(_nm)) > 0) _descText = string_trim(_nm);
             }
         }
     } else {
