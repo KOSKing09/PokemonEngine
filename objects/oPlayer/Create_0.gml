@@ -6,16 +6,29 @@ grid = {};
 grid_init(id, 8, 2, 4);
 grid_snap_to_tile(id);
 
-grid_set_block_checker(id, function(self, px, py){
-    // Feet probe is best for character movement:
-    return wc_collides_at_feet(self, px, py);
-});
+// Use the named feet-block checker to avoid anonymous function syntax (compat)
+grid_set_block_checker(id, grid_block_checker_feet);
 
 // OPTIONAL: if you have a collision helper, plug it in:
 // after grid_init(id, 16, 2, 4);
 
 skin = "brendan";
-skin_set(skin);
+var _skinData = skin_set(skin);
+if (is_struct(_skinData)){
+    if (variable_struct_exists(_skinData, "defaultIndex")) sprite_index = variable_struct_get(_skinData, "defaultIndex");
+    if (variable_struct_exists(_skinData, "battleAnim")) battleAnim = variable_struct_get(_skinData, "battleAnim");
+    // optional: also assign directional sprites for other systems
+    if (variable_struct_exists(_skinData, "spriteLeft")) spriteLeft = variable_struct_get(_skinData, "spriteLeft");
+    if (variable_struct_exists(_skinData, "spriteUp")) spriteUp = variable_struct_get(_skinData, "spriteUp");
+    if (variable_struct_exists(_skinData, "spriteDown")) spriteDown = variable_struct_get(_skinData, "spriteDown");
+    if (variable_struct_exists(_skinData, "spriteRight")) spriteRight = variable_struct_get(_skinData, "spriteRight");
+}
+
+// If no global battleAnim is set, provide a fallback from the player's skin so
+// the battle draw code can use it even if instance lookup fails.
+if (!variable_global_exists("battleAnim") && variable_instance_exists(id, "battleAnim")){
+    global.battleAnim = battleAnim;
+}
 
 talk_cd = 0;          // cooldown frames
 can_talk = true;      // release gate

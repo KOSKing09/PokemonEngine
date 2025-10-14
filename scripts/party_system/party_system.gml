@@ -574,7 +574,7 @@ function __party_get_desc_text(_P, _M){
                     var _efv = _has_eff ? string(variable_struct_get(_sv, "effect")) : "";
                     _rawPreview = "short_len=" + string(string_length(string_trim(_sdv))) + ",eff_len=" + string(string_length(string_trim(_efv)));
                 }
-                show_debug_message("[DBG][party_desc] sid=" + string(_sid_desc) + " arr_type=" + string(is_array(_sarr) ? "array" : (is_struct(_sarr) ? "struct" : (is_real(_sarr) && ds_exists(_sarr, ds_type_map) ? "ds_map" : "other"))) + " type=" + _typeStr + " preview='" + _rawPreview + "'");
+                // debug removed
             }
 
             // Accept if it's a non-empty string

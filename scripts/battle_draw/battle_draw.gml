@@ -373,6 +373,7 @@ function __battle_draw_player(_pid, _B, mx, my, tx, ty){
 
             var bx = trainer_x_px - (sprite_get_width(bs)*ui_s)/2;
             var by = ty - (sprite_get_height(bs)*ui_s)/2;
+            // One-time diagnostic per battle to avoid spamming every frame
             draw_sprite_ext(bs, draw_frame, bx, by, ui_s, ui_s, 0, c_white, 1);
             if (string(_B.phase) == "intro_call") return;
         }

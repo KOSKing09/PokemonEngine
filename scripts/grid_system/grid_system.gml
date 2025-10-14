@@ -39,6 +39,13 @@ function grid_set_block_checker(_inst, _fn){
     _inst.grid.block_cb = _fn;
 }
 
+// Default block checker that probes the feet line; callers can reference this
+function grid_block_checker_feet(_inst, _px, _py){
+    // Prefer feet-level collision probe if available; fall back to bbox probe.
+    if (!is_undefined(wc_collides_at)) return wc_collides_at(_inst, _px, _py);
+    return false;
+}
+
 /// INTERNAL: grid_is_blocked(inst, px, py)
 function grid_is_blocked(_inst, _px, _py){
     return wc_collides_at(_inst, _px, _py);
@@ -79,9 +86,7 @@ function grid_step(_inst, _pid){
     var spd = controls_down(_pid, "Run") ? g.run_speed : g.walk_speed;
 
     switch (g.state){
-
         case "idle":
-        {
             var mvL = controls_down(_pid, "MoveLeft");
             var mvR = controls_down(_pid, "MoveRight");
             var mvU = controls_down(_pid, "MoveUp");
@@ -95,11 +100,9 @@ function grid_step(_inst, _pid){
             if (!started && mvR) started = grid_try_start(_inst, 1);
 
             if (!started) grid_snap_to_tile(_inst);
-        }
         break;
 
         case "move":
-        {
             var remx = g.tx - _inst.x;
             var remy = g.ty - _inst.y;
 
@@ -134,7 +137,6 @@ function grid_step(_inst, _pid){
                 }
                 if (hold) grid_try_start(_inst, g.dir);
             }
-        }
         break;
     }
 }

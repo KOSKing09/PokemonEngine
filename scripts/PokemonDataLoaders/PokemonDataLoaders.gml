@@ -266,10 +266,7 @@ function data_load_species_flavor_text_structs(){
             var txt = __text_clean_spaces(__grid(g2, ci_text2, r2, ""));
             if (string_length(txt) == 0) continue;
             global._species_flavor_text[sid] = txt;
-            // Targeted debug: help trace why certain sids (e.g., 173) may end up empty or incorrect
-            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG && sid == 173) {
-                show_debug_message("[DATA_DBG][species_flavor_text] assigned sid=173 -> '" + string(txt) + "'");
-            }
+            // debug removed
             rows++;
         }
         data_debug("[DATA][species_flavor_text] loaded fallback rows=" + string(rows));
@@ -413,7 +410,7 @@ function data_load_move_text_structs(){
         global._move_text = [];
         return;
     }
-
+                    // debug removed
     // Find max move_id
     var max_mid = 0;
     for (var r = 1; r < H; r++){
@@ -655,6 +652,8 @@ function data_load_growth_rates_structs(){
 
     var H = ds_grid_height(g);
     var ci_id = __col_find_ci(g, "growth_rate_id");
+    // Some CSVs use 'id' as the header instead of 'growth_rate_id' - accept that as a fallback.
+    if (ci_id < 0) ci_id = __col_find_ci(g, "id");
     var ci_ident = __col_find_ci(g, "identifier");
     var ci_name = __col_find_ci(g, "name");
     var ci_desc = __col_find_ci(g, "description");
