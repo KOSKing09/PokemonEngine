@@ -3,7 +3,7 @@ if (!variable_instance_exists(id,"pid"))    pid = 0;
 
 // ensure the grid struct exists, then init (tile=16, walk=2, run=4)
 grid = {};
-grid_init(id, 16, 2, 4);
+grid_init(id, 8, 2, 4);
 grid_snap_to_tile(id);
 
 grid_set_block_checker(id, function(self, px, py){

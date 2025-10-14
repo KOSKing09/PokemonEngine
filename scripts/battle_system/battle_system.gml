@@ -824,6 +824,51 @@ if (A1.hp_now <= 0){
     var gain = floor((base_exp * max(1, A1.level)) / 7);
     __battle_award_exp(_pid, gain);
 
+    // Award EVs to participants (or fallback to active mon)
+    // Determine EV yield from species master record when available
+    var ev_yield = undefined;
+    if (variable_global_exists("_pokemon") && is_array(global._pokemon) && A1.species >= 0 && A1.species < array_length(global._pokemon)){
+        var _rec_ev = global._pokemon[A1.species];
+        if (is_struct(_rec_ev)){
+            if (variable_struct_exists(_rec_ev, "ev_yield") && is_struct(variable_struct_get(_rec_ev, "ev_yield"))) ev_yield = variable_struct_get(_rec_ev, "ev_yield");
+            else if (variable_struct_exists(_rec_ev, "ev") && is_struct(variable_struct_get(_rec_ev, "ev"))) ev_yield = variable_struct_get(_rec_ev, "ev");
+        }
+    }
+    // Fallback small EV if not defined
+    if (!is_struct(ev_yield)) ev_yield = { hp:0, atk:1, def:0, spa:0, spd:0, spe:0 };
+
+    // Build recipient list: prefer explicit _B._participants if available, otherwise active mon
+    var recipients = [];
+    if (variable_struct_exists(_B, "_participants") && is_array(_B._participants) && array_length(_B._participants) > 0){
+        var P = party_ensure(_pid);
+        var _nparts = array_length(_B._participants);
+        var _pi = 0;
+        while (_pi < _nparts){
+            var idx = _B._participants[_pi];
+            if (is_array(P.mons) && idx >= 0 && idx < array_length(P.mons)){
+                var cand = P.mons[idx];
+                if (is_struct(cand) && ((variable_struct_exists(cand, "hp") && is_real(cand.hp) && cand.hp > 0) || (variable_struct_exists(cand, "hp_now") && is_real(cand.hp_now) && cand.hp_now > 0))) array_push(recipients, cand);
+            }
+            _pi += 1;
+        }
+    }
+    if (array_length(recipients) == 0){
+        // fallback to active actor canonical mon
+        var At = (is_struct(_B.actor[0]) && variable_struct_exists(_B.actor[0], "mon") && is_struct(_B.actor[0].mon)) ? _B.actor[0].mon : _B.actor[0];
+        if (is_struct(At)) array_push(recipients, At);
+    }
+
+    // Apply EVs to each recipient (guarded call)
+    var _ri = 0;
+    while (_ri < array_length(recipients)){
+        var rmon = recipients[_ri];
+        if (!is_undefined(scr_award_ev_to_mon)){
+            scr_award_ev_to_mon(rmon, ev_yield);
+        }
+        _ri += 1;
+    }
+    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][ev] awarded EVs to " + string(array_length(recipients)) + " recipients");
+
     _B.result = "win";
     // Stop battle BGM and play defeated loop if available
     try {
@@ -1737,9 +1782,91 @@ function __battle_award_exp(_pid, _amount){
             T.level += 1;
             _ups += 1;
 
-            // bump stats (very light): +3 HP, heal +3
-            if (!is_real(T.hp_max)) T.hp_max = 20; T.hp_max += 3;
-            if (!is_real(T.hp_now)) T.hp_now = T.hp_max; else T.hp_now = min(T.hp_max, T.hp_now + 3);
+            // Recompute stats using IV/EV-aware formula when base stats exist; record deltas for dialog
+            var sid = (variable_struct_exists(T, "species_id") && is_real(variable_struct_get(T, "species_id"))) ? floor(variable_struct_get(T, "species_id")) : ((variable_struct_exists(T, "species") && is_real(variable_struct_get(T, "species"))) ? floor(variable_struct_get(T, "species")) : -1);
+            var base = undefined;
+            if (sid >= 0 && variable_global_exists("_poke_stats") && is_array(global._poke_stats) && sid < array_length(global._poke_stats)) base = global._poke_stats[sid];
+            else if (sid >= 0 && variable_global_exists("_pokemon") && is_array(global._pokemon) && sid < array_length(global._pokemon)){
+                var __rbb = global._pokemon[sid];
+                if (is_struct(__rbb) && variable_struct_exists(__rbb, "base_stats")) base = variable_struct_get(__rbb, "base_stats");
+                else if (is_struct(__rbb)) base = __rbb;
+            }
+
+            var old_hp = (variable_struct_exists(T, "hp_max") && is_real(variable_struct_get(T, "hp_max"))) ? real(variable_struct_get(T, "hp_max")) : ((variable_struct_exists(T, "hp") && is_real(variable_struct_get(T, "hp"))) ? real(variable_struct_get(T, "hp")) : 20);
+            var old_atk = (variable_struct_exists(T, "atk") && is_real(variable_struct_get(T, "atk"))) ? real(variable_struct_get(T, "atk")) : ((variable_struct_exists(T, "attack") && is_real(variable_struct_get(T, "attack"))) ? real(variable_struct_get(T, "attack")) : 0);
+            var old_def = (variable_struct_exists(T, "def") && is_real(variable_struct_get(T, "def"))) ? real(variable_struct_get(T, "def")) : ((variable_struct_exists(T, "defense") && is_real(variable_struct_get(T, "defense"))) ? real(variable_struct_get(T, "defense")) : 0);
+            var old_spa = (variable_struct_exists(T, "spa") && is_real(variable_struct_get(T, "spa"))) ? real(variable_struct_get(T, "spa")) : ((variable_struct_exists(T, "spatk") && is_real(variable_struct_get(T, "spatk"))) ? real(variable_struct_get(T, "spatk")) : 0);
+            var old_spd = (variable_struct_exists(T, "spd") && is_real(variable_struct_get(T, "spd"))) ? real(variable_struct_get(T, "spd")) : ((variable_struct_exists(T, "spdef") && is_real(variable_struct_get(T, "spdef"))) ? real(variable_struct_get(T, "spdef")) : 0);
+            var old_spe = (variable_struct_exists(T, "spe") && is_real(variable_struct_get(T, "spe"))) ? real(variable_struct_get(T, "spe")) : ((variable_struct_exists(T, "speed") && is_real(variable_struct_get(T, "speed"))) ? real(variable_struct_get(T, "speed")) : 0);
+
+            // IV/EV sources
+            var iv = (variable_struct_exists(T, "iv") && is_struct(variable_struct_get(T, "iv"))) ? variable_struct_get(T, "iv") : ((variable_struct_exists(A0, "mon") && is_struct(A0.mon) && variable_struct_exists(A0.mon, "iv")) ? variable_struct_get(A0.mon, "iv") : undefined);
+            var ev = (variable_struct_exists(T, "ev") && is_struct(variable_struct_get(T, "ev"))) ? variable_struct_get(T, "ev") : ((variable_struct_exists(A0, "mon") && is_struct(A0.mon) && variable_struct_exists(A0.mon, "ev")) ? variable_struct_get(A0.mon, "ev") : undefined);
+
+            // read base stats with aliases
+            function __bs_local(_b, _names){ if (!is_struct(_b)) return undefined; for (var _i=0; _i<array_length(_names); _i++){ var _k=_names[_i]; if (variable_struct_exists(_b,_k) && is_real(variable_struct_get(_b,_k))) return real(variable_struct_get(_b,_k)); } return undefined; }
+            var b_hp = __bs_local(base, ["hp","base_hp"]);
+            var b_atk = __bs_local(base, ["atk","attack","base_atk"]);
+            var b_def = __bs_local(base, ["def","defense","base_def"]);
+            var b_spa = __bs_local(base, ["spa","spatk","sp_atk","sp_attack","base_spa"]);
+            var b_spd = __bs_local(base, ["spd","spdef","sp_def","sp_defense","base_spd"]);
+            var b_spe = __bs_local(base, ["spe","speed","base_spe"]);
+
+            var lvl_now = (is_real(T.level) ? T.level : (is_real(A0.level) ? A0.level : 1));
+
+            var new_hp = old_hp, new_atk = old_atk, new_def = old_def, new_spa = old_spa, new_spd = old_spd, new_spe = old_spe;
+            if (is_real(b_hp) || is_real(b_atk) || is_real(b_def) || is_real(b_spa) || is_real(b_spd) || is_real(b_spe)){
+                var iv_hp = (is_struct(iv) && variable_struct_exists(iv, "hp") && is_real(variable_struct_get(iv, "hp"))) ? real(variable_struct_get(iv, "hp")) : 0;
+                var iv_atk = (is_struct(iv) && variable_struct_exists(iv, "atk") && is_real(variable_struct_get(iv, "atk"))) ? real(variable_struct_get(iv, "atk")) : 0;
+                var iv_def = (is_struct(iv) && variable_struct_exists(iv, "def") && is_real(variable_struct_get(iv, "def"))) ? real(variable_struct_get(iv, "def")) : 0;
+                var iv_spa = (is_struct(iv) && variable_struct_exists(iv, "spa") && is_real(variable_struct_get(iv, "spa"))) ? real(variable_struct_get(iv, "spa")) : 0;
+                var iv_spd = (is_struct(iv) && variable_struct_exists(iv, "spd") && is_real(variable_struct_get(iv, "spd"))) ? real(variable_struct_get(iv, "spd")) : 0;
+                var iv_spe = (is_struct(iv) && variable_struct_exists(iv, "spe") && is_real(variable_struct_get(iv, "spe"))) ? real(variable_struct_get(iv, "spe")) : 0;
+
+                var ev_hp = (is_struct(ev) && variable_struct_exists(ev, "hp") && is_real(variable_struct_get(ev, "hp"))) ? real(variable_struct_get(ev, "hp")) : 0;
+                var ev_atk = (is_struct(ev) && variable_struct_exists(ev, "atk") && is_real(variable_struct_get(ev, "atk"))) ? real(variable_struct_get(ev, "atk")) : 0;
+                var ev_def = (is_struct(ev) && variable_struct_exists(ev, "def") && is_real(variable_struct_get(ev, "def"))) ? real(variable_struct_get(ev, "def")) : 0;
+                var ev_spa = (is_struct(ev) && variable_struct_exists(ev, "spa") && is_real(variable_struct_get(ev, "spa"))) ? real(variable_struct_get(ev, "spa")) : 0;
+                var ev_spd = (is_struct(ev) && variable_struct_exists(ev, "spd") && is_real(variable_struct_get(ev, "spd"))) ? real(variable_struct_get(ev, "spd")) : 0;
+                var ev_spe = (is_struct(ev) && variable_struct_exists(ev, "spe") && is_real(variable_struct_get(ev, "spe"))) ? real(variable_struct_get(ev, "spe")) : 0;
+
+                new_hp = is_real(b_hp) ? scr_compute_stat(b_hp, iv_hp, ev_hp, lvl_now, true) : old_hp + 3;
+                new_atk = is_real(b_atk) ? scr_compute_stat(b_atk, iv_atk, ev_atk, lvl_now, false) : old_atk + 1;
+                new_def = is_real(b_def) ? scr_compute_stat(b_def, iv_def, ev_def, lvl_now, false) : old_def + 1;
+                new_spa = is_real(b_spa) ? scr_compute_stat(b_spa, iv_spa, ev_spa, lvl_now, false) : old_spa + 1;
+                new_spd = is_real(b_spd) ? scr_compute_stat(b_spd, iv_spd, ev_spd, lvl_now, false) : old_spd + 1;
+                new_spe = is_real(b_spe) ? scr_compute_stat(b_spe, iv_spe, ev_spe, lvl_now, false) : old_spe + 1;
+            } else {
+                new_hp = old_hp + 3;
+                new_atk = old_atk + 1;
+                new_def = old_def + 1;
+                new_spa = old_spa + 1;
+                new_spd = old_spd + 1;
+                new_spe = old_spe + 1;
+            }
+
+            // write back using guarded setters
+            variable_struct_set(T, "hp_max", max(1, new_hp));
+            variable_struct_set(T, "atk", max(1, new_atk));
+            variable_struct_set(T, "def", max(1, new_def));
+            variable_struct_set(T, "spa", max(1, new_spa));
+            variable_struct_set(T, "spd", max(1, new_spd));
+            variable_struct_set(T, "spe", max(1, new_spe));
+
+            // heal a bit on level-up
+            var cur_hp_now = (variable_struct_exists(T, "hp_now") && is_real(variable_struct_get(T, "hp_now"))) ? real(variable_struct_get(T, "hp_now")) : variable_struct_get(T, "hp_max");
+            variable_struct_set(T, "hp_now", min(variable_struct_get(T, "hp_max"), cur_hp_now + 3));
+
+            // record deltas into battle slot for UI
+            var _deltas = [];
+            var dh = variable_struct_get(T, "hp_max") - old_hp; if (dh > 0) array_push(_deltas, ["HP", dh]);
+            var da = (variable_struct_get(T, "atk") - old_atk); if (da > 0) array_push(_deltas, ["ATK", da]);
+            var dd = (variable_struct_get(T, "def") - old_def); if (dd > 0) array_push(_deltas, ["DEF", dd]);
+            var dsp = (variable_struct_get(T, "spa") - old_spa); if (dsp > 0) array_push(_deltas, ["SPATK", dsp]);
+            var dsd = (variable_struct_get(T, "spd") - old_spd); if (dsd > 0) array_push(_deltas, ["SPDEF", dsd]);
+            var dspc = (variable_struct_get(T, "spe") - old_spe); if (dspc > 0) array_push(_deltas, ["SPEED", dspc]);
+            if (!variable_struct_exists(_B, "_level_stat_bumps")) variable_struct_set(_B, "_level_stat_bumps", []);
+            for (var _ii = 0; _ii < array_length(_deltas); _ii++) array_push(variable_struct_get(_B, "_level_stat_bumps"), _deltas[_ii]);
 
             // recompute next threshold for the new level
             if (!is_undefined(gid_probe) && is_real(gid_probe) && !is_undefined(scr_get_exp_for_level)){
@@ -1770,11 +1897,27 @@ function __battle_award_exp(_pid, _amount){
         if (variable_struct_exists(T, "name")) A0.name = T.name;
     }
 
+    // Build dialog message and include any recorded stat bumps for UI
+    var _msg = string(_gain) + " EXP gained!";
     if (_ups > 0){
-        __battle_stub_dialog(_pid, string(_gain) + " EXP gained!\n" + string(A0.name) + " grew to Lv" + string(A0.level) + "!");
-    } else {
-        __battle_stub_dialog(_pid, string(_gain) + " EXP gained!");
+        _msg += "\n" + string(A0.name) + " grew to Lv" + string(A0.level) + "!";
+
+        // If the battle slot collected stat deltas, append them line-by-line
+        if (variable_struct_exists(_B, "_level_stat_bumps") && is_array(variable_struct_get(_B, "_level_stat_bumps"))){
+            var _bumps = variable_struct_get(_B, "_level_stat_bumps");
+            for (var _bi = 0; _bi < array_length(_bumps); ++_bi){
+                var _entry = _bumps[_bi];
+                if (is_array(_entry) && array_length(_entry) >= 2){
+                    var _label = _entry[0];
+                    var _val = _entry[1];
+                    _msg += "\n" + string(_label) + " +" + string(_val);
+                }
+            }
+            // clear bumps after consuming so subsequent dialogs don't repeat them
+            variable_struct_set(_B, "_level_stat_bumps", []);
+        }
     }
+    __battle_stub_dialog(_pid, _msg);
 }
 
 
