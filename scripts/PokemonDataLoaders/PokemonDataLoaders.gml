@@ -98,13 +98,50 @@ function data_load_pokemon_structs(){
                 weight: weight,
                 _base_exp: base_exp,
                 _order: order_,
-                is_default: is_default
+                is_default: is_default,
+                // default ev_yield shape; can be overridden by extended CSV loader
+                ev_yield: { hp:0, atk:1, def:0, spa:0, spd:0, spe:0 }
             };
             global._pokemon[sid] = rec;
             rows++;
         }
     }
     data_debug("[DATA][pokemon] rows=" + string(rows));
+}
+
+// Optional CSV: pokemon_ev_yield.csv -> per-species EV yield values (hp,atk,def,spa,spd,spe)
+function data_load_pokemon_ev_yield_structs(){
+    var path = working_directory + "/data/csv/pokemon_ev_yield.csv";
+    var g = load_csv(path);
+    if (g == -1) { data_debug("[DATA][pokemon_ev_yield] SKIP: " + path); return; }
+    var H = ds_grid_height(g);
+    // Expect columns: species_id, hp, atk, def, spa, spd, spe (case-insensitive)
+    var ci_sid = __col_find_ci(g, "species_id");
+    var ci_hp  = __col_find_ci(g, "hp");
+    var ci_atk = __col_find_ci(g, "atk");
+    var ci_def = __col_find_ci(g, "def");
+    var ci_spa = __col_find_ci(g, "spa");
+    var ci_spd = __col_find_ci(g, "spd");
+    var ci_spe = __col_find_ci(g, "spe");
+    if (ci_sid < 0){ data_debug("[DATA][pokemon_ev_yield] ERROR: missing species_id column"); return; }
+    var updated = 0;
+    for (var r = 1; r < H; r++){
+        var sid = __to_int_safe(__grid(g, ci_sid, r, 0), 0);
+        if (sid <= 0 || sid >= array_length(global._pokemon)) continue;
+        var hp = (ci_hp >= 0 ? __to_int_safe(__grid(g, ci_hp, r, 0), 0) : 0);
+        var atk = (ci_atk >= 0 ? __to_int_safe(__grid(g, ci_atk, r, 0), 0) : 0);
+        var def = (ci_def >= 0 ? __to_int_safe(__grid(g, ci_def, r, 0), 0) : 0);
+        var spa = (ci_spa >= 0 ? __to_int_safe(__grid(g, ci_spa, r, 0), 0) : 0);
+        var spd = (ci_spd >= 0 ? __to_int_safe(__grid(g, ci_spd, r, 0), 0) : 0) ;
+        var spe = (ci_spe >= 0 ? __to_int_safe(__grid(g, ci_spe, r, 0), 0) : 0) ;
+        var rec = global._pokemon[sid];
+        if (is_struct(rec)){
+            rec.ev_yield = { hp:hp, atk:atk, def:def, spa:spa, spd:spd, spe:spe };
+            global._pokemon[sid] = rec;
+            updated += 1;
+        }
+    }
+    data_debug("[DATA][pokemon_ev_yield] updated=" + string(updated));
 }
 
 // ---------- DATA: pokemon_stats.csv -> per species aggregate ----------
@@ -164,6 +201,45 @@ function data_load_all_structs(){
         }
     }
 
+    // Optional: load per-species EV yield CSV if present
+    if (is_undefined(data_load_pokemon_ev_yield_structs) == false) data_load_pokemon_ev_yield_structs();
+    // Optional: load natures CSV if present
+    if (is_undefined(data_load_natures_structs) == false) data_load_natures_structs();
+}
+
+// Load natures.csv -> global._natures: array indexed by id (1-based) or by push order
+function data_load_natures_structs(){
+    var path = working_directory + "/data/csv/natures.csv";
+    var g = load_csv(path);
+    if (g == -1) { data_debug("[DATA][natures] SKIP: " + path); return; }
+    var H = ds_grid_height(g);
+    // columns: id, identifier, decreased_stat_id, increased_stat_id ...
+    var ci_id = __col_find_ci(g, "id");
+    var ci_ident = __col_find_ci(g, "identifier");
+    var ci_dec = __col_find_ci(g, "decreased_stat_id");
+    var ci_inc = __col_find_ci(g, "increased_stat_id");
+    if (ci_id < 0 || ci_ident < 0){ data_debug("[DATA][natures] missing required columns"); return; }
+    global._natures = [];
+    var rows = 0;
+    for (var r = 1; r < H; r++){
+        var nid = __to_int_safe(__grid(g, ci_id, r, 0), 0);
+        if (nid <= 0) continue;
+        var ident = string(__grid(g, ci_ident, r, ""));
+        var dec = (ci_dec >= 0) ? __to_int_safe(__grid(g, ci_dec, r, 0), 0) : 0;
+        var inc = (ci_inc >= 0) ? __to_int_safe(__grid(g, ci_inc, r, 0), 0) : 0;
+        // map stat ids to keys: 1=hp,2=atk,3=def,4=spa,5=spd,6=spe
+        function __stat_key(_id){ switch(_id){ case 1: return "hp"; case 2: return "atk"; case 3: return "def"; case 4: return "spa"; case 5: return "spd"; case 6: return "spe"; } return undefined; }
+        var incKey = __stat_key(inc); var decKey = __stat_key(dec);
+    var mul = { hp:1.0, atk:1.0, def:1.0, spa:1.0, spd:1.0, spe:1.0 };
+    if (is_string(incKey)) variable_struct_set(mul, incKey, 1.1);
+    if (is_string(decKey)) variable_struct_set(mul, decKey, 0.9);
+        // Display name: capitalize identifier
+        var display = (string_length(ident) > 0) ? string_upper(string_copy(ident,1,1)) + string_copy(ident,2,string_length(ident)) : ident;
+        var rec = { id: nid, name: display, identifier: ident, mul: mul };
+        array_push(global._natures, rec);
+        rows += 1;
+    }
+    data_debug("[DATA][natures] loaded rows=" + string(rows));
 }
 // Simple data debug gate: use global.DATA_DEBUG to enable/disable data loader messages
 function data_debug(_msg){

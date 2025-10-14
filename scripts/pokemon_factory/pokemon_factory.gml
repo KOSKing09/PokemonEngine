@@ -74,6 +74,52 @@ function scr_init_mon_iv_ev(_mon){
     }
 }
 
+// --- Nature support: small built-in table and helper
+if (!variable_global_exists("_NATURES")) {
+    global._NATURES = [
+        { id:0, name:"Hardy",  mul:{atk:1.0, def:1.0, spa:1.0, spd:1.0, spe:1.0} },
+        { id:1, name:"Lonely", mul:{atk:1.1, def:0.9, spa:1.0, spd:1.0, spe:1.0} },
+        { id:2, name:"Brave",  mul:{atk:1.1, def:1.0, spa:1.0, spd:1.0, spe:0.9} },
+        { id:3, name:"Adamant",mul:{atk:1.1, def:1.0, spa:0.9, spd:1.0, spe:1.0} },
+        { id:4, name:"Naughty",mul:{atk:1.1, def:1.0, spa:1.0, spd:0.9, spe:1.0} },
+        { id:5, name:"Bold",   mul:{atk:0.9, def:1.1, spa:1.0, spd:1.0, spe:1.0} },
+        { id:6, name:"Docile", mul:{atk:1.0, def:1.0, spa:1.0, spd:1.0, spe:1.0} },
+        { id:7, name:"Relaxed",mul:{atk:1.0, def:1.1, spa:1.0, spd:1.0, spe:0.9} },
+        { id:8, name:"Impish", mul:{atk:1.0, def:1.1, spa:0.9, spd:1.0, spe:1.0} },
+        { id:9, name:"Lax",    mul:{atk:1.0, def:1.1, spa:1.0, spd:0.9, spe:1.0} }
+    ];
+}
+
+function scr_nature_get_by_name(_name){
+    // Prefer CSV-loaded global._natures when present
+    if (variable_global_exists("_natures") && is_array(global._natures)){
+        for (var i=0; i<array_length(global._natures); ++i){ var r = global._natures[i]; if (is_struct(r) && (string(r.name) == string(_name) || string(r.identifier) == string(_name))) return r; }
+    }
+    if (!variable_global_exists("_NATURES") || !is_array(global._NATURES)) return undefined;
+    for (var i=0; i<array_length(global._NATURES); ++i){ if (string(global._NATURES[i].name) == string(_name)) return global._NATURES[i]; }
+    return undefined;
+}
+
+function scr_nature_random_name(){
+    // Prefer CSV-loaded list if available
+    if (variable_global_exists("_natures") && is_array(global._natures) && array_length(global._natures) > 0){
+        var idx2 = irandom(array_length(global._natures)-1); var r2 = global._natures[idx2]; if (is_struct(r2) && variable_struct_exists(r2, "name")) return string(r2.name);
+    }
+    if (!variable_global_exists("_NATURES") || !is_array(global._NATURES)) return "Hardy";
+    var idx = irandom(array_length(global._NATURES)-1);
+    return string(global._NATURES[idx].name);
+}
+
+function scr_nature_multiplier(_nature, _stat){
+    if (is_string(_nature)){
+        var rec = scr_nature_get_by_name(_nature);
+        if (is_struct(rec) && variable_struct_exists(rec, "mul") && variable_struct_exists(rec.mul, _stat)) return real(variable_struct_get(rec.mul, _stat));
+    } else if (is_struct(_nature) && variable_struct_exists(_nature, "mul") && variable_struct_exists(_nature.mul, _stat)){
+        return real(variable_struct_get(_nature.mul, _stat));
+    }
+    return 1.0;
+}
+
 // Award EVs to a mon (clamped per-stat and total). _ev_gain should be a struct with keys hp/atk/def/spa/spd/spe
 function scr_award_ev_to_mon(_mon, _ev_gain){
     if (!is_struct(_mon)) return;
@@ -306,11 +352,24 @@ function pokemon_factory_create(_sid, _level, _opts){
 
         mon.hp_max = is_real(b_hp) ? scr_compute_stat(b_hp, iv_hp, ev_hp, lvl, true) : mon.hp_max;
         mon.hp = mon.hp_max;
+        // assign base computed stats
         mon.atk = is_real(b_atk) ? scr_compute_stat(b_atk, iv_atk, ev_atk, lvl, false) : mon.atk;
         mon.def = is_real(b_def) ? scr_compute_stat(b_def, iv_def, ev_def, lvl, false) : mon.def;
         mon.spa = is_real(b_spa) ? scr_compute_stat(b_spa, iv_spa, ev_spa, lvl, false) : mon.spa;
         mon.spd = is_real(b_spd) ? scr_compute_stat(b_spd, iv_spd, ev_spd, lvl, false) : mon.spd;
         mon.spe = is_real(b_spe) ? scr_compute_stat(b_spe, iv_spe, ev_spe, lvl, false) : mon.spe;
+
+        // Ensure mon has a nature (string name); if absent, assign a random one
+        if (!variable_struct_exists(mon, "nature") || !is_string(mon.nature) || string_length(string(mon.nature)) == 0){
+            mon.nature = scr_nature_random_name();
+        }
+        // Apply nature multipliers to non-HP stats (floor after multiply)
+        var nat = mon.nature;
+        mon.atk = max(1, floor(mon.atk * scr_nature_multiplier(nat, "atk")));
+        mon.def = max(1, floor(mon.def * scr_nature_multiplier(nat, "def")));
+        mon.spa = max(1, floor(mon.spa * scr_nature_multiplier(nat, "spa")));
+        mon.spd = max(1, floor(mon.spd * scr_nature_multiplier(nat, "spd")));
+        mon.spe = max(1, floor(mon.spe * scr_nature_multiplier(nat, "spe")));
     }
     return mon;
 }

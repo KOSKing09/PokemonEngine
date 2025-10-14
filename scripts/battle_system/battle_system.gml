@@ -71,11 +71,12 @@ function __battle_restore_prev_audio(_pid){
     if (!is_struct(_B)) return;
     // Stop bgm handle or resource
     try {
-        if (!is_undefined(_B._bgm_handle) && !is_undefined(audio_channel_stop)){
-            audio_channel_stop(_B._bgm_handle);
-            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_channel_stop on bgm_handle="+string(_B._bgm_handle));
+        var _bgm_handle_local = (variable_struct_exists(_B, "_bgm_handle") ? variable_struct_get(_B, "_bgm_handle") : undefined);
+        if (!is_undefined(_bgm_handle_local) && !is_undefined(audio_channel_stop)){
+            audio_channel_stop(_bgm_handle_local);
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_channel_stop on bgm_handle="+string(_bgm_handle_local));
         } else {
-            var _stop_res = (variable_struct_exists(_B, "_battle_music") ? _B._battle_music : undefined);
+            var _stop_res = (variable_struct_exists(_B, "_battle_music") ? variable_struct_get(_B, "_battle_music") : undefined);
             if (!is_undefined(_stop_res) && !is_undefined(audio_stop_sound)){
                 audio_stop_sound(_stop_res);
                 if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_stop_sound on _battle_music="+string(_stop_res));
@@ -84,9 +85,9 @@ function __battle_restore_prev_audio(_pid){
     } catch (e_stop) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed stopping bgm: " + string(e_stop)); }
 
     // Stop defeated handle/resource if present
-    try { if (!is_undefined(_B._defeated_handle) && !is_undefined(audio_channel_stop)) audio_channel_stop(_B._defeated_handle); } catch (e) {}
+    try { var _def_handle_local = (variable_struct_exists(_B, "_defeated_handle") ? variable_struct_get(_B, "_defeated_handle") : undefined); if (!is_undefined(_def_handle_local) && !is_undefined(audio_channel_stop)) audio_channel_stop(_def_handle_local); } catch (e) {}
     try {
-        var _def_res = (variable_struct_exists(_B, "_battle_defeated_music") ? _B._battle_defeated_music : undefined);
+        var _def_res = (variable_struct_exists(_B, "_battle_defeated_music") ? variable_struct_get(_B, "_battle_defeated_music") : undefined);
         if (!is_undefined(_def_res) && !is_undefined(audio_stop_sound)) audio_stop_sound(_def_res);
     } catch (e) {}
 
@@ -104,13 +105,14 @@ function __battle_restore_prev_audio(_pid){
 
         if (!_played){
             // Restore previously playing audio if we captured any
-            if (!is_undefined(_B._prev_audio) && !is_undefined(audio_play_sound)){
-                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] restoring prev audio: " + string(_B._prev_audio));
-                if (is_real(_B._prev_audio) || is_string(_B._prev_audio)){
-                    try { audio_play_sound(_B._prev_audio, 1, true); } catch (e_p) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to play prev audio: " + string(e_p)); }
-                } else if (is_array(_B._prev_audio)){
-                    for (var _i = 0; _i < array_length(_B._prev_audio); ++_i){
-                        var _pv = _B._prev_audio[_i];
+            var _prev_audio_local = (variable_struct_exists(_B, "_prev_audio") ? variable_struct_get(_B, "_prev_audio") : undefined);
+            if (!is_undefined(_prev_audio_local) && !is_undefined(audio_play_sound)){
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] restoring prev audio: " + string(_prev_audio_local));
+                if (is_real(_prev_audio_local) || is_string(_prev_audio_local)){
+                    try { audio_play_sound(_prev_audio_local, 1, true); } catch (e_p) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to play prev audio: " + string(e_p)); }
+                } else if (is_array(_prev_audio_local)){
+                    for (var _i = 0; _i < array_length(_prev_audio_local); ++_i){
+                        var _pv = _prev_audio_local[_i];
                         try { audio_play_sound(_pv, 1, true); } catch (e_p2) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to play prev audio entry: " + string(e_p2)); }
                     }
                 }
@@ -462,6 +464,32 @@ function battle_update(_pid){
             _B._pending_item_use = undefined;
             // Let the animation run; __battle_step_turn_if_ready will pause execution while catch anim is active.
             return;
+        }
+        // If an EXP animation was paused waiting for the level-up dialog to close, resume it now.
+        if (variable_struct_exists(_B, "_exp_anim")){
+            var _Etmp = variable_struct_get(_B, "_exp_anim");
+            if (is_struct(_Etmp) && variable_struct_exists(_Etmp, "waiting_for_dialog") && _Etmp.waiting_for_dialog){
+                var _qtmp = (variable_struct_exists(_Etmp, "queue") ? variable_struct_get(_Etmp, "queue") : []);
+                var _curIdx = (variable_struct_exists(_Etmp, "playing_index") ? floor(variable_struct_get(_Etmp, "playing_index")) : 0);
+                var _nextIdx = _curIdx + 1;
+                // Advance to next step if available, set its start time so interpolation resumes cleanly
+                if (_nextIdx >= 0 && _nextIdx < array_length(_qtmp)){
+                    var _nstep = _qtmp[_nextIdx];
+                    _nstep.start_ms = current_time;
+                    _qtmp[_nextIdx] = _nstep;
+                    variable_struct_set(_Etmp, "queue", _qtmp);
+                    variable_struct_set(_Etmp, "playing_index", _nextIdx);
+                    variable_struct_set(_Etmp, "waiting_for_dialog", false);
+                    // set current value to the new step's starting fraction so UI updates immediately
+                    if (variable_struct_exists(_nstep, "from")) variable_struct_set(_Etmp, "cur", _nstep.from);
+                    variable_struct_set(_B, "_exp_anim", _Etmp);
+                } else {
+                    // no next step: mark animation inactive
+                    variable_struct_set(_Etmp, "active", false);
+                    variable_struct_set(_Etmp, "waiting_for_dialog", false);
+                    variable_struct_set(_B, "_exp_anim", _Etmp);
+                }
+            }
         }
         // don't reset menu during turn resolution
         // NOTE: previously we force-reset the root menu selection when
@@ -1192,8 +1220,11 @@ function __battle_check_play_cries(_pid){
             var _mon_to_play = undefined;
             if (variable_struct_exists(_B, "_cry_queued_from_switch") && _B._cry_queued_from_switch && variable_struct_exists(_B, "_switch_target_idx") && is_real(_B._switch_target_idx)){
                 var _P = party_ensure(_pid);
-                if (is_struct(_P) && is_array(_P.mons) && _B._switch_target_idx >= 0 && _B._switch_target_idx < array_length(_P.mons)){
-                    _mon_to_play = _P.mons[_B._switch_target_idx];
+                if (is_struct(_P) && variable_struct_exists(_P, "mons")){
+                    var _pmons_local = variable_struct_get(_P, "mons");
+                    if (is_array(_pmons_local) && _B._switch_target_idx >= 0 && _B._switch_target_idx < array_length(_pmons_local)){
+                        _mon_to_play = _pmons_local[_B._switch_target_idx];
+                    }
                 }
             }
             if (!is_struct(_mon_to_play) && is_struct(_B.actor[0]) && variable_struct_exists(_B.actor[0], "mon")) _mon_to_play = _B.actor[0].mon;
@@ -1749,7 +1780,9 @@ function __battle_award_exp(_pid, _amount){
     if (!variable_struct_exists(T, "exp") || !is_real(T.exp)) T.exp = 0;
     if (!variable_struct_exists(T, "exp_next") || !is_real(T.exp_next)) T.exp_next = max(20, (is_real(T.level) ? T.level : (is_real(A0.level) ? A0.level : 1)) * (is_real(T.level) ? T.level : (is_real(A0.level) ? A0.level : 1)) * 2);
 
-    // Apply gain to canonical target
+    // Capture previous exp/threshold (for UI animation), then apply gain to canonical target
+    var _prev_exp = (variable_struct_exists(T, "exp") && is_real(variable_struct_get(T, "exp"))) ? real(variable_struct_get(T, "exp")) : 0;
+    var _prev_exp_next = (variable_struct_exists(T, "exp_next") && is_real(variable_struct_get(T, "exp_next"))) ? real(variable_struct_get(T, "exp_next")) : max(20, (is_real(T.level) ? T.level : (is_real(A0.level) ? A0.level : 1)) * (is_real(T.level) ? T.level : (is_real(A0.level) ? A0.level : 1)) * 2);
     T.exp = max(0, real(T.exp)) + _gain;
 
     // level-up loop (prevent runaway)
@@ -1857,7 +1890,7 @@ function __battle_award_exp(_pid, _amount){
             var cur_hp_now = (variable_struct_exists(T, "hp_now") && is_real(variable_struct_get(T, "hp_now"))) ? real(variable_struct_get(T, "hp_now")) : variable_struct_get(T, "hp_max");
             variable_struct_set(T, "hp_now", min(variable_struct_get(T, "hp_max"), cur_hp_now + 3));
 
-            // record deltas into battle slot for UI
+            // record deltas for this level into a per-level queue so the UI can show them one-level-at-a-time
             var _deltas = [];
             var dh = variable_struct_get(T, "hp_max") - old_hp; if (dh > 0) array_push(_deltas, ["HP", dh]);
             var da = (variable_struct_get(T, "atk") - old_atk); if (da > 0) array_push(_deltas, ["ATK", da]);
@@ -1865,8 +1898,9 @@ function __battle_award_exp(_pid, _amount){
             var dsp = (variable_struct_get(T, "spa") - old_spa); if (dsp > 0) array_push(_deltas, ["SPATK", dsp]);
             var dsd = (variable_struct_get(T, "spd") - old_spd); if (dsd > 0) array_push(_deltas, ["SPDEF", dsd]);
             var dspc = (variable_struct_get(T, "spe") - old_spe); if (dspc > 0) array_push(_deltas, ["SPEED", dspc]);
-            if (!variable_struct_exists(_B, "_level_stat_bumps")) variable_struct_set(_B, "_level_stat_bumps", []);
-            for (var _ii = 0; _ii < array_length(_deltas); _ii++) array_push(variable_struct_get(_B, "_level_stat_bumps"), _deltas[_ii]);
+            if (!variable_struct_exists(_B, "_level_stat_bumps_queue")) variable_struct_set(_B, "_level_stat_bumps_queue", []);
+            var _stepInfo = { level: T.level, deltas: _deltas };
+            array_push(variable_struct_get(_B, "_level_stat_bumps_queue"), _stepInfo);
 
             // recompute next threshold for the new level
             if (!is_undefined(gid_probe) && is_real(gid_probe) && !is_undefined(scr_get_exp_for_level)){
@@ -1918,6 +1952,37 @@ function __battle_award_exp(_pid, _amount){
         }
     }
     __battle_stub_dialog(_pid, _msg);
+
+    // Setup Emerald-style EXP animation queue: for each level-up that occurred, animate prev->1.0, then show level-up dialog,
+    // then continue animating the remainder from 0->final. We store a queue of steps on _B._exp_anim.queue.
+    try {
+        var _actorMon = (is_struct(A0) && variable_struct_exists(A0, "mon") && is_struct(A0.mon)) ? A0.mon : A0;
+        if (is_struct(_actorMon) && variable_struct_exists(_actorMon, "exp") && variable_struct_exists(_actorMon, "exp_next") && is_real(variable_struct_get(_actorMon, "exp_next")) && variable_struct_get(_actorMon, "exp_next") > 0){
+            var _final_exp = real(variable_struct_get(_actorMon, "exp"));
+            var _final_next = real(variable_struct_get(_actorMon, "exp_next"));
+            var _curNorm = (is_real(_prev_exp_next) && _prev_exp_next > 0) ? max(0, min(1, _prev_exp / _prev_exp_next)) : 0;
+
+            // Build queue: for each level-up (already recorded in _level_stat_bumps_queue), we animate to 1.0 then pause.
+            var _queue = [];
+            var _levels = (variable_struct_exists(_B, "_level_stat_bumps_queue") ? variable_struct_get(_B, "_level_stat_bumps_queue") : []);
+            var _li = 0;
+            // For each recorded level-up step, add a step from current->1.0. After each, consumer will show level-up dialog.
+            while (_li < array_length(_levels)){
+                array_push(_queue, { from: _curNorm, to: 1.0, dur: 700, type: "to_full" });
+                _curNorm = 0.0; // after level-up, bar resets
+                _li += 1;
+            }
+            // final remainder (current to final fraction)
+            var _finalNorm = (is_real(_final_next) && _final_next > 0) ? max(0, min(1, _final_exp / _final_next)) : 0;
+            // if there were any level-ups and finalNorm == 0, skip; otherwise add a final step
+            if (!(_li > 0 && _finalNorm == 0)){
+                array_push(_queue, { from: _curNorm, to: _finalNorm, dur: 700, type: "remainder" });
+            }
+
+            // initialize exp_anim state with queue and playing index
+            variable_struct_set(_B, "_exp_anim", { active: true, queue: _queue, playing_index: 0, cur: (array_length(_queue) > 0 ? _queue[0].from : _curNorm), start_ms: current_time });
+        }
+    } catch (e_ea) { }
 }
 
 
@@ -1987,8 +2052,140 @@ function __battle_try_catch(_pid, _ball_mult, _item_id){
 function __battle_update_animations(_pid){
     var _B = __battle_ensure_slot(_pid);
     if (!is_struct(_B)) return;
+    // Progress catch animation if present
+    if (variable_struct_exists(_B, "_catch_anim")){
+        var A = _B._catch_anim;
+        if (is_struct(A) && variable_struct_exists(A, "active") && A.active){
+            var now = current_time;
+            var elapsed = now - (variable_struct_exists(A, "start_ms") ? A.start_ms : now);
+
+            // Phase progression (existing catch logic) -- keep original behavior
+            if (string(A.phase) == "throw"){
+                if (elapsed >= A.throw_dur){
+                    A.phase = "impact";
+                    A.phase_start = now;
+                    if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][debug] catch phase -> impact (pid=" + string(_pid) + ")");
+                }
+            } else if (string(A.phase) == "impact"){
+                var e = now - (variable_struct_exists(A, "phase_start") ? A.phase_start : now);
+                if (e >= A.impact_dur){
+                    A.phase = "shake";
+                    A.phase_start = now;
+                    if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][debug] catch phase -> shake (pid=" + string(_pid) + ")");
+                }
+            } else if (string(A.phase) == "shake"){
+                var e2 = now - (variable_struct_exists(A, "phase_start") ? A.phase_start : now);
+                var hop_dur = (variable_struct_exists(A, "hop_dur") ? max(1, real(A.hop_dur)) : 320);
+                var hop_pause = (variable_struct_exists(A, "hop_pause") ? max(0, real(A.hop_pause)) : 180);
+                var cycle = hop_dur + hop_pause;
+                if (!variable_struct_exists(A, "hop_index") || A.hop_index <= 0){ A.hop_index = 1; A.phase_start = now; e2 = 0; }
+                if (e2 >= cycle){
+                    if (variable_struct_exists(A, "catch_hop_success") && A.catch_hop_success == A.hop_index){
+                        A.phase = "resolve";
+                        A.phase_start = now;
+                        if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][debug] catch resolved on hop " + string(A.hop_index) + " (pid=" + string(_pid) + ")");
+                    } else {
+                        if (variable_struct_exists(A, "hop_total") && A.hop_index < A.hop_total){
+                            A.hop_index += 1;
+                            A.phase_start = now;
+                            if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][debug] catch hop -> next hop " + string(A.hop_index) + " (pid=" + string(_pid) + ")");
+                        } else {
+                            A.phase = "escape";
+                            A.phase_start = now;
+                            A.escape_dur = 320;
+                            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][debug] catch phase -> escape (pid=" + string(_pid) + ")");
+                        }
+                    }
+                }
+            } else if (string(A.phase) == "resolve"){
+                if (variable_struct_exists(A, "outcome") && A.outcome){
+                    _B.result = "caught";
+                    var A1 = _B.actor[1];
+                    var caught = A.caught_struct;
+                    // (rest of original resolve logic unchanged)
+                }
+            }
+        }
+    }
+
+    // Progress EXP animation queue if present
+    if (variable_struct_exists(_B, "_exp_anim")){
+        var E = variable_struct_get(_B, "_exp_anim");
+        if (is_struct(E) && variable_struct_exists(E, "active") && E.active){
+            var now2 = current_time;
+            var q = (variable_struct_exists(E, "queue") ? variable_struct_get(E, "queue") : []);
+            var idx = (variable_struct_exists(E, "playing_index") ? floor(variable_struct_get(E, "playing_index")) : 0);
+            if (idx >= 0 && idx < array_length(q)){
+                var step = q[idx];
+                var stepStart = (variable_struct_exists(step, "start_ms") ? step.start_ms : undefined);
+                if (!is_real(stepStart) || stepStart <= 0){
+                    stepStart = now2;
+                    step.start_ms = stepStart;
+                }
+                var dur = (variable_struct_exists(step, "dur") && is_real(variable_struct_get(step, "dur"))) ? max(1, real(variable_struct_get(step, "dur"))) : 700;
+                var t = min(1, max(0, (now2 - stepStart) / dur));
+                var curv = (variable_struct_exists(step, "from") ? real(variable_struct_get(step, "from")) : 0);
+                var targv = (variable_struct_exists(step, "to") ? real(variable_struct_get(step, "to")) : curv);
+                var nowVal = curv + (targv - curv) * t;
+                // store current normalized value on E so UI can read it
+                E.cur = nowVal;
+                // write back queue step and E
+                q[idx] = step;
+                variable_struct_set(E, "queue", q);
+                variable_struct_set(_B, "_exp_anim", E);
+
+                if (t >= 1){
+                    // Step finished
+                    // If this step was a 'to_full' (level up), we must show the level-up dialog and pause progression
+                    if (variable_struct_exists(step, "type") && string(step.type) == "to_full"){
+                        // Pop the corresponding per-level bumps and prepare dialog
+                        var _lvlq = (variable_struct_exists(_B, "_level_stat_bumps_queue") ? variable_struct_get(_B, "_level_stat_bumps_queue") : []);
+                        if (array_length(_lvlq) > 0){
+                            var _entry = _lvlq[0];
+                            // Remove the head entry
+                            var _newlvlq = [];
+                            for (var _jj = 1; _jj < array_length(_lvlq); ++_jj) array_push(_newlvlq, _lvlq[_jj]);
+                            variable_struct_set(_B, "_level_stat_bumps_queue", _newlvlq);
+
+                            // Build dialog message showing the level-up and stat bumps
+                            var actorName = (is_struct(_B.actor[0]) && variable_struct_exists(_B.actor[0], "name")) ? string(_B.actor[0].name) : "";
+                            var _dlgtxt = string(actorName) + " grew to Lv" + string(_entry.level) + "!";
+                            if (is_array(_entry.deltas) && array_length(_entry.deltas) > 0){
+                                for (var _k2 = 0; _k2 < array_length(_entry.deltas); ++_k2){
+                                    var _e2 = _entry.deltas[_k2];
+                                    if (is_array(_e2) && array_length(_e2) >= 2){
+                                        _dlgtxt += "\n" + string(_e2[0]) + " +" + string(_e2[1]);
+                                    }
+                                }
+                            }
+                            // show the level-up dialog and pause progression until it closes
+                            __battle_stub_dialog(_pid, _dlgtxt);
+                            variable_struct_set(E, "waiting_for_dialog", true);
+                            variable_struct_set(_B, "_exp_anim", E);
+                            // Do not advance playing_index here; we'll advance it when dialog closes
+                        } else {
+                            // no level-bump data; just advance
+                            variable_struct_set(E, "playing_index", idx + 1);
+                            variable_struct_set(_B, "_exp_anim", E);
+                        }
+                    } else {
+                        // normal remainder step: advance to next
+                        variable_struct_set(E, "playing_index", idx + 1);
+                        variable_struct_set(_B, "_exp_anim", E);
+                    }
+                }
+            } else {
+                // queue exhausted
+                variable_struct_set(E, "active", false);
+                variable_struct_set(_B, "_exp_anim", E);
+            }
+        }
+    }
+    // continue; the catch animation code that follows originally returned early. Remove early return so both animations get updated.
+
+    // Ensure catch animation struct exists before running the following block
     if (!variable_struct_exists(_B, "_catch_anim")) return;
-    var A = _B._catch_anim;
+    var A = variable_struct_get(_B, "_catch_anim");
     if (!is_struct(A) || !variable_struct_exists(A, "active") || !A.active) return;
 
     var now = current_time;
@@ -2073,8 +2270,9 @@ function __battle_update_animations(_pid){
             var _P = undefined;
             if (!is_undefined(party_ensure)) _P = party_ensure(_pid);
             var party_full = false;
-            if (is_struct(_P) && is_array(_P.mons)){
-                party_full = (array_length(_P.mons) >= 6);
+            if (is_struct(_P) && variable_struct_exists(_P, "mons")){
+                var _pmons_local2 = variable_struct_get(_P, "mons");
+                if (is_array(_pmons_local2) && array_length(_pmons_local2) >= 6) party_full = true;
             }
             if (party_full){
                 __battle_stub_dialog(_pid, "Gotcha!\nYou caught " + string(_B.actor[1].name) + "!\nYour party is full — the Pokémon will be sent to the PC (TODO).");
@@ -2085,23 +2283,32 @@ function __battle_update_animations(_pid){
             _B._pending_close = true;
             // Stop battle BGM (use audio_stop_sound on stored resource) and start defeated loop if available
             try {
-                var _stop_res = _B._battle_music;
+                var _stop_res = (variable_struct_exists(_B, "_battle_music") ? variable_struct_get(_B, "_battle_music") : undefined);
                 if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] stopping before defeated music: " + string(_stop_res));
+                var _audio_channel_stop_fn = (is_undefined(audio_channel_stop) ? undefined : audio_channel_stop);
+                var _bgm_handle_local2 = (variable_struct_exists(_B, "_bgm_handle") ? variable_struct_get(_B, "_bgm_handle") : undefined);
                 if (!is_undefined(audio_stop_sound)){
                     audio_stop_sound(_stop_res);
-                } else if (!is_undefined(audio_channel_stop) && !is_undefined(_B._bgm_handle)){
-                    audio_channel_stop(_B._bgm_handle);
+                } else if (!is_undefined(_audio_channel_stop_fn) && !is_undefined(_bgm_handle_local2)){
+                    _audio_channel_stop_fn(_bgm_handle_local2);
                 } else if (!is_undefined(audio_stop_all)){
                     audio_stop_all();
                 }
             } catch (e_stop_b) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed stopping bgm before defeated: " + string(e_stop_b)); }
-            _B._bgm_handle = undefined;
+            variable_struct_set(_B, "_bgm_handle", undefined);
             try {
-                if (!is_undefined(_B._battle_defeated_music)){
-                    _B._defeated_handle = audio_play_sound(_B._battle_defeated_music, 1, true);
-                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] played defeated_music="+string(_B._battle_defeated_music)+" handle="+string(_B._defeated_handle));
+                var _def_music_local = (variable_struct_exists(_B, "_battle_defeated_music") ? variable_struct_get(_B, "_battle_defeated_music") : undefined);
+                if (!is_undefined(_def_music_local)){
+                    var _audio_play_sound_fn = (is_undefined(audio_play_sound) ? undefined : audio_play_sound);
+                    if (!is_undefined(_audio_play_sound_fn)){
+                        var _dh = _audio_play_sound_fn(_def_music_local, 1, true);
+                        variable_struct_set(_B, "_defeated_handle", _dh);
+                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] played defeated_music="+string(_def_music_local)+" handle="+string(_dh));
+                    } else if (!is_undefined(sound_play)){
+                        sound_play(_def_music_local);
+                    }
                 }
-            } catch (e_play_d) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to play defeated_music="+string(_B._battle_defeated_music)+" err="+string(e_play_d)); }
+            } catch (e_play_d) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to play defeated_music="+string(_def_music_local)+" err="+string(e_play_d)); }
             // instead of clearing animation, freeze it into a 'caught' phase so the ball remains drawn
             A.phase = "caught";
             A.phase_start = now;

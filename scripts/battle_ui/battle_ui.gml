@@ -45,6 +45,43 @@ function __battle_player_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_A){
     var _hpcol = _t.col_hp_green; if (_pct<0.5) _hpcol=_t.col_hp_yell; if (_pct<0.2) _hpcol=_t.col_hp_red;
     draw_set_color(_hpcol); draw_rectangle(_barX,_barY,_barX+_barW*_pct,_barY+_bh,false);
     draw_text(_bx+_bw-__bwu(_pid,64), _by+__bhu(_pid,18), string(_A.hp_now)+"/"+string(_A.hp_max));
+
+    // EXP bar (Emerald-style) drawn just under HP bar inside the player panel.
+    // Reserve right side for the numeric exp text so the bar doesn't overlap the command/menu box.
+    var _expBarY = _barY + _bh + __bhu(_pid,2); // place directly below hp bar with small padding
+    var _expBarH = __bhu(_pid,3); // slightly thinner
+    var _expPct = 0;
+    var _B = __battle_ensure_slot(_pid);
+    if (is_struct(_B) && variable_struct_exists(_B, "_exp_anim")){
+        var _ea = variable_struct_get(_B, "_exp_anim");
+        if (is_struct(_ea) && variable_struct_exists(_ea, "active") && _ea.active && variable_struct_exists(_ea, "cur")){
+            _expPct = max(0, min(1, real(variable_struct_get(_ea, "cur"))));
+        }
+    }
+    // fallback to static actor values when no animation present
+    if (_expPct == 0){
+        var monRef = (is_struct(_A) && variable_struct_exists(_A, "mon") && is_struct(_A.mon)) ? _A.mon : _A;
+        if (is_struct(monRef) && variable_struct_exists(monRef, "exp") && variable_struct_exists(monRef, "exp_next") && is_real(variable_struct_get(monRef, "exp_next")) && variable_struct_get(monRef, "exp_next") > 0){
+            _expPct = max(0, min(1, real(variable_struct_get(monRef, "exp")) / real(variable_struct_get(monRef, "exp_next"))));
+        }
+    }
+    // Make the EXP bar use the same width region as the HP bar but reserve the same right column used by the HP numeric text
+    var _expReserve = __bwu(_pid,64);
+    var _expBarW = max(8, _barW - _expReserve - __bwu(_pid,8));
+    // draw exp bar background and fill
+    draw_set_color(c_black); draw_rectangle(_barX-1, _expBarY-1, _barX + _expBarW + 1, _expBarY + _expBarH + 1, false);
+    draw_set_color(make_color_rgb(56,120,232)); // blue-ish exp color
+    draw_rectangle(_barX, _expBarY, _barX + _expBarW * _expPct, _expBarY + _expBarH, false);
+
+    // draw exp numeric to the right of the bar (clamped inside the panel)
+    var _expText = "";
+    var monRef2 = (is_struct(_A) && variable_struct_exists(_A, "mon") && is_struct(_A.mon)) ? _A.mon : _A;
+    if (is_struct(monRef2) && variable_struct_exists(monRef2, "exp") && variable_struct_exists(monRef2, "exp_next")){
+        _expText = string(variable_struct_get(monRef2, "exp")) + "/" + string(variable_struct_get(monRef2, "exp_next"));
+    }
+    // Position EXP numeric in the same right-aligned column as HP numeric text
+    var _expTextX = _bx + _bw - __bwu(_pid,64);
+    draw_text(_expTextX, _expBarY, _expText);
 }
 
 function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
