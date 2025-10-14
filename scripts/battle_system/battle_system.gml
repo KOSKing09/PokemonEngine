@@ -41,6 +41,52 @@ if (is_undefined(sound_stop)){
     function sound_stop(_res){ return undefined; }
 }
 
+// Forward stubs for animation module functions — real implementations live in
+// scripts/battle_system/battle_animations.gml. These stubs prevent static
+// analyzers from complaining when battle_system.gml references the symbols
+// before the other script is loaded. They are safe no-op fallbacks.
+if (is_undefined(__battle_anim_create_catch)){
+    function __battle_anim_create_catch(_B, _item_id, _caught_struct, _opts){
+        // Minimal fallback: create a basic _catch_anim struct so legacy draw/update
+        // code can operate until the real module is available.
+        if (!is_struct(_B)) return undefined;
+        var now = current_time;
+        var ca = {
+            active: true,
+            start_ms: now,
+            phase: "throw",
+            throw_dur: 380,
+            impact_dur: 220,
+            hop_total: 3,
+            hop_index: 0,
+            hop_dur: 700,
+            hop_pause: 350,
+            catch_hop_success: 0,
+            break_hop: 0,
+            outcome: false,
+            ball_sprite: undefined,
+            ball_frame: 0,
+            caught_struct: _caught_struct
+        };
+        variable_struct_set(_B, "_catch_anim", ca);
+        return ca;
+    }
+}
+if (is_undefined(__battle_anim_update)){
+    function __battle_anim_update(_B){ return { resolved:false, action:"none" }; }
+}
+if (is_undefined(__battle_anim_get_draw_state)){
+    function __battle_anim_get_draw_state(_B){ return undefined; }
+}
+if (is_undefined(__battle_finalize_catch)){
+    function __battle_finalize_catch(_B, _caught){
+        // Fallback finalizer: stash pending caught struct so existing flow can pick it up.
+        if (!is_struct(_B)) return;
+        variable_struct_set(_B, "_pending_caught_struct", _caught);
+        variable_struct_set(_B, "_pending_close", true);
+    }
+}
+
 function __battle_ensure_slot(_pid){
     if (!variable_global_exists("sys_battles") || !is_array(global.sys_battles)) global.sys_battles = [];
     if (array_length(global.sys_battles) <= _pid) array_resize(global.sys_battles, _pid + 1);
@@ -2112,31 +2158,35 @@ function __battle_try_catch(_pid, _ball_mult, _item_id){
         break_hop = irandom(hop_total - 1) + 1; // irandom(n-1)+1 => 1..hop_total
     }
 
-    _B._catch_anim = {
-        active: true,
-        start_ms: now,
-        phase: "throw", // throw -> impact -> shake(hopping) -> resolve or escape
-        throw_dur: 380,
-        impact_dur: 220,
-        hop_total: hop_total,
-        hop_index: 0,
-        hop_dur: 700,
-    hop_pause: 350,
-        catch_hop_success: succ_hop, // 0=no success, or hop index where capture occurs (success forced to last hop)
-        break_hop: break_hop,        // 0=no break (used for success), otherwise hop index where break occurs on failure
-        outcome: success,
-        ball_sprite: (is_undefined(ball_spr) ? (variable_global_exists("sbagpokeball") ? sbagpokeball : undefined) : ball_spr),
-        ball_frame: 0,
-        // positions (px coords will be computed in draw using layout helpers)
-        start_x: undefined,
-        start_y: undefined,
-        target_x: undefined,
-        target_y: undefined,
-        enemy_orig_scale: undefined,
-        enemy_scale_now: undefined,
-        // carry the prepared caught struct so it can be finalized after animation
-        caught_struct: caught
-    };
+    // Delegate creation to modular animation helper
+    if (!is_undefined(__battle_anim_create_catch)){
+        __battle_anim_create_catch(_B, _item_id, caught, { hop_total: hop_total, success: success, break_hop: break_hop, throw_dur:380, impact_dur:220, hop_dur:700, hop_pause:350 });
+    } else {
+        // fallback to inline struct if helper missing (backcompat)
+        _B._catch_anim = {
+            active: true,
+            start_ms: now,
+            phase: "throw",
+            throw_dur: 380,
+            impact_dur: 220,
+            hop_total: hop_total,
+            hop_index: 0,
+            hop_dur: 700,
+            hop_pause: 350,
+            catch_hop_success: succ_hop,
+            break_hop: break_hop,
+            outcome: success,
+            ball_sprite: (is_undefined(ball_spr) ? (variable_global_exists("sbagpokeball") ? sbagpokeball : undefined) : ball_spr),
+            ball_frame: 0,
+            start_x: undefined,
+            start_y: undefined,
+            target_x: undefined,
+            target_y: undefined,
+            enemy_orig_scale: undefined,
+            enemy_scale_now: undefined,
+            caught_struct: caught
+        };
+    }
 
     // mark that the battle slot has a pending non-dialog resolution; dialog will be opened by animation end
     if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][debug] _catch_anim created pid=" + string(_pid) + ", outcome=" + string(success));
@@ -2147,74 +2197,88 @@ function __battle_try_catch(_pid, _ball_mult, _item_id){
 function __battle_update_animations(_pid){
     var _B = __battle_ensure_slot(_pid);
     if (!is_struct(_B)) return;
-    // Progress catch animation if present
-    if (variable_struct_exists(_B, "_catch_anim")){
-        var A = _B._catch_anim;
-        if (is_struct(A) && variable_struct_exists(A, "active") && A.active){
-            var now = current_time;
-            var elapsed = now - (variable_struct_exists(A, "start_ms") ? A.start_ms : now);
+    // Progress catch animation if present - delegate to animation module when available
+    if (!is_undefined(__battle_anim_update)){
+        var __anim_res = __battle_anim_update(_B);
+        if (is_struct(__anim_res) && __anim_res.resolved){
+            if (__anim_res.action == "caught"){
+                // finalize capture
+                if (!is_undefined(__battle_finalize_catch)) __battle_finalize_catch(_B, _B._catch_anim ? _B._catch_anim.caught_struct : undefined);
+            } else if (__anim_res.action == "broke"){
+                // broke free - play break sound
+                if (!is_undefined(__battle_sound_play_safe)) __battle_sound_play_safe(snd_WildPokemonDefeated);
+            }
+        }
+    } else {
+        // fallback: keep existing inline stepping (unchanged)
+        if (variable_struct_exists(_B, "_catch_anim")){
+            var A = _B._catch_anim;
+            if (is_struct(A) && variable_struct_exists(A, "active") && A.active){
+                var now = current_time;
+                var elapsed = now - (variable_struct_exists(A, "start_ms") ? A.start_ms : now);
 
-            // Phase progression (existing catch logic) -- keep original behavior
-            if (string(A.phase) == "throw"){
-                if (elapsed >= A.throw_dur){
-                    A.phase = "impact";
-                    A.phase_start = now;
-                    if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][debug] catch phase -> impact (pid=" + string(_pid) + ")");
-                }
-            } else if (string(A.phase) == "impact"){
-                var e = now - (variable_struct_exists(A, "phase_start") ? A.phase_start : now);
-                if (e >= A.impact_dur){
-                    A.phase = "shake";
-                    A.phase_start = now;
-                    if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][debug] catch phase -> shake (pid=" + string(_pid) + ")");
-                }
-            } else if (string(A.phase) == "shake"){
-                var e2 = now - (variable_struct_exists(A, "phase_start") ? A.phase_start : now);
-                var hop_dur = (variable_struct_exists(A, "hop_dur") ? max(1, real(A.hop_dur)) : 320);
-                var hop_pause = (variable_struct_exists(A, "hop_pause") ? max(0, real(A.hop_pause)) : 180);
-                var cycle = hop_dur + hop_pause;
-                if (!variable_struct_exists(A, "hop_index") || A.hop_index <= 0){ A.hop_index = 1; A.phase_start = now; e2 = 0; }
-                if (e2 >= cycle){
-                    // If this battle attempt was a success, only resolve after the final hop
-                    if (variable_struct_exists(A, "outcome") && A.outcome){
-                        if (variable_struct_exists(A, "hop_total") && A.hop_index < A.hop_total){
-                            // advance to next hop until we've done all hops
-                            A.hop_index += 1;
-                            A.phase_start = now;
-                            if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][debug] catch hop -> next hop " + string(A.hop_index) + " (pid=" + string(_pid) + ")");
+                // Phase progression (existing catch logic) -- keep original behavior
+                if (string(A.phase) == "throw"){
+                    if (elapsed >= A.throw_dur){
+                        A.phase = "impact";
+                        A.phase_start = now;
+                        if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][debug] catch phase -> impact (pid=" + string(_pid) + ")");
+                    }
+                } else if (string(A.phase) == "impact"){
+                    var e = now - (variable_struct_exists(A, "phase_start") ? A.phase_start : now);
+                    if (e >= A.impact_dur){
+                        A.phase = "shake";
+                        A.phase_start = now;
+                        if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][debug] catch phase -> shake (pid=" + string(_pid) + ")");
+                    }
+                } else if (string(A.phase) == "shake"){
+                    var e2 = now - (variable_struct_exists(A, "phase_start") ? A.phase_start : now);
+                    var hop_dur = (variable_struct_exists(A, "hop_dur") ? max(1, real(A.hop_dur)) : 320);
+                    var hop_pause = (variable_struct_exists(A, "hop_pause") ? max(0, real(A.hop_pause)) : 180);
+                    var cycle = hop_dur + hop_pause;
+                    if (!variable_struct_exists(A, "hop_index") || A.hop_index <= 0){ A.hop_index = 1; A.phase_start = now; e2 = 0; }
+                    if (e2 >= cycle){
+                        // If this battle attempt was a success, only resolve after the final hop
+                        if (variable_struct_exists(A, "outcome") && A.outcome){
+                            if (variable_struct_exists(A, "hop_total") && A.hop_index < A.hop_total){
+                                // advance to next hop until we've done all hops
+                                A.hop_index += 1;
+                                A.phase_start = now;
+                                if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][debug] catch hop -> next hop " + string(A.hop_index) + " (pid=" + string(_pid) + ")");
+                            } else {
+                                // final hop completed -> resolve success
+                                A.phase = "resolve";
+                                A.phase_start = now;
+                                if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][debug] catch resolved after final hop (pid=" + string(_pid) + ")");
+                            }
                         } else {
-                            // final hop completed -> resolve success
-                            A.phase = "resolve";
-                            A.phase_start = now;
-                            if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][debug] catch resolved after final hop (pid=" + string(_pid) + ")");
-                        }
-                    } else {
-                        // failure: if break_hop matches current hop, break now; otherwise advance or escape after last
-                        var _bh = (variable_struct_exists(A, "break_hop") ? A.break_hop : 0);
-                        if (is_real(_bh) && _bh == A.hop_index){
-                            A.phase = "escape";
-                            A.phase_start = now;
-                            A.escape_dur = 320;
-                            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][debug] catch broke free on hop " + string(A.hop_index) + " (pid=" + string(_pid) + ")");
-                        } else if (variable_struct_exists(A, "hop_total") && A.hop_index < A.hop_total){
-                            A.hop_index += 1;
-                            A.phase_start = now;
-                            if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][debug] catch hop -> next hop " + string(A.hop_index) + " (pid=" + string(_pid) + ")");
-                        } else {
-                            // no break happened during hops: escape after the last hop
-                            A.phase = "escape";
-                            A.phase_start = now;
-                            A.escape_dur = 320;
-                            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][debug] catch phase -> escape (pid=" + string(_pid) + ")");
+                            // failure: if break_hop matches current hop, break now; otherwise advance or escape after last
+                            var _bh = (variable_struct_exists(A, "break_hop") ? A.break_hop : 0);
+                            if (is_real(_bh) && _bh == A.hop_index){
+                                A.phase = "escape";
+                                A.phase_start = now;
+                                A.escape_dur = 320;
+                                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][debug] catch broke free on hop " + string(A.hop_index) + " (pid=" + string(_pid) + ")");
+                            } else if (variable_struct_exists(A, "hop_total") && A.hop_index < A.hop_total){
+                                A.hop_index += 1;
+                                A.phase_start = now;
+                                if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][debug] catch hop -> next hop " + string(A.hop_index) + " (pid=" + string(_pid) + ")");
+                            } else {
+                                // no break happened during hops: escape after the last hop
+                                A.phase = "escape";
+                                A.phase_start = now;
+                                A.escape_dur = 320;
+                                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][debug] catch phase -> escape (pid=" + string(_pid) + ")");
+                            }
                         }
                     }
-                }
-            } else if (string(A.phase) == "resolve"){
-                if (variable_struct_exists(A, "outcome") && A.outcome){
-                    _B.result = "caught";
-                    var A1 = _B.actor[1];
-                    var caught = A.caught_struct;
-                    // (rest of original resolve logic unchanged)
+                } else if (string(A.phase) == "resolve"){
+                    if (variable_struct_exists(A, "outcome") && A.outcome){
+                        _B.result = "caught";
+                        var A1 = _B.actor[1];
+                        var caught = A.caught_struct;
+                        // (rest of original resolve logic unchanged)
+                    }
                 }
             }
         }
