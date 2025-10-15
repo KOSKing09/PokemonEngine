@@ -928,7 +928,14 @@ function __battle_step_turn_if_ready(_pid){
     // Nothing queued? return to command
     if (!is_array(_B.turn_queue) || array_length(_B.turn_queue) == 0){
         _B.phase = "command";
+        // Restore root menu selection if previously saved
         _B.sys_ui.menu = "root";
+        if (is_struct(_B.sys_ui) && variable_struct_exists(_B.sys_ui, "_prev_root_selX") && variable_struct_exists(_B.sys_ui, "_prev_root_selY")){
+            _B.sys_ui.selX = variable_struct_get(_B.sys_ui, "_prev_root_selX");
+            _B.sys_ui.selY = variable_struct_get(_B.sys_ui, "_prev_root_selY");
+        } else {
+            _B.sys_ui.selX = 0; _B.sys_ui.selY = 0;
+        }
         return;
     }
 
@@ -1077,7 +1084,14 @@ if (A1.hp_now <= 0){
 
         // Neither side fainted: back to command
         _B.phase = "command";
+        // Restore root menu selection if previously saved
         _B.sys_ui.menu = "root";
+        if (is_struct(_B.sys_ui) && variable_struct_exists(_B.sys_ui, "_prev_root_selX") && variable_struct_exists(_B.sys_ui, "_prev_root_selY")){
+            _B.sys_ui.selX = variable_struct_get(_B.sys_ui, "_prev_root_selX");
+            _B.sys_ui.selY = variable_struct_get(_B.sys_ui, "_prev_root_selY");
+        } else {
+            _B.sys_ui.selX = 0; _B.sys_ui.selY = 0;
+        }
         return;
     }
 
@@ -1266,7 +1280,14 @@ function __battle_try_escape(_pid){
         _B._pending_close = true;
     } else {
         _B.run_tries += 1;
+        // Failed escape: count as player's turn (player attempted to run),
+        // queue enemy action so opponent still acts this turn.
         __battle_stub_dialog(_pid, "Can't escape!");
+        _B.turn_action_player = undefined;
+        _B.turn_action_enemy  = __battle_enemy_choose_action(_pid);
+        _B.turn_queue = __battle_build_turn_actions(_pid);
+        _B.turn_i = 0;
+        _B.phase = "turn";
     }
 }
 
