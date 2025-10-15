@@ -111,29 +111,224 @@ function data_load_pokemon_structs(){
 
 // Optional CSV: pokemon_ev_yield.csv -> per-species EV yield values (hp,atk,def,spa,spd,spe)
 function data_load_pokemon_ev_yield_structs(){
-    var path = working_directory + "/data/csv/pokemon_ev_yield.csv";
+    var path = working_directory + "/data/csv/pokemonDB_dataset.csv";
     var g = load_csv(path);
     if (g == -1) { data_debug("[DATA][pokemon_ev_yield] SKIP: " + path); return; }
+    data_debug("[DATA][pokemon_ev_yield] LOADED: " + path);
     var H = ds_grid_height(g);
-    // Expect columns: species_id, hp, atk, def, spa, spd, spe (case-insensitive)
-    var ci_sid = __col_find_ci(g, "species_id");
-    var ci_hp  = __col_find_ci(g, "hp");
-    var ci_atk = __col_find_ci(g, "atk");
-    var ci_def = __col_find_ci(g, "def");
-    var ci_spa = __col_find_ci(g, "spa");
-    var ci_spd = __col_find_ci(g, "spd");
-    var ci_spe = __col_find_ci(g, "spe");
-    if (ci_sid < 0){ data_debug("[DATA][pokemon_ev_yield] ERROR: missing species_id column"); return; }
+    // Helper: find first matching column name from a list (case-insensitive)
+    function __col_find_any(_g, _names){
+        for (var __i = 0; __i < array_length(_names); __i++){
+            var ci_tmp = __col_find_ci(_g, _names[__i]);
+            if (ci_tmp >= 0) return ci_tmp;
+        }
+        return -1;
+    }
+
+    // Find species id column (prefer numeric id column names only)
+    var ci_sid = __col_find_any(g, ["species_id","id","pokedex_id","national_id","_id"]);
+    // If numeric id columns not present, try to locate a name column to map names->ids
+    var ci_name = -1;
+    if (ci_sid < 0) ci_name = __col_find_any(g, ["pokemon","name","identifier","species"]);
+    // Find EV columns using flexible name variants
+    var ci_hp  = __col_find_any(g, ["hp","hp_ev","hp_yield","ev_hp","yield_hp"]);
+    var ci_atk = __col_find_any(g, ["atk","attack","atk_ev","attack_ev","ev_atk"]);
+    var ci_def = __col_find_any(g, ["def","defense","def_ev","ev_def"]);
+    var ci_spa = __col_find_any(g, ["spa","spatk","special_attack","sp_atk","sp_attack","spa_ev"]);
+    var ci_spd = __col_find_any(g, ["spd","spdef","special_defense","sp_def","spd_ev"]);
+    var ci_spe = __col_find_any(g, ["spe","speed","speed_ev","spe_ev","ev_speed"]);
+
+    if (ci_sid < 0 && ci_name < 0){ data_debug("[DATA][pokemon_ev_yield] ERROR: missing species id or name column in " + path); return; }
+
+    // Build a lookup map from normalized identifier/name -> species id if needed
+    var _name_to_id = undefined;
+    if (ci_sid < 0 && ci_name >= 0){
+        _name_to_id = ds_map_create();
+        // normalization helper
+        // Normalize a Pokemon name/identifier to an ascii-alphanumeric key
+        function __norm_name(_s){
+            if (!is_string(_s)) _s = string(_s);
+            var t = string_lower(string_trim(_s));
+            // remove common prefixes like 'mega '
+            if (string_pos("mega ", t) == 1) t = string_delete(t,1,5);
+            // replace common gender symbols and arrows
+            t = string_replace_all(t, "♀", "f");
+            t = string_replace_all(t, "♂", "m");
+            t = string_replace_all(t, "é", "e");
+            t = string_replace_all(t, "á", "a");
+            t = string_replace_all(t, "ó", "o");
+            t = string_replace_all(t, "ú", "u");
+            t = string_replace_all(t, "à", "a");
+            t = string_replace_all(t, "ç", "c");
+            // remove punctuation and spaces, keep alnum
+            var out = "";
+            for (var __c=1; __c<=string_length(t); __c++){
+                var ch = string_copy(t, __c, 1);
+                if (string_pos(ch, "abcdefghijklmnopqrstuvwxyz0123456789") > 0) out += ch;
+            }
+            return out;
+        }
+        // populate map from global._pokemon identifiers
+        if (variable_global_exists("_pokemon") && is_array(global._pokemon)){
+            for (var __i = 0; __i < array_length(global._pokemon); __i++){
+                var rec = global._pokemon[__i];
+                if (!is_struct(rec)) continue;
+                // try multiple possible name fields
+                var cand = "";
+                if (variable_struct_exists(rec, "identifier")) cand = string(variable_struct_get(rec, "identifier"));
+                if (string_length(string_trim(cand)) == 0 && variable_struct_exists(rec, "name")) cand = string(variable_struct_get(rec, "name"));
+                if (string_length(string_trim(cand)) == 0 && variable_struct_exists(rec, "species")) cand = string(variable_struct_get(rec, "species"));
+                if (string_length(string_trim(cand)) == 0) continue;
+                var k = __norm_name(cand);
+                if (string_length(k) > 0) ds_map_replace(_name_to_id, k, __i);
+            }
+        }
+            // prepare container for names that fail to map
+            var _unmapped = ds_list_create();
+
+            // Exceptions and heuristics: attempt to resolve variant/form names to canonical species
+            var _resolved_cache = ds_map_create();
+            var _strip_tokens = [
+                "shieldforme","bladeforme","forme","form",
+                "alolan","alola","hisuian","hisu","galarian","galar",
+                "redstriped","bluestriped","whitestriped","red-striped","blue-striped","white-striped","striped",
+                "plantcloak","sandcloak","eastsea","westsea",
+                "therian","incarnate","resolute","origin",
+                // additional common tokens
+                "primal","ash","partner","standardmode","zenmode","standard","zen",
+                "meteor","meteorform","minior","white","black","ashgreninja"
+            ];
+
+            function __resolve_name(_raw, _name_to_id_map, _resolved_cache_map, _strip_tokens_arr){
+                var orig = string_trim(string(_raw));
+                var nk = __norm_name(orig);
+                if (string_length(nk) == 0) return -1;
+                // cached resolution
+                if (ds_map_exists(_resolved_cache_map, nk)) return ds_map_find_value(_resolved_cache_map, nk);
+                // direct map
+                if (ds_map_exists(_name_to_id_map, nk)){
+                    var _id = ds_map_find_value(_name_to_id_map, nk);
+                    ds_map_replace(_resolved_cache_map, nk, _id);
+                    return _id;
+                }
+                // try stripping known tokens
+                for (var ti = 0; ti < array_length(_strip_tokens_arr); ti++){
+                    var tok = _strip_tokens_arr[ti];
+                    if (string_pos(tok, nk) > 0){
+                        var nk2 = string_replace_all(nk, tok, "");
+                        nk2 = string_trim(nk2);
+                        if (string_length(nk2) > 0 && ds_map_exists(_name_to_id_map, nk2)){
+                            var _id2 = ds_map_find_value(_name_to_id_map, nk2);
+                            ds_map_replace(_resolved_cache_map, nk, _id2);
+                            return _id2;
+                        }
+                    }
+                }
+                // iterative truncation: remove trailing words from original
+                var words = string_split(orig, " ");
+                for (var wlen = array_length(words) - 1; wlen >= 1; wlen--){
+                    var cand = "";
+                    for (var wi = 0; wi < wlen; wi++){
+                        if (wi > 0) cand += " ";
+                        cand += words[wi];
+                    }
+                    var nk3 = __norm_name(cand);
+                    if (string_length(nk3) > 0 && ds_map_exists(_name_to_id_map, nk3)){
+                        var _id3 = ds_map_find_value(_name_to_id_map, nk3);
+                        ds_map_replace(_resolved_cache_map, nk, _id3);
+                        return _id3;
+                    }
+                }
+                // last ditch: try removing parenthetical parts e.g. "Foo (East)"
+                var pidx = string_pos("(", orig);
+                if (pidx > 0){
+                    var base = string_copy(orig, 1, pidx-1);
+                    var nk4 = __norm_name(base);
+                    if (string_length(nk4) > 0 && ds_map_exists(_name_to_id_map, nk4)){
+                        var _id4 = ds_map_find_value(_name_to_id_map, nk4);
+                        ds_map_replace(_resolved_cache_map, nk, _id4);
+                        return _id4;
+                    }
+                }
+                // unresolved
+                ds_map_replace(_resolved_cache_map, nk, -1);
+                return -1;
+            }
+    }
     var updated = 0;
+    // Helper to map stat token to key
+    function __stat_key_from_token(_tok){
+        var s = string_lower(string_trim(_tok));
+        s = string_replace_all(s, ".", "");
+        // common aliases
+        if (string_pos("hp", s) > 0) return "hp";
+        if (string_pos("attack", s) > 0 || string_pos("atk", s) > 0) return "atk";
+        if (string_pos("defense", s) > 0 || string_pos("def", s) > 0) return "def";
+        if (string_pos("special attack", s) > 0 || string_pos("spatk", s) > 0 || string_pos("sp atk", s) > 0 || string_pos("spatk", s) > 0 || string_pos("sp atk", s) > 0 || string_pos("spatk", s) > 0 || string_pos("sp atk", s) > 0) return "spa";
+        if (string_pos("special defense", s) > 0 || string_pos("spdef", s) > 0 || string_pos("sp def", s) > 0) return "spd";
+        if (string_pos("speed", s) > 0 || string_pos("spe", s) > 0) return "spe";
+        return undefined;
+    }
+
+    // If numeric EV columns missing, try to parse human-readable 'EV Yield' column
+    var ci_ev_yield_col = -1;
+    if (ci_hp < 0 && ci_atk < 0 && ci_def < 0 && ci_spa < 0 && ci_spd < 0 && ci_spe < 0){
+        ci_ev_yield_col = __col_find_any(g, ["ev yield","ev_yield","evyield","ev yield (bp)","evs","evs yield","evs_yield"]);
+    }
+
     for (var r = 1; r < H; r++){
-        var sid = __to_int_safe(__grid(g, ci_sid, r, 0), 0);
+        var sid = 0;
+        if (ci_sid >= 0){
+            sid = __to_int_safe(__grid(g, ci_sid, r, 0), 0);
+        }
+        else if (ci_name >= 0){
+            var rawname = string_trim(string(__grid(g, ci_name, r, "")));
+            var resolved = __resolve_name(rawname, _name_to_id, _resolved_cache, _strip_tokens);
+            if (resolved > 0){
+                sid = resolved;
+            } else {
+                sid = 0;
+                if (ds_list_find_index(_unmapped, rawname) == -1) ds_list_add(_unmapped, rawname);
+            }
+        }
         if (sid <= 0 || sid >= array_length(global._pokemon)) continue;
-        var hp = (ci_hp >= 0 ? __to_int_safe(__grid(g, ci_hp, r, 0), 0) : 0);
-        var atk = (ci_atk >= 0 ? __to_int_safe(__grid(g, ci_atk, r, 0), 0) : 0);
-        var def = (ci_def >= 0 ? __to_int_safe(__grid(g, ci_def, r, 0), 0) : 0);
-        var spa = (ci_spa >= 0 ? __to_int_safe(__grid(g, ci_spa, r, 0), 0) : 0);
-        var spd = (ci_spd >= 0 ? __to_int_safe(__grid(g, ci_spd, r, 0), 0) : 0) ;
-        var spe = (ci_spe >= 0 ? __to_int_safe(__grid(g, ci_spe, r, 0), 0) : 0) ;
+        var hp = 0; var atk = 0; var def = 0; var spa = 0; var spd = 0; var spe = 0;
+        if (ci_hp >= 0 || ci_atk >= 0 || ci_def >= 0 || ci_spa >= 0 || ci_spd >= 0 || ci_spe >= 0){
+            hp = (ci_hp >= 0 ? __to_int_safe(__grid(g, ci_hp, r, 0), 0) : 0);
+            atk = (ci_atk >= 0 ? __to_int_safe(__grid(g, ci_atk, r, 0), 0) : 0);
+            def = (ci_def >= 0 ? __to_int_safe(__grid(g, ci_def, r, 0), 0) : 0);
+            spa = (ci_spa >= 0 ? __to_int_safe(__grid(g, ci_spa, r, 0), 0) : 0);
+            spd = (ci_spd >= 0 ? __to_int_safe(__grid(g, ci_spd, r, 0), 0) : 0) ;
+            spe = (ci_spe >= 0 ? __to_int_safe(__grid(g, ci_spe, r, 0), 0) : 0) ;
+        } else if (ci_ev_yield_col >= 0){
+            // Parse human-readable EV yield like "1 Attack, 1 Sp. Atk"
+            var evtxt = string_trim(string(__grid(g, ci_ev_yield_col, r, "")));
+            if (string_length(evtxt) > 0){
+                var parts = string_split(evtxt, ",");
+                for (var __p = 0; __p < array_length(parts); __p++){
+                    var tok = string_trim(parts[__p]);
+                    // try to extract leading number
+                    var num = -1;
+                    // find first numeric substring
+                    var num_str = "";
+                    for (var __c = 1; __c <= string_length(tok); __c++){
+                        var ch = string_copy(tok, __c, 1);
+                        if (string_pos(ch, "0123456789") > 0) num_str += ch;
+                        else if (string_length(num_str) > 0) break;
+                    }
+                    if (string_length(num_str) > 0) num = __to_int_safe(num_str, -1);
+                    if (num <= 0) num = 1; // default to 1 if not specified
+                    // determine stat key
+                    var key = __stat_key_from_token(tok);
+                    if (key == "hp") hp += num;
+                    else if (key == "atk") atk += num;
+                    else if (key == "def") def += num;
+                    else if (key == "spa") spa += num;
+                    else if (key == "spd") spd += num;
+                    else if (key == "spe") spe += num;
+                }
+            }
+        }
         var rec = global._pokemon[sid];
         if (is_struct(rec)){
             rec.ev_yield = { hp:hp, atk:atk, def:def, spa:spa, spd:spd, spe:spe };
@@ -141,7 +336,18 @@ function data_load_pokemon_ev_yield_structs(){
             updated += 1;
         }
     }
-    data_debug("[DATA][pokemon_ev_yield] updated=" + string(updated));
+    // report unmapped names (small summary)
+    if (is_undefined(_unmapped) == false && ds_list_size(_unmapped) > 0){
+        var _cnt = ds_list_size(_unmapped);
+        data_debug("[DATA][pokemon_ev_yield] unmapped names ("+string(_cnt)+") - sample:");
+        for (var __i = 0; __i < min(10, _cnt); __i++){
+            var _nm = ds_list_find_value(_unmapped, __i);
+            data_debug("  - " + string(_nm));
+        }
+        // clean up
+        ds_list_destroy(_unmapped);
+    }
+    data_debug("[DATA][pokemon_ev_yield] updated=" + string(updated) + " (from " + path + ")");
 }
 
 // ---------- DATA: pokemon_stats.csv -> per species aggregate ----------
