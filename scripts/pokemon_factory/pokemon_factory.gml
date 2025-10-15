@@ -371,5 +371,12 @@ function pokemon_factory_create(_sid, _level, _opts){
         mon.spd = max(1, floor(mon.spd * scr_nature_multiplier(nat, "spd")));
         mon.spe = max(1, floor(mon.spe * scr_nature_multiplier(nat, "spe")));
     }
+    // Populate a per-mon `learnset` for convenience: list of move IDs the species can learn up to this level.
+    // This allows UI code that prefers a per-mon learnset (mon.learnset) to work without additional fallbacks.
+    if (!is_undefined(scr_poke_moves_upto_level)){
+        var __ls = scr_poke_moves_upto_level(_s, L);
+        if (is_array(__ls)) variable_struct_set(mon, "learnset", __ls);
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[DATA_DEBUG] pokemon_factory_create: assigned learnset length=" + string(is_array(__ls) ? array_length(__ls) : 0) + " for species=" + string(_s) + " lvl=" + string(L));
+    }
     return mon;
 }

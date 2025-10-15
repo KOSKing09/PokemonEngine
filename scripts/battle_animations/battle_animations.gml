@@ -5,17 +5,17 @@
 //           __battle_anim_get_draw_state(_B)
 
 function __battle_anim_create_catch(_B, _item_id, _caught_struct, _opts){
-    if (!is_struct(_B)) return undefined;
-    var _opts = (argument_count > 3 && is_struct(_opts)) ? _opts : {};
+        if (!is_struct(_B)) return undefined;
+        var _local_opts = (argument_count > 3 && is_struct(_opts)) ? _opts : {};
     var now = current_time;
     var ball_spr = undefined;
     if (!is_undefined(pkicons_get_item_icon_by_id) && is_real(_item_id) && _item_id > 0){
         try { var s_try = pkicons_get_item_icon_by_id(floor(_item_id)); if (!is_undefined(s_try) && sprite_exists(s_try)) ball_spr = s_try; } catch (e) { ball_spr = undefined; }
     }
 
-    var hop_total = (variable_struct_exists(_opts, "hop_total") ? max(1, floor(variable_struct_get(_opts, "hop_total"))) : 3);
-    var success = (variable_struct_exists(_opts, "success") ? !!variable_struct_get(_opts, "success") : false);
-    var break_hop = (variable_struct_exists(_opts, "break_hop") ? floor(variable_struct_get(_opts, "break_hop")) : 0);
+    var hop_total = (variable_struct_exists(_local_opts, "hop_total") ? max(1, floor(variable_struct_get(_local_opts, "hop_total"))) : 3);
+    var success = (variable_struct_exists(_local_opts, "success") ? (variable_struct_get(_local_opts, "success") == true) : false);
+    var break_hop = (variable_struct_exists(_local_opts, "break_hop") ? floor(variable_struct_get(_local_opts, "break_hop")) : 0);
     // when success is true, we require final hop; if break_hop is not provided and failure, pick random
     if (!success && break_hop <= 0) break_hop = irandom(hop_total - 1) + 1;
     if (success) break_hop = 0;
@@ -24,15 +24,15 @@ function __battle_anim_create_catch(_B, _item_id, _caught_struct, _opts){
         active: true,
         start_ms: now,
         phase: "throw",
-        throw_dur: (variable_struct_exists(_opts, "throw_dur") ? variable_struct_get(_opts, "throw_dur") : 380),
-        impact_dur: (variable_struct_exists(_opts, "impact_dur") ? variable_struct_get(_opts, "impact_dur") : 220),
+    throw_dur: (variable_struct_exists(_local_opts, "throw_dur") ? variable_struct_get(_local_opts, "throw_dur") : 380),
+    impact_dur: (variable_struct_exists(_local_opts, "impact_dur") ? variable_struct_get(_local_opts, "impact_dur") : 220),
         hop_total: hop_total,
         hop_index: 0,
-        hop_dur: (variable_struct_exists(_opts, "hop_dur") ? variable_struct_get(_opts, "hop_dur") : 700),
-        hop_pause: (variable_struct_exists(_opts, "hop_pause") ? variable_struct_get(_opts, "hop_pause") : 350),
-        catch_hop_success: (success ? hop_total : 0),
-        break_hop: break_hop,
-        outcome: success,
+    hop_dur: (variable_struct_exists(_local_opts, "hop_dur") ? variable_struct_get(_local_opts, "hop_dur") : 700),
+    hop_pause: (variable_struct_exists(_local_opts, "hop_pause") ? variable_struct_get(_local_opts, "hop_pause") : 350),
+    catch_hop_success: (success ? hop_total : 0),
+    break_hop: break_hop,
+    outcome: success,
         ball_sprite: (is_undefined(ball_spr) ? (variable_global_exists("sbagpokeball") ? sbagpokeball : undefined) : ball_spr),
         ball_frame: 0,
         start_x: undefined,
@@ -44,9 +44,9 @@ function __battle_anim_create_catch(_B, _item_id, _caught_struct, _opts){
         caught_struct: _caught_struct
     };
 
-    variable_struct_set(_B, "_catch_anim", ca);
-    return ca;
-}
+        variable_struct_set(_B, "_catch_anim", ca);
+        return ca;
+    }
 
 // Update animations on the battle slot. Returns { resolved:boolean, action:string }
 function __battle_anim_update(_B){
@@ -102,13 +102,12 @@ function __battle_anim_update(_B){
         if (e5 >= (is_real(A.escape_dur) ? A.escape_dur : 320)){
             // clear
             variable_struct_set(_B, "_catch_anim", undefined);
-            variable_struct_delete(_B, "_catch_anim");
             return { resolved:true, action:"broke" };
         }
         return { resolved:false, action:"none" };
     }
     return { resolved:false, action:"none" };
-}
+    }
 
 // Returns a small draw state struct consumed by battle_draw.gml
 function __battle_anim_get_draw_state(_B){
@@ -126,5 +125,5 @@ function __battle_anim_get_draw_state(_B){
         var phaseFr = clamp((hop_dur > 0 ? max(0, min(1, e2 / cycle * (hop_dur / cycle))) : 0), 0, 1);
         out.bounce = sin(phaseFr * pi) * 8;
     }
-    return out;
-}
+        return out;
+    }

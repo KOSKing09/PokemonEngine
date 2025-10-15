@@ -240,7 +240,7 @@ function scr_poke_calc_stat(_base, _lvl){
 
 function scr_move_name_by_id(_mid){
     if (!is_real(_mid) || _mid <= 0) return "";
-    if (variable_global_exists("_move_text") && is_array(global._move_text) && _mid < array_length(global._move_text)){
+    if (variable_global_exists("_move_text") && is_array(global._move_text) && _mid >= 0 && _mid < array_length(global._move_text)){
         var t = global._move_text[_mid];
         if (is_struct(t) && !is_undefined(t.name) && t.name != "") return t.name;
     }
@@ -257,7 +257,7 @@ function scr_move_name_by_id(_mid){
 function scr_move_desc_by_id(_mid){
     if (!is_real(_mid) || _mid <= 0) return "";
     if (!(variable_global_exists("_move_text") && is_array(global._move_text))) return "";
-    if (_mid >= array_length(global._move_text)) return "";
+    if (_mid < 0 || _mid >= array_length(global._move_text)) return "";
     var t = global._move_text[_mid];
     if (!is_struct(t)) return "";
     return is_undefined(t.short_desc) ? "" : t.short_desc;

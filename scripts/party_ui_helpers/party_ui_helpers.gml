@@ -30,10 +30,82 @@ function __party_impl_draw_summary(_pid, _P, _OX, _OY, _S){
     var _descW = (is_struct(_leftInfo) && variable_struct_exists(_leftInfo, "descW")) ? variable_struct_get(_leftInfo, "descW") : (min((_LEFT_W + 10) * _S, (108 - _LEFT_X - 4) * _S) - (3 * _S) * 2);
     var _descH = (is_struct(_leftInfo) && variable_struct_exists(_leftInfo, "descH")) ? variable_struct_get(_leftInfo, "descH") : ((_descAreaH) - (_descPad) * 2);
 
+    // Draw the 'LEARN MOVES' badge at a fixed GUI position when the
+    // learn LIST is active (user requested fixed coords at 15,15).
+    var _lp_tmp_for_badge = (variable_struct_exists(_P, "learn_pending") ? variable_struct_get(_P, "learn_pending") : undefined);
+    if (is_struct(_lp_tmp_for_badge)){
+        var _step_badge = (variable_struct_exists(_lp_tmp_for_badge, "step") ? variable_struct_get(_lp_tmp_for_badge, "step") : "desc");
+        if (string(_step_badge) == "list"){
+            var _badgeGuiX = _OX + 15 * _S;
+            var _badgeGuiY = _OY + 15 * _S - 5 * _S; // nudge up 5 UI pixels
+            draw_set_color(make_color_rgb(220,40,40));
+            if (variable_global_exists("FNT_POKEMON_SMALL")) draw_set_font(global.FNT_POKEMON_SMALL);
+            draw_text(_badgeGuiX, _badgeGuiY, "LEARN MOVES");
+            if (variable_global_exists("FNT_POKEMON")) draw_set_font(global.FNT_POKEMON);
+            draw_set_color(c_white);
+        }
+    }
+
+    // Compute left description text. If a learn flow is active and the
+    // user is viewing the learn list, show the currently-selected learn
+    // move's short description instead of the mon's default description.
+    var _lp = (variable_struct_exists(_P, "learn_pending") ? variable_struct_get(_P, "learn_pending") : undefined);
     var _descText = __party_get_desc_text(_P, _M);
-    if (string_length(_descText) > 0) {
-        var _clean = __party_impl_desc_clean_local(_descText);
-        __party_impl_desc_draw_scrollable_colored(_descX, _descY, _descW, _descH, _clean);
+    if (is_struct(_lp)){
+        var _step_tmp = (variable_struct_exists(_lp, "step") ? variable_struct_get(_lp, "step") : "desc");
+        // Debug: if the UI is about to show the full learn LIST unexpectedly,
+        // print the current mode and learn_pending.step so the runtime trace
+        // can help locate the state mutation source.
+        if (string(_P.mode) == "summary_moves" && string(_step_tmp) != "desc"){
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party_debug] draw summary: mode=" + string(_P.mode) + ", learn_pending.step=" + string(_step_tmp) + ", sel=" + string(_P.sel) + ", sum_move_sel=" + string(_P.sum_move_sel));
+        }
+        if (string(_step_tmp) != "desc"){
+            // Determine currently-selected move id from learn_pending.list_sel and global index
+            var _sel_idx = (variable_struct_exists(_lp, "list_sel") ? variable_struct_get(_lp, "list_sel") : 0);
+            var _move_id_candidate = -1;
+            if (variable_global_exists("_move_index") && is_array(global._move_index)){
+                var _mi = global._move_index;
+                if (is_array(_mi) && _sel_idx >= 0 && _sel_idx < array_length(_mi)) _move_id_candidate = _mi[_sel_idx];
+            }
+            if (_move_id_candidate < 0 && variable_struct_exists(_lp, "move_id")) _move_id_candidate = variable_struct_get(_lp, "move_id");
+            // Resolve short description from global._move_text if available
+            if (is_real(_move_id_candidate) && _move_id_candidate >= 0 && variable_global_exists("_move_text") && is_array(global._move_text) && _move_id_candidate < array_length(global._move_text)){
+                var _mvtmp = global._move_text[_move_id_candidate];
+                if (is_string(_mvtmp)) _descText = _mvtmp;
+                else if (is_struct(_mvtmp) && variable_struct_exists(_mvtmp, "short_desc")) _descText = variable_struct_get(_mvtmp, "short_desc");
+                if (string_length(string_trim(_descText)) == 0) _descText = "No description available.";
+            }
+        }
+    }
+    // If a learn flow is pending, render the learn badge at the top-left
+    // of the left description box and either the description page or the
+    // selectable move list depending on state.
+    var _lp = (variable_struct_exists(_P, "learn_pending") ? variable_struct_get(_P, "learn_pending") : undefined);
+    // (Badge next to the Pokémon name is drawn below; no top-left badge here.)
+    if (is_struct(_lp)){
+    // badge drawing moved into the left panel beside the Pokémon name
+        var _step = (variable_struct_exists(_lp, "step") ? variable_struct_get(_lp, "step") : "desc");
+    // Only show the full right-panel learn LIST when the player is explicitly
+    // viewing the moves summary (mode == "summary_moves") AND the learn
+    // flow requested the list step. In other modes (e.g. summary_forget)
+    // we prefer showing the description/left-box to avoid overlaying UIs.
+        // Show description unless the learn flow explicitly requested the list
+        // and the current mode allows list rendering (summary_moves OR summary_forget).
+        if (string(_step) == "desc" || (string(_P.mode) != "summary_moves" && string(_P.mode) != "summary_forget")){
+        __party_draw_learn_desc(_pid, _P, _OX, _OY, _S, _descX, _descY, _descW, _descH);
+    } else {
+        // draw the move list in the right panel area (guarded reads)
+        var _rx = (is_struct(_rightInfo) && variable_struct_exists(_rightInfo, "rx1")) ? variable_struct_get(_rightInfo, "rx1") : (_OX + _RIGHT_X*_S);
+        var _ry = (is_struct(_rightInfo) && variable_struct_exists(_rightInfo, "ry1")) ? variable_struct_get(_rightInfo, "ry1") : (_OY + _RIGHT_Y*_S);
+        // (Header removed; badge from party_system.gml will be used instead)
+        // Now draw the selectable learn list
+        __party_draw_learn_list(_pid, _P, _OX, _OY, _S, _rx, _ry, _RIGHT_W, _RIGHT_H, _descX, _descY, _descW, _descH);
+    }
+    } else {
+        if (string_length(_descText) > 0) {
+            var _clean = __party_impl_desc_clean_local(_descText);
+            __party_impl_desc_draw_scrollable_colored(_descX, _descY, _descW, _descH, _clean);
+        }
     }
 
     var _secondaryLine = __party_impl_draw_right_content(_P, _M, _rightInfo, _RIGHT_W, _RIGHT_H, _S);
@@ -137,14 +209,14 @@ function __party_impl_draw_moves_block(_P, _M, _x, _y, _w, _h, _S, _highlightFor
         draw_text(_x + 10*_S, _lineY, _txt);
     }
 
+    // Do not render the small learnset column here. The small column can
+    // overlap or duplicate the full learn list UI. The full right-panel
+    // learn list is drawn only when the player explicitly enters the
+    // learn LIST (learn_pending.step == "list").
+    var _renderLearnsetHere = false;
     var _lr = is_struct(_M) && variable_struct_exists(_M,"learnset") ? _M.learnset : [];
     var _nl = array_length(_lr);
-    for (var _j = 0; _j < _nl; _j++){
-        var _lineY2 = _y + 20*_S + _lh*_j;
-        var _txt2 = __party_move_name(_lr[_j]);
-        draw_set_color( _j == _P.sum_learn_sel ? make_color_rgb(72,160,232) : c_white );
-        draw_text(_x + (_w*_S) - 110*_S, _lineY2, _txt2);
-    }
+    // small learnset column intentionally disabled
 
     draw_set_color(c_white);
     var _primaryHelp, _secondaryHelp;
@@ -236,6 +308,9 @@ function __party_impl_draw_left_panel(_P, _M, _OX, _OY, _S, _LEFT_X, _LEFT_Y, _L
         else if (variable_struct_exists(_M,"name"))     _nm = string(_M.name);
         draw_text(_lx1 + 6*_S, _ly1 + 6*_S, _nm);
 
+        // Badge next to the name suppressed; badge is drawn at fixed GUI coords
+        // to avoid overlaps with the list/boxes per user request.
+
         var _sprArt = -1;
         if (!is_undefined(pkicons_get_art96_by_mon)) _sprArt = pkicons_get_art96_by_mon(_M);
         if (_sprArt == -1) _sprArt = spr_mon_placeholder;
@@ -301,17 +376,31 @@ function __party_impl_draw_right_frame(_OX, _OY, _S, _RIGHT_X, _RIGHT_Y, _RIGHT_
 function __party_impl_draw_header_and_circles(_P, _OX, _OY, _S, _n, _C_ACC, _C_PAPER){
     var _modeStr = string(_P.mode);
     draw_set_color(c_white);
-    if (_modeStr == "summary_moves" || _modeStr == "summary_forget"){
-        var _hintY = _OY + 10*_S;
-        draw_text(_OX + 4*_S, _hintY, "L/R: Switch");
-        var _profileHint = "Up: Profile";
-        var _phW = string_width(_profileHint);
-        draw_text(_OX + 240*_S - _phW - 4*_S, _hintY, _profileHint);
-    } else if (_modeStr == "summary_profile") {
-        var _movesHint = "Up: Moves";
-        var _mhW = string_width(_movesHint);
-        var _hintY2 = _OY + 10*_S;
-        draw_text(_OX + 240*_S - _mhW - 4*_S, _hintY2, _movesHint);
+    // Determine if a learn flow is present and whether the learn LIST
+    // (not the description) is currently visible. We only suppress the
+    // normal header hints when the learn list is open.
+    var _hasLearnPending = (is_struct(_P) && variable_struct_exists(_P, "learn_pending") && is_struct(variable_struct_get(_P, "learn_pending")));
+    var _learnListActive = false;
+    if (_hasLearnPending){
+        var _lp_tmp2 = variable_struct_get(_P, "learn_pending");
+        var _lp_step2 = (variable_struct_exists(_lp_tmp2, "step") ? variable_struct_get(_lp_tmp2, "step") : "desc");
+        _learnListActive = (string(_lp_step2) != "desc");
+    }
+    if (!_learnListActive){
+        if (_modeStr == "summary_moves" || _modeStr == "summary_forget"){
+            var _hintY = _OY + 10*_S;
+            draw_text(_OX + 4*_S, _hintY, "L/R: Switch");
+            var _profileHint = "Up: Profile";
+            var _phW = string_width(_profileHint);
+            draw_text(_OX + 240*_S - _phW - 4*_S, _hintY, _profileHint);
+        } else if (_modeStr == "summary_profile") {
+            var _movesHint = "Up: Moves";
+            var _mhW = string_width(_movesHint);
+            var _hintY2 = _OY + 10*_S;
+            draw_text(_OX + 240*_S - _mhW - 4*_S, _hintY2, _movesHint);
+        }
+    } else {
+        // When the learn LIST is active, suppress the top hint (user requested no header text)
     }
     var _radBase = 3;
     var _spinAng = _P.summary_spin_angle;
@@ -340,6 +429,14 @@ function __party_impl_draw_header_and_circles(_P, _OX, _OY, _S, _n, _C_ACC, _C_P
 function __party_impl_draw_right_content(_P, _M, _rightInfo, _RIGHT_W, _RIGHT_H, _S){
     var _rx1 = _rightInfo.rx1, _ry1 = _rightInfo.ry1, _rx2 = _rightInfo.rx2, _ry2 = _rightInfo.ry2;
     var _secondaryLine = "";
+    // If a learn flow is active and the user is viewing the learn list
+    // (step != "desc"), do not draw the standard right-side profile/moves
+    // block to avoid overlapping the learn list UI.
+    if (is_struct(_P) && variable_struct_exists(_P, "learn_pending") && is_struct(variable_struct_get(_P, "learn_pending"))) {
+        var _lp_tmp = variable_struct_get(_P, "learn_pending");
+        var _lp_step = (variable_struct_exists(_lp_tmp, "step") ? variable_struct_get(_lp_tmp, "step") : "desc");
+        if (string(_lp_step) != "desc") return "";
+    }
     if (string(_P.mode) == "summary_profile"){
         __party_impl_draw_profile_block(_M, _rx1, _ry1, _RIGHT_W, _RIGHT_H, _S);
         if (is_struct(_M)){

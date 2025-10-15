@@ -41,51 +41,25 @@ if (is_undefined(sound_stop)){
     function sound_stop(_res){ return undefined; }
 }
 
-// Forward stubs for animation module functions — real implementations live in
-// scripts/battle_system/battle_animations.gml. These stubs prevent static
-// analyzers from complaining when battle_system.gml references the symbols
-// before the other script is loaded. They are safe no-op fallbacks.
-if (is_undefined(__battle_anim_create_catch)){
-    function __battle_anim_create_catch(_B, _item_id, _caught_struct, _opts){
-        // Minimal fallback: create a basic _catch_anim struct so legacy draw/update
-        // code can operate until the real module is available.
-        if (!is_struct(_B)) return undefined;
-        var now = current_time;
-        var ca = {
-            active: true,
-            start_ms: now,
-            phase: "throw",
-            throw_dur: 380,
-            impact_dur: 220,
-            hop_total: 3,
-            hop_index: 0,
-            hop_dur: 700,
-            hop_pause: 350,
-            catch_hop_success: 0,
-            break_hop: 0,
-            outcome: false,
-            ball_sprite: undefined,
-            ball_frame: 0,
-            caught_struct: _caught_struct
-        };
-        variable_struct_set(_B, "_catch_anim", ca);
-        return ca;
-    }
-}
-if (is_undefined(__battle_anim_update)){
-    function __battle_anim_update(_B){ return { resolved:false, action:"none" }; }
-}
-if (is_undefined(__battle_anim_get_draw_state)){
-    function __battle_anim_get_draw_state(_B){ return undefined; }
-}
+// Finalize catch handler: real implementation may live elsewhere. Provide a
+// minimal guarded no-op so callers can safely invoke the symbol without the
+// static analyzer flagging an undeclared symbol. Projects can override this
+// by defining __battle_finalize_catch() in another script.
 if (is_undefined(__battle_finalize_catch)){
-    function __battle_finalize_catch(_B, _caught){
-        // Fallback finalizer: stash pending caught struct so existing flow can pick it up.
-        if (!is_struct(_B)) return;
-        variable_struct_set(_B, "_pending_caught_struct", _caught);
-        variable_struct_set(_B, "_pending_close", true);
+    function __battle_finalize_catch(_B, _caught_struct){
+        // Default: no-op. Implementations may play SFX, add the mon to party,
+        // or open a 'caught' dialog. Keep conservative to avoid side-effects.
+        return undefined;
     }
 }
+
+// Minimal guarded stubs for animation function names. The full
+// implementations live in `scripts/battle_system/battle_animations.gml`.
+// Animation functions are implemented in scripts/battle_system/battle_animations.gml
+// Do not declare these function names here to avoid duplicate script definitions.
+// Animation functions are implemented in scripts/battle_system/battle_animations.gml
+// They must exist exactly once; do not duplicate their definitions here.
+// Animation implementations live in scripts/battle_animations/battle_animations.gml
 
 function __battle_ensure_slot(_pid){
     if (!variable_global_exists("sys_battles") || !is_array(global.sys_battles)) global.sys_battles = [];
@@ -206,7 +180,7 @@ function __battle_restore_prev_audio(_pid){
         if (!is_undefined(_def_res) && !is_undefined(audio_stop_sound)) audio_stop_sound(_def_res);
         // Ensure the defeated/victory music is stopped (use stored resource when possible)
         try {
-            var _stop_res = (variable_struct_exists(_B, "_battle_defeated_music") ? _B._battle_defeated_music : undefined);
+            var _stop_res = (variable_struct_exists(_B, "_battle_defeated_music") ? variable_struct_get(_B, "_battle_defeated_music") : undefined);
             if (!is_undefined(_stop_res)){
                 try {
                     if (!is_undefined(audio_stop_sound)){
@@ -395,40 +369,45 @@ function battle_close(_pid){
     if (variable_struct_exists(_B, "_queued_catch")) _B._queued_catch = undefined;
     // Stop any playing battle audio (add debug logs when enabled)
     try {
-        if (!is_undefined(_B._bgm_handle)){
-            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] stopping bgm handle="+string(_B._bgm_handle));
-            __battle_audio_stop_handle(_B._bgm_handle);
+        var _bh_local = (variable_struct_exists(_B, "_bgm_handle") ? variable_struct_get(_B, "_bgm_handle") : undefined);
+        if (!is_undefined(_bh_local)){
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] stopping bgm handle="+string(_bh_local));
+            __battle_audio_stop_handle(_bh_local);
         }
     } catch (e1) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to stop bgm handle: " + string(e1)); }
     try {
-        if (!is_undefined(_B._defeated_handle)){
-            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] stopping defeated handle="+string(_B._defeated_handle));
-            __battle_audio_stop_handle(_B._defeated_handle);
+        var _def_handle_local = (variable_struct_exists(_B, "_defeated_handle") ? variable_struct_get(_B, "_defeated_handle") : undefined);
+        if (!is_undefined(_def_handle_local)){
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] stopping defeated handle="+string(_def_handle_local));
+            __battle_audio_stop_handle(_def_handle_local);
         }
     } catch (e2) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to stop defeated handle: " + string(e2)); }
     try {
-        if (!is_undefined(_B._battle_music)){
+        var _bm_res = (variable_struct_exists(_B, "_battle_music") ? variable_struct_get(_B, "_battle_music") : undefined);
+        if (!is_undefined(_bm_res)){
             if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] calling sound_stop on _battle_music");
-            try { if (!is_undefined(sound_stop)) sound_stop(_B._battle_music); } catch (ee) {}
+            try { if (!is_undefined(sound_stop)) sound_stop(_bm_res); } catch (ee) {}
         }
-        if (!is_undefined(_B._battle_defeated_music)){
+        var _bdm = (variable_struct_exists(_B, "_battle_defeated_music") ? variable_struct_get(_B, "_battle_defeated_music") : undefined);
+        if (!is_undefined(_bdm)){
             if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] calling sound_stop on _battle_defeated_music");
-            try { if (!is_undefined(sound_stop)) sound_stop(_B._battle_defeated_music); } catch (ee2) {}
+            try { if (!is_undefined(sound_stop)) sound_stop(_bdm); } catch (ee2) {}
         }
     } catch (e3) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to call sound_stop: " + string(e3)); }
     _B.sys_open = false;
 
     // Ensure the battle music (bgm) is stopped (use stored resource when possible)
     try {
-        var _stop_bgm_res = (variable_struct_exists(_B, "_battle_music") ? _B._battle_music : undefined);
-        if (!is_undefined(_stop_bgm_res)){
+        var _stop_bgm_res_local = (variable_struct_exists(_B, "_battle_music") ? variable_struct_get(_B, "_battle_music") : undefined);
+        var _bh_local2 = (variable_struct_exists(_B, "_bgm_handle") ? variable_struct_get(_B, "_bgm_handle") : undefined);
+        if (!is_undefined(_stop_bgm_res_local)){
             try {
                 if (!is_undefined(audio_stop_sound)){
-                    audio_stop_sound(_stop_bgm_res);
-                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_stop_sound called on battle_res=" + string(_stop_bgm_res));
-                    } else if (!is_undefined(_B._bgm_handle)){
-                    __battle_audio_stop_handle(_B._bgm_handle);
-                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] __battle_audio_stop_handle called on bgm_handle=" + string(_B._bgm_handle));
+                    audio_stop_sound(_stop_bgm_res_local);
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_stop_sound called on battle_res=" + string(_stop_bgm_res_local));
+                    } else if (!is_undefined(_bh_local2)){
+                    __battle_audio_stop_handle(_bh_local2);
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] __battle_audio_stop_handle called on bgm_handle=" + string(_bh_local2));
                 } else if (!is_undefined(audio_stop_all)){
                     audio_stop_all();
                     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] fallback audio_stop_all() called to stop battle music");
@@ -439,15 +418,15 @@ function battle_close(_pid){
 
     // Ensure the defeated/victory music is stopped (use stored resource when possible)
     try {
-        var _stop_res = (variable_struct_exists(_B, "_battle_defeated_music") ? _B._battle_defeated_music : undefined);
+    var _stop_res = (variable_struct_exists(_B, "_battle_defeated_music") ? variable_struct_get(_B, "_battle_defeated_music") : undefined);
         if (!is_undefined(_stop_res)){
             try {
                 if (!is_undefined(audio_stop_sound)){
                     audio_stop_sound(_stop_res);
                     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_stop_sound called on defeated_res=" + string(_stop_res));
-                } else if (!is_undefined(_B._defeated_handle)){
-                    __battle_audio_stop_handle(_B._defeated_handle);
-                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] __battle_audio_stop_handle called on defeated_handle=" + string(_B._defeated_handle));
+                    } else if (!is_undefined(_def_handle_local)){
+                    __battle_audio_stop_handle(_def_handle_local);
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] __battle_audio_stop_handle called on defeated_handle=" + string(_def_handle_local));
                 } else if (!is_undefined(audio_stop_all)){
                     audio_stop_all();
                     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] fallback audio_stop_all() called to stop defeated music");
@@ -987,12 +966,13 @@ if (A1.hp_now <= 0){
 
     // Build recipient list: prefer explicit _B._participants if available, otherwise active mon
     var recipients = [];
-    if (variable_struct_exists(_B, "_participants") && is_array(_B._participants) && array_length(_B._participants) > 0){
+    if (variable_struct_exists(_B, "_participants") && is_array(variable_struct_get(_B, "_participants")) && array_length(variable_struct_get(_B, "_participants")) > 0){
         var P = party_ensure(_pid);
-        var _nparts = array_length(_B._participants);
+        var _parts = variable_struct_get(_B, "_participants");
+        var _nparts = array_length(_parts);
         var _pi = 0;
         while (_pi < _nparts){
-            var idx = _B._participants[_pi];
+            var idx = _parts[_pi];
             if (is_array(P.mons) && idx >= 0 && idx < array_length(P.mons)){
                 var cand = P.mons[idx];
                 if (is_struct(cand) && ((variable_struct_exists(cand, "hp") && is_real(cand.hp) && cand.hp > 0) || (variable_struct_exists(cand, "hp_now") && is_real(cand.hp_now) && cand.hp_now > 0))) array_push(recipients, cand);
@@ -2205,8 +2185,16 @@ function __battle_update_animations(_pid){
                 // finalize capture
                 if (!is_undefined(__battle_finalize_catch)) __battle_finalize_catch(_B, _B._catch_anim ? _B._catch_anim.caught_struct : undefined);
             } else if (__anim_res.action == "broke"){
-                // broke free - play break sound
-                if (!is_undefined(__battle_sound_play_safe)) __battle_sound_play_safe(snd_WildPokemonDefeated);
+                // broke free - play a pokéball-break sound if available, but do NOT play
+                // defeated/victory music (that would be audible even when a catch fails).
+                if (!is_undefined(__battle_sound_play_safe)){
+                    // Prefer explicit break SFX names if present
+                    if (variable_global_exists("snd_PokeballBreak")) __battle_sound_play_safe(variable_global_get("snd_PokeballBreak"));
+                    else if (variable_global_exists("snd_ball_break")) __battle_sound_play_safe(variable_global_get("snd_ball_break"));
+                    else if (variable_global_exists("snd_ball_broke")) __battle_sound_play_safe(variable_global_get("snd_ball_broke"));
+                    else if (variable_global_exists("snd_pokeball_broke")) __battle_sound_play_safe(variable_global_get("snd_pokeball_broke"));
+                    // else: no suitable SFX found, so intentionally do nothing to avoid playing victory/defeat music.
+                }
             }
         }
     } else {

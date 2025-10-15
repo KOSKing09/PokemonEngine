@@ -10,10 +10,7 @@ var ORDER =
     "“”‘’" +
     "♪▶";
 
-if !(window_get_fullscreen()) {
-    window_set_position(10, 10);
-    window_set_size(display_get_width() - 10, display_get_height() - 10);
-}
+
 
 randomize();
 global.FNT_POKEMON = font_add_sprite_ext(spr_font_pokemon_new, ORDER, false, 0);
@@ -32,7 +29,7 @@ global.DEBUG = true;
 
 // Data loaders debug gate (opt-in). Default OFF for normal play; set true for troubleshooting.
 globalvar DATA_DEBUG;
-global.DATA_DEBUG = true;
+global.DATA_DEBUG = false;
 
 // Very verbose data debug (opt-in). Default OFF.
 globalvar DATA_DEBUG_VERBOSE;
@@ -65,12 +62,12 @@ scr_poke_index_build_simple_structs(); // builds global._name_by_id / _name_list
 pkicons_init();
 
 // Ensure PKICONS debug flags exist (preserve pre-existing settings when possible)
-if (variable_global_exists("PKICONS")){
-    if (variable_struct_exists(global.PKICONS, "debug")) global.PKICONS.debug = true;
-    else variable_struct_set(global.PKICONS, "debug", true);
-} else {
-    global.PKICONS = { debug: true, data_debug: true };
-}
+    if (variable_global_exists("PKICONS")){
+        if (variable_struct_exists(global.PKICONS, "debug")) global.PKICONS.debug = false;
+        else variable_struct_set(global.PKICONS, "debug", false);
+    } else {
+        global.PKICONS = { debug: false, data_debug: false };
+    }
 
 // Configure external asset bases (adjust paths as needed on your machine)
 pkicons_set_art96_base("C:/Users/King2/Documents/Pokemon Engine/sprites/pokemon/");
@@ -120,6 +117,9 @@ bag_inventory_add_item(0, 17, 5);
 bag_inventory_add_item(0, 18, 5);
 bag_inventory_add_item(0, 182, 10);
 bags_seed_from_items(0); // refresh once
+
+// NOTE: startup debug simulation for move-learn/leveling removed.
+// To re-enable for debugging, reintroduce the DEBUG_SIMULATE_LEARN_ON_START guard and block here.
 
 // --- PLAYER SPAWN ---------------------------------------------------------
 global.p1 = instance_create_layer(ospawn.x, ospawn.y, "Instances", oPlayer);
