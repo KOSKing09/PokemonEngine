@@ -40,7 +40,7 @@ function __party_impl_draw_summary(_pid, _P, _OX, _OY, _S){
             var _badgeGuiY = _OY + 15 * _S - 5 * _S; // nudge up 5 UI pixels
             draw_set_color(make_color_rgb(220,40,40));
             if (variable_global_exists("FNT_POKEMON_SMALL")) draw_set_font(global.FNT_POKEMON_SMALL);
-            draw_text(_badgeGuiX, _badgeGuiY, "LEARN MOVES");
+            draw_text(_badgeGuiX, _badgeGuiY, "LEARN");
             if (variable_global_exists("FNT_POKEMON")) draw_set_font(global.FNT_POKEMON);
             draw_set_color(c_white);
         }
@@ -57,7 +57,7 @@ function __party_impl_draw_summary(_pid, _P, _OX, _OY, _S){
         // print the current mode and learn_pending.step so the runtime trace
         // can help locate the state mutation source.
         if (string(_P.mode) == "summary_moves" && string(_step_tmp) != "desc"){
-            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party_debug] draw summary: mode=" + string(_P.mode) + ", learn_pending.step=" + string(_step_tmp) + ", sel=" + string(_P.sel) + ", sum_move_sel=" + string(_P.sum_move_sel));
+            // debug removed
         }
         if (string(_step_tmp) != "desc"){
             // Determine currently-selected move id from learn_pending.list_sel and global index
@@ -204,7 +204,9 @@ function __party_impl_draw_moves_block(_P, _M, _x, _y, _w, _h, _S, _highlightFor
     var _nm = array_length(_mv);
     for (var _i = 0; _i < max(4,_nm); _i++){
         var _lineY = _y + 20*_S + _lh*_i;
-        var _txt = (_i < _nm) ? __party_move_name(_mv[_i]) : "—";
+        // Draw existing move name or a blank placeholder for empty slots so
+        // the player can visually see and learn into empty slots.
+        var _txt = (_i < _nm) ? __party_move_name(_mv[_i]) : "-----";
         draw_set_color( _i == _P.sum_move_sel ? (_highlightForget ? make_color_rgb(232,64,48) : make_color_rgb(72,200,88)) : c_white );
         draw_text(_x + 10*_S, _lineY, _txt);
     }
@@ -308,8 +310,7 @@ function __party_impl_draw_left_panel(_P, _M, _OX, _OY, _S, _LEFT_X, _LEFT_Y, _L
         else if (variable_struct_exists(_M,"name"))     _nm = string(_M.name);
         draw_text(_lx1 + 6*_S, _ly1 + 6*_S, _nm);
 
-        // Badge next to the name suppressed; badge is drawn at fixed GUI coords
-        // to avoid overlaps with the list/boxes per user request.
+        // (Badge moved to level area) — no badge drawn here any more.
 
         var _sprArt = -1;
         if (!is_undefined(pkicons_get_art96_by_mon)) _sprArt = pkicons_get_art96_by_mon(_M);
@@ -358,6 +359,31 @@ function __party_impl_draw_left_panel(_P, _M, _OX, _OY, _S, _LEFT_X, _LEFT_Y, _L
         var _lvl = 1; if (variable_struct_exists(_M,"level")) _lvl = _M.level; else if (variable_struct_exists(_M,"lvl")) _lvl = _M.lvl;
         var _name_lh = max(12, string_height("A") + 2) * _S;
         draw_text(_lx1 + 6*_S, _ly1 + 6*_S + _name_lh, "Lv " + string(_lvl));
+        // Draw 'LEARN MOVES' badge to the right of the level if there are
+        // filtered learnset entries that the player hasn't inspected yet.
+        var _filtered_ls = __party_get_learnset_for_mon(_M);
+        var _has_unseen = false;
+        if (is_array(_filtered_ls) && array_length(_filtered_ls) > 0){
+            var _sm = (variable_struct_exists(_M, "seen_moves") ? variable_struct_get(_M, "seen_moves") : []);
+            for (var __li = 0; __li < array_length(_filtered_ls); __li++){
+                var __midv = _filtered_ls[__li];
+                var __f = false;
+                for (var __si2 = 0; __si2 < array_length(_sm); __si2++) if (_sm[__si2] == __midv) { __f = true; break; }
+                if (!__f){ _has_unseen = true; break; }
+            }
+        }
+        if (_has_unseen){
+            var _lvlTxt = "Lv " + string(_lvl);
+            var _lvlX = _lx1 + 6*_S;
+            var _lvlW = string_width(_lvlTxt);
+            var _badgeX = _lvlX + _lvlW + 8*_S;
+            var _badgeY = _ly1 + 6*_S + _name_lh;
+            draw_set_color(make_color_rgb(220,40,40));
+            if (variable_global_exists("FNT_POKEMON_SMALL")) draw_set_font(global.FNT_POKEMON_SMALL);
+            draw_text(_badgeX, _badgeY, "LEARN");
+            if (variable_global_exists("FNT_POKEMON")) draw_set_font(global.FNT_POKEMON);
+            draw_set_color(c_white);
+        }
     }
 
     return { descPad: _DESC_PAD, descAreaH: _DESC_AREA_H, descX: (_lx1 + _DESC_PAD), descY: (_ly2 - _DESC_AREA_H + _DESC_PAD), descW: min((_LEFT_W + 10) * _S, (108 - _LEFT_X - 4) * _S) - _DESC_PAD*2, descH: _DESC_AREA_H - _DESC_PAD*2 };

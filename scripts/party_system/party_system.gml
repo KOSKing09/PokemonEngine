@@ -165,6 +165,28 @@ function party_ensure(_pid){
                 }
             }
         }
+
+            // Ensure per-mon "seen" bookkeeping exists so the UI can mark newly
+            // learned moves as (New) until the player inspects the learn list.
+            if (is_array(_P.mons)){
+                for (var __mi2 = 0; __mi2 < array_length(_P.mons); __mi2++){
+                    var __m2 = _P.mons[__mi2];
+                    if (is_struct(__m2)){
+                        // initialize seen_moves to include any existing moves so only
+                        // newly-learned moves are treated as "New".
+                        if (!variable_struct_exists(__m2, "seen_moves")){
+                            if (variable_struct_exists(__m2, "moves") && is_array(__m2.moves)){
+                                __m2.seen_moves = [];
+                                for (var __si = 0; __si < array_length(__m2.moves); __si++) array_push(__m2.seen_moves, __m2.moves[__si]);
+                            } else {
+                                __m2.seen_moves = [];
+                            }
+                        }
+                        // track whether the player has opened the learn LIST for this mon
+                        if (!variable_struct_exists(__m2, "learn_seen")) __m2.learn_seen = false;
+                    }
+                }
+            }
     }
 
     var _n = array_length(_P.mons), _rows = 6;
@@ -237,7 +259,7 @@ function __party_get_learnset_for_mon(_mon){
     // Prefer structured per-mon learnset
     if (variable_struct_exists(_mon, "learnset") && is_array(variable_struct_get(_mon, "learnset"))){
         var _ls = variable_struct_get(_mon, "learnset");
-        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[DATA_DEBUG] __party_get_learnset_for_mon: per-mon learnset found with length=" + string(array_length(_ls)));
+    // debug message removed
         for (var i = 0; i < array_length(_ls); i++){
             var ent = _ls[i];
             var mid = undefined;
@@ -273,9 +295,30 @@ function __party_get_learnset_for_mon(_mon){
             if (is_real(req_level) && !is_undefined(_level)){
                 if (req_level > _level) continue;
             }
-            if (is_real(mid) && mid > 0) array_push(_out, mid);
+            if (is_real(mid) && mid > 0) {
+                // Include known moves in the learn list (they will be drawn darker by UI)
+                // The UI draw code will visually de-emphasize moves present in _mon.moves.
+                // If the move's flavor text explicitly states it "should be forgotten"
+                // treat it as unlearnable and skip adding it to the learnset.
+                var _skip_by_text = false;
+                if (variable_global_exists("_move_text") && is_array(global._move_text) && mid < array_length(global._move_text)){
+                    var _mvtxt = global._move_text[mid];
+                    var _acc = "";
+                    if (is_struct(_mvtxt)){
+                        if (variable_struct_exists(_mvtxt, "short_desc")) _acc += string(variable_struct_get(_mvtxt, "short_desc")) + " ";
+                        if (variable_struct_exists(_mvtxt, "effect")) _acc += string(variable_struct_get(_mvtxt, "effect"));
+                    } else if (is_string(_mvtxt)) _acc = _mvtxt;
+                    var _ld = string_lower(_acc);
+                    if (string_pos("recommended that this move is forgotten", _ld) > 0
+                        || string_pos("can't be remembered", _ld) > 0
+                        || string_pos("cannot be remembered", _ld) > 0) {
+                        _skip_by_text = true;
+                    }
+                }
+                if (!_skip_by_text) array_push(_out, mid);
+            }
         }
-        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[DATA_DEBUG] __party_get_learnset_for_mon: returning per-mon filtered moves count=" + string(array_length(_out)));
+    // debug message removed
     }
     // Fallback: if no per-mon entries, return empty so caller can choose to fall back to global index
     return _out;
@@ -305,6 +348,9 @@ function party_update(){
                 // summary page. If we're in summary_forget, let the main input
                 // state machine handle replacement confirmation/navigation.
                 if (string(_lp_step_check) == "list" && string(_P.mode) == "summary_moves"){
+                    // Run the learn input handler when the learn LIST is active
+                    // from the moves summary. Do NOT intercept during summary_forget
+                    // so the replace-confirm code in the main state machine runs.
                     if (__party_input_learn(0)) {
                         return;
                     }
@@ -609,6 +655,18 @@ function __party_draw_learn_list(_pid, _P, _OX, _OY, _S, _rx, _ry, _rw, _rh, _de
         var _tmpmoves2 = variable_struct_get(mon, "moves");
         if (is_array(_tmpmoves2)) _known = _tmpmoves2;
     }
+    // If the player is hovering/selecting a move in the list, mark that move
+    // as seen for this mon so the '(New)' marker disappears immediately.
+    if (is_struct(mon) && is_real(_sel_mid) && _sel_mid >= 0){
+        var _smarr = (variable_struct_exists(mon, "seen_moves") ? variable_struct_get(mon, "seen_moves") : undefined);
+        if (!is_array(_smarr)) _smarr = [];
+        var _already = false;
+        for (var __zz = 0; __zz < array_length(_smarr); __zz++) if (_smarr[__zz] == _sel_mid) { _already = true; break; }
+        // Only add if not already known (we want known to remain known) and not present in seen
+        var _isKnownForSel = false;
+        for (var __k2 = 0; __k2 < array_length(_known); __k2++) if (_known[__k2] == _sel_mid) { _isKnownForSel = true; break; }
+        if (!_already && !_isKnownForSel){ array_push(_smarr, _sel_mid); variable_struct_set(mon, "seen_moves", _smarr); }
+    }
     var _list_x = _rx + _pad;
     var _list_y = _list_top;
     var _list_w = max(0, _rw - _pad*2);
@@ -626,12 +684,23 @@ function __party_draw_learn_list(_pid, _P, _OX, _OY, _S, _rx, _ry, _rw, _rh, _de
         var isKnown = false;
         for (var k = 0; k < array_length(_known); k++) if (_known[k] == mid) { isKnown = true; break; }
 
+        // Determine if this move is 'New' for this mon (not in seen_moves and not known)
+        var _is_new = false;
+        if (is_struct(mon) && variable_struct_exists(mon, "seen_moves") && is_array(variable_struct_get(mon, "seen_moves"))){
+            var _sm_tmp = variable_struct_get(mon, "seen_moves");
+            var _found_new = true;
+            for (var _zz = 0; _zz < array_length(_sm_tmp); _zz++) if (_sm_tmp[_zz] == mid) { _found_new = false; break; }
+            _is_new = _found_new && !isKnown;
+        }
+
         if (idx == lp.list_sel){
             draw_set_color(c_white);
             __party_text_white(_list_x, yy, "> " + txt + (isKnown ? " (known)" : ""));
+            if (_is_new){ draw_set_color(make_color_rgb(220,40,40)); draw_text(_list_x + string_width("> " + txt + (isKnown ? " (known)" : "")) + 6*_S, yy, "(New)"); draw_set_color(c_white); }
         } else {
             if (isKnown) draw_set_color(make_color_rgb(160,160,160)); else draw_set_color(make_color_rgb(220,220,220));
             draw_text(_list_x, yy, "  " + txt + (isKnown ? " (known)" : ""));
+            if (_is_new){ draw_set_color(make_color_rgb(220,40,40)); draw_text(_list_x + string_width("  " + txt + (isKnown ? " (known)" : "")) + 6*_S, yy, "(New)"); draw_set_color(c_white); }
         }
     }
     // persist updated scroll/sel
@@ -675,7 +744,7 @@ function __party_input_learn(_pid){
     // Debug: report that input handler was entered and current step
     var _lp_dbg_in = variable_struct_get(P, "learn_pending");
     var _lp_dbg_step = (variable_struct_exists(_lp_dbg_in, "step") ? variable_struct_get(_lp_dbg_in, "step") : "desc");
-    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party_debug] __party_input_learn entered: pid=" + string(_pid) + ", step=" + string(_lp_dbg_step));
+    // debug removed
     var lp = variable_struct_get(P, "learn_pending");
     // If on desc page: Right -> go to list
     var _step = (variable_struct_exists(lp, "step") ? variable_struct_get(lp, "step") : "desc");
@@ -714,6 +783,24 @@ function __party_input_learn(_pid){
             variable_struct_set(_lp2, "step", "list");
             variable_struct_set(_lp2, "list_sel", _start_sel);
             variable_struct_set(_lp2, "list_scroll", max(0, _start_sel - 3));
+            // Mark this mon's learn list as viewed and record seen learnset entries
+            if (is_struct(_mon_tmp)){
+                // set learn_seen flag
+                if (!variable_struct_exists(_mon_tmp, "learn_seen")) variable_struct_set(_mon_tmp, "learn_seen", true);
+                else variable_struct_set(_mon_tmp, "learn_seen", true);
+                // ensure seen_moves is an array
+                if (!variable_struct_exists(_mon_tmp, "seen_moves") || !is_array(variable_struct_get(_mon_tmp, "seen_moves"))) variable_struct_set(_mon_tmp, "seen_moves", []);
+                // Add all entries from the computed move_index_tmp to seen_moves
+                var _seen_arr = variable_struct_get(_mon_tmp, "seen_moves");
+                if (!is_array(_seen_arr)) { _seen_arr = []; variable_struct_set(_mon_tmp, "seen_moves", _seen_arr); }
+                for (var __a = 0; __a < array_length(_move_index_tmp); __a++){
+                    var __mid = _move_index_tmp[__a];
+                    var __found = false;
+                    for (var __b = 0; __b < array_length(_seen_arr); __b++) if (_seen_arr[__b] == __mid) { __found = true; break; }
+                    if (!__found) array_push(_seen_arr, __mid);
+                }
+                variable_struct_set(_mon_tmp, "seen_moves", _seen_arr);
+            }
             variable_struct_set(P, "learn_pending", _lp2);
             return true;
         }
@@ -727,6 +814,8 @@ function __party_input_learn(_pid){
             if (controls_pressed(_pid, "MoveUp")) { global.sys_party_desc_scroll_req -= 28; return true; }
             if (controls_pressed(_pid, "MoveDown")) { global.sys_party_desc_scroll_req += 28; return true; }
         }
+        // (input diagnostics removed)
+
         // Prefer per-mon filtered learnset for input navigation as well
         var move_index = [];
         var mon = (is_array(P.mons) && P.sel < array_length(P.mons)) ? P.mons[P.sel] : undefined;
@@ -756,10 +845,24 @@ function __party_input_learn(_pid){
             }
             var chosen_mid = (lp.list_sel >= 0 && lp.list_sel < array_length(move_index)) ? move_index[lp.list_sel] : -1;
             if (chosen_mid <= 0) return false;
+            // Prevent teaching a move the mon already knows
+            var _already_known = false;
+            if (is_struct(mon) && variable_struct_exists(mon, "moves") && is_array(variable_struct_get(mon, "moves"))){
+                var _mm = variable_struct_get(mon, "moves");
+                for (var __kk = 0; __kk < array_length(_mm); __kk++) if (_mm[__kk] == chosen_mid){ _already_known = true; break; }
+            }
+            if (_already_known){
+                if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, __party_move_name(chosen_mid) + " is already known.");
+                // keep learn_pending active and remain on list
+                variable_struct_set(P, "learn_pending", lp);
+                return true;
+            }
             // attempt teach using scr_move_learn_try if available
             var mon_idx = P.sel;
             var mon = (is_array(P.mons) && mon_idx < array_length(P.mons)) ? P.mons[mon_idx] : undefined;
+            // debug removed
             var res = scr_move_learn_try(mon, chosen_mid);
+            // debug removed
             if (is_struct(res) && string(res.status) == "learned"){
                 // persist mon changes back into party structure if our stub altered it
                 if (is_struct(mon) && is_array(P.mons) && mon_idx >= 0 && mon_idx < array_length(P.mons)) P.mons[mon_idx] = mon;

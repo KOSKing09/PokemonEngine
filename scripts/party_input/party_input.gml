@@ -64,66 +64,65 @@ function __party_impl_party_update(){
                         case 3: _P.mode="list"; _P.lock=2; break;
                     }
                 }
-                if (controls_pressed(_pid,"Run") && _P.lock == 0){ _P.mode="list"; _P.lock=2; }
-            break;
 
-            case "item_action":
-                // Build labels the same way the party draw does so indices line up with actions
-                var _labels = ["Take","Cancel"];
-                var _shouldShowGive = false;
-                if (variable_struct_exists(_P, "give_pending")){
-                    _shouldShowGive = true;
-                } else {
-                    var _selMon = undefined;
-                    if (variable_struct_exists(_P, "mons") && is_array(_P.mons) && _P.sel >= 0 && _P.sel < array_length(_P.mons)) _selMon = _P.mons[_P.sel];
-                    if (!is_undefined(_selMon) && is_struct(_selMon) && variable_struct_exists(_selMon, "held_item_id")){
-                        var _hid_tmp = variable_struct_get(_selMon, "held_item_id");
-                        if (is_real(_hid_tmp) && _hid_tmp > 0) _shouldShowGive = false; else _shouldShowGive = true;
-                    } else {
+                // If the menu switched into the item_action submenu, handle its input here.
+                if (string(_P.mode) == "item_action"){
+                    var _labels = ["Take","Cancel"];
+                    var _shouldShowGive = false;
+                    if (variable_struct_exists(_P, "give_pending")){
                         _shouldShowGive = true;
-                    }
-                }
-                if (_shouldShowGive) array_insert(_labels, 0, "Give");
-
-                var _maxIdx = array_length(_labels) - 1;
-                if (controls_pressed(_pid,"MoveDown")) _P.item_menu_sel = clamp(_P.item_menu_sel + 1, 0, _maxIdx);
-                if (controls_pressed(_pid,"MoveUp"))   _P.item_menu_sel = clamp(_P.item_menu_sel - 1, 0, _maxIdx);
-                if (controls_pressed(_pid,"Interact") && _P.lock == 0){
-                    var _action = _labels[clamp(_P.item_menu_sel, 0, _maxIdx)];
-                    if (_action == "Give"){
-                        var _b = bag_inventory_ensure(_pid);
-                        // flag the bag to deliver selection to this party slot
-                        _b.give_to_mon = _P.sel;
-                        _b.give_from_party = true;
-                        // close party so bag is visible (party is drawn on top of bag); bag will re-open the party after give
-                        _P.lock = 4;
-                        party_close(_pid);
-                        bag_open(_pid);
-                        // short lock on bag to avoid immediate input
-                        _b.lock = 4;
-                    } else if (_action == "Take"){
-                        // Ensure target mon struct exists and attempt to read held item id
-                        var target = _P.mons[_P.sel];
-                        if (!is_struct(target)) target = _P.mons[_P.sel] = {};
-                        var hid = (variable_struct_exists(target, "held_item_id") ? variable_struct_get(target, "held_item_id") : -1);
-                        if (is_real(hid) && hid > 0){
-                            // Add the held item back to the player's bag
-                            bag_inventory_add_item(_pid, hid, 1);
-                            // Clear held item id and canonical name on the mon
-                            if (variable_struct_exists(target, "held_item_id")) variable_struct_set(target, "held_item_id", -1);
-                            if (variable_struct_exists(target, "held_item_real_name")) variable_struct_set(target, "held_item_real_name", "");
-                            bags_seed_from_items(_pid);
-                            show_debug_message("[party] Took item " + string(hid) + " from mon index " + string(_P.sel));
+                    } else {
+                        var _selMon = undefined;
+                        if (variable_struct_exists(_P, "mons") && is_array(_P.mons) && _P.sel >= 0 && _P.sel < array_length(_P.mons)) _selMon = _P.mons[_P.sel];
+                        if (!is_undefined(_selMon) && is_struct(_selMon) && variable_struct_exists(_selMon, "held_item_id")){
+                            var _hid_tmp = variable_struct_get(_selMon, "held_item_id");
+                            if (is_real(_hid_tmp) && _hid_tmp > 0){ _shouldShowGive = false; } else { _shouldShowGive = true; }
                         } else {
-                            show_debug_message("[party] No held item to take");
+                            _shouldShowGive = true;
                         }
-                        // return to party menu
-                        _P.mode = "list"; _P.lock = 4; _P.give_pending = undefined;
-                    } else if (_action == "Cancel"){
-                        _P.mode = "menu"; _P.lock = 2;
                     }
+                    if (_shouldShowGive) array_insert(_labels, 0, "Give");
+
+                    var _maxIdx = array_length(_labels) - 1;
+                    if (controls_pressed(_pid,"MoveDown")) _P.item_menu_sel = clamp(_P.item_menu_sel + 1, 0, _maxIdx);
+                    if (controls_pressed(_pid,"MoveUp"))   _P.item_menu_sel = clamp(_P.item_menu_sel - 1, 0, _maxIdx);
+                    if (controls_pressed(_pid,"Interact") && _P.lock == 0){
+                        var _action = _labels[clamp(_P.item_menu_sel, 0, _maxIdx)];
+                        if (_action == "Give"){
+                            var _b = bag_inventory_ensure(_pid);
+                            // flag the bag to deliver selection to this party slot
+                            _b.give_to_mon = _P.sel;
+                            _b.give_from_party = true;
+                            // close party so bag is visible (party is drawn on top of bag); bag will re-open the party after give
+                            _P.lock = 4;
+                            party_close(_pid);
+                            bag_open(_pid);
+                            // short lock on bag to avoid immediate input
+                            _b.lock = 4;
+                        } else if (_action == "Take"){
+                            // Ensure target mon struct exists and attempt to read held item id
+                            var target = _P.mons[_P.sel];
+                            if (!is_struct(target)) target = _P.mons[_P.sel] = {};
+                            var hid = (variable_struct_exists(target, "held_item_id") ? variable_struct_get(target, "held_item_id") : -1);
+                            if (is_real(hid) && hid > 0){
+                                // Add the held item back to the player's bag
+                                bag_inventory_add_item(_pid, hid, 1);
+                                // Clear held item id and canonical name on the mon
+                                if (variable_struct_exists(target, "held_item_id")) variable_struct_set(target, "held_item_id", -1);
+                                if (variable_struct_exists(target, "held_item_real_name")) variable_struct_set(target, "held_item_real_name", "");
+                                bags_seed_from_items(_pid);
+                                show_debug_message("[party] Took item " + string(hid) + " from mon index " + string(_P.sel));
+                            } else {
+                                show_debug_message("[party] No held item to take");
+                            }
+                            // return to party menu
+                            _P.mode = "list"; _P.lock = 4; _P.give_pending = undefined;
+                        } else if (_action == "Cancel"){
+                            _P.mode = "menu"; _P.lock = 2;
+                        }
+                    }
+                    if (controls_pressed(_pid,"Run") && _P.lock == 0){ _P.mode = "menu"; _P.lock = 2; }
                 }
-                if (controls_pressed(_pid,"Run") && _P.lock == 0){ _P.mode = "menu"; _P.lock = 2; }
             break;
 
             case "select":
@@ -430,17 +429,90 @@ function __party_impl_party_update(){
                     } else _P.sum_learn_sel = 0;
                 } else {
                     if (!controls_down(_pid,"Interact")){
-                        if (_nm > 0){
-                            if (controls_pressed(_pid,"MoveDown")) _P.sum_move_sel = clamp(_P.sum_move_sel + 1, 0, _nm - 1);
-                            if (controls_pressed(_pid,"MoveUp"))   _P.sum_move_sel = clamp(_P.sum_move_sel - 1, 0, _nm - 1);
-                        } else _P.sum_move_sel = 0;
+                        // Allow navigating all 4 move slots (indices 0..3) so blank slots
+                        // rendered as '-----' can be selected when learning a new move.
+                        if (!variable_struct_exists(_P, "sum_move_sel")) _P.sum_move_sel = 0;
+                        if (controls_pressed(_pid,"MoveDown")) _P.sum_move_sel = clamp(_P.sum_move_sel + 1, 0, 3);
+                        if (controls_pressed(_pid,"MoveUp"))   _P.sum_move_sel = clamp(_P.sum_move_sel - 1, 0, 3);
                     }
                 }
 
                 if (controls_pressed(_pid,"Interact") && _P.lock == 0){
                     if (_nl > 0){
+                        // Defensive: ensure sum_learn_sel exists and is in-bounds
+                        if (!variable_struct_exists(_P, "sum_learn_sel")) _P.sum_learn_sel = 0;
+                        _P.sum_learn_sel = clamp(_P.sum_learn_sel, 0, max(0, _nl - 1));
                         var _learnId = _lr[_P.sum_learn_sel];
-                        if (_nm < 4){ array_push(_mv, _learnId); variable_struct_set(_M, "moves", _mv); _P.sum_move_sel = array_length(_mv) - 1; _P.lock = 4; }
+                        if (_nm < 4){
+                            // Ensure selection index exists
+                            if (!variable_struct_exists(_P, "sum_move_sel")) _P.sum_move_sel = 0;
+                            var _target_slot = clamp(_P.sum_move_sel, 0, 3);
+                            // Prefer centralized learning logic if provided
+                            if (!is_undefined(scr_move_learn_try)){
+                                // debug removed
+                                var _res = scr_move_learn_try(_M, _learnId);
+                                // debug message removed
+                                if (is_struct(_res) && variable_struct_exists(_res, "status")){
+                                    var _st = variable_struct_get(_res, "status");
+                                    if (_st == "learned"){
+                                        var _slot = variable_struct_exists(_res, "slot") ? variable_struct_get(_res, "slot") : _target_slot;
+                                        _P.sum_move_sel = clamp(_slot, 0, 3);
+                                        // Ensure model persisted (scr_move_learn_try may have mutated _M.moves)
+                                        if (!variable_struct_exists(_M, "moves")) variable_struct_set(_M, "moves", []);
+                                        // Persist mutated mon back into party so changes stick
+                                        if (is_array(_P.mons) && _P.sel >= 0 && _P.sel < array_length(_P.mons)) _P.mons[_P.sel] = _M;
+                                        _P.lock = 4;
+                                    } else if (_st == "skipped"){
+                                        // Already knows the move: inform player and do not insert
+                                        var _msg = __party_move_name(_learnId) + " already known.";
+                                        if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, _msg);
+                                        else show_debug_message("[party] " + _msg);
+                                        _P.lock = 2;
+                                    } else if (_st == "need_replace"){
+                                        // Fall back to replace flow (enter summary_forget with learn_pending)
+                                        var _lp_new = {};
+                                        _lp_new.move_id = _learnId;
+                                        _lp_new.step = "list";
+                                        _lp_new.list_sel = 0;
+                                        _lp_new.list_scroll = 0;
+                                        var _mi_tmp = __party_get_learnset_for_mon(_M);
+                                        if (is_array(_mi_tmp) && array_length(_mi_tmp) > 0){
+                                            for (var __li = 0; __li < array_length(_mi_tmp); __li++){
+                                                if (_mi_tmp[__li] == _learnId){ _lp_new.list_sel = __li; break; }
+                                            }
+                                            _lp_new.list_scroll = max(0, _lp_new.list_sel - 3);
+                                        }
+                                        variable_struct_set(_P, "learn_pending", _lp_new);
+                                        var _ls = (variable_struct_exists(_lp_new, "list_sel") ? variable_struct_get(_lp_new, "list_sel") : 0);
+                                        _P.sum_learn_sel = clamp(_ls, 0, max(0, array_length(__party_get_learnset_for_mon(_M)) - 1));
+                                        _P.mode = "summary_forget"; _P.lock = 2;
+                                    }
+                                } else {
+                                    // Unexpected res shape: fallback to safe insertion (below)
+                                    ;
+                                }
+                            } else {
+                                // No centralized helper: do a duplicate check and insert into target slot
+                                var _known = false;
+                                for (var __k=0; __k<array_length(_mv); __k++) if (_mv[__k] == _learnId) { _known = true; break; }
+                                if (_known){
+                                    var _msg2 = __party_move_name(_learnId) + " already known.";
+                                    if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, _msg2);
+                                    else show_debug_message("[party] " + _msg2);
+                                    _P.lock = 2;
+                                } else {
+                                    // insert into exact selected slot (pad with placeholders as needed)
+                                    while (array_length(_mv) < _target_slot) array_push(_mv, -1);
+                                    if (array_length(_mv) == _target_slot) array_push(_mv, _learnId);
+                                    else _mv[_target_slot] = _learnId;
+                                    variable_struct_set(_M, "moves", _mv);
+                                    // Persist mutated mon back into party so changes stick
+                                    if (is_array(_P.mons) && _P.sel >= 0 && _P.sel < array_length(_P.mons)) _P.mons[_P.sel] = _M;
+                                    _P.sum_move_sel = _target_slot;
+                                    _P.lock = 4;
+                                }
+                            }
+                        }
                         else {
                             // Enter forget flow: ensure a learn_pending wrapper exists so
                             // the right-panel learn LIST can render and receive input.
@@ -467,7 +539,7 @@ function __party_impl_party_update(){
                                     var _lp_sync = variable_struct_get(_P, "learn_pending");
                                     var _ls = (variable_struct_exists(_lp_sync, "list_sel") ? variable_struct_get(_lp_sync, "list_sel") : 0);
                                     _P.sum_learn_sel = clamp(_ls, 0, max(0, array_length(__party_get_learnset_for_mon(_M)) - 1));
-                                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party_debug] entering summary_forget: synced sum_learn_sel=" + string(_P.sum_learn_sel));
+                                    // debug removed
                                 }
                                 _P.mode = "summary_forget"; _P.lock = 2;
                         }
@@ -499,16 +571,31 @@ function __party_impl_party_update(){
                     var _nl_now = array_length(_lr_now);
                     _P.sum_learn_sel = clamp(_P.sum_learn_sel, 0, max(0, _nl_now - 1));
                     var _chosen_now = (_nl_now > 0) ? _lr_now[_P.sum_learn_sel] : -1;
-                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party_debug] summary_forget confirm: slot=" + string(_P.sum_move_sel) + ", learn_sel=" + string(_P.sum_learn_sel) + ", chosen_mid=" + string(_chosen_now));
+                    // debug removed
                     if (_chosen_now != -1){
+                        // Prevent replacing with a move that's already known in another slot
+                        var _dup = false;
+                        for (var __d = 0; __d < array_length(_mv2); __d++){
+                            if (__d != _P.sum_move_sel && _mv2[__d] == _chosen_now){ _dup = true; break; }
+                        }
+                        if (_dup){
+                            var _msg_dup = __party_move_name(_chosen_now) + " already known.";
+                            if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, _msg_dup);
+                            else show_debug_message("[party] " + _msg_dup);
+                            // Keep learn_pending active and do not apply replacement
+                            _P.lock = 2;
+                            variable_struct_set(_P, "learn_pending", variable_struct_get(_P, "learn_pending"));
+                            return;
+                        }
                         // Apply replacement into the selected slot and return to moves summary
                         _mv2[_P.sum_move_sel] = _chosen_now; variable_struct_set(_M2, "moves", _mv2);
+                        // Persist mutated mon back into party storage so replacement is saved
+                        if (is_array(_P.mons) && _P.sel >= 0 && _P.sel < array_length(_P.mons)) _P.mons[_P.sel] = _M2;
                         // Clear the learn flow and return to moves view
                         if (variable_struct_exists(_P, "learn_pending") && is_struct(variable_struct_get(_P, "learn_pending"))){
                             variable_struct_set(_P, "learn_pending", undefined);
                         }
                         _P.mode = "summary_moves"; _P.lock = 4;
-                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party_debug] replaced move slot=" + string(_P.sum_move_sel) + " with move=" + string(_chosen_now) + ", returning to summary_moves");
                         // consume the frame so additional movement isn't processed
                         return;
                     } else {
@@ -588,16 +675,18 @@ function __party_impl_party_update(){
                     var _nl_now = array_length(_lr_now);
                     _P.sum_learn_sel = clamp(_P.sum_learn_sel, 0, max(0, _nl_now - 1));
                     var _chosen_now = (_nl_now > 0) ? _lr_now[_P.sum_learn_sel] : -1;
-                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party_debug] summary_forget confirm: slot=" + string(_P.sum_move_sel) + ", learn_sel=" + string(_P.sum_learn_sel) + ", chosen_mid=" + string(_chosen_now));
+                    // debug removed
                     if (_chosen_now != -1){
                         // Apply replacement into the selected slot and return to moves summary
                         _mv2[_P.sum_move_sel] = _chosen_now; variable_struct_set(_M2, "moves", _mv2);
+                        // Persist mutated mon back into party storage so replacement is saved
+                        if (is_array(_P.mons) && _P.sel >= 0 && _P.sel < array_length(_P.mons)) _P.mons[_P.sel] = _M2;
                         // Clear the learn flow and return to moves view
                         if (variable_struct_exists(_P, "learn_pending") && is_struct(variable_struct_get(_P, "learn_pending"))){
                             variable_struct_set(_P, "learn_pending", undefined);
                         }
                         _P.mode = "summary_moves"; _P.lock = 4;
-                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party_debug] replaced move slot=" + string(_P.sum_move_sel) + " with move=" + string(_chosen_now) + ", returning to summary_moves");
+                        // debug removed
                     } else {
                         // Nothing chosen: just return to moves summary
                         _P.mode = "summary_moves"; _P.lock = 2;

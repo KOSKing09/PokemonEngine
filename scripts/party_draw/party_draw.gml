@@ -20,9 +20,9 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         if (is_struct(_P) && variable_struct_exists(_P, "learn_pending") && is_struct(variable_struct_get(_P, "learn_pending"))){
             var _lp_dbg = variable_struct_get(_P, "learn_pending");
             var _lp_step_dbg = (variable_struct_exists(_lp_dbg, "step") ? variable_struct_get(_lp_dbg, "step") : "desc");
-            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party_debug] party_draw: entering summary, mode=" + _mode_dbg + ", learn_pending.step=" + string(_lp_step_dbg));
+            // debug message removed
         } else {
-            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party_debug] party_draw: entering summary, mode=" + _mode_dbg + ", learn_pending=none");
+            // debug message removed
         }
         __party_draw_summary(_pid, _P, _OX, _OY, _S);
         return;

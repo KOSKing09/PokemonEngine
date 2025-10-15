@@ -199,6 +199,7 @@
     {"$GMIncludedFile":"","%Name":"pokemon_types_past.csv","CopyToMask":-1,"filePath":"datafiles/data/csv","name":"pokemon_types_past.csv","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
     {"$GMIncludedFile":"","%Name":"pokemon_types.csv","CopyToMask":-1,"filePath":"datafiles/data/csv","name":"pokemon_types.csv","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
     {"$GMIncludedFile":"","%Name":"pokemon.csv","CopyToMask":-1,"filePath":"datafiles/data/csv","name":"pokemon.csv","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
+    {"$GMIncludedFile":"","%Name":"pokemonDB_dataset.csv","CopyToMask":-1,"filePath":"datafiles/data/csv","name":"pokemonDB_dataset.csv","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
     {"$GMIncludedFile":"","%Name":"region_names.csv","CopyToMask":-1,"filePath":"datafiles/data/csv","name":"region_names.csv","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
     {"$GMIncludedFile":"","%Name":"regions.csv","CopyToMask":-1,"filePath":"datafiles/data/csv","name":"regions.csv","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
     {"$GMIncludedFile":"","%Name":"stat_names.csv","CopyToMask":-1,"filePath":"datafiles/data/csv","name":"stat_names.csv","resourceType":"GMIncludedFile","resourceVersion":"2.0",},

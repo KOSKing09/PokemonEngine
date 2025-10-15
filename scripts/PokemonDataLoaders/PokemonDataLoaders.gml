@@ -433,6 +433,11 @@ function data_load_move_text_structs(){
         // Keep the latest version group text
         if (vg >= maxVG[mid2]){
             maxVG[mid2] = vg;
+            // Sanitize known problematic long sentence which appears in some CSV dumps.
+            // Replace it with a shorter, less alarming phrase. This is non-destructive
+            // and only affects the in-memory copy used by the game.
+            var _bad = "This move can't be used. It's recommended that this move is forgotten. Once forgotten, this move can't be remembered.";
+            if (string_length(text) > 0) text = string_replace_all(text, _bad, "This move can't be used and cannot be remembered once forgotten.");
             // Preserve legacy shape: name empty, short_desc/effect both get flavor text
             global._move_text[mid2] = { name:"", short_desc:text, effect:text };
         }

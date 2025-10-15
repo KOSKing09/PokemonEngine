@@ -6,7 +6,12 @@ function __bag_impl_bags_update(){
     for (var pid = 0; pid < _players; pid++) {
         var b = global.BAGS[pid]; if (!is_struct(b)) continue;
 
-        if (controls_pressed(pid, "Inventory")) { b.open = !b.open; if (b.open) b.spin_ticks = 18; }
+        // Open bag when Inventory pressed. When already open, close with Run (B) like the party menu.
+        if (!b.open){
+            if (controls_pressed(pid, "Inventory")) { b.open = true; b.spin_ticks = 18; }
+        } else {
+            if (controls_pressed(pid, "Run") && (variable_struct_exists(b, "lock") ? b.lock == 0 : true)) { b.open = false; if (variable_struct_exists(b, "lock")) b.lock = 2; }
+        }
         if (!b.open) continue;
 
         // If the item submenu is open, suppress normal bag navigation so input is handled by submenu only

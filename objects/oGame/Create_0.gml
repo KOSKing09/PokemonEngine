@@ -29,7 +29,7 @@ global.DEBUG = true;
 
 // Data loaders debug gate (opt-in). Default OFF for normal play; set true for troubleshooting.
 globalvar DATA_DEBUG;
-global.DATA_DEBUG = false;
+global.DATA_DEBUG = true;
 
 // Very verbose data debug (opt-in). Default OFF.
 globalvar DATA_DEBUG_VERBOSE;
