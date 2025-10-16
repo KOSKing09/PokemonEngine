@@ -105,3 +105,35 @@ function party_model_copy_mon(_mon){
     for (var i=0; i<array_length(k); i++) out[k[i]] = _mon[k[i]];
     return out;
 }
+
+// Update/replace a mon struct at index in the party. Ensures the party
+// container exists and writes the struct back in a single place.
+// Returns true on success, false on failure.
+function party_model_update_mon(_pid, _index, _mon){
+    if (!is_struct(_mon)) return false;
+    if (!variable_global_exists("PARTY")) global.PARTY = [];
+    if (!is_array(global.PARTY)) global.PARTY = [];
+    if (_pid < 0) return false;
+    if (array_length(global.PARTY) <= _pid) array_resize(global.PARTY, _pid + 1);
+    var _P = global.PARTY[_pid];
+    if (!is_struct(_P)){
+        _P = { open:false, mode:"list", sel:0, scroll:0, menu_sel:0, swap_index:-1, lock:0, mons:[], sum_move_sel:0, sum_learn_sel:0 };
+        global.PARTY[_pid] = _P;
+    }
+    if (!variable_struct_exists(_P, "mons") || !is_array(_P.mons)) _P.mons = [];
+    var _mons = _P.mons;
+    if (!is_real(_index) || _index < 0) return false;
+    if (_index >= array_length(_mons)) array_resize(_mons, _index + 1);
+    _mons[_index] = _mon;
+    _P.mons = _mons;
+    global.PARTY[_pid] = _P;
+    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+        // Try to show a concise snapshot of the mon's moves for debugging
+        var mvtxt = "";
+        if (variable_struct_exists(_mon, "moves") && is_array(_mon.moves)){
+            for (var _mi=0; _mi<array_length(_mon.moves); _mi++) mvtxt += string(_mon.moves[_mi]) + ( _mi < array_length(_mon.moves)-1 ? "," : "");
+        }
+        show_debug_message("[party_model_update_mon] pid=" + string(_pid) + ", slot=" + string(_index) + ", moves=[" + mvtxt + "]");
+    }
+    return true;
+}

@@ -48,66 +48,46 @@ function __battle_anim_create_catch(_B, _item_id, _caught_struct, _opts){
         return ca;
     }
 
-// Update animations on the battle slot. Returns { resolved:boolean, action:string }
+// Simple battle animations module
+// Provides: __battle_anim_update(_B) -> progresses animations
+//           __battle_anim_draw(_pid) -> draws current animation state
+
 function __battle_anim_update(_B){
-    if (!is_struct(_B) || !variable_struct_exists(_B, "_catch_anim")) return { resolved:false, action:"none" };
-    var A = variable_struct_get(_B, "_catch_anim");
-    if (!is_struct(A) || !variable_struct_exists(A, "active") || !A.active) return { resolved:false, action:"none" };
+    // Accept pid or slot
+    var _slot = _B;
+    if (is_real(_B)) _slot = __battle_ensure_slot(_B);
+    if (!is_struct(_slot)) return { resolved:false };
+    if (!variable_struct_exists(_slot, "sys_anim") || !is_struct(variable_struct_get(_slot, "sys_anim"))) return { resolved:false };
+    var sa = variable_struct_get(_slot, "sys_anim");
+    var active = (variable_struct_exists(sa, "active") ? variable_struct_get(sa, "active") : []);
+    var current = (variable_struct_exists(sa, "current") ? variable_struct_get(sa, "current") : undefined);
 
-    var now = current_time;
-    var elapsed = now - (variable_struct_exists(A, "start_ms") ? A.start_ms : now);
+    // If no current and there's an active, pop one
+    if (!is_struct(current) && is_array(active) && array_length(active) > 0){
+        var next = active[0];
+        // remove from active
+        var newarr = [];
+        for (var ii=1; ii<array_length(active); ++ii) newarr[array_length(newarr)] = active[ii];
+        variable_struct_set(sa, "active", newarr);
+        // current spec
+        var now = current_time;
+        var dur = (is_struct(next) && variable_struct_exists(next, "duration") ? variable_struct_get(next, "duration") : 700);
+        variable_struct_set(sa, "current", { spec: next, start: now, dur: dur, active: true });
+        variable_struct_set(_slot, "sys_anim", sa);
+        return { resolved:false };
+    }
 
-    if (string(A.phase) == "throw"){
-        if (elapsed >= A.throw_dur){ A.phase = "impact"; A.phase_start = now; }
-        return { resolved:false, action:"none" };
-    }
-    if (string(A.phase) == "impact"){
-        var e = now - (variable_struct_exists(A, "phase_start") ? A.phase_start : now);
-        if (e >= A.impact_dur){ A.phase = "shake"; A.phase_start = now; }
-        return { resolved:false, action:"none" };
-    }
-    if (string(A.phase) == "shake"){
-        var e2 = now - (variable_struct_exists(A, "phase_start") ? A.phase_start : now);
-        var hop_dur = (variable_struct_exists(A, "hop_dur") ? max(1, real(A.hop_dur)) : 320);
-        var hop_pause = (variable_struct_exists(A, "hop_pause") ? max(0, real(A.hop_pause)) : 180);
-        var cycle = hop_dur + hop_pause;
-        if (!variable_struct_exists(A, "hop_index") || A.hop_index <= 0){ A.hop_index = 1; A.phase_start = now; e2 = 0; }
-        if (e2 >= cycle){
-            if (variable_struct_exists(A, "outcome") && A.outcome){
-                if (variable_struct_exists(A, "hop_total") && A.hop_index < A.hop_total){ A.hop_index += 1; A.phase_start = now; }
-                else { A.phase = "resolve"; A.phase_start = now; return { resolved:true, action:"caught" }; }
-            } else {
-                var _bh = (variable_struct_exists(A, "break_hop") ? A.break_hop : 0);
-                if (is_real(_bh) && _bh == A.hop_index){ A.phase = "escape"; A.phase_start = now; A.escape_dur = 320; return { resolved:true, action:"broke" }; }
-                else if (variable_struct_exists(A, "hop_total") && A.hop_index < A.hop_total){ A.hop_index += 1; A.phase_start = now; }
-                else { A.phase = "escape"; A.phase_start = now; A.escape_dur = 320; return { resolved:true, action:"broke" }; }
-            }
-        }
-        variable_struct_set(_B, "_catch_anim", A);
-        return { resolved:false, action:"none" };
-    }
-    if (string(A.phase) == "resolve"){
-        if (variable_struct_exists(A, "outcome") && A.outcome){
-            // success: finalize
-            variable_struct_set(_B, "_pending_caught_struct", A.caught_struct);
-            // keep the catch_anim struct for draw to show 'caught' visual; caller may clear it
-            return { resolved:true, action:"caught" };
-        } else {
-            // fallback to broke
-            return { resolved:true, action:"broke" };
+    if (is_struct(current) && variable_struct_exists(current, "active") && current.active){
+        var now2 = current_time;
+        var elapsed = now2 - (variable_struct_exists(current, "start") ? current.start : now2);
+        if (elapsed >= (variable_struct_exists(current, "dur") ? current.dur : 0)){
+            variable_struct_set(sa, "current", undefined);
+            variable_struct_set(_slot, "sys_anim", sa);
+            return { resolved:true, action: (is_struct(current.spec) && variable_struct_exists(current.spec, "action") ? variable_struct_get(current.spec, "action") : undefined) };
         }
     }
-    if (string(A.phase) == "escape"){
-        var e5 = now - (variable_struct_exists(A, "phase_start") ? A.phase_start : now);
-        if (e5 >= (is_real(A.escape_dur) ? A.escape_dur : 320)){
-            // clear
-            variable_struct_set(_B, "_catch_anim", undefined);
-            return { resolved:true, action:"broke" };
-        }
-        return { resolved:false, action:"none" };
-    }
-    return { resolved:false, action:"none" };
-    }
+    return { resolved:false };
+}
 
 // Returns a small draw state struct consumed by battle_draw.gml
 function __battle_anim_get_draw_state(_B){
@@ -127,3 +107,65 @@ function __battle_anim_get_draw_state(_B){
     }
         return out;
     }
+	
+
+
+function __battle_anim_draw(_pid){
+    if (!battle_is_open(_pid)) return;
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !variable_struct_exists(_B, "sys_anim")) return;
+    var sa = variable_struct_get(_B, "sys_anim");
+    var cur = (variable_struct_exists(sa, "current") ? variable_struct_get(sa, "current") : undefined);
+    if (!is_struct(cur) || !variable_struct_exists(cur, "spec")) return;
+    var spec = cur.spec;
+    var now = current_time;
+    var elapsed = now - (variable_struct_exists(cur, "start") ? cur.start : now);
+    var frac_v = 0;
+    if (variable_struct_exists(cur, "dur") && cur.dur > 0) frac_v = clamp(elapsed / cur.dur, 0, 1);
+
+    // Draw different visuals by spec.type
+    var t = (variable_struct_exists(spec, "type") ? string(variable_struct_get(spec, "type")) : "unknown");
+    draw_set_color(c_white);
+    draw_set_alpha(1);
+    // choose target coords: default to player or enemy centers
+    var tx = 120; var ty = 80;
+    if (variable_struct_exists(spec, "target_index")){
+        var idx = variable_struct_get(spec, "target_index");
+        if (idx == 0){ tx = __bxu(_pid, 64); ty = __byu(_pid, 112); } else { tx = __bxu(_pid, 165); ty = __byu(_pid, 40); }
+    }
+
+    if (t == "status_inflict" || t == "status_apply"){
+        var st = (variable_struct_exists(spec, "status") ? string(variable_struct_get(spec, "status")) : "");
+        // draw small status name above target, fade out
+    var alpha = 1 - frac_v;
+        draw_set_alpha(alpha);
+        draw_set_color(c_black);
+        draw_rectangle(tx-30, ty-38, tx+30, ty-18, false);
+        draw_set_color(c_white);
+        draw_text(tx-24, ty-36, string_upper(st));
+        draw_set_alpha(1);
+    } else if (t == "status_tick_damage" || t == "confusion_hit"){
+        var amt = (variable_struct_exists(spec, "amount") ? string(variable_struct_get(spec, "amount")) : "");
+        // pop-up damage text
+    var y_off = - (frac_v * 20);
+        draw_set_color(c_red);
+        draw_text(tx, ty + y_off, "-" + string(amt));
+        draw_set_color(c_white);
+    } else if (t == "status_blocked"){
+        var st2 = (variable_struct_exists(spec, "status") ? string(variable_struct_get(spec, "status")) : "");
+    draw_set_color(c_yellow);
+    draw_text(tx-24, ty-36, string_upper(st2) + "!");
+        draw_set_color(c_white);
+    } else {
+        // generic: small translucent filled dot; if DATA_DEBUG is enabled, log the unexpected spec
+        if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE){
+            try { show_debug_message("[battle][anim] generic spec=" + string(spec)); } catch (e) {}
+        }
+        var alpha2 = 0.6 * (1 - frac_v);
+        draw_set_alpha(alpha2);
+        draw_set_color(c_white);
+        draw_circle(tx, ty, 3, true);
+        draw_set_alpha(1);
+    }
+}
+

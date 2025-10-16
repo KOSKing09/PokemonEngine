@@ -21,8 +21,8 @@ function scr_controls(){
                 __ctrl_default_bind_p2()
             ],
             state : [
-                { now: ds_map_create(), prev: ds_map_create(), pressed: ds_map_create(), released: ds_map_create(), axis_x: 0, axis_y: 0 },
-                { now: ds_map_create(), prev: ds_map_create(), pressed: ds_map_create(), released: ds_map_create(), axis_x: 0, axis_y: 0 }
+                { now: ds_map_create(), prev: ds_map_create(), pressed: ds_map_create(), released: ds_map_create(), rep: ds_map_create(), axis_x: 0, axis_y: 0 },
+                { now: ds_map_create(), prev: ds_map_create(), pressed: ds_map_create(), released: ds_map_create(), rep: ds_map_create(), axis_x: 0, axis_y: 0 }
             ]
         };
     }
@@ -213,3 +213,35 @@ function __ctrl_edges(_st, _act){
 
 // ---- List of actions (for UI/rebinding tools) ------------------------------
 function controls_actions(){ return ["MoveLeft","MoveRight","MoveUp","MoveDown","Interact","Inventory","Run","Pause"]; }
+
+// Repeat helper: returns true on initial press and then repeatedly while held
+// using an initial delay and then a repeat interval (both in frames).
+function controls_repeat(_pid, _act, _initial_delay, _repeat_interval){
+    var st = CTRL.state[_pid];
+    var init = (is_undefined(_initial_delay) ? 12 : _initial_delay);
+    var interval = (is_undefined(_repeat_interval) ? 4 : _repeat_interval);
+
+    // On edge-press: fire immediately and initialize the timer
+    if (controls_pressed(_pid, _act)){
+        ds_map_replace(st.rep, _act, init);
+        return true;
+    }
+
+    // While held: decrement timer and fire when it reaches zero, then reset to interval
+    if (controls_down(_pid, _act)){
+        var has = ds_map_exists(st.rep, _act);
+        var cur = has ? st.rep[? _act] : init;
+        cur -= 1;
+        if (cur <= 0){
+            ds_map_replace(st.rep, _act, interval);
+            return true;
+        } else {
+            ds_map_replace(st.rep, _act, cur);
+            return false;
+        }
+    }
+
+    // Not held: clear any repeat state and return false
+    if (ds_map_exists(st.rep, _act)) ds_map_delete(st.rep, _act);
+    return false;
+}

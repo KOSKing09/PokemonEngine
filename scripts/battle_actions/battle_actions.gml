@@ -18,8 +18,8 @@ function __battle_roll_hit(_move_id){
 // Applies damage and returns [dmg, beforeHP, afterHP]
 function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_power){
     var dmg = __battle_calc_damage(_A, _D, _move_id, _mv_power);
-    var before = _D.hp_now;
+    var before = __battle_hp_now(_D);
     __battle_apply_damage(_pid, _target_index, dmg);
-    var after = _D.hp_now;
+    var after = __battle_hp_now(_D);
     return [dmg, before, after];
 }

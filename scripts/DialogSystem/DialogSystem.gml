@@ -102,8 +102,13 @@ function dialog2p_open_text(_pid, _text){
 
     // Debug: log dialog opens to help trace timing issues
     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
-        var _preview = string_copy(string(_text), 1, min(80, string_length(string(_text))));
+        var _preview = string_copy(string(_text), 1, min(48, string_length(string(_text))));
         show_debug_message("[dialog][debug] opened pid=" + string(_pid) + ", preview='" + _preview + "'");
+        // Dump session internals to help trace why dialogs might not render
+        try {
+            var _dbg = "[dialog][debug] sess open=" + string(d.open) + ", pages=" + string(array_length(d.all_lines)) + ", page_idx=" + string(d.page_idx) + ", char_idx=" + string(d.char_idx);
+            show_debug_message(_dbg);
+        } catch (e_dbg) { /* ignore */ }
     }
     // Small input-grace window: ignore presses that occurred to open the dialog
     // (e.g. selecting a Pokémon) so the dialog doesn't immediately advance.
@@ -183,6 +188,24 @@ function __dlg_draw_lines_spritefont(_l0, _l1, _x, _y){
 function dialog2p_draw_world(_pid, _cam){
     var d = global.DIALOG2P[_pid];
     if (!d.open) return;
+
+    // Debug logging for dialog draw. Disabled by default; enable by setting
+    // global.DIALOG_DEBUG = true (requires DATA_DEBUG to also be true).
+    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG && variable_global_exists("DIALOG_DEBUG") && global.DIALOG_DEBUG){
+        try {
+            // Only log when the page index changes or at most once per second to avoid spam
+            var _pages = array_length(d.all_lines);
+            var _state = string(d.page_idx) + "/" + string(_pages);
+            var _last = (variable_struct_exists(d, "_dbg_last_state") ? variable_struct_get(d, "_dbg_last_state") : "");
+            var _last_time = (variable_struct_exists(d, "_dbg_last_time") ? variable_struct_get(d, "_dbg_last_time") : -999999);
+            var _now = (is_real(current_time) ? current_time : 0);
+            if (_state != _last || (_now - _last_time) > 1000){
+                show_debug_message("[dialog][debug] draw pid=" + string(_pid) + ", page_idx=" + string(d.page_idx) + ", pages=" + string(_pages) );
+                variable_struct_set(d, "_dbg_last_state", _state);
+                variable_struct_set(d, "_dbg_last_time", _now);
+            }
+        } catch (e_dbg) {}
+    }
 
     var vx = camera_get_view_x(_cam);
     var vy = camera_get_view_y(_cam);

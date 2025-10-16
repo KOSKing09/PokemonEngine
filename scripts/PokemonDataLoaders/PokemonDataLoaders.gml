@@ -853,6 +853,165 @@ function data_load_all_structs_ext(){
     data_load_item_prose_structs();
     data_load_item_effects_structs();
     data_debug("[DATA][structs_ext] done.");
+    // Load optional move meta mapping (ailments + chances) for battle wiring
+    if (is_undefined(data_load_move_meta_structs) == false) data_load_move_meta_structs();
+    // Load optional move stat changes mapping (temporary in-battle stat stage changes)
+    if (is_undefined(data_load_move_meta_stat_changes_structs) == false) data_load_move_meta_stat_changes_structs();
+}
+
+// Optional: parse move_meta_stat_changes.csv -> attach to global._move_meta[move_id].stat_changes
+function data_load_move_meta_stat_changes_structs(){
+    var path = working_directory + "/data/csv/move_meta_stat_changes.csv";
+    var g = load_csv(path);
+    if (g == -1){ data_debug("[DATA][move_meta_stat_changes] SKIP: " + path); return; }
+    data_debug("[DATA][move_meta_stat_changes] LOADED: " + path);
+    var H = ds_grid_height(g);
+    var ci_move = __col_find_ci(g, "move_id");
+    var ci_stat = __col_find_ci(g, "stat_id");
+    var ci_change = __col_find_ci(g, "change");
+    if (ci_move < 0 || ci_stat < 0 || ci_change < 0){ data_debug("[DATA][move_meta_stat_changes] ERROR: missing required columns"); return; }
+
+    var rows = 0;
+    for (var r = 1; r < H; r++){
+        var mid = __to_int_safe(__grid(g, ci_move, r, 0), 0);
+        var sid = __to_int_safe(__grid(g, ci_stat, r, 0), 0);
+        var ch  = __to_int_safe(__grid(g, ci_change, r, 0), 0);
+        if (mid <= 0 || sid == 0) continue;
+        if (is_undefined(global._move_meta) || !is_array(global._move_meta)){
+            // if move_meta not present, create a placeholder mapping
+            if (is_undefined(global._move_meta)) global._move_meta = [];
+            if (!is_array(global._move_meta)) global._move_meta = [];
+        }
+        if (mid >= array_length(global._move_meta)) array_resize(global._move_meta, mid+1);
+        if (is_undefined(global._move_meta[mid]) || !is_struct(global._move_meta[mid])) global._move_meta[mid] = {};
+        // Ensure stat_changes is present and an array using safe struct accessors
+        if (!variable_struct_exists(global._move_meta[mid], "stat_changes") || !is_array(variable_struct_get(global._move_meta[mid], "stat_changes"))) {
+            variable_struct_set(global._move_meta[mid], "stat_changes", []);
+        }
+        var _sc_arr = variable_struct_get(global._move_meta[mid], "stat_changes");
+        array_push(_sc_arr, { stat_id: sid, change: ch });
+        // write back in case the runtime requires explicit set (generally not needed but safe)
+        variable_struct_set(global._move_meta[mid], "stat_changes", _sc_arr);
+        rows += 1;
+    }
+    data_debug("[DATA][move_meta_stat_changes] mapped rows=" + string(rows));
+}
+
+// Optional: build a compact move meta mapping used by the battle system to apply
+// simple status inflictions. Produces global._move_meta where each key/index is
+// move_id -> { status: "brn", chance: 30, duration: 3 }
+function data_load_move_meta_structs(){
+    var path = working_directory + "/data/csv/move_meta.csv";
+    var g = load_csv(path);
+    if (g == -1){ data_debug("[DATA][move_meta] SKIP: " + path); global._move_meta = []; return; }
+    data_debug("[DATA][move_meta] LOADED: " + path);
+    var H = ds_grid_height(g);
+    var ci_move = __col_find_ci(g, "move_id");
+    var ci_ail = __col_find_ci(g, "meta_ailment_id");
+    var ci_meta_cat = __col_find_ci(g, "meta_category_id");
+    var ci_min_turns = __col_find_ci(g, "min_turns");
+    var ci_max_turns = __col_find_ci(g, "max_turns");
+    var ci_min_hits = __col_find_ci(g, "min_hits");
+    var ci_max_hits = __col_find_ci(g, "max_hits");
+    var ci_ail_chance = __col_find_ci(g, "ailment_chance");
+    var ci_drain = __col_find_ci(g, "drain");
+    var ci_healing = __col_find_ci(g, "healing");
+    var ci_weather = __col_find_ci(g, "weather");
+    var ci_weather_dur = __col_find_ci(g, "weather_duration");
+    if (ci_move < 0 || ci_ail < 0){ data_debug("[DATA][move_meta] ERROR: missing required columns"); global._move_meta = []; return; }
+
+    // load ailment id -> identifier map from move_meta_ailments.csv for readable ids
+    var ail_map = {};
+    var path2 = working_directory + "/data/csv/move_meta_ailments.csv";
+    var g2 = load_csv(path2);
+    if (g2 != -1){
+        var H2 = ds_grid_height(g2);
+        var c_id = __col_find_ci(g2, "id");
+        var c_ident = __col_find_ci(g2, "identifier");
+        if (c_id >= 0 && c_ident >= 0){
+            for (var r2 = 1; r2 < H2; r2++){
+                var aid = __to_int_safe(__grid(g2, c_id, r2, 0), 0);
+                var ident = string_trim(string(__grid(g2, c_ident, r2, "")));
+                if (aid > 0 && string_length(ident) > 0) ail_map[""+string(aid)] = ident;
+            }
+        }
+    }
+
+    // Build mapping
+    var max_mid = 0;
+    for (var r = 1; r < H; r++){ var mid = __to_int_safe(__grid(g, ci_move, r, 0), 0); if (mid > max_mid) max_mid = mid; }
+    global._move_meta = []; array_resize(global._move_meta, max_mid + 1);
+    var rows = 0;
+    for (var r3 = 1; r3 < H; r3++){
+        var mid3 = __to_int_safe(__grid(g, ci_move, r3, 0), 0);
+        if (mid3 <= 0) continue;
+    var aid3 = __to_int_safe(__grid(g, ci_ail, r3, 0), 0);
+    var meta_cat = (ci_meta_cat >= 0) ? __to_int_safe(__grid(g, ci_meta_cat, r3, 0), 0) : 0;
+    // allow rows that only define drain/healing/meta info even if ailment id is 0
+    var chance = (ci_ail_chance >= 0) ? __to_int_safe(__grid(g, ci_ail_chance, r3, 0), 0) : 100;
+    var min_t = (ci_min_turns >= 0) ? __to_int_safe(__grid(g, ci_min_turns, r3, 0), -1) : -1;
+    var max_t = (ci_max_turns >= 0) ? __to_int_safe(__grid(g, ci_max_turns, r3, 0), -1) : -1;
+    var min_hits_val = (ci_min_hits >= 0) ? __to_int_safe(__grid(g, ci_min_hits, r3, 0), -1) : -1;
+    var max_hits_val = (ci_max_hits >= 0) ? __to_int_safe(__grid(g, ci_max_hits, r3, 0), -1) : -1;
+        var dur = -1;
+        if (min_t > 0 && max_t > 0) dur = min_t; // choose min as default
+        else if (min_t > 0) dur = min_t;
+    // optional drain/healing fields (percent or absolute depending on CSV semantics)
+    var drain_val = (ci_drain >= 0) ? __to_int_safe(__grid(g, ci_drain, r3, 0), 0) : 0;
+    var healing_val = (ci_healing >= 0) ? __to_int_safe(__grid(g, ci_healing, r3, 0), 0) : 0;
+    var weather_val = (ci_weather >= 0) ? string_trim(string(__grid(g, ci_weather, r3, ""))) : "";
+    var weather_dur_val = (ci_weather_dur >= 0) ? __to_int_safe(__grid(g, ci_weather_dur, r3, 0), 0) : -1;
+        // resolve ailment identifier if possible (may be empty for drain-only rows)
+        var aid_key = "" + string(aid3);
+        var status_ident = "";
+        // Guard: ail_map should be a struct mapping string ids to identifiers.
+        // If it's not a struct (or the key is missing), don't index it to avoid
+        // array/negative-index runtime errors.
+        if (is_struct(ail_map)){
+            if (!is_undefined(ail_map[aid_key])) status_ident = ail_map[aid_key];
+        } else {
+            // unexpected shape; leave status_ident empty
+            status_ident = "";
+        }
+        // Fallback: if mapping failed but aid3 is a known ailment id, map common ones here
+        if (string_length(status_ident) == 0 && is_real(aid3) && aid3 > 0){
+            var _fallback = {};
+            variable_struct_set(_fallback, "1", "paralysis");
+            variable_struct_set(_fallback, "2", "sleep");
+            variable_struct_set(_fallback, "3", "freeze");
+            variable_struct_set(_fallback, "4", "burn");
+            variable_struct_set(_fallback, "5", "poison");
+            variable_struct_set(_fallback, "6", "confusion");
+            variable_struct_set(_fallback, "7", "infatuation");
+            variable_struct_set(_fallback, "8", "trap");
+            variable_struct_set(_fallback, "12", "torment");
+            variable_struct_set(_fallback, "13", "disable");
+            variable_struct_set(_fallback, "14", "yawn");
+            variable_struct_set(_fallback, "18", "leech-seed");
+            variable_struct_set(_fallback, "19", "embargo");
+            variable_struct_set(_fallback, "20", "perish-song");
+            variable_struct_set(_fallback, "21", "ingrain");
+            variable_struct_set(_fallback, "24", "silence");
+            var kf = "" + string(aid3);
+            if (!is_undefined(variable_struct_get(_fallback, kf))) status_ident = variable_struct_get(_fallback, kf);
+            else {
+                // No known fallback - leave empty but record for debugging
+                data_debug("[DATA][move_meta] no ail_map entry for id=" + string(aid3) + " move_id=" + string(mid3));
+            }
+        }
+        // Always write a meta entry (even if status_ident is empty) so moves that only
+        // define drain/healing are available to the battle system.
+    var mmrec = { status: status_ident, chance: chance, duration: dur, drain: drain_val, healing: healing_val, meta_category: meta_cat };
+    // Preserve original ailment id for later debugging/processing
+    variable_struct_set(mmrec, "ailment_id", aid3);
+    if (is_real(min_hits_val) && min_hits_val > 0) variable_struct_set(mmrec, "min_hits", min_hits_val);
+    if (is_real(max_hits_val) && max_hits_val > 0) variable_struct_set(mmrec, "max_hits", max_hits_val);
+    if (string_length(string(weather_val)) > 0) variable_struct_set(mmrec, "weather", string(weather_val));
+    if (is_real(weather_dur_val) && weather_dur_val > 0) variable_struct_set(mmrec, "weather_duration", weather_dur_val);
+    global._move_meta[mid3] = mmrec;
+        rows += 1;
+    }
+    data_debug("[DATA][move_meta] mapped rows=" + string(rows));
 }
 
 // ---------- DATA: growth_rates.csv -> global._growth_rates[growth_rate_id] = { id, identifier, name, description }

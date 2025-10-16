@@ -361,11 +361,11 @@ function __party_impl_party_update(){
                     }
                 } else if (controls_pressed(_pid,"MoveRight") && _n > 0){ _P.sel = clamp(_P.sel + 1, 0, _n - 1); _P.lock = 2; }
                 if (controls_down(_pid,"Inventory")){
-                    if (controls_pressed(_pid,"MoveLeft")){
+                    if (controls_down(_pid,"MoveLeft")){
                         if (!variable_global_exists("sys_party_desc_scroll_req")) global.sys_party_desc_scroll_req = 0;
                         global.sys_party_desc_scroll_req -= 28;
                     }
-                    if (controls_pressed(_pid,"MoveRight")){
+                    if (controls_down(_pid,"MoveRight")){
                         if (!variable_global_exists("sys_party_desc_scroll_req")) global.sys_party_desc_scroll_req = 0;
                         global.sys_party_desc_scroll_req += 28;
                     }
@@ -402,11 +402,11 @@ function __party_impl_party_update(){
 
                 if (controls_pressed(_pid,"MoveRight") && _n > 0){ _P.sel = clamp(_P.sel + 1, 0, _n - 1); _P.lock = 2; }
                 if (controls_down(_pid,"Inventory")){
-                    if (controls_pressed(_pid,"MoveLeft")){
+                    if (controls_down(_pid,"MoveLeft")){
                         if (!variable_global_exists("sys_party_desc_scroll_req")) global.sys_party_desc_scroll_req = 0;
                         global.sys_party_desc_scroll_req -= 28;
                     }
-                    if (controls_pressed(_pid,"MoveRight")){
+                    if (controls_down(_pid,"MoveRight")){
                         if (!variable_global_exists("sys_party_desc_scroll_req")) global.sys_party_desc_scroll_req = 0;
                         global.sys_party_desc_scroll_req += 28;
                     }
@@ -415,17 +415,18 @@ function __party_impl_party_update(){
 
                 var _invHeld = controls_down(_pid,"Inventory");
                 if (_invHeld){
-                    if (controls_pressed(_pid,"MoveUp")){
+                    // Repeat-aware scrolling for description
+                    if (controls_repeat(_pid, "MoveUp", 12, 4)){
                         if (!variable_global_exists("sys_party_desc_scroll_req")) global.sys_party_desc_scroll_req = 0;
                         global.sys_party_desc_scroll_req -= 28;
                     }
-                    if (controls_pressed(_pid,"MoveDown")){
+                    if (controls_repeat(_pid, "MoveDown", 12, 4)){
                         if (!variable_global_exists("sys_party_desc_scroll_req")) global.sys_party_desc_scroll_req = 0;
                         global.sys_party_desc_scroll_req += 28;
                     }
                     if (_nl > 0){
-                        if (controls_pressed(_pid,"MoveDown")) _P.sum_learn_sel = clamp(_P.sum_learn_sel + 1, 0, _nl - 1);
-                        if (controls_pressed(_pid,"MoveUp"))   _P.sum_learn_sel = clamp(_P.sum_learn_sel - 1, 0, _nl - 1);
+                        if (controls_repeat(_pid, "MoveDown", 10, 3)) _P.sum_learn_sel = clamp(_P.sum_learn_sel + 1, 0, _nl - 1);
+                        if (controls_repeat(_pid, "MoveUp", 10, 3))   _P.sum_learn_sel = clamp(_P.sum_learn_sel - 1, 0, _nl - 1);
                     } else _P.sum_learn_sel = 0;
                 } else {
                     if (!controls_down(_pid,"Interact")){
@@ -460,7 +461,7 @@ function __party_impl_party_update(){
                                         // Ensure model persisted (scr_move_learn_try may have mutated _M.moves)
                                         if (!variable_struct_exists(_M, "moves")) variable_struct_set(_M, "moves", []);
                                         // Persist mutated mon back into party so changes stick
-                                        if (is_array(_P.mons) && _P.sel >= 0 && _P.sel < array_length(_P.mons)) _P.mons[_P.sel] = _M;
+                                        if (is_real(_P.sel) && _P.sel >= 0){ party_model_update_mon(_pid, _P.sel, _M); }
                                         _P.lock = 4;
                                     } else if (_st == "skipped"){
                                         // Already knows the move: inform player and do not insert
@@ -507,7 +508,7 @@ function __party_impl_party_update(){
                                     else _mv[_target_slot] = _learnId;
                                     variable_struct_set(_M, "moves", _mv);
                                     // Persist mutated mon back into party so changes stick
-                                    if (is_array(_P.mons) && _P.sel >= 0 && _P.sel < array_length(_P.mons)) _P.mons[_P.sel] = _M;
+                                    if (is_real(_P.sel) && _P.sel >= 0){ party_model_update_mon(_pid, _P.sel, _M); }
                                     _P.sum_move_sel = _target_slot;
                                     _P.lock = 4;
                                 }
@@ -590,7 +591,7 @@ function __party_impl_party_update(){
                         // Apply replacement into the selected slot and return to moves summary
                         _mv2[_P.sum_move_sel] = _chosen_now; variable_struct_set(_M2, "moves", _mv2);
                         // Persist mutated mon back into party storage so replacement is saved
-                        if (is_array(_P.mons) && _P.sel >= 0 && _P.sel < array_length(_P.mons)) _P.mons[_P.sel] = _M2;
+                        if (is_real(_P.sel) && _P.sel >= 0){ party_model_update_mon(_pid, _P.sel, _M2); }
                         // Clear the learn flow and return to moves view
                         if (variable_struct_exists(_P, "learn_pending") && is_struct(variable_struct_get(_P, "learn_pending"))){
                             variable_struct_set(_P, "learn_pending", undefined);
@@ -655,8 +656,8 @@ function __party_impl_party_update(){
                     var _lr2 = __party_get_learnset_for_mon(_M2);
                     var _nl2 = array_length(_lr2);
                     if (_nl2 > 0){
-                        if (controls_pressed(_pid,"MoveDown")) _P.sum_learn_sel = clamp(_P.sum_learn_sel + 1, 0, _nl2 - 1);
-                        if (controls_pressed(_pid,"MoveUp"))   _P.sum_learn_sel = clamp(_P.sum_learn_sel - 1, 0, _nl2 - 1);
+                        if (controls_repeat(_pid,"MoveDown", 10, 3)) _P.sum_learn_sel = clamp(_P.sum_learn_sel + 1, 0, _nl2 - 1);
+                        if (controls_repeat(_pid,"MoveUp", 10, 3))   _P.sum_learn_sel = clamp(_P.sum_learn_sel - 1, 0, _nl2 - 1);
                     }
                 }
                 if (!_learn_list_active && controls_pressed(_pid,"MoveUp"))   _P.sum_move_sel = clamp(_P.sum_move_sel - 1, 0, _nm2 - 1);
@@ -680,7 +681,7 @@ function __party_impl_party_update(){
                         // Apply replacement into the selected slot and return to moves summary
                         _mv2[_P.sum_move_sel] = _chosen_now; variable_struct_set(_M2, "moves", _mv2);
                         // Persist mutated mon back into party storage so replacement is saved
-                        if (is_array(_P.mons) && _P.sel >= 0 && _P.sel < array_length(_P.mons)) _P.mons[_P.sel] = _M2;
+                        if (is_real(_P.sel) && _P.sel >= 0){ party_model_update_mon(_pid, _P.sel, _M2); }
                         // Clear the learn flow and return to moves view
                         if (variable_struct_exists(_P, "learn_pending") && is_struct(variable_struct_get(_P, "learn_pending"))){
                             variable_struct_set(_P, "learn_pending", undefined);

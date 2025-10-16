@@ -41,19 +41,19 @@ function scr_apply_item_effects(_item_id, _mon, _actor){
             if (amt > 0){
                 var did = 0;
                 // apply to actor if present
-                if (is_struct(_actor)){
+                    if (is_struct(_actor)){
                     var maxhp = (variable_struct_exists(_actor, "hp_max") ? variable_struct_get(_actor, "hp_max") : (variable_struct_exists(_actor, "maxhp") ? variable_struct_get(_actor, "maxhp") : 100));
-                    var before = (variable_struct_exists(_actor, "hp_now") ? variable_struct_get(_actor, "hp_now") : (variable_struct_exists(_actor, "hp") ? variable_struct_get(_actor, "hp") : 0));
+                    var before = __battle_hp_now(_actor);
                     var actual = min(amt, max(0, maxhp - before));
                     if (actual > 0){
-                        if (variable_struct_exists(_actor, "hp_now")) variable_struct_set(_actor, "hp_now", min(maxhp, variable_struct_get(_actor, "hp_now") + actual));
-                        else variable_struct_set(_actor, "hp_now", min(maxhp, before + actual));
+                        __battle_set_hp_now(_actor, min(maxhp, before + actual));
+                        __battle_clear_fainted_if_healed(_actor);
                         did += actual;
                     }
                     if (variable_struct_exists(_actor, "mon") && is_struct(variable_struct_get(_actor, "mon"))){
                         var pm = variable_struct_get(_actor, "mon");
-                        if (variable_struct_exists(pm, "hp")) variable_struct_set(pm, "hp", min(maxhp, variable_struct_get(pm, "hp") + actual));
-                        if (variable_struct_exists(pm, "hp_now")) variable_struct_set(pm, "hp_now", min(maxhp, variable_struct_get(pm, "hp_now") + actual));
+                        __battle_set_hp_now(pm, min(maxhp, __battle_hp_now(pm) + actual));
+                        __battle_clear_fainted_if_healed(pm);
                     }
                 }
                 // apply to party mon as well
@@ -79,10 +79,10 @@ function scr_apply_item_effects(_item_id, _mon, _actor){
             var didf = 0;
             // actor
             if (is_struct(_actor)){
-                var before2 = (variable_struct_exists(_actor, "hp_now") ? variable_struct_get(_actor, "hp_now") : (variable_struct_exists(_actor, "hp") ? variable_struct_get(_actor, "hp") : 0));
+                var before2 = __battle_hp_now(_actor);
                 var add = max(0, mh - before2);
-                if (add > 0){ if (variable_struct_exists(_actor, "hp_now")) variable_struct_set(_actor, "hp_now", min(mh, variable_struct_get(_actor, "hp_now") + add)); else variable_struct_set(_actor, "hp_now", min(mh, before2 + add)); didf += add; }
-                if (variable_struct_exists(_actor, "mon") && is_struct(variable_struct_get(_actor, "mon"))){ var pm3 = variable_struct_get(_actor, "mon"); if (variable_struct_exists(pm3, "hp")) variable_struct_set(pm3, "hp", min(mh, variable_struct_get(pm3, "hp") + add)); if (variable_struct_exists(pm3, "hp_now")) variable_struct_set(pm3, "hp_now", min(mh, variable_struct_get(pm3, "hp_now") + add)); }
+                if (add > 0){ __battle_set_hp_now(_actor, min(mh, before2 + add)); __battle_clear_fainted_if_healed(_actor); didf += add; }
+                if (variable_struct_exists(_actor, "mon") && is_struct(variable_struct_get(_actor, "mon"))){ var pm3 = variable_struct_get(_actor, "mon"); __battle_set_hp_now(pm3, min(mh, __battle_hp_now(pm3) + add)); __battle_clear_fainted_if_healed(pm3); }
             }
             // party mon
             if (is_struct(_mon)){
@@ -96,15 +96,15 @@ function scr_apply_item_effects(_item_id, _mon, _actor){
             var mode = "half";
             if (t == "revive_full" || (is_struct(p) && variable_struct_exists(p, "mode") && string_lower(variable_struct_get(p, "mode")) == "full")) mode = "full";
             if (is_struct(_actor)){
-                var cur = (variable_struct_exists(_actor, "hp_now") ? variable_struct_get(_actor, "hp_now") : (variable_struct_exists(_actor, "hp") ? variable_struct_get(_actor, "hp") : 0));
+                var cur = __battle_hp_now(_actor);
                 var mh2 = (variable_struct_exists(_actor, "hp_max") ? variable_struct_get(_actor, "hp_max") : (variable_struct_exists(_actor, "maxhp") ? variable_struct_get(_actor, "maxhp") : 100));
-                if (cur <= 0){ var newhp = (mode == "full" ? mh2 : max(1, floor(mh2/2))); variable_struct_set(_actor, "hp_now", newhp); if (variable_struct_exists(_actor, "mon") && is_struct(variable_struct_get(_actor, "mon"))){ var pm2 = variable_struct_get(_actor, "mon"); if (variable_struct_exists(pm2, "hp")) variable_struct_set(pm2, "hp", newhp); }
+                if (cur <= 0){ var newhp = (mode == "full" ? mh2 : max(1, floor(mh2/2))); __battle_set_hp_now(_actor, newhp); __battle_clear_fainted_if_healed(_actor);
                     out.revived = true; array_push(out.messages, "Revived"); }
             }
             if (is_struct(_mon)){
                 var mh3 = (variable_struct_exists(_mon, "hp_max") ? variable_struct_get(_mon, "hp_max") : (variable_struct_exists(_mon, "maxhp") ? variable_struct_get(_mon, "maxhp") : 100));
                 var cur2 = (variable_struct_exists(_mon, "hp") ? variable_struct_get(_mon, "hp") : (variable_struct_exists(_mon, "hp_now") ? variable_struct_get(_mon, "hp_now") : 0));
-                if (cur2 <= 0){ var new2 = (mode == "full" ? mh3 : max(1, floor(mh3/2))); if (variable_struct_exists(_mon, "hp")) variable_struct_set(_mon, "hp", new2); if (variable_struct_exists(_mon, "hp_now")) variable_struct_set(_mon, "hp_now", new2); out.revived = true; array_push(out.messages, "Revived"); }
+                if (cur2 <= 0){ var new2 = (mode == "full" ? mh3 : max(1, floor(mh3/2))); __battle_set_hp_now(_mon, new2); __battle_clear_fainted_if_healed(_mon); out.revived = true; array_push(out.messages, "Revived"); }
             }
         } else if (t == "cure_status" || t == "cure_all"){
             // best-effort: clear common status fields if present

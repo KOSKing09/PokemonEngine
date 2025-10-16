@@ -14,32 +14,6 @@
 //   battle_switch_to(pid, party_index);// switch active mon with visuals (midpoint swap)
 // -----------------------------------------------------------------------------
 
-// ===== Slot helpers (per-player battle state) =====
-// Local guarded audio shims: ensure these symbols exist so early callers
-// (e.g., battle_open invoked from oPlayer Step) don't crash if the
-// global audio shim hasn't been executed yet. These are no-op fallbacks
-// and will not override real runtime implementations.
-if (is_undefined(audio_get_playing)){
-    function audio_get_playing(){ return undefined; }
-}
-if (is_undefined(audio_play_sound)){
-    function audio_play_sound(_res, _vol, _loop){ return undefined; }
-}
-if (is_undefined(audio_stop_sound)){
-    function audio_stop_sound(_res){ return undefined; }
-}
-if (is_undefined(audio_stop_all)){
-    function audio_stop_all(){ return undefined; }
-}
-if (is_undefined(audio_is_playing)){
-    function audio_is_playing(_h){ return false; }
-}
-if (is_undefined(sound_play)){
-    function sound_play(_res){ return undefined; }
-}
-if (is_undefined(sound_stop)){
-    function sound_stop(_res){ return undefined; }
-}
 
 // Finalize catch handler: real implementation may live elsewhere. Provide a
 // minimal guarded no-op so callers can safely invoke the symbol without the
@@ -53,6 +27,17 @@ if (is_undefined(__battle_finalize_catch)){
     }
 }
 
+// Backwards-compatible stubs for legacy sound API names. Some runtimes
+// expose `sound_play` / `sound_stop` while others expose `audio_*`.
+// Provide safe no-op fallbacks so callers can call these symbols without
+// causing static-analyzer undeclared-symbol errors or runtime exceptions.
+if (is_undefined(sound_play)){
+    function sound_play(_res){ /* no-op fallback */ return undefined; }
+}
+if (is_undefined(sound_stop)){
+    function sound_stop(_res){ /* no-op fallback */ return undefined; }
+}
+
 // Minimal guarded stubs for animation function names. The full
 // implementations live in `scripts/battle_system/battle_animations.gml`.
 // Animation functions are implemented in scripts/battle_system/battle_animations.gml
@@ -60,6 +45,503 @@ if (is_undefined(__battle_finalize_catch)){
 // Animation functions are implemented in scripts/battle_system/battle_animations.gml
 // They must exist exactly once; do not duplicate their definitions here.
 // Animation implementations live in scripts/battle_animations/battle_animations.gml
+// Provide a safe guarded stub for __battle_request_animation so callers
+// can call it without checking for undefined in many places. If the
+// project's real animation implementation exists (in
+// `battle_animations.gml`) it will override this stub because we only
+// define it when it's undefined.
+if (is_undefined(__battle_request_animation)){
+    function __battle_request_animation(_a, _spec){
+        // Accept various calling conventions: (__pid, spec) or (actor, spec)
+        try {
+            var spec = _spec;
+            var pid = undefined;
+            // If first arg is a non-negative number, treat as pid
+            if (is_real(_a) && _a >= 0) pid = _a;
+            // If _a is a struct and contains a pid field, use it
+            else if (is_struct(_a) && variable_struct_exists(_a, "pid") && is_real(variable_struct_get(_a, "pid"))) pid = variable_struct_get(_a, "pid");
+            // If _a is a battle actor struct that belongs to a slot we can search sys_battles
+            else if (is_struct(_a) && variable_struct_exists(_a, "_battle_pid") && is_real(variable_struct_get(_a, "_battle_pid"))) pid = variable_struct_get(_a, "_battle_pid");
+
+            if (!is_undefined(pid)){
+                var _B = __battle_ensure_slot(pid);
+                if (is_struct(_B)){
+                    try {
+                        var _sa = (variable_struct_exists(_B, "sys_anim") ? variable_struct_get(_B, "sys_anim") : {});
+                        var arr = (variable_struct_exists(_sa, "active") ? variable_struct_get(_sa, "active") : undefined);
+                        if (!is_array(arr)) arr = [];
+                        arr[array_length(arr)] = spec;
+                        variable_struct_set(_sa, "active", arr);
+                        variable_struct_set(_B, "sys_anim", _sa);
+                        return true;
+                    } catch (e_q) { /* fallthrough to no-op */ }
+                }
+            }
+        } catch (e) { /* swallow errors to keep stub safe */ }
+        return undefined;
+    }
+}
+
+// Safe wrapper around __battle_request_animation that swallows errors when
+// the underlying animation implementation is not present or fails. This
+// avoids runtime crashes caused by guarded reads like
+// `if (!is_undefined(__battle_request_animation)) ...` where the
+// `is_undefined` check may attempt to read an instance variable.
+function __battle_request_animation_safe(_a, _spec){
+    try {
+        return __battle_request_animation(_a, _spec);
+    } catch (e) {
+        // Swallow any error; animations are optional and non-critical
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][anim] safe wrapper suppressed error: " + string(e));
+        return undefined;
+    }
+}
+
+// Per-battle temporary weather helpers. Weather is stored on the battle slot
+// as _B._weather = { id: "sun"|"rain"|..., expires_turn: n, source: actor }
+function __battle_set_weather(_pid, _wid, _duration_turns, _source_actor){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B)) return false;
+    var w = { id: string(_wid), expires_turn: (is_real(_duration_turns) ? max(1, floor(_duration_turns)) : 5), source: undefined };
+    if (is_struct(_source_actor)) variable_struct_set(w, "source", _source_actor);
+    variable_struct_set(_B, "_weather", w);
+    return true;
+}
+
+function __battle_get_weather(_pid){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B)) return undefined;
+    return (variable_struct_exists(_B, "_weather") ? variable_struct_get(_B, "_weather") : undefined);
+}
+
+function __battle_clear_weather(_pid){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B)) return false;
+    if (variable_struct_exists(_B, "_weather")) variable_struct_set(_B, "_weather", undefined);
+    return true;
+}
+
+// Robust move-meta lookup helper. Tries several common lookup strategies
+// (array indexed, string-keyed struct, 1-based fallback, and an optional
+// `_move_meta_map`) and returns the found metadata struct or undefined.
+function __battle_get_move_meta(_move_id){
+    if (is_undefined(_move_id)) return undefined;
+    if (!variable_global_exists("_move_meta")) return undefined;
+    var mmc = global._move_meta;
+    // Common: array indexed by move id (0-based)
+    if (is_array(mmc) && is_real(_move_id) && _move_id >= 0 && _move_id < array_length(mmc)) return mmc[_move_id];
+    // Common alternative: struct keyed by string move id
+    var k = "" + string(_move_id);
+    if (is_struct(mmc) && !is_undefined(mmc[k])) return mmc[k];
+    // Fallback: some data sources are 1-based; try move_id-1 when in array
+    if (is_array(mmc) && is_real(_move_id) && _move_id - 1 >= 0 && _move_id - 1 < array_length(mmc)) return mmc[_move_id - 1];
+    // Optional auxiliary map
+    if (variable_global_exists("_move_meta_map") && !is_undefined(global._move_meta_map)){
+        var mm2 = undefined;
+        if (is_array(global._move_meta_map) && is_real(_move_id) && _move_id >= 0 && _move_id < array_length(global._move_meta_map)) mm2 = global._move_meta_map[_move_id];
+        else if (is_struct(global._move_meta_map) && !is_undefined(global._move_meta_map[k])) mm2 = global._move_meta_map[k];
+        if (is_struct(mm2)) return mm2;
+    }
+    return undefined;
+}
+
+// Debug helper: prints surrounding entries of global._move_meta and the
+// actor's stored moves to help diagnose indexing/shape mismatches.
+function __battle_debug_move_meta(_pid, _move_id, _actor){
+    if (!variable_global_exists("DATA_DEBUG") || !global.DATA_DEBUG) return;
+    try {
+        show_debug_message("[battle][dbgmeta] lookup move_id=" + string(_move_id) + " pid=" + string(_pid));
+        if (is_struct(_actor) && variable_struct_exists(_actor, "moves")) show_debug_message("[battle][dbgmeta] actor.moves=" + string(variable_struct_get(_actor, "moves")));
+        if (variable_global_exists("_move_meta") && is_array(global._move_meta)){
+            var start = max(0, _move_id - 2);
+            var end_i = min(array_length(global._move_meta) - 1, _move_id + 2);
+            for (var ii = start; ii <= end_i; ++ii){
+                show_debug_message("[battle][dbgmeta] _move_meta[" + string(ii) + "]=" + string(global._move_meta[ii]));
+            }
+        } else if (variable_global_exists("_move_meta") && is_struct(global._move_meta)){
+            var kk = "" + string(_move_id);
+            show_debug_message("[battle][dbgmeta] _move_meta struct has key? " + string(!is_undefined(global._move_meta[kk])));
+            if (!is_undefined(global._move_meta[kk])) show_debug_message("[battle][dbgmeta] _move_meta[" + kk + "]=" + string(global._move_meta[kk]));
+        } else {
+            show_debug_message("[battle][dbgmeta] no global._move_meta present");
+        }
+    } catch (e_dbg){ show_debug_message("[battle][dbgmeta] failed: " + string(e_dbg)); }
+}
+
+// Centralized dispatcher to apply all move metadata effects.
+// Handles: drain (life-leech), healing (user heal like Synthesis),
+// flinch_chance, status/ailment (with chance & duration), stat_changes (with stat_chance),
+// and provides debug logging. Called after damage resolution.
+function __battle_apply_move_meta_effects(_pid, _step, A, D, move_id, dmg, mm){
+    try {
+        if (!is_struct(mm)) return undefined;
+        var _B = __battle_ensure_slot(_pid);
+    var msgs = [];
+    // Whether this meta block involves HP changes/damage (drain/healing/dmg)
+    var is_damage_meta = (is_real(dmg) && dmg > 0);
+
+        // 1) Drain (leech from target's damage)
+        var drain_raw = (variable_struct_exists(mm, "drain") ? variable_struct_get(mm, "drain") : 0);
+        var drain_pct = __to_int_safe(drain_raw, 0);
+    if (is_real(drain_pct) && drain_pct > 0 && dmg > 0){
+            var heal_amount = max(1, floor(dmg * clamp(drain_pct / 100.0, 0, 1)));
+            try {
+                var before_hp = -1; var cap_hp = -1;
+                if (variable_struct_exists(A, "hp_now")) before_hp = variable_struct_get(A, "hp_now"); else if (variable_struct_exists(A, "hp")) before_hp = variable_struct_get(A, "hp");
+                if (variable_struct_exists(A, "hp_max")) cap_hp = variable_struct_get(A, "hp_max");
+                var cap_hp = -1;
+                if (variable_struct_exists(A, "hp_max")) cap_hp = variable_struct_get(A, "hp_max");
+                else if (is_struct(A.mon) && variable_struct_exists(A.mon, "hp_max")) cap_hp = variable_struct_get(A.mon, "hp_max");
+                if (is_real(cap_hp) && cap_hp > 0){
+                    var newv = min(cap_hp, __battle_hp_now(A) + heal_amount);
+                    __battle_set_hp_now(A, newv);
+                }
+                __battle_request_animation_safe(_pid, { type: "heal", target_index: (variable_struct_exists(_step, "actor_index") ? variable_struct_get(_step, "actor_index") : 0), amount: heal_amount });
+                var after_hp = -1; if (variable_struct_exists(A, "hp_now")) after_hp = variable_struct_get(A, "hp_now"); else if (variable_struct_exists(A, "hp")) after_hp = variable_struct_get(A, "hp");
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][drain] move=" + string(move_id) + " healed " + string(heal_amount) + " to attacker=" + string((variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"<no-name>")) + ", hp_before=" + string(before_hp) + ", hp_after=" + string(after_hp) + ", cap=" + string(cap_hp));
+                    // Enqueue the heal as a deferred status dialog so it shows after the move dialog
+                    try {
+                        var aname = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokémon");
+                        if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, string(aname) + " restored HP!");
+                    } catch (e_qh) { /* ignore */ }
+                    // Mark that meta produced an actual effect for this battle slot
+                    try { variable_struct_set(_B, "_meta_effect_applied", true); } catch (e_me) { }
+            } catch (e_h) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][drain] failed to apply heal: " + string(e_h)); }
+        }
+
+        // 2) Direct healing (Synthesis-like) -- percent of user's max HP
+        var healing_raw = (variable_struct_exists(mm, "healing") ? variable_struct_get(mm, "healing") : 0);
+        var healing_pct = __to_int_safe(healing_raw, 0);
+        if (is_real(healing_pct) && healing_pct > 0){
+            try {
+                var cap_hp2 = -1; var before_hp2 = -1;
+                if (variable_struct_exists(A, "hp_max")) cap_hp2 = variable_struct_get(A, "hp_max"); else if (is_struct(A.mon) && variable_struct_exists(A.mon, "hp_max")) cap_hp2 = variable_struct_get(A.mon, "hp_max");
+                if (variable_struct_exists(A, "hp_now")) before_hp2 = variable_struct_get(A, "hp_now"); else if (variable_struct_exists(A, "hp")) before_hp2 = variable_struct_get(A, "hp");
+                if (is_real(cap_hp2) && cap_hp2 > 0){
+                    var base_heal_amt = max(1, floor(cap_hp2 * clamp(healing_pct / 100.0, 0, 1)));
+                    // Apply simple weather modifier: Sun boosts healing, Rain reduces it slightly
+                    var _weather = __battle_get_weather(_pid);
+                    var heal_amt = base_heal_amt;
+                    if (is_struct(_weather) && variable_struct_exists(_weather, "id")){
+                        var wid = variable_struct_get(_weather, "id");
+                        switch (wid){
+                            case "sun": heal_amt = max(1, floor(base_heal_amt * 1.5)); break;
+                            case "harsh-sun": heal_amt = max(1, floor(base_heal_amt * 1.75)); break;
+                            case "rain": heal_amt = max(1, floor(base_heal_amt * 0.75)); break;
+                            default: heal_amt = base_heal_amt; break;
+                        }
+                    }
+                    if (variable_struct_exists(A, "hp_now") && variable_struct_exists(A, "hp_max")){
+                        var curh = variable_struct_get(A, "hp_now"); var caph = variable_struct_get(A, "hp_max"); var newh = min(caph, curh + heal_amt);
+                        variable_struct_set(A, "hp_now", newh);
+                        if (is_struct(A.mon)){
+                            if (variable_struct_exists(A.mon, "hp")) variable_struct_set(A.mon, "hp", newh);
+                            else if (variable_struct_exists(A.mon, "hp_now")) variable_struct_set(A.mon, "hp_now", newh);
+                        }
+                    } else if (variable_struct_exists(A, "hp") && variable_struct_exists(A, "hp_max")){
+                        var curh2 = variable_struct_get(A, "hp"); var caph2 = variable_struct_get(A, "hp_max"); var newh2 = min(caph2, curh2 + heal_amt);
+                        variable_struct_set(A, "hp", newh2);
+                        if (is_struct(A.mon) && variable_struct_exists(A.mon, "hp")) variable_struct_set(A.mon, "hp", newh2);
+                    }
+                    __battle_request_animation_safe(_pid, { type: "heal", target_index: (variable_struct_exists(_step, "actor_index") ? variable_struct_get(_step, "actor_index") : 0), amount: heal_amt });
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][healing] move=" + string(move_id) + " healed " + string(heal_amt) + " to attacker=" + string((variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"<no-name>")));
+                    try {
+                        var aname2 = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokémon");
+                        if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, string(aname2) + " restored HP!");
+                    } catch (e_qh2) { /* ignore */ }
+                    try { variable_struct_set(_B, "_meta_effect_applied", true); } catch (e_me2) { }
+                }
+            } catch (e_he){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][healing] failed: " + string(e_he)); }
+        }
+
+        // 2b) Field/weather changes declared in metadata: mm.weather (string id) and optional mm.weather_duration (turns)
+        if (variable_struct_exists(mm, "weather")){
+            try {
+                var w = variable_struct_get(mm, "weather");
+                var wd = (variable_struct_exists(mm, "weather_duration") ? __to_int_safe(variable_struct_get(mm, "weather_duration"), 5) : 5);
+                if (string_length(string(w)) > 0){
+                    __battle_set_weather(_pid, string(w), wd, A);
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][weather] move=" + string(move_id) + " set weather=" + string(w) + " dur=" + string(wd));
+                    // Add dialog message for weather start
+                    var wname = string(w);
+                    switch (wname){
+                        case "sun": try { if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, "The sunlight is strong!"); } catch(e_){} break;
+                        case "harsh-sun": try { if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, "The harsh sunlight is raging!"); } catch(e_){} break;
+                        case "rain": try { if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, "It started to rain!"); } catch(e_){} break;
+                        case "sandstorm": try { if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, "A sandstorm kicked up!"); } catch(e_){} break;
+                        case "hail": try { if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, "Hail is falling!"); } catch(e_){} break;
+                        default: try { if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, string("The field changed: ") + wname); } catch(e_){} break;
+                    }
+                }
+            } catch (ew) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][weather] failed to set weather: " + string(ew)); }
+        }
+
+        // 3) Flinch chance (apply a 'flinch' status for 1 turn)
+        var flinch_raw = (variable_struct_exists(mm, "flinch_chance") ? variable_struct_get(mm, "flinch_chance") : 0);
+        var flinch_pct = __to_int_safe(flinch_raw, 0);
+        if (is_real(flinch_pct) && flinch_pct > 0 && dmg > 0){
+            var rfl = irandom(99);
+            if (rfl < clamp(flinch_pct, 0, 100)){
+                    try {
+                    var _fl_opts = {}; variable_struct_set(_fl_opts, "duration", 1); variable_struct_set(_fl_opts, "source", A); variable_struct_set(_fl_opts, "skip_dialog", true);
+                    var okf = status_system_apply_status(D, "flinch", _fl_opts);
+                    if (okf) {
+                        __battle_request_animation_safe(_pid, { type: "status_inflict", target_index: (variable_struct_exists(_step, "target_index") ? variable_struct_get(_step, "target_index") : 1), status: "flinch" });
+                        try { variable_struct_set(_B, "_meta_effect_applied", true); } catch (e_mef) { }
+                    }
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][flinch] applied flinch to " + string((variable_struct_exists(D,"name")?variable_struct_get(D,"name"):"<no-name>")) + " roll=" + string(rfl) + ", pct=" + string(flinch_pct));
+                    if (okf){
+                            // For non-damage meta (flinch here is status-like), prefer enqueueing
+                            // the status dialog and set the meta flag; avoid pushing to msgs to
+                            // prevent duplicate immediate/pending messages.
+                            try { variable_struct_set(_B, "_meta_effect_applied", true); } catch (e_mef2) { }
+                        var dnamef = (variable_struct_exists(D, "name") ? variable_struct_get(D, "name") : "The target");
+                        try { if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(D, string(dnamef) + " flinched!"); } catch (e_fq) { /* ignore fallback to msgs */ }
+                    }
+                } catch (e_f) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][flinch] failed: " + string(e_f)); }
+            }
+        }
+
+        // 4) Status/Ailment application (mm.status with chance & duration)
+        try {
+            if (is_struct(mm) && variable_struct_exists(mm, "status")){
+                var sraw = variable_struct_get(mm, "status");
+                var s = (is_string(sraw) ? string_trim(sraw) : "");
+                var ch = 100;
+                if (variable_struct_exists(mm, "chance")) ch = __to_int_safe(variable_struct_get(mm, "chance"), 100);
+                else if (variable_struct_exists(mm, "ailment_chance")) ch = __to_int_safe(variable_struct_get(mm, "ailment_chance"), 100);
+                // Some CSV exports put 0 for 'ailment_chance' meaning 'use default (100%)'.
+                // Treat chance <= 0 as 100 so status-only moves (Sleep Powder / Spore) apply.
+                if (!is_real(ch) || ch <= 0) ch = 100;
+                var dur = -1; if (variable_struct_exists(mm, "duration")) dur = __to_int_safe(variable_struct_get(mm, "duration"), -1);
+
+                // Attempt status application for moves that declare a status, even if dmg==0
+                if (string_length(s) > 0){
+                    var roll = irandom(99);
+                    var willApply = (roll < clamp(ch, 0, 100));
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] status_roll move=" + string(move_id) + " status=" + string(s) + " roll=" + string(roll) + " chance=" + string(ch) + " willApply=" + string(willApply));
+                    if (willApply){
+                        var applyTo = D;
+                        if (variable_struct_exists(mm, "self") && variable_struct_get(mm, "self") == true) applyTo = A;
+                        else if (variable_struct_exists(mm, "target") && string(variable_struct_get(mm, "target")) == "self") applyTo = A;
+                        // If the target already has this status (on actor or inner mon), skip re-applying
+                        var _already = false;
+                        if (!is_undefined(status_system_has_status)){
+                            try {
+                                if (is_struct(applyTo) && status_system_has_status(applyTo, s)) _already = true;
+                                else if (is_struct(applyTo) && variable_struct_exists(applyTo, "mon") && is_struct(variable_struct_get(applyTo, "mon")) && status_system_has_status(variable_struct_get(applyTo, "mon"), s)) _already = true;
+                            } catch (e_as) { /* ignore */ }
+                        }
+                        if (_already){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] skipping apply; target already has status=" + string(s)); continue; }
+                        var _opts = {}; variable_struct_set(_opts, "source", A); if (is_real(dur) && dur > 0) variable_struct_set(_opts, "duration", dur);
+                        // Defer the dialog to the battle message flow so ordering is consistent
+                        variable_struct_set(_opts, "skip_dialog", true);
+                        // Prevent the status from ticking immediately this same turn; start ticks from next turn
+                        variable_struct_set(_opts, "skip_first_tick", true);
+                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] applying status with skip_dialog=true: move_id=" + string(move_id) + ", status=" + string(s) + ", target=" + string(variable_struct_get(D, "name")));
+                        var ok = false;
+                        try {
+                            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                                var _at_name = (variable_struct_exists(applyTo, "name") ? variable_struct_get(applyTo, "name") : "<no-name>");
+                                var _at_sid = (variable_struct_exists(applyTo, "species_id") ? variable_struct_get(applyTo, "species_id") : (variable_struct_exists(applyTo, "species") ? variable_struct_get(applyTo, "species") : -1));
+                                show_debug_message("[battle][meta] attempting status apply: move=" + string(move_id) + ", status=" + string(s) + ", target=" + string(_at_name) + "(sid=" + string(_at_sid) + ")");
+                            }
+                            if (!is_undefined(status_system_apply_status)) ok = status_system_apply_status(applyTo, s, _opts);
+                            else { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] status_system_apply_status not defined"); }
+                        } catch (e_apply) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] status apply threw: " + string(e_apply)); ok = false; }
+                        // Fallback: some codebases store statuses on the inner `mon` struct. Try that too.
+                        if (!ok && is_struct(applyTo) && variable_struct_exists(applyTo, "mon") && is_struct(variable_struct_get(applyTo, "mon"))){
+                            try {
+                                var mon_inner = variable_struct_get(applyTo, "mon");
+                                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] fallback apply to inner mon: " + string(mon_inner));
+                                ok = status_system_apply_status(mon_inner, s, _opts);
+                            } catch (e_fallback) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] fallback status apply threw: " + string(e_fallback)); ok = false; }
+                        }
+                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] status_system_apply_status returned " + string(ok) + " for status=" + string(s));
+                        if (ok){
+                            var target_index_for_anim = (applyTo == A ? (variable_struct_exists(_step, "actor_index") ? variable_struct_get(_step, "actor_index") : 0) : (variable_struct_exists(_step, "target_index") ? variable_struct_get(_step, "target_index") : 1));
+                            __battle_request_animation_safe(_pid, { type: "status_inflict", target_index: target_index_for_anim, status: s });
+                            // Do not enqueue or emit dialog here; the status system will request the dialog
+                            // (and __status_request_dialog_for_mon enqueues into the battle slot when available).
+                                try { variable_struct_set(_B, "_meta_effect_applied", true); } catch (e_mes) { }
+                                // For certain side/team protection statuses, also enqueue a short
+                                // Emerald-style message here in case the status_system didn't
+                                // produce a pending dialog in time for the meta dispatch check.
+                                try {
+                                    var _s_l = string_lower(string(s));
+                                    if (_s_l == "safeguard" || _s_l == "reflect" || _s_l == "light-screen" || _s_l == "mist"){
+                                        var _dlg_target = applyTo;
+                                        if (is_struct(applyTo) && variable_struct_exists(applyTo, "mon") && is_struct(variable_struct_get(applyTo, "mon"))) _dlg_target = variable_struct_get(applyTo, "mon");
+                                        var _who = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokémon");
+                                        var _msg = "";
+                                        switch (_s_l){
+                                            case "safeguard": _msg = string(_who) + " protected its team with Safeguard!"; break;
+                                            case "reflect": _msg = "Reflect protected the team!"; break;
+                                            case "light-screen": _msg = "Light Screen reduced damage to the team!"; break;
+                                            case "mist": _msg = "Mist surrounds the team!"; break;
+                                            default: _msg = string(_who) + " protected its team!"; break;
+                                        }
+                                        if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_dlg_target, _msg);
+                                    }
+                                } catch (e_qd) { /* ignore */ }
+                        }
+                    } else {
+                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] status failed roll for move=" + string(move_id) + " status=" + string(s));
+                    }
+                }
+            }
+        } catch (e_stat) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] status block error: " + string(e_stat)); }
+
+        // 5) Stat changes (array 'stat_changes') with optional gating 'stat_chance'
+        if (variable_struct_exists(mm, "stat_changes")){
+            var stat_chance = (variable_struct_exists(mm, "stat_chance") ? __to_int_safe(variable_struct_get(mm, "stat_chance"), 100) : 100);
+            var sc_arr = variable_struct_get(mm, "stat_changes");
+            if (is_array(sc_arr)){
+                for (var sxi = 0; sxi < array_length(sc_arr); ++sxi){
+                    var sc = sc_arr[sxi];
+                    if (!is_struct(sc) && !is_array(sc)) continue;
+                    var sid = (is_struct(sc) ? variable_struct_get(sc, "stat_id") : sc[0]);
+                    var delta = (is_struct(sc) ? variable_struct_get(sc, "change") : sc[1]);
+                    if (!is_real(sid) || !is_real(delta)) continue;
+                    // chance check per stat change
+                    var rsc = irandom(99);
+                    if (rsc >= clamp(stat_chance, 0, 100)) continue;
+                    var key = undefined;
+                    switch (sid){
+                        case 2: key = "atk"; break;
+                        case 3: key = "def"; break;
+                        case 4: key = "spa"; break;
+                        case 5: key = "spd"; break;
+                        case 6: key = "spe"; break;
+                        case 7: key = "accuracy"; break;
+                        case 8: key = "evasion"; break;
+                        default: key = undefined; break;
+                    }
+                    if (is_undefined(key)) continue;
+                    var targetActor = (delta > 0 ? A : D);
+                    // Debug: log stat change inputs so we can trace unexpected zero-applies
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                        var dbg_tn = (variable_struct_exists(targetActor, "name") ? variable_struct_get(targetActor, "name") : "<no-name>");
+                        var prev_guess = 0;
+                        if (variable_struct_exists(targetActor, "_stages") && is_struct(variable_struct_get(targetActor, "_stages"))){
+                            var _sttmp = variable_struct_get(targetActor, "_stages");
+                            if (variable_struct_exists(_sttmp, key)) prev_guess = variable_struct_get(_sttmp, key);
+                        }
+                        show_debug_message("[battle][stat_apply] move="+string(move_id)+", stat="+string(key)+", prev="+string(prev_guess)+", delta="+string(delta)+", target="+string(dbg_tn));
+                    }
+                    if (!variable_struct_exists(targetActor, "_stages") || !is_struct(variable_struct_get(targetActor, "_stages"))) variable_struct_set(targetActor, "_stages", {});
+                    var st = variable_struct_get(targetActor, "_stages");
+                    var prev = (variable_struct_exists(st, key) && is_real(variable_struct_get(st, key))) ? variable_struct_get(st, key) : 0;
+                    var next = clamp(prev + delta, -6, 6);
+                    variable_struct_set(st, key, next);
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                        show_debug_message("[battle][stat_apply] applied move="+string(move_id)+" key="+string(key)+" prev="+string(prev)+" delta="+string(delta)+" next="+string(next));
+                    }
+                    var targ_idx = (variable_struct_exists(_step, "target_index") ? variable_struct_get(_step, "target_index") : undefined);
+                    if (targetActor == A) targ_idx = (variable_struct_exists(_step, "actor_index") ? variable_struct_get(_step, "actor_index") : 0);
+                    __battle_request_animation_safe(_pid, { type: "stat_change", target_index: targ_idx, stat: key, from: prev, to: next });
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][stat] move=" + string(move_id) + " applied stat change " + string(sid) + " delta=" + string(delta) + " on " + string((targetActor==A) ? "attacker" : "target") + " newStage=" + string(next));
+                    // Add a short dialog line like Emerald (e.g. "Foe's Attack fell!")
+                    var targ_name_sc = (variable_struct_exists(targetActor, "name") ? variable_struct_get(targetActor, "name") : "The target");
+                    var stat_readable = "";
+                    switch (key){
+                        case "atk": stat_readable = "Attack"; break;
+                        case "def": stat_readable = "Defense"; break;
+                        case "spa": stat_readable = "Sp. Atk"; break;
+                        case "spd": stat_readable = "Sp. Def"; break;
+                        case "spe": stat_readable = "Speed"; break;
+                        case "accuracy": stat_readable = "Accuracy"; break;
+                        case "evasion": stat_readable = "Evasion"; break;
+                        default: stat_readable = key; break;
+                    }
+                    // Emerald-style concise stat message: "Pokemon DEF +1" (amount actually applied)
+                    var applied_amount = next - prev;
+                    var sign_amount = (applied_amount > 0) ? ("+" + string(applied_amount)) : string(applied_amount);
+                    var stat_abbr = "";
+                    switch (key){
+                        case "atk": stat_abbr = "ATK"; break;
+                        case "def": stat_abbr = "DEF"; break;
+                        case "spa": stat_abbr = "SP.ATK"; break;
+                        case "spd": stat_abbr = "SP.DEF"; break;
+                        case "spe": stat_abbr = "SPD"; break;
+                        case "accuracy": stat_abbr = "ACC"; break;
+                        case "evasion": stat_abbr = "EVA"; break;
+                        default: stat_abbr = string(key); break;
+                    }
+                    var applied_amount = next - prev;
+                    var sc_msg = "";
+                    if (applied_amount == 0){
+                        // Already at cap/min, show a clear Emerald-style denial message
+                        if (delta > 0) sc_msg = string(targ_name_sc) + "'s " + stat_abbr + " won't go any higher!";
+                        else if (delta < 0) sc_msg = string(targ_name_sc) + "'s " + stat_abbr + " won't go any lower!";
+                        else sc_msg = string(targ_name_sc) + "'s " + stat_abbr + " did not change.";
+                    } else {
+                        sc_msg = string(targ_name_sc) + " " + stat_abbr + " " + sign_amount;
+                    }
+                    // Prefer to enqueue as a post-move dialog so it shows after animations.
+                            try {
+                                if (!is_undefined(__status_request_dialog_for_mon)){
+                                    // Attempt to find the inner mon struct (status system expects a mon)
+                                    var _target_mon_ref = targetActor;
+                                    if (is_struct(targetActor) && variable_struct_exists(targetActor, "mon") && is_struct(variable_struct_get(targetActor, "mon"))) _target_mon_ref = variable_struct_get(targetActor, "mon");
+                                    __status_request_dialog_for_mon(_target_mon_ref, sc_msg);
+                                    // mark that a stat-change effect occurred
+                                    try { variable_struct_set(_B, "_meta_effect_applied", true); } catch (e_stm) { }
+                                } else {
+                                    msgs[array_length(msgs)] = sc_msg;
+                                }
+                            } catch (e_q) { msgs[array_length(msgs)] = sc_msg; }
+                }
+            }
+        }
+
+        // 6) Other meta fields (crit_rate, min/max turns/hits) are currently logged for visibility
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+            var cr = (variable_struct_exists(mm, "crit_rate") ? variable_struct_get(mm, "crit_rate") : undefined);
+            if (!is_undefined(cr)) show_debug_message("[battle][meta] move=" + string(move_id) + " crit_rate=" + string(cr));
+        }
+    } catch (e_all) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta_dispatch] error: " + string(e_all)); }
+        // Some metadata categories (for example: 13 => disable/imprison-like effects)
+        // don't produce a textual return message but should still count as a real
+        // meta effect for the purposes of "It had no effect." detection. If a
+        // move only declares a meta_category without producing any other messages
+        // we mark the battle slot so the caller won't show the denial text.
+        try {
+            if (is_struct(mm) && variable_struct_exists(mm, "meta_category")){
+                // meta_category may be stored as string from CSV loaders; coerce to int
+                var __mc_raw = variable_struct_get(mm, "meta_category");
+                var __mc_val = (is_real(__mc_raw) ? __mc_raw : __to_int_safe(__mc_raw, -1));
+                if (is_real(__mc_val)){
+                    // category 13 (imprison-like) is a non-textual meta effect
+                    if (__mc_val == 13){ try { variable_struct_set(_B, "_meta_effect_applied", true); } catch (e_mc) {} }
+                    // category 10: Haze / clear stat changes — treat as a visible meta effect
+                    // but enqueue a single Emerald-style dialog instead of returning it in msgs
+                    else if (__mc_val == 10){
+                        try { variable_struct_set(_B, "_meta_effect_applied", true); } catch (e_mc2) {}
+                        try {
+                            var _haze_msg = "All stat changes were eliminated!";
+                            // enqueue once via status dialog helper (use attacker as discovery anchor)
+                            if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, _haze_msg);
+                        } catch (e_hq) { /* ignore */ }
+                        // Clear local msgs so we don't return a duplicate textual message
+                        try { msgs = []; } catch (e_clear_msgs) { /* ignore */ }
+                    }
+                }
+            }
+        } catch (e_mc_all) { /* ignore */ }
+    // Return any collected messages in a single newline-separated string (or undefined if none)
+    try {
+        if (is_array(msgs) && array_length(msgs) > 0){
+            var out = "";
+            for (var mi = 0; mi < array_length(msgs); ++mi){
+                if (mi > 0) out += "\n";
+                out += string(msgs[mi]);
+            }
+            return out;
+        }
+    } catch (e_ret){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta_dispatch] failed to build return msgs: " + string(e_ret)); }
+    return undefined;
+}
 
 function __battle_ensure_slot(_pid){
     if (!variable_global_exists("sys_battles") || !is_array(global.sys_battles)) global.sys_battles = [];
@@ -77,31 +559,10 @@ function __battle_ensure_slot(_pid){
             _pending_close: false,
             sys_ui: { menu: "root", selX:0, selY:0, msg_list: undefined },
             sys_anim: { active: [] },
-            actor: [],
-            turn_queue: undefined,
-            turn_i: 0,
-            turn_action_player: undefined,
-            turn_action_enemy: undefined,
-            theme: {},
-            _ui: undefined,
-            // caller/trainer visuals
-            caller: undefined,
-            caller_battleAnim: undefined,
-            // phase holds / switching helpers
-            phase_holds: {},
-            _switch_target_idx: undefined,
-            _switch_opts: {},
-            _switch_applied: false,
-            _cry_played_enemy: false,
-            _cry_played_player: false,
-            _cry_play_start_ms_enemy: undefined,
-            _cry_play_start_ms_player: undefined,
-            _cry_queued_from_switch: false,
-            // dialog state
-            _dlg_active: false,
-            _dlg_page_last: -1,
-            _last_phase: ""
+            _bgm_handle: undefined,
+            _defeated_handle: undefined
         };
+        // store back into global container
         global.sys_battles[_pid] = _B;
     }
     return _B;
@@ -114,114 +575,75 @@ function battle_is_open(_pid){
 // Safe audio handle stop helper: try to stop a channel handle, otherwise fall back
 function __battle_audio_stop_handle(_h){
     try {
-        if (is_undefined(_h) || !is_real(_h)) return;
-        // Some runtimes provide audio_channel_stop(handle) but it can be unreliable
-        // or absent; calling it has caused runtime exceptions on some targets.
-        // Use audio_stop_all() as a conservative and safe fallback instead.
-        if (!is_undefined(audio_stop_all)){
-            try { audio_stop_all(); } catch (e2) { /* ignore */ }
+        if (!is_undefined(audio_stop_sound) && !is_undefined(_h)){
+            audio_stop_sound(_h);
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] stopped handle=" + string(_h));
+        } else if (!is_undefined(audio_stop_all)){
+            // Fallback when only a global-all stop is available
+            audio_stop_all();
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] called audio_stop_all() as fallback");
         }
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] stop_handle error: " + string(e));
+    }
 }
 
-// Safe play wrapper: try audio_play_sound then fallback to sound_play if present
+// Safe wrapper to play a sound resource using the best available runtime API.
+// Returns an audio channel/handle when possible, otherwise undefined.
 function __battle_sound_play_safe(_res){
     try {
+        if (is_undefined(_res)) return undefined;
+        // Prefer audio_play_sound (modern runtime) which may return a channel id.
         if (!is_undefined(audio_play_sound)){
-            // Some environments or shims may define audio_play_sound as a no-op
-            // that returns undefined. Call it and fall back to sound_play if
-            // the returned handle is undefined.
-            var _h = undefined;
-            try { _h = audio_play_sound(_res, 1, true); } catch (eap) { _h = undefined; }
-            if (!is_undefined(_h) && _h != undefined) return _h;
-            // fallthrough to try sound_play
+            // For resources intended as BGM, callers may want looping; here we
+            // default to loop=true when the resource name suggests bgm (caller
+            // may still handle looping via audio APIs). Use loop=false by default
+            // to be conservative unless caller previously set a loop handle.
+            var _ret = undefined;
+            try { _ret = audio_play_sound(_res, 1, true); } catch (e_ap) { try { _ret = audio_play_sound(_res, 1, false); } catch (e2) { _ret = undefined; } }
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_play_sound called for res=" + string(_res) + " ret=" + string(_ret));
+            return _ret;
         }
-    } catch (e) { }
-    try {
+        // Fallback to legacy sound_play if present (no channel returned)
         if (!is_undefined(sound_play)){
-            try { sound_play(_res); } catch (esp) { }
-            // Indicate we successfully played via sound_play by returning a
-            // sentinel numeric value. Callers treat any non-undefined return
-            // as "played"; the sentinel isn't a real channel handle but
-            // will cause stop helpers to fall back to audio_stop_all() which
-            // is conservative and safe across runtimes.
-            return -1;
+            try { sound_play(_res); } catch (e_sp) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] sound_play failed: " + string(e_sp)); }
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] sound_play called for res=" + string(_res));
+            return undefined;
         }
-    } catch (e2) { }
+        // Last resort: try audio_create_stream + audio_play_sound if available
+        if (!is_undefined(audio_create_stream) && !is_undefined(audio_play_sound)){
+            var stream = undefined;
+            try { stream = audio_create_stream(_res); } catch (e_cs) { stream = undefined; }
+            if (!is_undefined(stream)){
+                var ch = undefined;
+                try { ch = audio_play_sound(stream, 1, true); } catch (e_ch) { ch = undefined; }
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_create_stream+play returned " + string(ch));
+                return ch;
+            }
+        }
+    } catch (e) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] __battle_sound_play_safe error: " + string(e)); }
     return undefined;
 }
 
-// Helper: stop any battle audio and restore previously captured audio
+// Attempt to restore any previously saved audio for the battle slot.
+// This is defensive: many platforms won't have previous audio captured; the
+// function should silently no-op when no previous audio exists.
 function __battle_restore_prev_audio(_pid){
-    var _B = __battle_ensure_slot(_pid);
-    if (!is_struct(_B)) return;
-    // Stop bgm handle or resource
-        try {
-            var _bgm_handle_local = (variable_struct_exists(_B, "_bgm_handle") ? variable_struct_get(_B, "_bgm_handle") : undefined);
-            if (!is_undefined(_bgm_handle_local)){
-                // Some runtimes expose audio_channel_stop(handle) but it may be unreliable.
-                // As a safe fallback, stop all audio when a handle is present.
-                if (!is_undefined(audio_stop_all)){
-                    audio_stop_all();
-                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_stop_all() called for bgm_handle="+string(_bgm_handle_local));
-                }
-            } else {
-                var _stop_res = (variable_struct_exists(_B, "_battle_music") ? variable_struct_get(_B, "_battle_music") : undefined);
-                if (!is_undefined(_stop_res) && !is_undefined(audio_stop_sound)){
-                    audio_stop_sound(_stop_res);
-                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_stop_sound on _battle_music="+string(_stop_res));
-                }
-            }
-        } catch (e_stop) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed stopping bgm: " + string(e_stop)); }
-
-    // Stop defeated handle/resource if present
-    try { var _def_handle_local = (variable_struct_exists(_B, "_defeated_handle") ? variable_struct_get(_B, "_defeated_handle") : undefined); if (!is_undefined(_def_handle_local)) __battle_audio_stop_handle(_def_handle_local); } catch (e) {}
-        var _def_res = (variable_struct_exists(_B, "_battle_defeated_music") ? variable_struct_get(_B, "_battle_defeated_music") : undefined);
-        if (!is_undefined(_def_res) && !is_undefined(audio_stop_sound)) audio_stop_sound(_def_res);
-        // Ensure the defeated/victory music is stopped (use stored resource when possible)
-        try {
-            var _stop_res = (variable_struct_exists(_B, "_battle_defeated_music") ? variable_struct_get(_B, "_battle_defeated_music") : undefined);
-            if (!is_undefined(_stop_res)){
-                try {
-                    if (!is_undefined(audio_stop_sound)){
-                        audio_stop_sound(_stop_res);
-                    }
-                } catch (e_stop_d) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed stopping defeated music: " + string(e_stop_d)); }
-            }
-        } catch (e_all_stop) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] error while attempting to stop defeated music: " + string(e_all_stop)); }
-
-    // Prefer playing region music (global._REGIONMUSIC) when available; otherwise
-    // fall back to restoring previously captured audio. Keep guards so this
-    // works on runtimes that don't expose the audio_* APIs.
     try {
-        var _played = false;
-        var _region = undefined;
-        if (variable_global_exists("_REGIONMUSIC")) _region = variable_global_get("_REGIONMUSIC");
-        if (!is_undefined(_region)){
-            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] playing region music: " + string(_region));
-            try { var _rh = __battle_sound_play_safe(_region); if (!is_undefined(_rh)) _played = true; } catch (e_pr) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to play region music: " + string(e_pr)); }
-        }
-
-        if (!_played){
-            // Restore previously playing audio if we captured any
-            var _prev_audio_local = (variable_struct_exists(_B, "_prev_audio") ? variable_struct_get(_B, "_prev_audio") : undefined);
-            if (!is_undefined(_prev_audio_local)){
-                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] restoring prev audio: " + string(_prev_audio_local));
-                if (is_real(_prev_audio_local) || is_string(_prev_audio_local)){
-                    try { var _ph = __battle_sound_play_safe(_prev_audio_local); if (!is_undefined(_ph)) _played = true; } catch (e_p) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to play prev audio: " + string(e_p)); }
-                } else if (is_array(_prev_audio_local)){
-                    for (var _i = 0; _i < array_length(_prev_audio_local); ++_i){
-                        var _pv = _prev_audio_local[_i];
-                        try { var _ph2 = __battle_sound_play_safe(_pv); if (!is_undefined(_ph2)) _played = true; } catch (e_p2) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to play prev audio entry: " + string(e_p2)); }
-                    }
-                }
+        var _B = __battle_ensure_slot(_pid);
+        if (!is_struct(_B)) return;
+        var prev = (variable_struct_exists(_B, "_prev_audio") ? variable_struct_get(_B, "_prev_audio") : undefined);
+        if (is_undefined(prev) || prev == undefined) return;
+        // prev may be a resource id or a channel/handle depending on capture method.
+        try {
+            if (!is_undefined(audio_play_sound)){
+                // Try to play previous resource as bgm (looped)
+                try { audio_play_sound(prev, 1, true); if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] restored prev audio res=" + string(prev)); } catch (e_apr) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_play_sound restore failed: " + string(e_apr)); }
+            } else if (!is_undefined(sound_play)){
+                try { sound_play(prev); if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] restored prev audio via sound_play res=" + string(prev)); } catch (e_sp2) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] sound_play restore failed: " + string(e_sp2)); }
             }
-        }
-    } catch (e_r) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to restore/play audio: " + string(e_r)); }
-
-    // Clear handles to avoid accidental reuse
-    _B._bgm_handle = undefined;
-    _B._defeated_handle = undefined;
+        } catch (e_inner) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to actually restore prev audio: " + string(e_inner)); }
+    } catch (e) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] __battle_restore_prev_audio error: " + string(e)); }
 }
 
 // ===== Open / Close =====
@@ -396,6 +818,19 @@ function battle_close(_pid){
     } catch (e3) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to call sound_stop: " + string(e3)); }
     _B.sys_open = false;
 
+    // Clear any temporary in-battle stat stages to ensure they don't persist
+    try {
+        if (is_array(_B.actor)){
+            for (var _ai = 0; _ai < array_length(_B.actor); ++_ai){
+                var _act = _B.actor[_ai];
+                if (is_struct(_act) && variable_struct_exists(_act, "_stages")) variable_struct_set(_act, "_stages", undefined);
+            }
+        }
+    } catch (e_clear) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][close] failed clearing stages: " + string(e_clear)); }
+
+    // Clear any temporary per-battle weather state
+    try { if (variable_struct_exists(_B, "_weather")) variable_struct_set(_B, "_weather", undefined); } catch (e_w) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][close] failed clearing weather: " + string(e_w)); }
+
     // Ensure the battle music (bgm) is stopped (use stored resource when possible)
     try {
         var _stop_bgm_res_local = (variable_struct_exists(_B, "_battle_music") ? variable_struct_get(_B, "_battle_music") : undefined);
@@ -553,6 +988,29 @@ function battle_update(_pid){
                 return;
             }
         }
+            // If any status messages were deferred (we applied status with skip_dialog=true),
+            // show them now in-order before other pending flows so the player sees them.
+            // However, do NOT show deferred status messages during intro/transition/switch
+            // animations (the 'A wild X appeared! / Go!' sequence). Those intros already
+            // show their own dialogs; presenting status messages during the intro can
+            // be confusing. Defer until after the intro phases complete.
+            var _skip_pending_show = false;
+            try {
+                var _phase_name = (variable_struct_exists(_B, "phase") ? string(_B.phase) : "");
+                if (_phase_name == "transition_in" || _phase_name == "intro_enemy" || _phase_name == "intro_call" || _phase_name == "intro_player" || _phase_name == "switch_in") _skip_pending_show = true;
+            } catch (e_ps) { _skip_pending_show = false; }
+            if (!_skip_pending_show && variable_struct_exists(_B, "_pending_status_msgs") && is_array(variable_struct_get(_B, "_pending_status_msgs"))){
+                var _ps = variable_struct_get(_B, "_pending_status_msgs");
+                if (array_length(_ps) > 0){
+                    var _m = _ps[0];
+                    // pop first
+                    var _new = [];
+                    for (var _ii = 1; _ii < array_length(_ps); ++_ii) _new[array_length(_new)] = _ps[_ii];
+                    variable_struct_set(_B, "_pending_status_msgs", _new);
+                    try { __battle_stub_dialog(_pid, _m); } catch (e_p) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][pending_status] failed to show: " + string(e_p)); }
+                    return;
+                }
+            }
         // If a pending item use was queued while the dialog was open (e.g. "You used a Poke Ball!"),
         // start the catch animation now that the dialog has closed.
         if (variable_struct_exists(_B, "_pending_item_use") && is_struct(variable_struct_get(_B, "_pending_item_use"))){
@@ -694,6 +1152,9 @@ function battle_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     __battle_enemy_box_rect(_pid, 16,16,112,40, _B.actor[1]);
     __battle_player_box_rect(_pid,112,104,128,48, _B.actor[0]);
     __battle_cmd_box_rect(_pid,   8,136,224,24,   _B.sys_ui.selX, _B.sys_ui.selY);
+
+    // Draw any active battle animations (status icons, damage popups)
+    if (!is_undefined(__battle_anim_draw)) __battle_anim_draw(_pid);
 
     if (string(_B.phase) == "transition_in"){
         var p = (variable_struct_exists(_B,"phase_progress") ? _B.phase_progress : 0);
@@ -914,6 +1375,37 @@ function __battle_build_turn_actions(_pid){
         actions[0] = actE;
     }
 
+    // Immediate-effects for certain moves (Protect-like moves should take effect
+    // as soon as the action is queued so they can block attacks that occur later
+    // in the same turn, regardless of move order).
+    try {
+        if (is_array(actions)){
+            for (var ai = 0; ai < array_length(actions); ++ai){
+                var act = actions[ai];
+                if (!is_struct(act)) continue;
+                var mid = (variable_struct_exists(act, "move_id") ? variable_struct_get(act, "move_id") : undefined);
+                if (!is_real(mid)) continue;
+                var mmq = undefined;
+                try { mmq = __battle_get_move_meta(mid); } catch (e_mmq) { mmq = undefined; }
+                if (is_struct(mmq) && variable_struct_exists(mmq, "protect") && variable_struct_get(mmq, "protect") == true){
+                    // set on canonical battle actor (if exists) so checks during resolution see it
+                    if (variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor"))){
+                        var actorArr = variable_struct_get(_B, "actor");
+                        var aidx = (variable_struct_exists(act, "actor_index") ? variable_struct_get(act, "actor_index") : undefined);
+                        if (is_real(aidx) && aidx >= 0 && aidx < array_length(actorArr)){
+                            var actRef = actorArr[aidx];
+                            if (is_struct(actRef)){
+                                variable_struct_set(actRef, "_protected", true);
+                                // track whether we've shown the 'protected itself' announcement yet
+                                variable_struct_set(actRef, "_protected_announce_shown", false);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } catch (e_immed) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][build_actions] immediate-effect apply failed: " + string(e_immed)); }
+
     return actions;
 }
 function __battle_step_turn_if_ready(_pid){
@@ -925,9 +1417,45 @@ function __battle_step_turn_if_ready(_pid){
     // If dialog is open, wait
     if (!is_undefined(dialog2p_is_open) && dialog2p_is_open(_pid)) return;
 
+    // If a multi-hit sequence is pending (we showed the initial 'used' dialog),
+    // process exactly one additional hit and show a short dialog, then return so
+    // the player can close it before the next hit. This creates the Emerald-style
+    // per-hit dramatic effect.
+    if (variable_struct_exists(_B, "_pending_multi_hit") && is_struct(variable_struct_get(_B, "_pending_multi_hit"))){
+        try {
+            var pm = variable_struct_get(_B, "_pending_multi_hit");
+            var mov = (variable_struct_exists(pm, "move_id") ? variable_struct_get(pm, "move_id") : undefined);
+            var a_idx = (variable_struct_exists(pm, "actor_index") ? variable_struct_get(pm, "actor_index") : 0);
+            var t_idx = (variable_struct_exists(pm, "target_index") ? variable_struct_get(pm, "target_index") : 1);
+            var mv_power_local = (variable_struct_exists(pm, "mv_power") ? variable_struct_get(pm, "mv_power") : 0);
+            var remaining = (variable_struct_exists(pm, "remaining") ? floor(variable_struct_get(pm, "remaining")) : 0);
+            var Aact = (variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor")) ? variable_struct_get(_B, "actor")[a_idx] : undefined);
+            var Dact = (variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor")) ? variable_struct_get(_B, "actor")[t_idx] : undefined);
+            if (!is_struct(Aact) || !is_struct(Dact)){
+                // clean up if actors missing
+                variable_struct_set(_B, "_pending_multi_hit", undefined);
+                return;
+            }
+            var res = __battle_apply_move_damage(_pid, t_idx, Aact, Dact, mov, mv_power_local);
+            var dmg = res[0];
+            // run meta dispatcher for this hit
+            try { var mm_all = __battle_get_move_meta(mov); __battle_apply_move_meta_effects(_pid, {}, Aact, Dact, mov, dmg, mm_all); } catch (e_mh){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][pending_hit] meta error: " + string(e_mh)); }
+            // show a short per-hit dialog
+            var hitMsg = "It hit!";
+            __battle_stub_dialog(_pid, hitMsg);
+            // decrement remaining and persist or clear
+            remaining = max(0, remaining - 1);
+            if (remaining > 0){ variable_struct_set(pm, "remaining", remaining); variable_struct_set(_B, "_pending_multi_hit", pm); }
+            else { variable_struct_set(_B, "_pending_multi_hit", undefined); }
+        } catch (e_pending){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][pending_hit] error: " + string(e_pending)); }
+        return;
+    }
+
     // Nothing queued? return to command
     if (!is_array(_B.turn_queue) || array_length(_B.turn_queue) == 0){
         _B.phase = "command";
+        // Reset status-tick guard so statuses will be ticked once on the next end-of-turn
+        try { variable_struct_set(_B, "_statuses_ticked", false); } catch (e_tb) {}
         // Restore root menu selection if previously saved
         _B.sys_ui.menu = "root";
         if (is_struct(_B.sys_ui) && variable_struct_exists(_B.sys_ui, "_prev_root_selX") && variable_struct_exists(_B.sys_ui, "_prev_root_selY")){
@@ -941,28 +1469,116 @@ function __battle_step_turn_if_ready(_pid){
 
     // All actions processed?
     if (_B.turn_i >= array_length(_B.turn_queue)){
-        // After the turn, check win/lose
-        var A0 = _B.actor[0];
-        var A1 = _B.actor[1];
+        // After the turn, tick statuses and then check win/lose
+        // Ensure actor locals are defined safely before using them
+        var A0 = undefined; var A1 = undefined;
+        if (variable_struct_exists(_B, "actor")){
+            var _acts_tmp = variable_struct_get(_B, "actor");
+            if (is_array(_acts_tmp)){
+                if (array_length(_acts_tmp) > 0) A0 = _acts_tmp[0];
+                if (array_length(_acts_tmp) > 1) A1 = _acts_tmp[1];
+            }
+        }
+        try {
+            // Only tick statuses once for this end-of-turn. The battle loop may remain
+            // in the 'end-of-turn' state while dialogs are shown, so without a guard
+            // we would repeatedly apply status ticks each frame. Use a per-battle flag
+            // so we apply ticks exactly once until the battle progresses.
+            var _already = (variable_struct_exists(_B, "_statuses_ticked") ? variable_struct_get(_B, "_statuses_ticked") : false);
+            if (!_already){
+                // Tick statuses on both actors if status system is available
+                if (!is_undefined(status_system_tick_statuses)){
+                    if (is_struct(A0)) status_system_tick_statuses(A0, undefined);
+                    if (is_struct(A1)) status_system_tick_statuses(A1, undefined);
+                }
+                // mark that we've ticked statuses for this end-of-turn so we don't repeat
+                try { variable_struct_set(_B, "_statuses_ticked", true); } catch (e_st) {}
+            }
+        } catch (e_tick) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][status_tick] error: " + string(e_tick)); }
+
+        // Process queued animations: we don't implement playback here but ensure the
+        // animation queue exists so other systems can read it.
+        try {
+            if (variable_struct_exists(_B, "sys_anim") && is_struct(variable_struct_get(_B, "sys_anim"))){
+                var _sa_local = variable_struct_get(_B, "sys_anim");
+                var _actarr = (variable_struct_exists(_sa_local, "active") ? variable_struct_get(_sa_local, "active") : undefined);
+                if (!is_array(_actarr)) { /* nothing to do */ }
+                // note: playback is handled in battle_animations.gml / draw loop
+            }
+        } catch (e_anim) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][anim_queue] error: " + string(e_anim)); }
+
+    // After ticking/animations, decrement per-turn weather durations and expire when necessary
+    try {
+        var _wt = __battle_get_weather(_pid);
+        if (is_struct(_wt) && variable_struct_exists(_wt, "expires_turn")){
+            var et = variable_struct_get(_wt, "expires_turn");
+            if (is_real(et)){
+                et = max(0, et - 1);
+                variable_struct_set(_wt, "expires_turn", et);
+                // ensure the battle slot sees the updated struct
+                variable_struct_set(_B, "_weather", _wt);
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][weather] ticked weather=" + string(variable_struct_get(_wt, "id")) + " expires_turn=" + string(et));
+                if (et <= 0){
+                    var wid = (variable_struct_exists(_wt, "id") ? variable_struct_get(_wt, "id") : "<unknown>");
+                    __battle_clear_weather(_pid);
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][weather] weather " + string(wid) + " expired and cleared");
+                    __battle_request_animation_safe(_pid, { type: "weather_end", id: wid });
+                    // Show a short dialog line for weather end using Emerald-style text
+                    var endMsg = "";
+                    switch (string(wid)){
+                        case "sun": endMsg = "The sunlight faded."; break;
+                        case "harsh-sun": endMsg = "The harsh sunlight subsided."; break;
+                        case "rain": endMsg = "The rain stopped."; break;
+                        case "sandstorm": endMsg = "The sandstorm subsided."; break;
+                        case "hail": endMsg = "The hail stopped."; break;
+                        default: endMsg = "The field returned to normal."; break;
+                    }
+                    try { __battle_stub_dialog(_pid, endMsg); } catch (e_msg) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][weather] failed to show end dialog: " + string(e_msg)); }
+                }
+            }
+        }
+    } catch (e_wt) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][weather] tick error: " + string(e_wt)); }
+
+    // After ticking/animations, show any deferred status messages (applied during the turn)
+    // before proceeding to win/lose checks. This ensures 'fell asleep!' / 'was poisoned!'
+    // messages applied mid-turn are presented to the player at the end of the turn.
+    try {
+        if (variable_struct_exists(_B, "_pending_status_msgs") && is_array(variable_struct_get(_B, "_pending_status_msgs"))){
+            var _psend = variable_struct_get(_B, "_pending_status_msgs");
+            if (array_length(_psend) > 0){
+                var _m = _psend[0];
+                var _new = [];
+                for (var _ii = 1; _ii < array_length(_psend); ++_ii) _new[array_length(_new)] = _psend[_ii];
+                variable_struct_set(_B, "_pending_status_msgs", _new);
+                try { __battle_stub_dialog(_pid, _m); } catch (e_pend) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][pending_status_endturn] failed to show: " + string(e_pend)); }
+                return;
+            }
+        }
+    } catch (e_ps) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][pending_status_endturn] error: " + string(e_ps)); }
+
+    // After ticking/animations, check win/lose
 
         
-if (A1.hp_now <= 0){
+if (is_struct(A1) && variable_struct_exists(A1, "hp_now") && variable_struct_get(A1, "hp_now") <= 0){
     // Compute EXP: floor(base_exp * enemy_level / 7)
     var base_exp = 50;
-    if (variable_global_exists("_pokemon") && is_array(global._pokemon) && A1.species >= 0 && A1.species < array_length(global._pokemon)){
-        var _rec = global._pokemon[A1.species];
+    var species_idx = undefined;
+    if (variable_struct_exists(A1, "species")) species_idx = variable_struct_get(A1, "species");
+    if (variable_global_exists("_pokemon") && is_array(global._pokemon) && is_real(species_idx) && species_idx >= 0 && species_idx < array_length(global._pokemon)){
+        var _rec = global._pokemon[species_idx];
         if (is_struct(_rec) && variable_struct_exists(_rec, "_base_exp")){
             base_exp = max(1, real(_rec._base_exp));
         }
     }
-    var gain = floor((base_exp * max(1, A1.level)) / 7);
+    var level_val = (variable_struct_exists(A1, "level") ? variable_struct_get(A1, "level") : 1);
+    var gain = floor((base_exp * max(1, level_val)) / 7);
     __battle_award_exp(_pid, gain);
 
     // Award EVs to participants (or fallback to active mon)
     // Determine EV yield from species master record when available
     var ev_yield = undefined;
-    if (variable_global_exists("_pokemon") && is_array(global._pokemon) && A1.species >= 0 && A1.species < array_length(global._pokemon)){
-        var _rec_ev = global._pokemon[A1.species];
+    if (variable_global_exists("_pokemon") && is_array(global._pokemon) && is_real(species_idx) && species_idx >= 0 && species_idx < array_length(global._pokemon)){
+        var _rec_ev = global._pokemon[species_idx];
         if (is_struct(_rec_ev)){
             if (variable_struct_exists(_rec_ev, "ev_yield") && is_struct(variable_struct_get(_rec_ev, "ev_yield"))) ev_yield = variable_struct_get(_rec_ev, "ev_yield");
             else if (variable_struct_exists(_rec_ev, "ev") && is_struct(variable_struct_get(_rec_ev, "ev"))) ev_yield = variable_struct_get(_rec_ev, "ev");
@@ -982,7 +1598,7 @@ if (A1.hp_now <= 0){
             var idx = _parts[_pi];
             if (is_array(P.mons) && idx >= 0 && idx < array_length(P.mons)){
                 var cand = P.mons[idx];
-                if (is_struct(cand) && ((variable_struct_exists(cand, "hp") && is_real(cand.hp) && cand.hp > 0) || (variable_struct_exists(cand, "hp_now") && is_real(cand.hp_now) && cand.hp_now > 0))) array_push(recipients, cand);
+                if (is_struct(cand) && __battle_hp_now(cand) > 0) array_push(recipients, cand);
             }
             _pi += 1;
         }
@@ -1066,15 +1682,17 @@ if (A1.hp_now <= 0){
 }
 
 
-        if (A0.hp_now <= 0){
+        if (is_struct(A0) && variable_struct_exists(A0, "hp_now") && variable_struct_get(A0, "hp_now") <= 0){
             // Try to find another alive mon in party
             var idxNext = __party_find_next_alive(_pid);
             if (idxNext >= 0){
-                __battle_stub_dialog(_pid, string(A0.name) + " fainted!\n(TODO) Switch to another Pokémon.");
+                var _name0 = (variable_struct_exists(A0, "name") ? variable_struct_get(A0, "name") : "Pokémon");
+                __battle_stub_dialog(_pid, string(_name0) + " fainted!\n(TODO) Switch to another Pokémon.");
                 // You can call battle_switch_to here automatically if desired:
                 // battle_switch_to(_pid, idxNext, {});
             } else {
-                __battle_stub_dialog(_pid, string(A0.name) + " fainted!\nYou blacked out...");
+                var _name0b = (variable_struct_exists(A0, "name") ? variable_struct_get(A0, "name") : "Pokémon");
+                __battle_stub_dialog(_pid, string(_name0b) + " fainted!\nYou blacked out...");
                 _B.result = "lose";
                 _B._pending_close = true;
             }
@@ -1099,6 +1717,11 @@ if (A1.hp_now <= 0){
     var step = _B.turn_queue[_B.turn_i];
     if (!is_struct(step)){ _B.turn_i += 1; return; }
 
+    // If we're at the start of a new turn (turn index 0), clear the status-tick guard
+    // so statuses will be ticked at that turn's end. This ensures ticks happen once
+    // per full turn rather than being suppressed across rounds.
+    try { if (is_real(_B.turn_i) && _B.turn_i == 0) { variable_struct_set(_B, "_statuses_ticked", false); } } catch (e_stres) {}
+
     var actor_idx  = step.actor_index;
     var target_idx = step.target_index;
 
@@ -1113,8 +1736,8 @@ if (A1.hp_now <= 0){
         _B.turn_i += 1; return;
     }
 
-    // If acting Pokémon fainted already, skip
-    if (A.hp_now <= 0){ _B.turn_i += 1; __battle_step_turn_if_ready(_pid); return; }
+    // If acting Pokémon fainted already, skip (use canonical helper)
+    if (__battle_is_fainted(A)){ _B.turn_i += 1; __battle_step_turn_if_ready(_pid); return; }
 
     // Perform the action -> returns a dialog string
     var out_msg = __battle_perform_action(_pid, step);
@@ -1183,36 +1806,482 @@ function __battle_perform_action(_pid, _step){
 
     // (debug removed)
 
+    // Pre-action status checks: sleep/freeze/flinch/paralysis/confusion
+    try {
+        // Sleep / Freeze: prevent action if present
+        if (!is_undefined(status_system_has_status)){
+            // Debug: show whether actor or inner.mon has the status
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                try {
+                    // Basic booleans
+                    var _a_actor_has = string(status_system_has_status(A, "sleep"));
+                    var _a_inner_has = "n/a";
+                    // Detailed instance & skip-first-tick diagnostics to detect canonicalization issues
+                    var _a_actor_inst = "<undef>";
+                    var _a_inner_inst = "<undef>";
+                    var _a_actor_skip = "n/a";
+                    var _a_inner_skip = "n/a";
+                    var _pid_actor = "n/a";
+                    if (is_struct(A) && variable_struct_exists(A, "mon") && is_struct(variable_struct_get(A, "mon"))) {
+                        var _inner = variable_struct_get(A, "mon");
+                        _a_inner_has = string(status_system_has_status(_inner, "sleep"));
+                        var _inst_actor = undefined; var _inst_inner = undefined;
+                        try { _inst_actor = status_system_get(A, "sleep"); } catch (e_a) { _inst_actor = undefined; }
+                        try { _inst_inner = status_system_get(_inner, "sleep"); } catch (e_i) { _inst_inner = undefined; }
+                        _a_actor_inst = (is_struct(_inst_actor) ? string(_inst_actor) : "<undef>");
+                        _a_inner_inst = (is_struct(_inst_inner) ? string(_inst_inner) : "<undef>");
+                        if (is_struct(_inst_actor) && variable_struct_exists(_inst_actor, "_skip_first_tick") && variable_struct_get(_inst_actor, "_skip_first_tick") == true) _a_actor_skip = "true";
+                        if (is_struct(_inst_inner) && variable_struct_exists(_inst_inner, "_skip_first_tick") && variable_struct_get(_inst_inner, "_skip_first_tick") == true) _a_inner_skip = "true";
+                        // battle pid discovery for both wrapper and inner
+                        try { _pid_actor = string(__status_find_battle_pid(A)); } catch (e_pid) { _pid_actor = "err"; }
+                    } else if (is_struct(A)){
+                        var _inst_actor2 = undefined;
+                        try { _inst_actor2 = status_system_get(A, "sleep"); } catch (e_a2) { _inst_actor2 = undefined; }
+                        _a_actor_inst = (is_struct(_inst_actor2) ? string(_inst_actor2) : "<undef>");
+                        if (is_struct(_inst_actor2) && variable_struct_exists(_inst_actor2, "_skip_first_tick") && variable_struct_get(_inst_actor2, "_skip_first_tick") == true) _a_actor_skip = "true";
+                        try { _pid_actor = string(__status_find_battle_pid(A)); } catch (e_pid2) { _pid_actor = "err"; }
+                    }
+                    show_debug_message("[battle][precheck][dbg] checking sleep for actor='" + string((variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"<no-name>")) + "' actor_has=" + string(_a_actor_has) + ", inner_has=" + string(_a_inner_has) + ", actor_inst=" + string(_a_actor_inst) + ", inner_inst=" + string(_a_inner_inst) + ", actor_skip=" + string(_a_actor_skip) + ", inner_skip=" + string(_a_inner_skip) + ", pid_discovered=" + string(_pid_actor));
+                } catch (e_dbg2) {}
+            }
+            if (status_system_has_status(A, "sleep")){
+                // If the sleep instance was applied this same turn, it set _skip_first_tick
+                // to avoid immediate ticks and also to avoid re-announcing 'is asleep' immediately.
+                var _sinst = (is_undefined(status_system_get) ? undefined : status_system_get(A, "sleep"));
+                var _skipAnnounce = false;
+                if (is_struct(_sinst) && variable_struct_exists(_sinst, "_skip_first_tick") && variable_struct_get(_sinst, "_skip_first_tick") == true) _skipAnnounce = true;
+                if (!_skipAnnounce){
+                    __battle_request_animation_safe(A, { type: "status_blocked", status: "sleep" });
+                    return string(A.name) + " is asleep!";
+                }
+                // otherwise: skip the precheck announcement for freshly-applied sleep
+            }
+        }
+        if (!is_undefined(status_system_has_status)){
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                try {
+                    var _f_actor_has = string(status_system_has_status(A, "freeze"));
+                    var _f_inner_has = "n/a";
+                    var _f_actor_inst = "<undef>"; var _f_inner_inst = "<undef>";
+                    var _f_actor_skip = "n/a"; var _f_inner_skip = "n/a";
+                    var _pid_f = "n/a";
+                    if (is_struct(A) && variable_struct_exists(A, "mon") && is_struct(variable_struct_get(A, "mon"))){
+                        var _innerf = variable_struct_get(A, "mon");
+                        _f_inner_has = string(status_system_has_status(_innerf, "freeze"));
+                        var _inst_fa = undefined; var _inst_fi = undefined;
+                        try { _inst_fa = status_system_get(A, "freeze"); } catch (e_fa) { _inst_fa = undefined; }
+                        try { _inst_fi = status_system_get(_innerf, "freeze"); } catch (e_fi) { _inst_fi = undefined; }
+                        _f_actor_inst = (is_struct(_inst_fa) ? string(_inst_fa) : "<undef>");
+                        _f_inner_inst = (is_struct(_inst_fi) ? string(_inst_fi) : "<undef>");
+                        if (is_struct(_inst_fa) && variable_struct_exists(_inst_fa, "_skip_first_tick") && variable_struct_get(_inst_fa, "_skip_first_tick") == true) _f_actor_skip = "true";
+                        if (is_struct(_inst_fi) && variable_struct_exists(_inst_fi, "_skip_first_tick") && variable_struct_get(_inst_fi, "_skip_first_tick") == true) _f_inner_skip = "true";
+                        try { _pid_f = string(__status_find_battle_pid(A)); } catch (e_pidf) { _pid_f = "err"; }
+                    } else if (is_struct(A)){
+                        var _inst_fa2 = undefined;
+                        try { _inst_fa2 = status_system_get(A, "freeze"); } catch (e_fa2) { _inst_fa2 = undefined; }
+                        _f_actor_inst = (is_struct(_inst_fa2) ? string(_inst_fa2) : "<undef>");
+                        if (is_struct(_inst_fa2) && variable_struct_exists(_inst_fa2, "_skip_first_tick") && variable_struct_get(_inst_fa2, "_skip_first_tick") == true) _f_actor_skip = "true";
+                        try { _pid_f = string(__status_find_battle_pid(A)); } catch (e_pidf2) { _pid_f = "err"; }
+                    }
+                    show_debug_message("[battle][precheck][dbg] checking freeze for actor='" + string((variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"<no-name>")) + "' actor_has=" + string(_f_actor_has) + ", inner_has=" + string(_f_inner_has) + ", actor_inst=" + string(_f_actor_inst) + ", inner_inst=" + string(_f_inner_inst) + ", actor_skip=" + string(_f_actor_skip) + ", inner_skip=" + string(_f_inner_skip) + ", pid_discovered=" + string(_pid_f));
+                } catch (e_dbgf) {}
+            }
+            if (status_system_has_status(A, "freeze")){
+                __battle_request_animation_safe(A, { type: "status_blocked", status: "freeze" });
+                return string(A.name) + " is frozen solid!";
+            }
+        }
+        // Paralysis: 25% chance to be unable to move
+        if (!is_undefined(status_system_has_status) && status_system_has_status(A, "paralysis")){
+            var rpar = irandom(99);
+            if (rpar < 25){
+                __battle_request_animation_safe(A, { type: "status_blocked", status: "paralysis" });
+                return string(A.name) + " is paralyzed! It can't move!";
+            }
+        }
+        // Flinch: if flinch status present, skip action (check actor and actor.mon)
+        try {
+            var _fl = false;
+            if (!is_undefined(status_system_has_status)){
+                if (is_struct(A) && status_system_has_status(A, "flinch")) _fl = true;
+                else if (is_struct(A) && is_struct(A.mon) && status_system_has_status(A.mon, "flinch")) _fl = true;
+            }
+            if (_fl){
+                __battle_request_animation_safe(A, { type: "status_blocked", status: "flinch" });
+                return string(A.name) + " has flinched!";
+            }
+        } catch (e_flinch) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][flinch_precheck] error: " + string(e_flinch)); }
+        // Confusion: 50% chance to hurt self (typical semantics)
+        if (!is_undefined(status_system_has_status) && status_system_has_status(A, "confusion")){
+            var rconf = irandom(99);
+            if (rconf < 50){
+                // self-inflicted damage: use a simple 40 power typeless self-hit calculation
+                var dmg_res = __battle_apply_move_damage(_pid, _step.actor_index == 0 ? 0 : 1, A, A, -1, 40);
+                var sdmg = dmg_res[0];
+                __battle_request_animation_safe(A, { type: "confusion_hit", amount: sdmg });
+                var txt = string(A.name) + " is confused and hurt itself!";
+                return txt;
+            }
+        }
+    } catch (e_stat) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][status_precheck] " + string(e_stat)); }
+
     // Safety + consume PP
     if (!__battle_consume_pp(A, move_slot)){
         return string(A.name) + " has no PP left!\n(TODO) Struggle.";
     }
 
     var mv_name = __battle_move_name(move_id);
+    // If this move itself is a Protect-type move, announce protection for the user now
+    try {
+        var mm_prot = undefined;
+        try { mm_prot = __battle_get_move_meta(move_id); } catch (e_pmeta) { mm_prot = undefined; }
+        if (is_struct(mm_prot) && variable_struct_exists(mm_prot, "protect") && variable_struct_get(mm_prot, "protect") == true){
+            // ensure canonical actor ref has the flag set
+            try {
+                var _B_local = __battle_ensure_slot(_pid);
+                if (is_struct(_B_local) && is_array(_B_local.actor) && variable_struct_exists(_step, "actor_index")){
+                    var aidx_local = variable_struct_get(_step, "actor_index");
+                    if (is_real(aidx_local) && aidx_local >= 0 && aidx_local < array_length(_B_local.actor)){
+                        var actRef2 = _B_local.actor[aidx_local];
+                        if (is_struct(actRef2)){
+                            variable_struct_set(actRef2, "_protected", true);
+                            variable_struct_set(actRef2, "_protected_announce_shown", true); // we'll announce now
+                        }
+                    }
+                }
+            } catch (e_setprot){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][protect] immediate set failed: " + string(e_setprot)); }
+            __battle_request_animation_safe(_pid, { type: "protect", target_index: (variable_struct_exists(_step, "actor_index") ? variable_struct_get(_step, "actor_index") : 0) });
+            return string(A.name) + " protected itself!";
+        }
+    } catch (e_protchk) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][protect] check error: " + string(e_protchk)); }
+
+    // If the target actor has protection set (from Protect/Detect), block the move immediately.
+    try {
+        if (is_struct(D) && variable_struct_exists(D, "_protected") && variable_struct_get(D, "_protected") == true){
+            // only announce the blocked message the first time for this defender this turn
+            var already_ann = (variable_struct_exists(D, "_protected_announce_shown") ? variable_struct_get(D, "_protected_announce_shown") : false);
+            __battle_request_animation_safe(_pid, { type: "protected", target_index: (variable_struct_exists(_step, "target_index") ? variable_struct_get(_step, "target_index") : 1) });
+            if (!already_ann){
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][protect] incoming move blocked by protection: move_id=" + string(move_id));
+                variable_struct_set(D, "_protected_announce_shown", true);
+                return string(A.name) + " used " + mv_name + "!\nBut " + string(variable_struct_exists(D,"name")?variable_struct_get(D,"name"):"The target") + " protected itself!";
+            } else {
+                // silently block without emitting duplicate dialog
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][protect] blocked silently (duplicate) move_id=" + string(move_id));
+                return string(A.name) + " used " + mv_name + "!";
+            }
+        }
+    } catch (e_protchk) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][protect] check error: " + string(e_protchk)); }
     // Hit roll
     if (!__battle_roll_hit(move_id)){
         return string(A.name) + " used " + mv_name + "!\nBut it missed!";
     }
 
     var mv_power = __battle_move_power(move_id);
-    var res = __battle_apply_move_damage(_pid, _step.target_index, A, D, move_id, mv_power);
-    var dmg = res[0];
-    var before = res[1];
-    var after = res[2];
+    // Check for multi-hit meta (min_hits/max_hits). If present, loop that many times
+    var hits = 1;
+    try {
+        var mm_chk = __battle_get_move_meta(move_id);
+        if (is_struct(mm_chk)){
+            var minh = (variable_struct_exists(mm_chk, "min_hits") ? variable_struct_get(mm_chk, "min_hits") : undefined);
+            var maxh = (variable_struct_exists(mm_chk, "max_hits") ? variable_struct_get(mm_chk, "max_hits") : undefined);
+            if (is_real(minh) && is_real(maxh) && maxh >= minh && minh > 0){ hits = irandom(maxh - minh) + minh; }
+            else if (is_real(minh) && minh > 0) hits = minh;
+            else if (is_real(maxh) && maxh > 0) hits = maxh;
+        }
+    } catch (e_mh){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][multihit] meta read error: " + string(e_mh)); }
 
-    var extra  = "";
-    if (dmg <= 0) extra = "\nIt had no effect.";
-    else {
+    // Execute the first hit immediately and, if more hits remain, store the pending
+    // multi-hit state on the battle slot so subsequent hits are processed one-by-one
+    // by the update loop (player must close each "It hit!" dialog to continue).
+    var performed_hits = 0; var total_dmg = 0; var last_before = -1; var last_after = -1;
+    var res_first = undefined;
+    if (is_real(mv_power) && mv_power > 0){
+        // Normal damaging move
+        res_first = __battle_apply_move_damage(_pid, _step.target_index, A, D, move_id, mv_power);
+        var dmg_first = res_first[0]; last_before = res_first[1]; last_after = res_first[2]; total_dmg += dmg_first; performed_hits = 1;
+        try { var mm_all_first = __battle_get_move_meta(move_id); __battle_apply_move_meta_effects(_pid, _step, A, D, move_id, dmg_first, mm_all_first); } catch (e_mf){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta_firsthit] error: " + string(e_mf)); }
+
+        // If more hits are specified and target still alive, schedule the remaining hits
+        if (hits > 1 && is_struct(D) && variable_struct_exists(D, "hp_now") && variable_struct_get(D, "hp_now") > 0){
+            var remaining = hits - 1;
+            var pm = { move_id: move_id, actor_index: _step.actor_index, target_index: _step.target_index, mv_power: mv_power, remaining: remaining };
+            variable_struct_set(_B, "_pending_multi_hit", pm);
+        }
+    } else {
+        // Status/stat-only move: do not apply damage but still dispatch meta effects
+        res_first = [0, -1, -1];
+        var dmg_first = 0; last_before = -1; last_after = -1; total_dmg = 0; performed_hits = 0;
+        try { var mm_all_first2 = __battle_get_move_meta(move_id); __battle_apply_move_meta_effects(_pid, _step, A, D, move_id, dmg_first, mm_all_first2); } catch (e_mf2){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta_firsthit] (status-only) error: " + string(e_mf2)); }
+    }
+
+    var dmg = total_dmg; var before = last_before; var after = last_after;
+
+    // Handle life-drain / leech effects declared in move metadata (drain percentage)
+    try {
+        var mm2 = __battle_get_move_meta(move_id);
+        if (is_struct(mm2)){
+            var drain_raw = (variable_struct_exists(mm2, "drain") ? variable_struct_get(mm2, "drain") : undefined);
+            var drain_pct = __to_int_safe(drain_raw, 0);
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][drain][debug] move_id=" + string(move_id) + ", mm_found=true, drain_raw=" + string(drain_raw) + ", drain_pct=" + string(drain_pct) + ", dmg=" + string(dmg));
+            if (is_real(drain_pct) && drain_pct > 0 && dmg > 0){
+                var heal_amount = max(1, floor(dmg * clamp(drain_pct / 100.0, 0, 1)));
+                var before_hp = -1; var cap_hp = -1;
+                if (variable_struct_exists(A, "hp_now")) before_hp = variable_struct_get(A, "hp_now");
+                else if (variable_struct_exists(A, "hp")) before_hp = variable_struct_get(A, "hp");
+                if (variable_struct_exists(A, "hp_max")) cap_hp = variable_struct_get(A, "hp_max");
+                try {
+                    if (variable_struct_exists(A, "hp_now") && variable_struct_exists(A, "hp_max")){
+                        var cur = variable_struct_get(A, "hp_now"); var cap = variable_struct_get(A, "hp_max"); var newv = min(cap, cur + heal_amount);
+                        variable_struct_set(A, "hp_now", newv);
+                        if (is_struct(A.mon)){
+                            if (variable_struct_exists(A.mon, "hp")) variable_struct_set(A.mon, "hp", newv);
+                            else if (variable_struct_exists(A.mon, "hp_now")) variable_struct_set(A.mon, "hp_now", newv);
+                        }
+                    } else if (variable_struct_exists(A, "hp") && variable_struct_exists(A, "hp_max")){
+                        var cur2 = variable_struct_get(A, "hp"); var cap2 = variable_struct_get(A, "hp_max"); var newv2 = min(cap2, cur2 + heal_amount);
+                        variable_struct_set(A, "hp", newv2);
+                        if (is_struct(A.mon) && variable_struct_exists(A.mon, "hp")) variable_struct_set(A.mon, "hp", newv2);
+                    }
+                    __battle_request_animation_safe(_pid, { type: "heal", target_index: _step.actor_index == 0 ? 0 : 1, amount: heal_amount });
+                    var after_hp = -1; if (variable_struct_exists(A, "hp_now")) after_hp = variable_struct_get(A, "hp_now"); else if (variable_struct_exists(A, "hp")) after_hp = variable_struct_get(A, "hp");
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][drain] move=" + string(move_id) + " healed " + string(heal_amount) + " to attacker=" + string(A.name) + ", hp_before=" + string(before_hp) + ", hp_after=" + string(after_hp) + ", cap=" + string(cap_hp));
+                } catch (e_h) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][drain] failed to apply heal: " + string(e_h)); }
+            }
+        } else {
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                show_debug_message("[battle][drain][debug] move_id=" + string(move_id) + ", mm_found=false, running enhanced debug");
+                __battle_debug_move_meta(_pid, move_id, A);
+            }
+        }
+    } catch (e_d) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][drain] error: " + string(e_d)); }
+
+        // Apply stat change meta (temporary stages) if present
+        try {
+            if (!is_undefined(global._move_meta) && !is_undefined(move_id)) {
+                var mm3 = undefined;
+                if (is_array(global._move_meta) && move_id >= 0 && move_id < array_length(global._move_meta)) {
+                    mm3 = global._move_meta[move_id];
+                } else if (is_struct(global._move_meta) && !is_undefined(global._move_meta["" + string(move_id)])) {
+                    mm3 = global._move_meta["" + string(move_id)];
+                }
+                if (is_struct(mm3) && variable_struct_exists(mm3, "stat_changes")) {
+                    var sc_arr = variable_struct_get(mm3, "stat_changes");
+                    if (is_array(sc_arr)) {
+                        for (var sc_i = 0; sc_i < array_length(sc_arr); sc_i++) {
+                            var sc = sc_arr[sc_i];
+                            if (!is_struct(sc) && !is_array(sc)) continue;
+                            var sid = (is_struct(sc) ? variable_struct_get(sc, "stat_id") : sc[0]);
+                            var delta = (is_struct(sc) ? variable_struct_get(sc, "change") : sc[1]);
+                            if (!is_real(sid) || !is_real(delta)) continue;
+                            // Map stat_id to key used for stages
+                            var key = undefined;
+                            switch (sid){
+                                case 2: key = "atk"; break;
+                                case 3: key = "def"; break;
+                                case 4: key = "spa"; break;
+                                case 5: key = "spd"; break;
+                                case 6: key = "spe"; break;
+                                case 7: key = "accuracy"; break;
+                                case 8: key = "evasion"; break;
+                                default: key = undefined; break;
+                            }
+                            if (is_undefined(key)) continue;
+                            // Heuristic: positive changes -> attacker, negative -> target
+                            var targetActor = (delta > 0 ? A : D);
+                            // Ensure _stages struct exists on actor
+                            if (!variable_struct_exists(targetActor, "_stages") || !is_struct(variable_struct_get(targetActor, "_stages"))) {
+                                variable_struct_set(targetActor, "_stages", {});
+                            }
+                            var st = variable_struct_get(targetActor, "_stages");
+                            var prev = (variable_struct_exists(st, key) && is_real(variable_struct_get(st, key))) ? variable_struct_get(st, key) : 0;
+                            var next = clamp(prev + delta, -6, 6);
+                            variable_struct_set(st, key, next);
+                            // Request stat-change animation if available
+                            if (!is_undefined(__battle_request_animation)) {
+                                var targ_idx = (variable_struct_exists(_step, "target_index") ? variable_struct_get(_step, "target_index") : undefined);
+                                // If change applied to attacker, use actor_index instead
+                                if (targetActor == A) targ_idx = (variable_struct_exists(_step, "actor_index") ? variable_struct_get(_step, "actor_index") : 0);
+                                __battle_request_animation_safe(_pid, { type: "stat_change", target_index: targ_idx, stat: key, from: prev, to: next });
+                            }
+                            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][stat] move=" + string(move_id) + " applied stat change " + string(sid) + " delta=" + string(delta) + " on " + string((targetActor==A) ? "attacker" : "target") + " newStage=" + string(next));
+                        }
+                    }
+                }
+            }
+        } catch (e_sc) {
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][stat] error: " + string(e_sc));
+        }
+
+    var extra = "";
+
+    // Apply all meta effects via the centralized dispatcher. This covers
+    // drain, healing, flinch, status ailments, and stat_changes.
+    try {
+        var mm_all = __battle_get_move_meta(move_id);
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+            show_debug_message("[battle][meta] dispatch move_id=" + string(move_id) + ", mm_exists=" + string(is_struct(mm_all)) + ", dmg=" + string(dmg));
+            if (is_struct(mm_all)) show_debug_message("[battle][meta] mm=" + string(mm_all));
+        }
+        // Allow move meta to declare both a 'status' string and/or an 'ailment_id'.
+        // Build an ordered list of status ids to attempt applying so moves that
+        // specify multiple effects (e.g., custom CSVs) can apply them all.
+        var _statuses_to_apply = [];
+        if (is_struct(mm_all)){
+            // primary mm.status (string)
+            if (variable_struct_exists(mm_all, "status")){
+                var _sval = variable_struct_get(mm_all, "status");
+                if (is_string(_sval) && string_length(string(_sval)) > 0) _statuses_to_apply[array_length(_statuses_to_apply)] = string_trim(_sval);
+            }
+            // ailment_id mapping (legacy) — append if present
+            if (variable_struct_exists(mm_all, "ailment_id")){
+                var aid_try2 = variable_struct_get(mm_all, "ailment_id");
+                var aid_map2 = {};
+                variable_struct_set(aid_map2, "1", "paralysis");
+                variable_struct_set(aid_map2, "2", "sleep");
+                variable_struct_set(aid_map2, "3", "freeze");
+                variable_struct_set(aid_map2, "4", "burn");
+                variable_struct_set(aid_map2, "5", "poison");
+                variable_struct_set(aid_map2, "6", "confusion");
+                variable_struct_set(aid_map2, "7", "infatuation");
+                variable_struct_set(aid_map2, "8", "trap");
+                variable_struct_set(aid_map2, "12", "torment");
+                variable_struct_set(aid_map2, "13", "disable");
+                variable_struct_set(aid_map2, "14", "yawn");
+                variable_struct_set(aid_map2, "18", "leech-seed");
+                variable_struct_set(aid_map2, "19", "embargo");
+                variable_struct_set(aid_map2, "20", "perish-song");
+                variable_struct_set(aid_map2, "21", "ingrain");
+                variable_struct_set(aid_map2, "24", "silence");
+                var _keya2 = "" + string(aid_try2);
+                var _mapped = undefined;
+                try { _mapped = variable_struct_get(aid_map2, _keya2); } catch (e_map) { _mapped = undefined; }
+                if (!is_undefined(_mapped) && is_string(_mapped) && string_length(_mapped) > 0){
+                    _statuses_to_apply[array_length(_statuses_to_apply)] = _mapped;
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] populated status list from ailment_id=" + string(aid_try2));
+                }
+            }
+        }
+        // If no statuses were derived, fall back to dispatching with mm_all unchanged
+        var _meta_msg = undefined;
+    // Reset and track pending-status/messages so we can tell if meta dispatch produced any visible effects
+    try { variable_struct_set(_B, "_meta_effect_applied", false); } catch (e_metainit) { }
+    var _pending_before = (variable_struct_exists(_B, "_pending_status_msgs") && is_array(variable_struct_get(_B, "_pending_status_msgs"))) ? array_length(variable_struct_get(_B, "_pending_status_msgs")) : 0;
+        if (array_length(_statuses_to_apply) == 0) {
+            _meta_msg = __battle_apply_move_meta_effects(_pid, _step, A, D, move_id, dmg, mm_all);
+        } else {
+            // Clone mm_all to safely iterate and per-status attempt apply while preserving mm_all for other meta
+            var _base_mm = mm_all;
+            // Attempt each status in sequence: create a per-status mm copy with only the status/duration/chance fields
+            for (var _si = 0; _si < array_length(_statuses_to_apply); ++_si){
+                var _statid = _statuses_to_apply[_si];
+                try {
+                    var _mm_copy = {};
+                    // copy minimal fields used by __battle_apply_move_meta_effects
+                    if (is_struct(_base_mm)){
+                        if (variable_struct_exists(_base_mm, "chance")) variable_struct_set(_mm_copy, "chance", variable_struct_get(_base_mm, "chance"));
+                        if (variable_struct_exists(_base_mm, "ailment_chance")) variable_struct_set(_mm_copy, "ailment_chance", variable_struct_get(_base_mm, "ailment_chance"));
+                        if (variable_struct_exists(_base_mm, "duration")) variable_struct_set(_mm_copy, "duration", variable_struct_get(_base_mm, "duration"));
+                    }
+                    variable_struct_set(_mm_copy, "status", _statid);
+                    // dispatch meta for this status only (drain/heal already handled earlier)
+                    var _msg_part = __battle_apply_move_meta_effects(_pid, _step, A, D, move_id, dmg, _mm_copy);
+                    if (is_string(_msg_part) && string_length(_msg_part) > 0){ if (is_undefined(_meta_msg)) _meta_msg = _msg_part; else _meta_msg = string(_meta_msg) + "\n" + string(_msg_part); }
+                } catch (e_statapp){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] per-status apply failed: " + string(e_statapp)); }
+            }
+        }
+        var _pending_after = (variable_struct_exists(_B, "_pending_status_msgs") && is_array(variable_struct_get(_B, "_pending_status_msgs"))) ? array_length(variable_struct_get(_B, "_pending_status_msgs")) : 0;
+        var _meta_enqueued_pending = (_pending_after > _pending_before);
+            // Extra safeguard: if we attempted per-status applies, also check the status
+            // system to see whether any of the requested statuses are now present on
+            // either actor or defender (or their inner mon). This detects cases where
+            // applying the status succeeded but the pending-queue check missed it.
+            try {
+                if (!_meta_enqueued_pending && is_array(_statuses_to_apply) && array_length(_statuses_to_apply) > 0 && !is_undefined(status_system_has_status)){
+                    for (var _tsi = 0; _tsi < array_length(_statuses_to_apply); ++_tsi){
+                        var _sid = _statuses_to_apply[_tsi];
+                        if (!is_string(_sid)) continue;
+                        // check A
+                        try {
+                            if (status_system_has_status(A, _sid)) { _meta_enqueued_pending = true; break; }
+                            if (is_struct(A) && variable_struct_exists(A, "mon") && is_struct(A.mon) && status_system_has_status(A.mon, _sid)) { _meta_enqueued_pending = true; break; }
+                            if (status_system_has_status(D, _sid)) { _meta_enqueued_pending = true; break; }
+                            if (is_struct(D) && variable_struct_exists(D, "mon") && is_struct(D.mon) && status_system_has_status(D.mon, _sid)) { _meta_enqueued_pending = true; break; }
+                        } catch (e_schk) { /* ignore per-status check errors */ }
+                    }
+                }
+            } catch (e_meta_sa) { /* ignore */ }
+    } catch (e_sec) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta_dispatch] failed: " + string(e_sec)); }
+
+    // Compute 'extra' lines (crit, no-effect, faint) after meta dispatch
+    var extra = "";
+    // Determine if HP actually changed on the target — prefer HP-before/after if available
+    var _hp_changed = false;
+    try {
+        if (is_real(before) && is_real(after) && after < before) _hp_changed = true;
+        else if (is_real(dmg) && dmg > 0) _hp_changed = true; // fallback when HP snapshots are unavailable
+    } catch (e_hpcheck) { /* ignore */ }
+
+    if (_hp_changed){
         // optional: crit text if __battle_last_crit flag is set
         if (variable_struct_exists(_B, "_last_crit") && _B._last_crit == true){
             extra += "\nA critical hit!";
-            _B._last_crit = false;
+            variable_struct_set(_B, "_last_crit", false);
         }
+    } else {
+        // Only show 'It had no effect.' when the move produced no meta messages
+        // AND meta dispatch did not enqueue any pending status dialogs or mark a meta effect.
+        var _meta_effect_flag = (variable_struct_exists(_B, "_meta_effect_applied") && _B._meta_effect_applied == true);
+        // Also treat certain meta_category values as implicit meta effects (e.g. 13)
+        try {
+            if (!(_meta_effect_flag) && is_struct(mm_all) && variable_struct_exists(mm_all, "meta_category")){
+                var _mcr = variable_struct_get(mm_all, "meta_category");
+                var _mci = (is_real(_mcr) ? _mcr : __to_int_safe(_mcr, -1));
+                if (is_real(_mci) && _mci == 13) _meta_effect_flag = true;
+            }
+        } catch (e_meta_flag) { /* ignore */ }
+        if ((is_undefined(_meta_msg) || !is_string(_meta_msg) || string_length(_meta_msg) == 0) && !_meta_enqueued_pending && !_meta_effect_flag) extra += "\nIt had no effect.";
     }
-    if (after <= 0) extra += "\n" + string(D.name) + " fainted!";
+    // Announce faint only when we have a valid HP snapshot showing 0
+    // or when damage was dealt and the canonical faint check reports true.
+    try {
+        var _fainted_now = false;
+        // Prefer explicit before/after snapshots: announce faint only when HP transitioned
+        // from positive to zero/less during the resolved hits.
+        if (is_real(before) && is_real(after) && before > 0 && after <= 0){
+            _fainted_now = true;
+        }
+        // Fallback (rare): if snapshots aren't available but canonical check and evidence show a faint,
+        // announce only when the target has HP fields and current HP is zero and damage was dealt.
+        else {
+            var _has_hp_fields = false;
+            if (is_struct(D)){
+                if (variable_struct_exists(D, "hp_now") || variable_struct_exists(D, "hp")) _has_hp_fields = true;
+                else if (variable_struct_exists(D, "mon") && is_struct(variable_struct_get(D, "mon"))){
+                    var _mi3 = variable_struct_get(D, "mon");
+                    if (variable_struct_exists(_mi3, "hp_now") || variable_struct_exists(_mi3, "hp")) _has_hp_fields = true;
+                }
+            }
+            if (_has_hp_fields && is_real(dmg) && dmg > 0 && !is_undefined(__battle_is_fainted) && is_struct(D) && __battle_is_fainted(D)){
+                _fainted_now = true;
+            }
+        }
+        if (_fainted_now) extra += "\n" + string((variable_struct_exists(D,"name")?variable_struct_get(D,"name"):"The target")) + " fainted!";
+    } catch (e_fa) { /* ignore */ }
 
-    return string(A.name) + " used " + mv_name + "!" + extra;
+    // Build return message and include multi-hit summary and meta messages
+    var ret_msg = string((variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"The user")) + " used " + mv_name + "!" + extra;
+    if (is_real(performed_hits) && performed_hits > 1){
+        ret_msg += "\nIt hit " + string(performed_hits) + " times!";
+    }
+    if (is_string(_meta_msg) && string_length(_meta_msg) > 0){
+        ret_msg += "\n" + _meta_msg;
+    }
+    return ret_msg;
 }
+
+// Animation implementation intentionally provided by scripts/battle_animations/battle_animations.gml
+// Keep a single canonical implementation there. Do not define __battle_anim_update here to avoid duplicate script names.
 function __battle_enemy_choose_action(_pid){
     var _B = __battle_ensure_slot(_pid);
     var A = _B.actor[1];
@@ -1440,8 +2509,8 @@ function __battle_actor_from_party_mon(_M){
         if (!variable_struct_exists(A, "level") && variable_struct_exists(A, "lvl")) A.level = A.lvl;
         if (!variable_struct_exists(A, "lvl") && variable_struct_exists(A, "level")) A.lvl = A.level;
 
-        if (!variable_struct_exists(A, "hp_now") && variable_struct_exists(A, "hp")) A.hp_now = A.hp;
-        if (!variable_struct_exists(A, "hp") && variable_struct_exists(A, "hp_now")) A.hp = A.hp_now;
+    if (!variable_struct_exists(A, "hp_now") && variable_struct_exists(A, "hp")) __battle_set_hp_now(A, variable_struct_get(A, "hp"));
+    if (!variable_struct_exists(A, "hp") && variable_struct_exists(A, "hp_now")) __battle_set_hp_now(A, variable_struct_get(A, "hp_now"));
 
         if (!variable_struct_exists(A, "hp_max") && variable_struct_exists(A, "maxhp")) A.hp_max = A.maxhp;
         if (!variable_struct_exists(A, "maxhp") && variable_struct_exists(A, "hp_max")) A.maxhp = A.hp_max;
@@ -1620,15 +2689,26 @@ function __battle_ensure_moves_from_levelup(_A){
 function __battle_apply_party_moves(_A){
     for (var i=0; i<4; ++i){ _A.moves[i] = -1; _A.pps[i] = 0; }
 
-    var m = (is_struct(_A) && variable_struct_exists(_A, "mon")) ? _A.mon : undefined;
-    if (!is_struct(m)) { __battle_ensure_moves_from_levelup(_A); return; }
+    // Helper: determine if a struct looks like a mon record (has any move fields or move arrays)
+    function __is_mon_like(_s){
+        if (!is_struct(_s)) return false;
+        if (variable_struct_exists(_s, "moves") && is_array(_s.moves)) return true;
+        if (variable_struct_exists(_s, "move_ids") && is_array(_s.move_ids)) return true;
+        if (variable_struct_exists(_s, "known_moves") && is_array(_s.known_moves)) return true;
+        for (var __i = 1; __i <= 4; __i++) if (variable_struct_exists(_s, "move" + string(__i))) return true;
+        return false;
+    }
 
+    // Prefer canonical .mon if present; otherwise, if the actor itself looks like a mon, use it.
+    var m = undefined;
+    if (is_struct(_A) && variable_struct_exists(_A, "mon") && is_struct(_A.mon)) m = _A.mon;
+    else if (__is_mon_like(_A)) m = _A;
     var got = 0;
 
     // CASE 1: mon.moves array
-    if (variable_struct_exists(m, "moves") && is_array(m.moves)){
-        var mvArr = m.moves;
-        var ppArr = (variable_struct_exists(m, "pps") && is_array(m.pps)) ? m.pps : undefined;
+    if (is_struct(m) && variable_struct_exists(m, "moves") && is_array(variable_struct_get(m, "moves"))){
+        var mvArr = variable_struct_get(m, "moves");
+        var ppArr = (is_struct(m) && variable_struct_exists(m, "pps") && is_array(variable_struct_get(m, "pps"))) ? variable_struct_get(m, "pps") : undefined;
 
         var cnt = min(4, array_length(mvArr));
         for (var i1 = 0; i1 < cnt; ++i1){
@@ -1669,7 +2749,7 @@ function __battle_apply_party_moves(_A){
         for (var i2 = 0; i2 < 4; ++i2){
             var idx = i2 + 1;
             var mvField = "move" + string(idx);
-            if (variable_struct_exists(m, mvField)){
+            if (is_struct(m) && variable_struct_exists(m, mvField)){
                 var mvVal = variable_struct_get(m, mvField);
                 if (is_real(mvVal) && mvVal >= 0){
                     _A.moves[i2] = mvVal;
@@ -1690,9 +2770,9 @@ function __battle_apply_party_moves(_A){
     // CASE 3: alt arrays (move_ids/known_moves + pps)
     if (got == 0){
         var mvAlt = undefined, ppAlt = undefined;
-        if (variable_struct_exists(m, "move_ids") && is_array(m.move_ids)) mvAlt = m.move_ids;
-        else if (variable_struct_exists(m, "known_moves") && is_array(m.known_moves)) mvAlt = m.known_moves;
-        if (variable_struct_exists(m, "pps") && is_array(m.pps)) ppAlt = m.pps;
+    if (is_struct(m) && variable_struct_exists(m, "move_ids") && is_array(variable_struct_get(m, "move_ids"))) mvAlt = variable_struct_get(m, "move_ids");
+    else if (is_struct(m) && variable_struct_exists(m, "known_moves") && is_array(variable_struct_get(m, "known_moves"))) mvAlt = variable_struct_get(m, "known_moves");
+    if (is_struct(m) && variable_struct_exists(m, "pps") && is_array(variable_struct_get(m, "pps"))) ppAlt = variable_struct_get(m, "pps");
 
         if (is_array(mvAlt)){
             var cnt2 = min(4, array_length(mvAlt));
@@ -1720,7 +2800,12 @@ function __battle_stat_get(_A, _stat){
     // Only check exact assigned fields. For speed, use `spe` only (actor then mon).
     if (is_struct(_A)){
         if (_stat == "spd"){
-            if (variable_struct_exists(_A, "spe") && is_real(_A.spe)) return _A.spe;
+            if (variable_struct_exists(_A, "spe") && is_real(_A.spe)){
+                var _val = _A.spe;
+                // paralysis halves Speed
+                if (!is_undefined(status_system_has_status) && status_system_has_status(_A, "paralysis")) _val = floor(_val / 2);
+                return _val;
+            }
         } else if (_stat == "atk"){
             if (variable_struct_exists(_A, "atk") && is_real(_A.atk)) return _A.atk;
         } else if (_stat == "def"){
@@ -1738,7 +2823,11 @@ function __battle_stat_get(_A, _stat){
             if (variable_struct_exists(m,"def") && is_real(m.def)) return m.def;
         }
         if (_stat=="spd"){
-            if (variable_struct_exists(m,"spe") && is_real(m.spe)) return m.spe;
+            if (variable_struct_exists(m,"spe") && is_real(m.spe)){
+                var _spv = m.spe;
+                if (!is_undefined(status_system_has_status) && status_system_has_status(m, "paralysis")) _spv = floor(_spv / 2);
+                return _spv;
+            }
         }
         if (_stat=="atk"){
             if (variable_struct_exists(m,"atk") && is_real(m.atk)) return m.atk;
@@ -1754,11 +2843,83 @@ function __battle_stat_get(_A, _stat){
         }
     }
 
+    // Apply temporary in-battle stage modifiers if present on actor struct
+    if (is_struct(_A) && variable_struct_exists(_A, "_stages") && is_struct(variable_struct_get(_A, "_stages"))){
+        var stages = variable_struct_get(_A, "_stages");
+        // Map requested stat to internal keys used in stages
+        var key = undefined;
+        if (_stat == "atk") key = "atk";
+        else if (_stat == "def") key = "def";
+        else if (_stat == "spd" || _stat == "spe") key = "spe";
+        else if (_stat == "spa") key = "spa";
+        else if (_stat == "spdef") key = "spdef";
+        if (!is_undefined(key) && variable_struct_exists(stages, key) && is_real(variable_struct_get(stages, key))){
+            var stage = variable_struct_get(stages, key);
+            var mult = __battle_stage_multiplier(stage);
+            var basev = 0;
+            // reuse existing logic: attempt to get raw base stat from actor/mon
+            if (variable_struct_exists(_A, _stat) && is_real(variable_struct_get(_A, _stat))) basev = variable_struct_get(_A, _stat);
+            else if (is_struct(m) && variable_struct_exists(m, _stat) && is_real(variable_struct_get(m, _stat))) basev = variable_struct_get(m, _stat);
+            if (basev > 0) return floor(basev * mult);
+        }
+    }
+
     // Derived baseline if no stats exist (simple + level scaling)
     if (_stat=="atk") return 10 + lvl * 2;
     if (_stat=="def") return 10 + lvl * 2;
     if (_stat=="spd") return 10 + lvl * 2;
     return 10 + lvl * 2;
+}
+// Convert a stage (-6..+6) into a multiplier used for stats
+function __battle_stage_multiplier(_stage){
+    if (!is_real(_stage)) return 1.0;
+    var s = clamp(floor(_stage), -6, 6);
+    if (s >= 0) return (2 + s) / 2;
+    else return 2 / (2 - s);
+}
+// Canonical HP/faint helpers — read/write helpers that understand both
+// battle actor wrappers and inner `mon` structs. Use these to avoid
+// mismatches where one side writes `hp` and another reads `hp_now`.
+function __battle_hp_now(_ent){
+    // If this is an actor wrapper with hp_now/hp fields, prefer hp_now then hp
+    try {
+        if (is_struct(_ent)){
+            if (variable_struct_exists(_ent, "hp_now") && is_real(variable_struct_get(_ent, "hp_now"))) return variable_struct_get(_ent, "hp_now");
+            if (variable_struct_exists(_ent, "hp") && is_real(variable_struct_get(_ent, "hp"))) return variable_struct_get(_ent, "hp");
+            // fallback to inner mon if present
+            if (variable_struct_exists(_ent, "mon") && is_struct(variable_struct_get(_ent, "mon"))) return __battle_hp_now(variable_struct_get(_ent, "mon"));
+        }
+    } catch (e_hp){}
+    return 0;
+}
+function __battle_set_hp_now(_ent, _val){
+    var v = (is_real(_val) ? max(0, floor(_val)) : 0);
+    try {
+        if (is_struct(_ent)){
+            if (variable_struct_exists(_ent, "hp_now")) variable_struct_set(_ent, "hp_now", v);
+            if (variable_struct_exists(_ent, "hp")) variable_struct_set(_ent, "hp", v);
+            // Also mirror to inner mon if present
+            if (variable_struct_exists(_ent, "mon") && is_struct(variable_struct_get(_ent, "mon"))){
+                var mi = variable_struct_get(_ent, "mon");
+                if (variable_struct_exists(mi, "hp_now")) variable_struct_set(mi, "hp_now", v);
+                if (variable_struct_exists(mi, "hp")) variable_struct_set(mi, "hp", v);
+            }
+        }
+    } catch (e_set){}
+}
+function __battle_is_fainted(_ent){
+    return (__battle_hp_now(_ent) <= 0);
+}
+function __battle_clear_fainted_if_healed(_ent){
+    try {
+        if (__battle_hp_now(_ent) > 0){
+            if (is_struct(_ent) && variable_struct_exists(_ent, "_fainted")) variable_struct_set(_ent, "_fainted", false);
+            if (is_struct(_ent) && variable_struct_exists(_ent, "mon") && is_struct(variable_struct_get(_ent, "mon"))){
+                var mi2 = variable_struct_get(_ent, "mon");
+                if (variable_struct_exists(mi2, "_fainted")) variable_struct_set(mi2, "_fainted", false);
+            }
+        }
+    } catch (e_clear){}
 }
 function __battle_calc_damage(_A, _D, _move_id, _power){
     var L = (is_real(_A.level) ? _A.level : 5);
@@ -1789,14 +2950,24 @@ function __battle_apply_damage(_pid, _target_index, _dmg){
     var _B = __battle_ensure_slot(_pid);
     var T = _B.actor[_target_index];
     if (!is_struct(T)) return;
-    var newhp = max(0, T.hp_now - max(0, _dmg));
-    T.hp_now = newhp;
+    // If the target has an active Protect-like flag, consume it and skip damage.
+    try {
+        if (variable_struct_exists(T, "_protected") && variable_struct_get(T, "_protected") == true){
+            // Request protected animation for the defender
+            __battle_request_animation_safe(_pid, { type: "protected", target_index: _target_index });
+            // Mark announce shown and consume protection so it doesn't persist
+            variable_struct_set(T, "_protected_announce_shown", true);
+            variable_struct_set(T, "_protected", false);
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][protect] damage skipped by Protect for target_index=" + string(_target_index));
+            return;
+        }
+    } catch (e_prot){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][protect] guard error: " + string(e_prot)); }
 
-    // write back to party mon if present
-    if (is_struct(T.mon)){
-        if (variable_struct_exists(T.mon, "hp")) T.mon.hp = newhp;
-        else if (variable_struct_exists(T.mon, "hp_now")) T.mon.hp_now = newhp;
-    }
+    var cur_hp = __battle_hp_now(T);
+    var newhp = max(0, cur_hp - max(0, _dmg));
+    __battle_set_hp_now(T, newhp);
+    // Clear faint flag if healed above 0
+    __battle_clear_fainted_if_healed(T);
 }
 function __party_find_next_alive(_pid){
     if (is_undefined(party_ensure)) return -1;
@@ -2059,7 +3230,7 @@ function __battle_award_exp(_pid, _amount){
         if (variable_struct_exists(T, "exp")) A0.exp = T.exp;
         if (variable_struct_exists(T, "exp_next")) A0.exp_next = T.exp_next;
         if (variable_struct_exists(T, "level")) A0.level = T.level;
-        if (variable_struct_exists(T, "hp_now")) A0.hp_now = T.hp_now;
+    if (variable_struct_exists(T, "hp_now") || variable_struct_exists(T, "hp")) __battle_set_hp_now(A0, __battle_hp_now(T));
         if (variable_struct_exists(T, "hp_max")) A0.hp_max = T.hp_max;
         if (variable_struct_exists(T, "name")) A0.name = T.name;
     }
@@ -2124,7 +3295,7 @@ function __battle_try_catch(_pid, _ball_mult, _item_id){
     var _B = __battle_ensure_slot(_pid);
     var A1 = _B.actor[1]; if (!is_struct(A1)) return;
     // compute chance as before but defer dialog/resolution to animation
-    var hpPct = max(0, min(1, A1.hp_now / max(1, A1.hp_max)));
+    var hpPct = max(0, min(1, __battle_hp_now(A1) / max(1, (variable_struct_exists(A1, "hp_max") ? variable_struct_get(A1, "hp_max") : 1))));
     var baseChance = clamp(floor((1 - hpPct) * 70) + 20, 5, 95); // 20–90% typical
     var mult = (is_undefined(_ball_mult) || !is_real(_ball_mult)) ? 1.0 : max(0.01, _ball_mult);
     var chance = clamp(floor(baseChance * mult), 1, 100);
@@ -2201,11 +3372,12 @@ function __battle_update_animations(_pid){
     // Progress catch animation if present - delegate to animation module when available
     if (!is_undefined(__battle_anim_update)){
         var __anim_res = __battle_anim_update(_B);
-        if (is_struct(__anim_res) && __anim_res.resolved){
-            if (__anim_res.action == "caught"){
+        if (is_struct(__anim_res) && variable_struct_exists(__anim_res, "resolved") && variable_struct_get(__anim_res, "resolved")){
+            var __anim_action = (variable_struct_exists(__anim_res, "action") ? variable_struct_get(__anim_res, "action") : undefined);
+            if (!is_undefined(__anim_action) && __anim_action == "caught"){
                 // finalize capture
                 if (!is_undefined(__battle_finalize_catch)) __battle_finalize_catch(_B, _B._catch_anim ? _B._catch_anim.caught_struct : undefined);
-            } else if (__anim_res.action == "broke"){
+            } else if (!is_undefined(__anim_action) && __anim_action == "broke"){
                 // broke free - play a pokéball-break sound if available, but do NOT play
                 // defeated/victory music (that would be audible even when a catch fails).
                 if (!is_undefined(__battle_sound_play_safe)){

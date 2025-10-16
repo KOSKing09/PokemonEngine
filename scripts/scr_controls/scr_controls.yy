@@ -5,8 +5,8 @@
   "isDnD":false,
   "name":"scr_controls",
   "parent":{
-    "name":"Game",
-    "path":"folders/Scripts/Game.yy",
+    "name":"Input",
+    "path":"folders/Scripts/Game/Input.yy",
   },
   "resourceType":"GMScript",
   "resourceVersion":"2.0",
