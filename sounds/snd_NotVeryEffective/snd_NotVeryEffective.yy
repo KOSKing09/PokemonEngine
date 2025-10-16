@@ -12,8 +12,8 @@
   "duration":0.41594103,
   "name":"snd_NotVeryEffective",
   "parent":{
-    "name":"SFX",
-    "path":"folders/Sounds/SFX.yy",
+    "name":"DAMAGE",
+    "path":"folders/Sounds/SFX/DAMAGE.yy",
   },
   "preload":false,
   "resourceType":"GMSound",

@@ -1,6 +1,6 @@
 {
   "$GMSound":"",
-  "%Name":"snd_SuperEffective",
+  "%Name":"snd_Stat_Lower",
   "audioGroupId":{
     "name":"audiogroup_default",
     "path":"audiogroups/audiogroup_default",
@@ -9,17 +9,17 @@
   "bitRate":128,
   "compression":0,
   "conversionMode":0,
-  "duration":0.7236962,
-  "name":"snd_SuperEffective",
+  "duration":1.3293424,
+  "name":"snd_Stat_Lower",
   "parent":{
-    "name":"DAMAGE",
-    "path":"folders/Sounds/SFX/DAMAGE.yy",
+    "name":"EFFECTS",
+    "path":"folders/Sounds/SFX/EFFECTS.yy",
   },
   "preload":false,
   "resourceType":"GMSound",
   "resourceVersion":"2.0",
   "sampleRate":44100,
-  "soundFile":"snd_SuperEffective.wav",
+  "soundFile":"snd_Stat_Lower.wav",
   "type":0,
   "volume":1.0,
 }
