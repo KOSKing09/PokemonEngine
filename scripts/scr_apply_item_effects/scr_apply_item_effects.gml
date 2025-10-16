@@ -62,11 +62,11 @@ function scr_apply_item_effects(_item_id, _mon, _actor){
                     if (variable_struct_exists(_mon, "hp_max")) mh = variable_struct_get(_mon, "hp_max");
                     else if (variable_struct_exists(_mon, "maxhp")) mh = variable_struct_get(_mon, "maxhp");
                     else mh = 100;
-                    var b = (variable_struct_exists(_mon, "hp") ? variable_struct_get(_mon, "hp") : (variable_struct_exists(_mon, "hp_now") ? variable_struct_get(_mon, "hp_now") : 0));
-                    var actual2 = min(amt, max(0, mh - b));
+                    var before_mon = __battle_hp_now(_mon);
+                    var actual2 = min(amt, max(0, mh - before_mon));
                     if (actual2 > 0){
-                        if (variable_struct_exists(_mon, "hp")) variable_struct_set(_mon, "hp", min(mh, variable_struct_get(_mon, "hp") + actual2));
-                        if (variable_struct_exists(_mon, "hp_now")) variable_struct_set(_mon, "hp_now", min(mh, variable_struct_get(_mon, "hp_now") + actual2));
+                        __battle_set_hp_now(_mon, min(mh, before_mon + actual2));
+                        __battle_clear_fainted_if_healed(_mon);
                         did += actual2;
                     }
                 }
@@ -86,9 +86,9 @@ function scr_apply_item_effects(_item_id, _mon, _actor){
             }
             // party mon
             if (is_struct(_mon)){
-                var curb = (variable_struct_exists(_mon, "hp") ? variable_struct_get(_mon, "hp") : (variable_struct_exists(_mon, "hp_now") ? variable_struct_get(_mon, "hp_now") : 0));
+                var curb = __battle_hp_now(_mon);
                 var add2 = max(0, mh - curb);
-                if (add2 > 0){ if (variable_struct_exists(_mon, "hp")) variable_struct_set(_mon, "hp", min(mh, variable_struct_get(_mon, "hp") + add2)); if (variable_struct_exists(_mon, "hp_now")) variable_struct_set(_mon, "hp_now", min(mh, variable_struct_get(_mon, "hp_now") + add2)); didf += add2; }
+                if (add2 > 0){ __battle_set_hp_now(_mon, min(mh, curb + add2)); __battle_clear_fainted_if_healed(_mon); didf += add2; }
             }
             if (didf > 0) array_push(out.messages, "Fully healed"); total_healed += didf;
         } else if (t == "revive" || t == "revive_half" || t == "revive_full"){

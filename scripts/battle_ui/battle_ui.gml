@@ -153,6 +153,9 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
         if (variable_global_exists("FNT_POKEMON_SMALL")) draw_set_font(global.FNT_POKEMON_SMALL);
 
         var A = _B.actor[0];
+        // NOTE: removed noisy DATA_DEBUG fight-menu spam. Re-enable only when
+        // troubleshooting by setting DATA_DEBUG_VERBOSE = true and re-inserting
+        // a single-shot debug print guarded by that flag.
         var cellW = (_bw * 0.5) - __bwu(_pid,16);
         for (var i=0; i<4; ++i){
             var col = i % 2;

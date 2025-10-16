@@ -810,9 +810,11 @@ function __party_input_learn(_pid){
         // handled in the general input path which we skip when the learn input
         // handler runs, so add the behavior here.
         if (controls_down(_pid, "Inventory")){
-            if (!variable_global_exists("sys_party_desc_scroll_req")) global.sys_party_desc_scroll_req = 0;
-            if (controls_pressed(_pid, "MoveUp")) { global.sys_party_desc_scroll_req -= 28; return true; }
-            if (controls_pressed(_pid, "MoveDown")) { global.sys_party_desc_scroll_req += 28; return true; }
+            // Description scrolling while the learn LIST is active is handled by
+            // the dedicated input logic in `party_input`. Consume the Inventory
+            // input here to avoid duplicate updates to
+            // `global.sys_party_desc_scroll_req` which caused jumpy behavior.
+            return true;
         }
         // (input diagnostics removed)
 

@@ -124,14 +124,38 @@ function party_model_update_mon(_pid, _index, _mon){
     var _mons = _P.mons;
     if (!is_real(_index) || _index < 0) return false;
     if (_index >= array_length(_mons)) array_resize(_mons, _index + 1);
-    _mons[_index] = _mon;
+    // If an existing mon struct is present at this slot, prefer updating it in-place
+    // so other references (for example, battle actor.mon or UI copies) remain valid.
+    if (_index < array_length(_mons) && is_struct(_mons[_index])){
+        var __old = _mons[_index];
+        // Copy fields from provided _mon into the existing struct
+        if (is_struct(__old) && is_struct(_mon)){
+                var __keys = variable_struct_get_names(_mon);
+                for (var __ik = 0; __ik < array_length(__keys); __ik++){
+                    var __k = __keys[__ik];
+                    var __val = undefined;
+                    if (variable_struct_exists(_mon, __k)) __val = variable_struct_get(_mon, __k);
+                    variable_struct_set(__old, __k, __val);
+                }
+            // Ensure the slot holds the same (mutated) object reference
+            _mons[_index] = __old;
+        } else {
+            // Fallback: replace entirely
+            _mons[_index] = _mon;
+        }
+    } else {
+        _mons[_index] = _mon;
+    }
     _P.mons = _mons;
     global.PARTY[_pid] = _P;
     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
         // Try to show a concise snapshot of the mon's moves for debugging
         var mvtxt = "";
-        if (variable_struct_exists(_mon, "moves") && is_array(_mon.moves)){
-            for (var _mi=0; _mi<array_length(_mon.moves); _mi++) mvtxt += string(_mon.moves[_mi]) + ( _mi < array_length(_mon.moves)-1 ? "," : "");
+        if (variable_struct_exists(_mon, "moves")){
+            var __mv_arr = variable_struct_get(_mon, "moves");
+            if (is_array(__mv_arr)){
+                for (var _mi=0; _mi<array_length(__mv_arr); _mi++) mvtxt += string(__mv_arr[_mi]) + ( _mi < array_length(__mv_arr)-1 ? "," : "");
+            }
         }
         show_debug_message("[party_model_update_mon] pid=" + string(_pid) + ", slot=" + string(_index) + ", moves=[" + mvtxt + "]");
     }
