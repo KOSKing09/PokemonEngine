@@ -20,7 +20,8 @@ function __battle_enemy_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_A){
 
     draw_text(_bx+_bw-__bwu(_pid,29), _by+__bhu(_pid,6), "Lv"+string(_A.level));
 
-    var _pct = max(0, min(1, __battle_hp_now(_A) / max(1, (variable_struct_exists(_A, "hp_max") ? variable_struct_get(_A, "hp_max") : 1))));
+    var _vis_hp = __battle_hp_visual(_A);
+    var _pct = max(0, min(1, _vis_hp / max(1, (variable_struct_exists(_A, "hp_max") ? variable_struct_get(_A, "hp_max") : 1))));
     var _barW = _bw-__bwu(_pid,32), _barX=_bx+__bwu(_pid,8), _barY=_by+__bhu(_pid,20), _bh=__bhu(_pid,6);
     draw_set_color(c_black); draw_rectangle(_barX-1,_barY-1,_barX+_barW+1,_barY+_bh+1,false);
     var _hpcol = _t.col_hp_green; if (_pct<0.5) _hpcol=_t.col_hp_yell; if (_pct<0.2) _hpcol=_t.col_hp_red;
@@ -39,12 +40,15 @@ function __battle_player_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_A){
 
     draw_text(_bx+_bw-__bwu(_pid,32), _by+__bhu(_pid,6), "Lv"+string(_A.level));
 
-    var _pct = max(0, min(1, __battle_hp_now(_A) / max(1, (variable_struct_exists(_A, "hp_max") ? variable_struct_get(_A, "hp_max") : 1))));
+    var _vis_hp2 = __battle_hp_visual(_A);
+    var _pct = max(0, min(1, _vis_hp2 / max(1, (variable_struct_exists(_A, "hp_max") ? variable_struct_get(_A, "hp_max") : 1))));
     var _barW = _bw-__bwu(_pid,32), _barX=_bx+__bwu(_pid,8), _barY=_by+__bhu(_pid,20), _bh=__bhu(_pid,6);
     draw_set_color(c_black); draw_rectangle(_barX-1,_barY-1,_barX+_barW+1,_barY+_bh+1,false);
     var _hpcol = _t.col_hp_green; if (_pct<0.5) _hpcol=_t.col_hp_yell; if (_pct<0.2) _hpcol=_t.col_hp_red;
     draw_set_color(_hpcol); draw_rectangle(_barX,_barY,_barX+_barW*_pct,_barY+_bh,false);
-    draw_text(_bx+_bw-__bwu(_pid,64), _by+__bhu(_pid,18), string(__battle_hp_now(_A))+"/"+string((variable_struct_exists(_A, "hp_max") ? variable_struct_get(_A, "hp_max") : 0)));
+    // Show numeric using visual HP to smoothly animate numbers
+    var _vis_hp3 = __battle_hp_visual(_A);
+    draw_text(_bx+_bw-__bwu(_pid,64), _by+__bhu(_pid,18), string(_vis_hp3)+"/"+string((variable_struct_exists(_A, "hp_max") ? variable_struct_get(_A, "hp_max") : 0)));
 
     // EXP bar (Emerald-style) drawn just under HP bar inside the player panel.
     // Reserve right side for the numeric exp text so the bar doesn't overlap the command/menu box.

@@ -224,42 +224,6 @@ function scr_party_debug_seed_random(_pid, _count)
                 for (var _j = _start; _j < array_length(_moveIds); _j++) array_push(_trim, _moveIds[_j]);
                 _moveIds = _trim;
             }
-            // Ensure demo mons get at least one status-inflicting move for testing.
-            // Try to find a common status move id by name (ds map MOVE_ID_BY_NAME created by index_build_all())
-            var _status_names = ["sleep powder","spore","hypnosis","toxic","poison powder","poison fang","thunder wave","will-o-wisp","leech seed","attract","confuse ray","yawn","perish song","toxic spikes"];
-            var _found_mid = -1;
-            if (variable_global_exists("MOVE_ID_BY_NAME") && ds_exists(MOVE_ID_BY_NAME, ds_type_map)) {
-                for (var _sn = 0; _sn < array_length(_status_names); _sn++) {
-                    var _k = string_lower(string(_status_names[_sn]));
-                    // ds_map_find_value returns undefined if key not present
-                    var _mid = ds_map_find_value(MOVE_ID_BY_NAME, _k);
-                    if (!is_undefined(_mid) && is_real(_mid) && _mid > 0) { _found_mid = _mid; break; }
-                }
-            }
-            // Fallback: if MOVE_ID_BY_NAME isn't available, scan global._moves identifiers/names
-            if (!is_real(_found_mid) || _found_mid <= 0) {
-                if (variable_global_exists("_moves") && is_array(global._moves)) {
-                    for (var _sn2 = 0; _sn2 < array_length(_status_names) && _found_mid <= 0; _sn2++) {
-                        var _sname = string_lower(string(_status_names[_sn2]));
-                        for (var _mi = 0; _mi < array_length(global._moves); _mi++) {
-                            var _mv = global._moves[_mi];
-                            if (!is_struct(_mv)) continue;
-                            // compare both identifier and localized move name when available
-                            var _ident = is_undefined(_mv.identifier) ? "" : string_lower(string(_mv.identifier));
-                            var _disp = string_lower(string(scr_move_name_by_id(_mv.id)));
-                            if (_ident == _sname || _disp == _sname) { _found_mid = _mv.id; break; }
-                        }
-                    }
-                }
-            }
-            if (is_real(_found_mid) && _found_mid > 0) {
-                var _has = false;
-                for (var _ii = 0; _ii < array_length(_moveIds); _ii++) if (_moveIds[_ii] == _found_mid) { _has = true; break; }
-                if (!_has) {
-                    if (array_length(_moveIds) < 4) array_push(_moveIds, _found_mid);
-                    else _moveIds[array_length(_moveIds) - 1] = _found_mid;
-                }
-            }
 
             _mon.moves = _moveIds;
 

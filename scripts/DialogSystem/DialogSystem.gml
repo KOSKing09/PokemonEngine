@@ -92,6 +92,14 @@ function __dlg_wrap_text(_text, _box_w){
 function dialog2p_open_text(_pid, _text){
     var d = global.DIALOG2P[_pid];
 
+    // Preserve previous content preview so we can avoid logging repeats
+    var _prev_text = "";
+    if (is_struct(d) && variable_struct_exists(d, "all_lines") && is_array(variable_struct_get(d, "all_lines"))){
+        var _pl = variable_struct_get(d, "all_lines");
+        for (var _pi=0; _pi<array_length(_pl); ++_pi) _prev_text += string(_pl[_pi]) + "\n";
+        _prev_text = string_trim(_prev_text);
+    }
+
     d._spd       = clamp(global.DIALOG_SPEED, 1, 3);
     d.all_lines  = __dlg_wrap_text(_text, d.box_w);
     d.page_idx   = 0;
@@ -102,13 +110,20 @@ function dialog2p_open_text(_pid, _text){
 
     // Debug: log dialog opens to help trace timing issues
     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
-        var _preview = string_copy(string(_text), 1, min(48, string_length(string(_text))));
-        show_debug_message("[dialog][debug] opened pid=" + string(_pid) + ", preview='" + _preview + "'");
-        // Dump session internals to help trace why dialogs might not render
-        try {
-            var _dbg = "[dialog][debug] sess open=" + string(d.open) + ", pages=" + string(array_length(d.all_lines)) + ", page_idx=" + string(d.page_idx) + ", char_idx=" + string(d.char_idx);
-            show_debug_message(_dbg);
-        } catch (e_dbg) { /* ignore */ }
+        // Only log opened/session debug when the new wrapped text is different from previous content
+        var _new_preview = string_copy(string(_text), 1, min(48, string_length(string(_text))));
+        // Reconstruct the full new wrapped text for accurate comparison
+        var _new_full = "";
+        for (var _ni=0; _ni<array_length(d.all_lines); ++_ni) _new_full += string(d.all_lines[_ni]) + "\n";
+        _new_full = string_trim(_new_full);
+        if (_new_full != _prev_text){
+            show_debug_message("[dialog][debug] opened pid=" + string(_pid) + ", preview='" + _new_preview + "'");
+            // Dump session internals to help trace why dialogs might not render
+            try {
+                var _dbg = "[dialog][debug] sess open=" + string(d.open) + ", pages=" + string(array_length(d.all_lines)) + ", page_idx=" + string(d.page_idx) + ", char_idx=" + string(d.char_idx);
+                show_debug_message(_dbg);
+            } catch (e_dbg) { /* ignore */ }
+        }
     }
     // Small input-grace window: ignore presses that occurred to open the dialog
     // (e.g. selecting a Pokémon) so the dialog doesn't immediately advance.

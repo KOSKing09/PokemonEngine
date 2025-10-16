@@ -21,35 +21,11 @@
 // by defining __battle_finalize_catch() in another script.
 if (is_undefined(__battle_finalize_catch)){
     function __battle_finalize_catch(_B, _caught_struct){
-        // Default: no-op. Implementations may play SFX, add the mon to party,
-        // or open a 'caught' dialog. Keep conservative to avoid side-effects.
+        // Default: no-op. Implementations may override this to play SFX or add the mon
+        // to the player's party. Keep conservative to avoid side-effects here.
         return undefined;
     }
 }
-
-// Backwards-compatible stubs for legacy sound API names. Some runtimes
-// expose `sound_play` / `sound_stop` while others expose `audio_*`.
-// Provide safe no-op fallbacks so callers can call these symbols without
-// causing static-analyzer undeclared-symbol errors or runtime exceptions.
-if (is_undefined(sound_play)){
-    function sound_play(_res){ /* no-op fallback */ return undefined; }
-}
-if (is_undefined(sound_stop)){
-    function sound_stop(_res){ /* no-op fallback */ return undefined; }
-}
-
-// Minimal guarded stubs for animation function names. The full
-// implementations live in `scripts/battle_system/battle_animations.gml`.
-// Animation functions are implemented in scripts/battle_system/battle_animations.gml
-// Do not declare these function names here to avoid duplicate script definitions.
-// Animation functions are implemented in scripts/battle_system/battle_animations.gml
-// They must exist exactly once; do not duplicate their definitions here.
-// Animation implementations live in scripts/battle_animations/battle_animations.gml
-// Provide a safe guarded stub for __battle_request_animation so callers
-// can call it without checking for undefined in many places. If the
-// project's real animation implementation exists (in
-// `battle_animations.gml`) it will override this stub because we only
-// define it when it's undefined.
 if (is_undefined(__battle_request_animation)){
     function __battle_request_animation(_a, _spec){
         // Accept various calling conventions: (__pid, spec) or (actor, spec)
@@ -77,6 +53,7 @@ if (is_undefined(__battle_request_animation)){
                     } catch (e_q) { /* fallthrough to no-op */ }
                 }
             }
+                // Prefer modern audio APIs. Do not use legacy `sound_play`/`sound_stop`.
         } catch (e) { /* swallow errors to keep stub safe */ }
         return undefined;
     }
@@ -189,8 +166,6 @@ function __battle_apply_move_meta_effects(_pid, _step, A, D, move_id, dmg, mm){
                 var before_hp = -1; var cap_hp = -1;
                 if (variable_struct_exists(A, "hp_now")) before_hp = variable_struct_get(A, "hp_now"); else if (variable_struct_exists(A, "hp")) before_hp = variable_struct_get(A, "hp");
                 if (variable_struct_exists(A, "hp_max")) cap_hp = variable_struct_get(A, "hp_max");
-                var cap_hp = -1;
-                if (variable_struct_exists(A, "hp_max")) cap_hp = variable_struct_get(A, "hp_max");
                 else if (is_struct(A.mon) && variable_struct_exists(A.mon, "hp_max")) cap_hp = variable_struct_get(A.mon, "hp_max");
                 if (is_real(cap_hp) && cap_hp > 0){
                     var newv = min(cap_hp, __battle_hp_now(A) + heal_amount);
@@ -227,10 +202,14 @@ function __battle_apply_move_meta_effects(_pid, _step, A, D, move_id, dmg, mm){
                         } catch (e_ab) { /* ignore */ }
                         if (!prevent_recoil){
                             // determine attacker actor index for damage application
-                            var atk_idx = (variable_struct_exists(_step, "actor_index") ? variable_struct_get(_step, "actor_index") : 0);
-                            __battle_apply_damage(_pid, atk_idx, recoil_amount);
+                            var atk_idx2 = (variable_struct_exists(_step, "actor_index") ? variable_struct_get(_step, "actor_index") : 0);
+                            var _atk_ent2 = (variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor")) && atk_idx2 >= 0 && atk_idx2 < array_length(variable_struct_get(_B, "actor"))) ? variable_struct_get(_B, "actor")[atk_idx2] : undefined;
+                            var _before_recoil2 = __battle_hp_now(_atk_ent2);
+                            __battle_apply_damage(_pid, atk_idx2, recoil_amount, 1.0);
+                            var _after_recoil2 = __battle_hp_now(_atk_ent2);
+                            __battle_trigger_hit_effect(_pid, _atk_ent2, _before_recoil2, _after_recoil2, 1.0);
+                            try { __battle_request_animation_safe(_pid, { type: "recoil", target_index: atk_idx2, amount: recoil_amount }); } catch (e_ra){}
                             // request a small animation and enqueue a short dialog
-                            try { __battle_request_animation_safe(_pid, { type: "recoil", target_index: atk_idx, amount: recoil_amount }); } catch (e_anim) {}
                             try { var aname_r = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokémon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, string(aname_r) + " was hurt by recoil!"); } catch (e_msgr) {}
                             try { variable_struct_set(_B, "_meta_effect_applied", true); } catch (e_me3) { }
                             if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][recoil] move=" + string(move_id) + " inflicted recoil " + string(recoil_amount) + " to attacker=" + string((variable_struct_exists(A,"name")?variable_struct_get(A,"name") : "<no-name>")));
@@ -735,7 +714,10 @@ function __battle_apply_entry_hazards(_pid, _actor_index){
                 var frac_amt = 0.125;
                 if (layers == 2) frac_amt = 1.0/6.0; else if (layers >= 3) frac_amt = 0.25;
                 var dmg = max(1, floor(hpmax * frac_amt));
-                __battle_apply_damage(_pid, _actor_index, dmg);
+                var _before_sp = __battle_hp_now(A);
+                __battle_apply_damage(_pid, _actor_index, dmg, 1.0);
+                var _after_sp = __battle_hp_now(A);
+                __battle_trigger_hit_effect(_pid, A, _before_sp, _after_sp, 1.0);
                 // Enqueue dialog
                         try {
                             var _aname_sp = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokémon");
@@ -810,7 +792,10 @@ function __battle_apply_entry_hazards(_pid, _actor_index){
 
                 var rawd = floor(hpmax2 * base_frac * max(0.0, mult));
                 var dmg2 = max(1, rawd);
-                __battle_apply_damage(_pid, _actor_index, dmg2);
+                var _before_sr = __battle_hp_now(A);
+                __battle_apply_damage(_pid, _actor_index, dmg2, 1.0);
+                var _after_sr = __battle_hp_now(A);
+                __battle_trigger_hit_effect(_pid, A, _before_sr, _after_sr, mult);
                 try { var _aname_sr = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokémon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, string(_aname_sr) + " was hurt by the stealth rock!"); } catch (e_msg2) {}
                 try { variable_struct_set(_B, "_meta_effect_applied", true); } catch (e) {}
             }
@@ -923,12 +908,7 @@ function __battle_sound_play_safe(_res){
             if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_play_sound called for res=" + string(_res) + " ret=" + string(_ret));
             return _ret;
         }
-        // Fallback to legacy sound_play if present (no channel returned)
-        if (!is_undefined(sound_play)){
-            try { sound_play(_res); } catch (e_sp) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] sound_play failed: " + string(e_sp)); }
-            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] sound_play called for res=" + string(_res));
-            return undefined;
-        }
+        // No legacy fallback: if audio_create_stream is available we'll try that later
         // Last resort: try audio_create_stream + audio_play_sound if available
         if (!is_undefined(audio_create_stream) && !is_undefined(audio_play_sound)){
             var stream = undefined;
@@ -958,8 +938,6 @@ function __battle_restore_prev_audio(_pid){
             if (!is_undefined(audio_play_sound)){
                 // Try to play previous resource as bgm (looped)
                 try { audio_play_sound(prev, 1, true); if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] restored prev audio res=" + string(prev)); } catch (e_apr) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_play_sound restore failed: " + string(e_apr)); }
-            } else if (!is_undefined(sound_play)){
-                try { sound_play(prev); if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] restored prev audio via sound_play res=" + string(prev)); } catch (e_sp2) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] sound_play restore failed: " + string(e_sp2)); }
             }
         } catch (e_inner) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to actually restore prev audio: " + string(e_inner)); }
     } catch (e) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] __battle_restore_prev_audio error: " + string(e)); }
@@ -1150,13 +1128,13 @@ function battle_close(_pid){
     try {
         var _bm_res = (variable_struct_exists(_B, "_battle_music") ? variable_struct_get(_B, "_battle_music") : undefined);
         if (!is_undefined(_bm_res)){
-            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] calling sound_stop on _battle_music");
-            try { if (!is_undefined(sound_stop)) sound_stop(_bm_res); } catch (ee) {}
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] stopping battle_music resource: " + string(_bm_res));
+            try { if (!is_undefined(audio_stop_sound)) audio_stop_sound(_bm_res); else __battle_audio_stop_handle(_bm_res); } catch (ee) {}
         }
         var _bdm = (variable_struct_exists(_B, "_battle_defeated_music") ? variable_struct_get(_B, "_battle_defeated_music") : undefined);
         if (!is_undefined(_bdm)){
-            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] calling sound_stop on _battle_defeated_music");
-            try { if (!is_undefined(sound_stop)) sound_stop(_bdm); } catch (ee2) {}
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] stopping defeated_music resource: " + string(_bdm));
+            try { if (!is_undefined(audio_stop_sound)) audio_stop_sound(_bdm); else __battle_audio_stop_handle(_bdm); } catch (ee2) {}
         }
     } catch (e3) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to call sound_stop: " + string(e3)); }
     _B.sys_open = false;
@@ -1213,8 +1191,26 @@ function battle_close(_pid){
         }
     } catch (e_all_stop) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] error while attempting to stop defeated music: " + string(e_all_stop)); }
 
-    // Centralized restore: stop any battle audio and restore previously playing audio
-    try { __battle_restore_prev_audio(_pid); } catch (e_rr) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] __battle_restore_prev_audio failed: " + string(e_rr)); }
+    // Centralized restore: stop any battle audio and restore previously playing audio.
+    // If no previous audio was captured, fall back to playing the configured region music
+    try {
+        var _prev_audio_local = (variable_struct_exists(_B, "_prev_audio") ? variable_struct_get(_B, "_prev_audio") : undefined);
+        try { __battle_restore_prev_audio(_pid); } catch (e_rr) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] __battle_restore_prev_audio failed: " + string(e_rr)); }
+
+        // If there was no previous audio to restore, attempt to play the region BGM if available.
+        if (is_undefined(_prev_audio_local) || _prev_audio_local == undefined) {
+            if (variable_global_exists("_REGIONMUSIC") && !is_undefined(global._REGIONMUSIC) && global._REGIONMUSIC != undefined) {
+                try {
+                    if (!is_undefined(audio_play_sound)) {
+                        audio_play_sound(global._REGIONMUSIC, 1, true);
+                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] played region music res=" + string(global._REGIONMUSIC));
+                    }
+                } catch (e_reg) {
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to play region music: " + string(e_reg));
+                }
+            }
+        }
+    } catch (e_rrall) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] restore/fallback failed: " + string(e_rrall)); }
 }
 
 // ===== Update / Draw =====
@@ -1822,9 +1818,22 @@ function __battle_step_turn_if_ready(_pid){
             var dmg = res[0];
             // run meta dispatcher for this hit
             try { var mm_all = __battle_get_move_meta(mov); __battle_apply_move_meta_effects(_pid, {}, Aact, Dact, mov, dmg, mm_all); } catch (e_mh){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][pending_hit] meta error: " + string(e_mh)); }
-            // show a short per-hit dialog
-            var hitMsg = "It hit!";
-            __battle_stub_dialog(_pid, hitMsg);
+            // show a short per-hit dialog with explicit target/move/count: "{Target} was hit by {Move} ({count} times)!"
+            try {
+                var tgt_name = (variable_struct_exists(Dact, "name") ? variable_struct_get(Dact, "name") : "The target");
+                var mv_name_pm = (is_real(mov) ? __battle_move_name(mov) : "the move");
+                // compute how many times this target has been hit so far in the sequence
+                var total_hits = (variable_struct_exists(pm, "total_hits") ? variable_struct_get(pm, "total_hits") : undefined);
+                var remaining_now = (variable_struct_exists(pm, "remaining") ? floor(variable_struct_get(pm, "remaining")) : 0);
+                var hit_count = (is_real(total_hits) ? (total_hits - remaining_now) : 1);
+                var times_txt = string(hit_count) + " time" + (hit_count == 1 ? "" : "s");
+                var hitMsg = string(tgt_name) + " was hit by " + mv_name_pm + " (" + times_txt + ")!";
+                __battle_stub_dialog(_pid, hitMsg);
+            } catch (e_msg){
+                // fallback to the generic message if anything goes wrong
+                __battle_stub_dialog(_pid, "It hit!");
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][pending_hit] multi-hit dialog build failed: " + string(e_msg));
+            }
             // decrement remaining and persist or clear
             remaining = max(0, remaining - 1);
             if (remaining > 0){ variable_struct_set(pm, "remaining", remaining); variable_struct_set(_B, "_pending_multi_hit", pm); }
@@ -2387,7 +2396,8 @@ function __battle_perform_action(_pid, _step){
         // If more hits are specified and target still alive, schedule the remaining hits
         if (hits > 1 && is_struct(D) && variable_struct_exists(D, "hp_now") && variable_struct_get(D, "hp_now") > 0){
             var remaining = hits - 1;
-            var pm = { move_id: move_id, actor_index: _step.actor_index, target_index: _step.target_index, mv_power: mv_power, remaining: remaining };
+            // Store the total hits so the pending handler can report the current hit count
+            var pm = { move_id: move_id, actor_index: _step.actor_index, target_index: _step.target_index, mv_power: mv_power, remaining: remaining, total_hits: hits };
             variable_struct_set(_B, "_pending_multi_hit", pm);
         }
     } else {
@@ -2448,8 +2458,12 @@ function __battle_perform_action(_pid, _step){
                     } catch (e_ab2) { /* ignore */ }
                     if (!prevent_recoil2){
                         var atk_idx2 = (variable_struct_exists(_step, "actor_index") ? variable_struct_get(_step, "actor_index") : 0);
-                        __battle_apply_damage(_pid, atk_idx2, recoil_amt2);
-                        try { __battle_request_animation_safe(_pid, { type: "recoil", target_index: atk_idx2, amount: recoil_amt2 }); } catch (e_){}
+                        var _atk_ent2 = (variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor")) && atk_idx2 >= 0 && atk_idx2 < array_length(variable_struct_get(_B, "actor"))) ? variable_struct_get(_B, "actor")[atk_idx2] : undefined;
+                        var _before_recoil2 = __battle_hp_now(_atk_ent2);
+                        __battle_apply_damage(_pid, atk_idx2, recoil_amt2, 1.0);
+                        var _after_recoil2 = __battle_hp_now(_atk_ent2);
+                        __battle_trigger_hit_effect(_pid, _atk_ent2, _before_recoil2, _after_recoil2, 1.0);
+                        try { __battle_request_animation_safe(_pid, { type: "recoil", target_index: atk_idx2, amount: recoil_amt2 }); } catch (e_){ }
                         try { var aname_r2 = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokémon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, string(aname_r2) + " was hurt by recoil!"); } catch (e_r2) {}
                         try { variable_struct_set(_B, "_meta_effect_applied", true); } catch (e_mr) {}
                         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][recoil_post] move=" + string(move_id) + " recoil=" + string(recoil_amt2));
@@ -2732,9 +2746,11 @@ function __battle_move_power(_code, _A, _D){
             // If p is zero or unspecified, attempt known variable-power move calculations
             var vp = __battle_variable_move_power(_code, _A, _D);
             if (is_real(vp) && vp > 0) return vp;
+            // If no explicit or variable power identified, treat as status/no-damage (0).
+            return 0;
         }
     }
-    return 40; // fallback
+    return 0; // fallback to status/no-damage when move power is unspecified
 }
 
 // Read an entity's weight (kg) from actor/mon struct or from species table as fallback.
@@ -3519,6 +3535,83 @@ function __battle_hp_now(_ent){
     } catch (e_hp){}
     return 0;
 }
+// Return a visual HP value for UI drawing that respects any active lerp animation.
+function __battle_hp_visual(_ent){
+    try {
+        if (!is_struct(_ent)) return __battle_hp_now(_ent);
+        var active = (variable_struct_exists(_ent, "_hp_lerp_active") && variable_struct_get(_ent, "_hp_lerp_active") == true);
+        if (!active){
+            // fall back to canonical hp_now
+            return __battle_hp_now(_ent);
+        }
+        var from = variable_struct_exists(_ent, "_hp_lerp_from") ? variable_struct_get(_ent, "_hp_lerp_from") : __battle_hp_now(_ent);
+        var to   = variable_struct_exists(_ent, "_hp_lerp_to")   ? variable_struct_get(_ent, "_hp_lerp_to")   : __battle_hp_now(_ent);
+        var start = variable_struct_exists(_ent, "_hp_lerp_start_ms") ? variable_struct_get(_ent, "_hp_lerp_start_ms") : current_time;
+        var dur = variable_struct_exists(_ent, "_hp_lerp_dur") ? variable_struct_get(_ent, "_hp_lerp_dur") : 400;
+        var t = 0.0;
+        if (is_real(dur) && dur > 0) t = clamp((current_time - start) / dur, 0, 1);
+        var cur = floor(lerp(from, to, t));
+        // If lerp completed, deactivate
+        if (t >= 1.0){
+            variable_struct_set(_ent, "_hp_lerp_active", false);
+            // ensure canonical hp_now is up-to-date
+            __battle_set_hp_now(_ent, to);
+        }
+        return cur;
+    } catch (e_vis){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][hp_visual] error: " + string(e_vis)); return __battle_hp_now(_ent); }
+}
+// Play an impact sound using audio_play_sound (fallback to sound_play) and
+// start the visual HP lerp on the provided entity. _mult is optional
+// effectiveness multiplier (useful to choose Super/NotVery/Eff).
+function __battle_trigger_hit_effect(_pid, _ent, _before, _after, _mult){
+    try {
+        if (!is_struct(_ent)) return;
+        // Visible debug: report that the trigger was called and brief context
+        try {
+            var _ename = (variable_struct_exists(_ent, "name") ? string(variable_struct_get(_ent, "name")) : "<no-name>");
+            show_debug_message("[battle][sound] hit-effect triggered for " + _ename + ", hp_before=" + string(_before) + ", hp_after=" + string(_after) + ", mult=" + string(_mult));
+        } catch (ee) { /* ignore */ }
+        var mult = (is_real(_mult) ? _mult : 1.0);
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][sound] trigger mult=" + string(mult) + ", audio_play_sound?=" + string(!is_undefined(audio_play_sound)));
+        // Directly call the imported sound resources by name as requested.
+        try {
+            if (!is_undefined(audio_play_sound)){
+                if (mult > 1.0){
+                    audio_play_sound(snd_SuperEffective, 1, false);
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][sound] played snd_SuperEffective");
+                } else if (mult < 1.0 && mult > 0.0){
+                    audio_play_sound(snd_NotVeryEffective, 1, false);
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][sound] played snd_NotVeryEffective");
+                } else {
+                    audio_play_sound(snd_Effective, 1, false);
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][sound] played snd_Effective");
+                }
+            } else {
+                // If audio_play_sound isn't available, attempt the safe wrapper with the same resource variables
+                if (mult > 1.0) __battle_sound_play_safe(snd_SuperEffective);
+                else if (mult < 1.0 && mult > 0.0) __battle_sound_play_safe(snd_NotVeryEffective);
+                else __battle_sound_play_safe(snd_Effective);
+            }
+        } catch (e_direct) {
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][sound] direct play failed: " + string(e_direct));
+            // fallback: try safe resolver with string names
+            try {
+                var _fallback_name = (mult > 1.0 ? "snd_SuperEffective" : (mult < 1.0 && mult > 0.0 ? "snd_NotVeryEffective" : "snd_Effective"));
+                __battle_sound_play_safe(_fallback_name);
+            } catch (e_fb) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][sound] fallback resolver failed: " + string(e_fb)); }
+        }
+
+        // Start visual lerp state on the entity and inner mon if present
+        try {
+            variable_struct_set(_ent, "_hp_lerp_from", (is_real(_before) ? floor(_before) : __battle_hp_now(_ent)));
+            variable_struct_set(_ent, "_hp_lerp_to",   (is_real(_after) ? floor(_after) : __battle_hp_now(_ent)));
+            variable_struct_set(_ent, "_hp_lerp_start_ms", current_time);
+            variable_struct_set(_ent, "_hp_lerp_dur", 400);
+            variable_struct_set(_ent, "_hp_lerp_active", true);
+            if (variable_struct_exists(_ent, "mon") && is_struct(variable_struct_get(_ent, "mon"))){ var _mi = variable_struct_get(_ent, "mon"); variable_struct_set(_mi, "_hp_lerp_from", variable_struct_get(_ent, "_hp_lerp_from")); variable_struct_set(_mi, "_hp_lerp_to", variable_struct_get(_ent, "_hp_lerp_to")); variable_struct_set(_mi, "_hp_lerp_start_ms", variable_struct_get(_ent, "_hp_lerp_start_ms")); variable_struct_set(_mi, "_hp_lerp_dur", variable_struct_get(_ent, "_hp_lerp_dur")); variable_struct_set(_mi, "_hp_lerp_active", true); }
+        } catch (e_l) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][lerp] trigger failed: " + string(e_l)); }
+    } catch (e) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][trigger] failed: " + string(e)); }
+}
 function __battle_set_hp_now(_ent, _val){
     var v = (is_real(_val) ? max(0, floor(_val)) : 0);
     try {
@@ -3573,7 +3666,7 @@ function __battle_calc_damage(_A, _D, _move_id, _power){
     dmg = max(0, dmg);
     return dmg;
 }
-function __battle_apply_damage(_pid, _target_index, _dmg){
+function __battle_apply_damage(_pid, _target_index, _dmg, _mult){
     var _B = __battle_ensure_slot(_pid);
     var T = _B.actor[_target_index];
     if (!is_struct(T)) return;
@@ -3593,6 +3686,14 @@ function __battle_apply_damage(_pid, _target_index, _dmg){
     var cur_hp = __battle_hp_now(T);
     var newhp = max(0, cur_hp - max(0, _dmg));
     __battle_set_hp_now(T, newhp);
+    // Trigger visual lerp and hit SFX for this applied damage
+    try {
+        if (is_real(cur_hp) && is_real(newhp) && cur_hp != newhp){
+            // Use provided multiplier when available, otherwise default to 1.0
+            var use_mult = (is_real(_mult) ? _mult : 1.0);
+            try { __battle_trigger_hit_effect(_pid, T, cur_hp, newhp, use_mult); } catch (e_th) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][sound] trigger call failed: " + string(e_th)); }
+        }
+    } catch (e_any) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][sound] apply_damage trigger error: " + string(e_any)); }
     // Clear faint flag if healed above 0
     __battle_clear_fainted_if_healed(T);
 }
@@ -4272,9 +4373,6 @@ function __battle_update_animations(_pid){
                 var _bgm_handle_local2 = (variable_struct_exists(_B, "_bgm_handle") ? variable_struct_get(_B, "_bgm_handle") : undefined);
                 if (!is_undefined(audio_stop_sound)){
                     audio_stop_sound(_stop_res);
-                } else if (!is_undefined(sound_stop) && !is_undefined(_stop_res)){
-                    // Older runtimes may expose sound_stop instead of audio_* APIs
-                    try { sound_stop(_stop_res); } catch (ee) {}
                 } else if (!is_undefined(_bgm_handle_local2)){
                     __battle_audio_stop_handle(_bgm_handle_local2);
                 } else if (!is_undefined(audio_stop_all)){
