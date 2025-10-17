@@ -17,6 +17,43 @@ function __battle_roll_hit(_move_id){
 
 // Applies damage and returns [dmg, beforeHP, afterHP]
 function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_power){
+    // Check for OHKO (one-hit KO) move meta first. This implements Sheer Cold / Fissure / Guillotine/Horn Drill style behavior.
+    try {
+        var oh = undefined;
+        if (!is_undefined(__battle_get_move_meta) && is_real(_move_id)){
+            try { oh = __battle_get_move_meta(_move_id); } catch (e_gm) { oh = undefined; }
+        }
+        if (is_struct(oh) && variable_struct_exists(oh, "ohko") && variable_struct_get(oh, "ohko") == true){
+            // OHKO move: accuracy is 30 + (user.level - target.level). If user.level < target.level the move fails.
+            var ulevel = (is_struct(_A) && variable_struct_exists(_A, "level") && is_real(variable_struct_get(_A, "level"))) ? floor(variable_struct_get(_A, "level")) : 0;
+            var tlevel = (is_struct(_D) && variable_struct_exists(_D, "level") && is_real(variable_struct_get(_D, "level"))) ? floor(variable_struct_get(_D, "level")) : 0;
+            var acc_base = 30;
+            var acc = acc_base + max(0, ulevel - tlevel);
+            // If user is lower level, OHKO fails.
+            if (ulevel < tlevel){
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][ohko] failed: user level < target level (" + string(ulevel) + " < " + string(tlevel) + ")");
+                return [0, __battle_hp_now(_D), __battle_hp_now(_D)];
+            }
+            // Roll against computed accuracy
+            var roll = irandom(99);
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][ohko] acc=" + string(acc) + ", roll=" + string(roll));
+            if (roll < clamp(floor(acc), 0, 100)){
+                // Success: deal damage equal to target's max HP (attempt to read hp_max/maxhp)
+                var target_max = 1;
+                try { if (variable_struct_exists(_D, "hp_max")) target_max = variable_struct_get(_D, "hp_max"); else if (variable_struct_exists(_D, "maxhp")) target_max = variable_struct_get(_D, "maxhp"); else if (variable_struct_exists(_D, "mon") && is_struct(variable_struct_get(_D, "mon")) && variable_struct_exists(variable_struct_get(_D, "mon"), "hp_max")) target_max = variable_struct_get(variable_struct_get(_D, "mon"), "hp_max"); } catch (e_mx) { target_max = 1; }
+                target_max = max(1, floor(target_max));
+                // Apply damage via canonical path so Protect/lerp/etc. run
+                __battle_apply_damage(_pid, _target_index, target_max, 1.0);
+                var after = __battle_hp_now(_D);
+                return [target_max, max(0, __battle_hp_now(_D) + target_max - target_max), after];
+            } else {
+                // Miss
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][ohko] missed (acc roll)");
+                return [0, __battle_hp_now(_D), __battle_hp_now(_D)];
+            }
+        }
+    } catch (e_oh) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][ohko] handler error: " + string(e_oh)); }
+
     var dmg = __battle_calc_damage(_A, _D, _move_id, _mv_power);
     var before = __battle_hp_now(_D);
 
@@ -67,6 +104,30 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
         }
     } catch (e_mult) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][sound] type mult calc failed: " + string(e_mult)); }
 
+    // Special-case move semantics that alter computed damage before application
+    try {
+        // Super Fang (id 162) deals damage equal to half the target's current HP
+        if (is_real(_move_id) && _move_id == 162){
+            var curhp_sf = __battle_hp_now(_D);
+            var sf_dmg = max(0, floor(curhp_sf / 2));
+            dmg = sf_dmg;
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][move_special] Super Fang computed dmg=" + string(dmg) + ", target_hp=" + string(curhp_sf));
+        }
+
+        // False Swipe (id 206) must not reduce the target below 1 HP (can't OHKO)
+        if (is_real(_move_id) && _move_id == 206 && is_real(dmg) && dmg > 0){
+            var before_hp_fs = before;
+            var intended_after_fs = max(0, before_hp_fs - dmg);
+            if (intended_after_fs < 1){
+                var new_dmg_fs = max(0, before_hp_fs - 1);
+                if (new_dmg_fs != dmg){
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][move_special] False Swipe adjusted dmg from " + string(dmg) + " to " + string(new_dmg_fs) + " (before=" + string(before_hp_fs) + ")");
+                    dmg = new_dmg_fs;
+                }
+            }
+        }
+    } catch (e_ms) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][move_special] handler error: " + string(e_ms)); }
+
     // Apply damage (this will update hp_now). Pass effectiveness multiplier so SFX choice can match.
     __battle_apply_damage(_pid, _target_index, dmg, mult);
     var after = __battle_hp_now(_D);
@@ -77,6 +138,26 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
     // the target's max HP and use thresholds to choose the SFX.
     try {
         var actual_delta = max(0, before - after);
+        // Record last-received damage on the defender so counter-moves can reference it
+        try {
+            if (is_struct(_D) && is_real(actual_delta) && actual_delta > 0){
+                // store last received damage and move context
+                variable_struct_set(_D, "_last_received_damage", actual_delta);
+                try { variable_struct_set(_D, "_last_received_from_move", _move_id); } catch (ee) {}
+                // store damage class (physical/special) if data-layer helper exists
+                try { if (!is_undefined(scr_move_damage_class_by_id) && is_real(_move_id)) variable_struct_set(_D, "_last_received_move_damage_class", scr_move_damage_class_by_id(_move_id)); } catch (ee2) {}
+                // store attacker actor index when discoverable
+                try {
+                    var atk_idx = undefined;
+                    var _Btmp = __battle_ensure_slot(_pid);
+                    if (is_struct(_Btmp) && variable_struct_exists(_Btmp, "actor") && is_array(variable_struct_get(_Btmp, "actor"))){
+                        var __acts_tmp = variable_struct_get(_Btmp, "actor");
+                        for (var _ai_tmp = 0; _ai_tmp < array_length(__acts_tmp); ++_ai_tmp){ if (is_struct(__acts_tmp[_ai_tmp]) && __acts_tmp[_ai_tmp] == _A){ atk_idx = _ai_tmp; break; } }
+                    }
+                    if (is_real(atk_idx)) variable_struct_set(_D, "_last_received_from_actor_index", atk_idx);
+                } catch (ee3) {}
+            }
+        } catch (e_lr){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] last-received record failed: " + string(e_lr)); }
         // Determine defender max HP
         var def_hp_max = 1;
         if (variable_struct_exists(_D, "hp_max")) def_hp_max = variable_struct_get(_D, "hp_max");

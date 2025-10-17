@@ -393,6 +393,11 @@ function data_load_pokemon_stats_structs(){
 
 // ---------- ORCHESTRATOR ----------
 function data_load_all_structs(){
+    // Guard: avoid running the full orchestrator more than once per process.
+    if (variable_global_exists("_data_structs_loaded") && global._data_structs_loaded){
+        data_debug("[DATA][structs] already_loaded -> skipping");
+        return;
+    }
     data_load_pokemon_structs();
     data_load_pokemon_stats_structs();
     data_debug("[DATA][structs] done.");
@@ -411,6 +416,8 @@ function data_load_all_structs(){
     if (is_undefined(data_load_pokemon_ev_yield_structs) == false) data_load_pokemon_ev_yield_structs();
     // Optional: load natures CSV if present
     if (is_undefined(data_load_natures_structs) == false) data_load_natures_structs();
+    // Mark orchestrator as completed so subsequent calls are no-ops
+    global._data_structs_loaded = true;
 }
 
 // Load natures.csv -> global._natures: array indexed by id (1-based) or by push order
@@ -560,6 +567,9 @@ function data_load_moves_structs(){
     var g = load_csv(path);
     if (g == -1) { data_debug("[DATA][moves] SKIP: " + path); global._moves = []; return; }
     var H = ds_grid_height(g);
+    // header-aware columns (optional)
+    var ci_effect = __col_find_ci(g, "effect_id");
+    var ci_effect_chance = __col_find_ci(g, "effect_chance");
     // size by max id
     var max_id = 0;
     for (var _r = 1; _r < H; _r++){
@@ -577,10 +587,215 @@ function data_load_moves_structs(){
         var _pp   = __to_int_safe(__grid(g,5,_r,0), 0);
         var _prio = __to_int_safe(__grid(g,7,_r,0), 0);
         var _dcls = __to_int_safe(__grid(g,8,_r,0), 0);
-        global._moves[_id] = { id:_id, identifier:_ident, type_id:_type, power:_power, pp:_pp, priority:_prio, damage_class_id:_dcls };
+        var _eff  = (ci_effect >= 0) ? __to_int_safe(__grid(g, ci_effect, _r, 0), 0) : 0;
+        var _effc = (ci_effect_chance >= 0) ? __to_int_safe(__grid(g, ci_effect_chance, _r, 0), 0) : 0;
+        global._moves[_id] = { id:_id, identifier:_ident, type_id:_type, power:_power, pp:_pp, priority:_prio, damage_class_id:_dcls, effect_id:_eff, effect_chance:_effc };
         _rows++;
     }
     data_debug("[DATA][moves] rows=" + string(_rows));
+}
+
+// Map common effect_id semantics (from move_effect_prose) into simple move_meta
+// fields so legacy battle code can rely on global._move_meta for recoil/drain/multi-hit/status.
+function data_map_move_effects_to_meta(){
+    if (!variable_global_exists("_moves") || !is_array(global._moves)) return;
+    if (!variable_global_exists("_move_meta") || !is_array(global._move_meta)) return;
+    // Build a small map of effect_id -> prose text (lowercased) for heuristics
+    var eff_text = {};
+    var eff_path = working_directory + "/data/csv/move_effect_prose.csv";
+    var g_eff = load_csv(eff_path);
+    if (g_eff != -1){
+        var ci_eff_id = __col_find_ci(g_eff, "move_effect_id");
+        var ci_short = __col_find_ci(g_eff, "short_effect");
+        var ci_effect = __col_find_ci(g_eff, "effect");
+        if (ci_eff_id >= 0 && (ci_short >= 0 || ci_effect >= 0)){
+            var H = ds_grid_height(g_eff);
+            for (var r = 1; r < H; r++){
+                var eid = __to_int_safe(__grid(g_eff, ci_eff_id, r, 0), 0);
+                if (eid <= 0) continue;
+                var txt = "";
+                if (ci_short >= 0) txt = string_trim(__grid(g_eff, ci_short, r, ""));
+                if (string_length(txt) == 0 && ci_effect >= 0) txt = string_trim(__grid(g_eff, ci_effect, r, ""));
+                if (string_length(txt) > 0) eff_text[""+string(eid)] = string_lower(txt);
+            }
+        }
+    }
+
+    var mapped = 0;
+    for (var mid = 0; mid < array_length(global._moves); mid++){
+        var m = global._moves[mid];
+        if (!is_struct(m)) continue;
+        var eff = 0;
+        if (variable_struct_exists(m, "effect_id") && is_real(m.effect_id)) eff = floor(m.effect_id);
+        if (eff <= 0) continue;
+        // ensure meta record exists
+        if (mid >= array_length(global._move_meta) || is_undefined(global._move_meta[mid]) || !is_struct(global._move_meta[mid])){
+            if (mid >= array_length(global._move_meta)) array_resize(global._move_meta, mid+1);
+            global._move_meta[mid] = {};
+        }
+        var mm = global._move_meta[mid];
+        // Only fill missing fields to avoid overriding explicit move_meta.csv entries
+        function _set_if_missing(_struct, _key, _val){ if (!variable_struct_exists(_struct, _key) || is_undefined(variable_struct_get(_struct, _key))){ variable_struct_set(_struct, _key, _val); return true; } return false; }
+
+        var changed = false;
+        var etxt = "";
+        if (!is_undefined(eff_text[""+string(eff)])) etxt = string(eff_text[""+string(eff)]);
+        // Helper: try extract numeric percent or fraction from text
+        function _extract_percent_from_text(_t){
+            // look for explicit numbers like '75%' or '1/3' or words 'half'
+            var s = string(_t);
+            var ppos = string_pos("%", s);
+            if (ppos > 0){
+                // find number before %
+                var num = "";
+                for (var i = ppos-1; i >= 1; i--){
+                    var ch = string_copy(s, i, 1);
+                    if (string_pos(ch, "0123456789") > 0) num = ch + num;
+                    else if (string_length(num) > 0) break;
+                }
+                if (string_length(num) > 0) return __to_int_safe(num, 0);
+            }
+            // fractions like '1/3' or '1/4'
+            var slash = string_pos("/", s);
+            if (slash > 0){
+                // get digits around slash
+                var a = ""; var b = "";
+                for (var i = slash-1; i >= 1; i--){ var ch = string_copy(s, i, 1); if (string_pos(ch, "0123456789")>0) a = ch + a; else if (string_length(a)>0) break; }
+                for (var i2 = slash+1; i2 <= string_length(s); i2++){ var ch2 = string_copy(s, i2, 1); if (string_pos(ch2, "0123456789")>0) b += ch2; else if (string_length(b)>0) break; }
+                if (string_length(a)>0 && string_length(b)>0){ var na = __to_int_safe(a,0); var nb = __to_int_safe(b,1); if (nb>0) return floor(na*100/nb); }
+            }
+            // words
+            if (string_pos(s, "half") > 0 || string_pos(s, "drains half") > 0) return 50;
+            if (string_pos(s, "three quarters") > 0 || string_pos(s, "75%") > 0) return 75;
+            return -1;
+        }
+
+        // Heuristics: drain vs recoil
+        if (string_length(etxt) > 0){
+            // drain (healing) mentions 'drains' or 'heals the user'
+            if (string_pos(etxt, "drains") > 0 || string_pos(etxt, "drain") > 0 || string_pos(etxt, "heals the user") > 0 || string_pos(etxt, "restores") > 0){
+                var pct = _extract_percent_from_text(etxt);
+                if (pct > 0) changed |= _set_if_missing(mm, "drain", pct);
+                else changed |= _set_if_missing(mm, "drain", 50);
+            }
+            // recoil variants (user receives X in recoil / user takes X / user loses)
+            if (string_pos(etxt, "recoil") > 0 || string_pos(etxt, "user receives") > 0 || string_pos(etxt, "user takes") > 0 || string_pos(etxt, "user loses") > 0){
+                var pct2 = _extract_percent_from_text(etxt);
+                if (pct2 > 0){ changed |= _set_if_missing(mm, "drain", -abs(pct2)); }
+                else if (string_pos(etxt, "its max") > 0 || string_pos(etxt, "max hp") > 0 || string_pos(etxt, "max HP") > 0){
+                    // recoil as fraction of max HP
+                    var rx = _extract_percent_from_text(etxt);
+                    if (rx > 0) changed |= _set_if_missing(mm, "recoil_max_hp", rx);
+                    else changed |= _set_if_missing(mm, "recoil_max_hp", 25);
+                }
+            }
+            // multi-hit
+            if (string_pos(etxt, "hits 2-5") > 0 || string_pos(etxt, "hits 2–5") > 0 || string_pos(etxt, "hits 2–5 times") > 0 || string_pos(etxt, "hits 2-5 times") > 0){
+                changed |= _set_if_missing(mm, "min_hits", 2);
+                changed |= _set_if_missing(mm, "max_hits", 5);
+            }
+            if (string_pos(etxt, "hits twice") > 0 || string_pos(etxt, "hits twice in") > 0 || string_pos(etxt, "hits two") > 0 || string_pos(etxt, "hits twice.")>0){
+                changed |= _set_if_missing(mm, "min_hits", 2);
+                changed |= _set_if_missing(mm, "max_hits", 2);
+            }
+            if (string_pos(etxt, "hits 2–3") > 0 || string_pos(etxt, "hits 2-3") > 0){
+                changed |= _set_if_missing(mm, "min_hits", 2);
+                changed |= _set_if_missing(mm, "max_hits", 3);
+            }
+
+            // status inflictions and chance parsing
+            var status_candidates = [ ["sleep","sleep"],["poison","poison"],["paralyze","paralysis"],["burn","burn"],["freeze","freeze"],["confuse","confusion"],["attract","infatuation"],["infatuation","infatuation"] ];
+            for (var si = 0; si < array_length(status_candidates); si++){
+                var token = status_candidates[si][0]; var ident = status_candidates[si][1];
+                if (string_pos(etxt, token) > 0){
+                    // prefer explicit percent in prose
+                    var pct3 = _extract_percent_from_text(etxt);
+                    if (pct3 > 0) changed |= _set_if_missing(mm, "chance", pct3);
+                    // fallback to moves.csv.effect_chance
+                    var eff_ch = (variable_struct_exists(m, "effect_chance") && is_real(m.effect_chance) && m.effect_chance > 0) ? floor(m.effect_chance) : -1;
+                    if (!variable_struct_exists(mm, "chance") && eff_ch > 0) changed |= _set_if_missing(mm, "chance", eff_ch);
+                    changed |= _set_if_missing(mm, "status", ident);
+                    break;
+                }
+            }
+
+            // Imprison detection: prose mentioning "imprison" or preventing the foe from using the same moves
+            if (string_pos(etxt, "imprison") > 0 || (string_pos(etxt, "prevent") > 0 && string_pos(etxt, "same moves") > 0) || string_pos(etxt, "prevent the opposing") > 0){
+                changed |= _set_if_missing(mm, "imprison", true);
+            }
+
+            // flinch detection
+            if (string_pos(etxt, "flinch") > 0 || string_pos(etxt, "may flinch") > 0){
+                var fch = _extract_percent_from_text(etxt);
+                if (fch > 0) changed |= _set_if_missing(mm, "flinch_chance", fch);
+                changed |= _set_if_missing(mm, "flinch", true);
+            }
+
+            // confuse
+            if (string_pos(etxt, "confuse") > 0 || string_pos(etxt, "confusion") > 0){
+                var cch = _extract_percent_from_text(etxt);
+                if (cch > 0) changed |= _set_if_missing(mm, "chance", cch);
+                changed |= _set_if_missing(mm, "confuse", true);
+            }
+            // attract/infatuation
+            if (string_pos(etxt, "attract") > 0 || string_pos(etxt, "infatuation") > 0){
+                var ach = _extract_percent_from_text(etxt);
+                if (ach > 0) changed |= _set_if_missing(mm, "chance", ach);
+                changed |= _set_if_missing(mm, "infatuation", true);
+            }
+
+        }
+
+        // If mapping still missing but moves.csv provided effect_chance, map that to mm.chance when status present
+        if (!variable_struct_exists(mm, "chance") && variable_struct_exists(m, "effect_chance") && is_real(m.effect_chance) && m.effect_chance > 0){
+            changed |= _set_if_missing(mm, "chance", floor(m.effect_chance));
+        }
+
+        // Fallback explicit effect_id mappings for commonly-used IDs not easily parsed
+        if (!changed){
+            switch (eff){
+                case 4: changed |= _set_if_missing(mm, "drain", 50); break;
+                case 349: changed |= _set_if_missing(mm, "drain", 75); break;
+                case 30: case 361: case 1044: changed |= _set_if_missing(mm, "min_hits", 2); changed |= _set_if_missing(mm, "max_hits", 5); break;
+                case 45: case 73: case 425: case 78: changed |= _set_if_missing(mm, "min_hits", 2); changed |= _set_if_missing(mm, "max_hits", 2); break;
+                case 49: changed |= _set_if_missing(mm, "drain", -25); break;
+                case 199: changed |= _set_if_missing(mm, "drain", -33); break;
+                case 254: case 263: changed |= _set_if_missing(mm, "drain", -33); /*many also have status*/ break;
+                case 255: /*User takes 1/4 its max HP*/ changed |= _set_if_missing(mm, "recoil_max_hp", 25); break;
+                case 270: changed |= _set_if_missing(mm, "drain", -50); break;
+                case 39: /* one-hit KO moves: Sheer Cold / Fissure style */ changed |= _set_if_missing(mm, "ohko", true); break;
+                case 43: /* bind/wrap/clamp/sand-tomb family: apply trap status */ changed |= _set_if_missing(mm, "status", "trap"); changed |= _set_if_missing(mm, "chance", 100); break;
+                default: break;
+            }
+        }
+
+        if (changed) {
+            global._move_meta[mid] = mm;
+            mapped += 1;
+        }
+    }
+    data_debug("[DATA][move_effect_map] synthesized_meta=" + string(mapped));
+    // If debugging enabled, dump a few canonical move meta entries to help diagnose mapping
+    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+        var _check = [38,71,202]; // double-edge, absorb, giga-drain
+        for (var _ci = 0; _ci < array_length(_check); _ci++){
+            var midc = _check[_ci];
+            var mmc = undefined;
+            if (variable_global_exists("_move_meta") && is_array(global._move_meta) && midc >= 0 && midc < array_length(global._move_meta)) mmc = global._move_meta[midc];
+            if (!is_struct(mmc)) {
+                data_debug("[DATA][move_effect_map] move=" + string(midc) + " meta=missing");
+                continue;
+            }
+            var s = "";
+            if (variable_struct_exists(mmc, "drain")) s += " drain=" + string(variable_struct_get(mmc, "drain"));
+            if (variable_struct_exists(mmc, "recoil_max_hp")) s += " recoil_max_hp=" + string(variable_struct_get(mmc, "recoil_max_hp"));
+            if (variable_struct_exists(mmc, "min_hits")) s += " min_hits=" + string(variable_struct_get(mmc, "min_hits"));
+            if (variable_struct_exists(mmc, "max_hits")) s += " max_hits=" + string(variable_struct_get(mmc, "max_hits"));
+            if (variable_struct_exists(mmc, "status")) s += " status=" + string(variable_struct_get(mmc, "status"));
+            if (variable_struct_exists(mmc, "chance")) s += " chance=" + string(variable_struct_get(mmc, "chance"));
+            data_debug("[DATA][move_effect_map] move=" + string(midc) + s);
+        }
+    }
 }
 
 // UPDATED: Move flavor text (PokeAPI) -> move_flavor_text.csv (EN, latest version_group_id)
@@ -777,58 +992,143 @@ function data_load_species_abilities_structs(){
     data_debug("[DATA][pokemon_abilities] rows=" + string(_rows));
 }
 
-function data_load_species_moves_structs(){
-    var path = working_directory + "/data/csv/pokemon_moves.csv";
-    var g = load_csv(path);
-    if (g == -1) { data_debug("[DATA][pokemon_moves] SKIP: " + path); global._species_moves = []; return; }
-    var H = ds_grid_height(g);
-    var max_sid = 0;
-    for (var _r = 1; _r < H; _r++){
-        var _sid = __to_int_safe(__grid(g,0,_r,0),0);
-        if (_sid > max_sid) max_sid = _sid;
-    }
-    // Two-pass: count per species then allocate arrays and fill to avoid repeated resizing
-    var counts = [];
-    for (var _r = 1; _r < H; _r++){
-        var _sid = __to_int_safe(__grid(g,0,_r,0),0);
-        var _mid = __to_int_safe(__grid(g,2,_r,0),0);
-        var _mth = __to_int_safe(__grid(g,3,_r,0),0);
-        if (_sid <= 0 || _mid <= 0 || _mth != 1) continue;
-        if (_sid >= array_length(counts)) array_resize(counts, _sid+1);
-        counts[_sid] = (is_real(counts[_sid]) ? counts[_sid] + 1 : 1);
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @function data_load_species_moves_structs()
+/// @description Loads Pokémon move data from JSON and builds per-species move arrays
+function data_load_species_moves_structs() {
+    var path = working_directory + "/data/json/_pokemon_moves";
+
+    if (!file_exists(path)) {
+        show_debug_message("[DATA][pokemon_moves] SKIP: " + path);
+        global._species_moves = [];
+        return;
     }
 
-    global._species_moves = []; array_resize(global._species_moves, max_sid+1);
-    var positions = [];
-    for (var _i = 0; _i <= max_sid; _i++){
-        var c = (is_real(counts[_i]) ? counts[_i] : 0);
-        if (c > 0){ global._species_moves[_i] = array_create(c, undefined); positions[_i] = 0; }
-        else { global._species_moves[_i] = []; positions[_i] = 0; }
+    _file = file_text_open_read(path)
+    file_text = file_text_read_string(_file)
+
+    // --- Parse JSON into array of structs ---
+    var json_data = json_parse(file_text);
+    if (!is_array(json_data)) {
+        show_debug_message("[DATA][pokemon_moves] INVALID JSON: " + path);
+        global._species_moves = [];
+        return;
     }
-    var _rows = 0;
-    for (var _r = 1; _r < H; _r++){
-        var _sid = __to_int_safe(__grid(g,0,_r,0),0);
-        var _vg  = __to_int_safe(__grid(g,1,_r,0),0);
-        var _mid = __to_int_safe(__grid(g,2,_r,0),0);
-        var _mth = __to_int_safe(__grid(g,3,_r,0),0); // 1 = level-up
-        var _lvl = __to_int_safe(__grid(g,4,_r,0),0);
-        if (_sid <= 0 || _mid <= 0 || _mth != 1) continue;
-        var pos = positions[_sid];
-        global._species_moves[_sid][pos] = { lvl:_lvl, mid:_mid };
-        positions[_sid] = pos + 1;
-        _rows++;
+
+    // --- Prepare data ---
+    var total_rows = array_length(json_data);
+    global._species_moves = [];
+    var local_species_moves = global._species_moves;
+
+    var max_sid = 0;
+    var max_mid = 0;
+
+    // --- Iterate rows ---
+    for (var i = 0; i < total_rows; i++) {
+        var row = json_data[i];
+
+        var _sid = real(row.pokemon_id);
+        var _mid = real(row.move_id);
+        var _mth = real(row.pokemon_move_method_id);
+        var _lvl = real(row.level);
+
+        // skip invalid or unwanted rows
+        if (_sid <= 0 || _mid <= 0 || _mth != 1)
+            continue;
+
+        // ensure array slot for species exists
+        if (_sid >= array_length(local_species_moves)) {
+            var old_len = array_length(local_species_moves);
+            array_resize(local_species_moves, _sid + 1);
+            for (var j = old_len; j <= _sid; j++) {
+                local_species_moves[j] = [];
+            }
+        }
+
+        // append this move
+        var spec_arr = local_species_moves[_sid];
+        spec_arr[array_length(spec_arr)] = { lvl: _lvl, mid: _mid };
+
+        if (_sid > max_sid) max_sid = _sid;
+        if (_mid > max_mid) max_mid = _mid;
     }
-    // sort each species moves by lvl
-    for (var _sid = 0; _sid < array_length(global._species_moves); _sid++){
-        var _arr = global._species_moves[_sid];
-        if (is_array(_arr) && array_length(_arr) > 1){
-            array_sort(_arr, function(a,b){ return a.lvl - b.lvl; });
+
+    // --- Deduplicate and sort ---
+    var non_empty_species = 0;
+    var scratch_stamp = array_create(max_mid + 1);
+    var scratch_lvl = array_create(max_mid + 1);
+    var curr_stamp = 1;
+
+    for (var sid_i = 0; sid_i <= max_sid; sid_i++) {
+        var arr = local_species_moves[sid_i];
+        if (is_undefined(arr)) continue;
+
+        var len = array_length(arr);
+        if (len == 0) continue;
+
+        var mids_seen = [];
+
+        // dedupe by lowest lvl per move
+        for (var k = 0; k < len; k++) {
+            var e = arr[k];
+            var mid = e.mid;
+            var lvl = e.lvl;
+
+            if (mid < 0 || mid > max_mid)
+                continue;
+
+            if (scratch_stamp[mid] != curr_stamp) {
+                scratch_stamp[mid] = curr_stamp;
+                scratch_lvl[mid] = lvl;
+                array_push(mids_seen, mid);
+            } else if (lvl < scratch_lvl[mid]) {
+                scratch_lvl[mid] = lvl;
+            }
+        }
+
+        // rebuild deduped array
+        var out = [];
+        for (var mi = 0; mi < array_length(mids_seen); mi++) {
+            var mid = mids_seen[mi];
+            array_push(out, { lvl: scratch_lvl[mid], mid: mid });
+        }
+
+        // sort by lvl ascending
+        var plen = array_length(out);
+        if (plen > 1) {
+            for (var ii = 1; ii < plen; ii++) {
+                var key = out[ii];
+                var jj = ii - 1;
+                while (jj >= 0 && out[jj].lvl > key.lvl) {
+                    out[jj + 1] = out[jj];
+                    jj -= 1;
+                }
+                out[jj + 1] = key;
+            }
+        }
+
+        local_species_moves[sid_i] = out;
+        non_empty_species++;
+        curr_stamp++;
+
+        if (curr_stamp == 2147483647) {
+            scratch_stamp = array_create(max_mid + 1);
+            curr_stamp = 1;
         }
     }
-    data_debug("[DATA][pokemon_moves] rows=" + string(_rows));
+
+    show_debug_message(
+        "[DATA][pokemon_moves] rows=" + string(total_rows)
+        + ", species=" + string(non_empty_species)
+    );
 }
 
 function data_load_all_structs_ext(){
+    // Guard: avoid running extended CSV loads more than once per process.
+    if (variable_global_exists("_data_structs_ext_loaded") && global._data_structs_ext_loaded){
+        data_debug("[DATA][structs_ext] already_loaded -> skipping");
+        return;
+    }
     data_load_moves_structs();
     data_load_move_text_structs();       // UPDATED to PokeAPI flavor text
     data_load_abilities_structs();
@@ -857,6 +1157,11 @@ function data_load_all_structs_ext(){
     if (is_undefined(data_load_move_meta_structs) == false) data_load_move_meta_structs();
     // Load optional move stat changes mapping (temporary in-battle stat stage changes)
     if (is_undefined(data_load_move_meta_stat_changes_structs) == false) data_load_move_meta_stat_changes_structs();
+    // Synthesize move_meta entries from moves.effect_id where possible so the battle
+    // system can rely on global._move_meta for recoil/drain/multi-hit effects.
+    if (is_undefined(data_map_move_effects_to_meta) == false) data_map_move_effects_to_meta();
+    // Mark ext loader as completed
+    global._data_structs_ext_loaded = true;
 }
 
 // Optional: parse move_meta_stat_changes.csv -> attach to global._move_meta[move_id].stat_changes
