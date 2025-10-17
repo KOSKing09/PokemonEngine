@@ -139,6 +139,16 @@ function status_system_apply_status(mon, status_id, opts){
     }
     // If the status is already present on this mon (or on actor wrapper), don't re-apply it.
     var already_present = variable_struct_exists(ss, status_id);
+    // If the target currently has a Substitute active, most status-inflicting
+    // moves/effects should fail. Respect that by refusing to apply non-substitute
+    // statuses when a substitute is present. If the caller is explicitly trying
+    // to apply a 'substitute' status itself, allow it.
+    try {
+        if (status_id != "substitute" && status_system_has_status(_target_mon, "substitute")){
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status_system] blocked apply '" + string(status_id) + "' because target has substitute");
+            return false;
+        }
+    } catch (e_block) { /* ignore any errors and continue */ }
     if (!already_present && is_struct(mon) && variable_struct_exists(mon, "statuses")){
         var ss_actor = variable_struct_get(mon, "statuses"); if (variable_struct_exists(ss_actor, status_id)) already_present = true;
     }
@@ -518,7 +528,12 @@ function __status_apply_message_for(id, mon){
 
 // Show an in-battle dialog for a given mon (if dialog system available), fallback to debug log.
 function __status_request_dialog_for_mon(mon, text){
-    if (!is_struct(mon) || string_length(string(text)) == 0) return false;
+    // Reject invalid targets or missing text early. Avoid treating `undefined`
+    // as the literal string "undefined" which would enqueue a bogus dialog.
+    if (!is_struct(mon)) return false;
+    if (is_undefined(text)) return false;
+    var _txt = string_trim(string(text));
+    if (string_length(_txt) == 0) return false;
     var pid = __status_find_battle_pid(mon);
     if (!is_undefined(pid) && is_real(pid)){
         try {
@@ -528,7 +543,7 @@ function __status_request_dialog_for_mon(mon, text){
                 var pending = (variable_struct_exists(_B, "_pending_status_msgs") ? variable_struct_get(_B, "_pending_status_msgs") : undefined);
                 if (!is_array(pending)) pending = [];
                 // Split incoming text by newlines so each line becomes its own dialog entry
-                var rest = string(text);
+                var rest = _txt;
                 var added_any = false;
                 while (string_length(string_trim(rest)) > 0){
                     var nl = string_pos("\n", rest);
@@ -599,6 +614,56 @@ if (variable_global_exists("STATUS_SYS") && variable_struct_exists(global.STATUS
         }
     });
         variable_struct_set(_reg, "leech-seed", _ls);
+    }
+    // trap (Bind/Wrap/Clamp/Sand Tomb family)
+    if (variable_struct_exists(_reg, "trap")){
+        var _tr = variable_struct_get(_reg, "trap");
+        // on_apply: set default turns for Gen3-style bind (2-5 turns randomly)
+        variable_struct_set(_tr, "on_apply", function(mon, s, opts){
+            try {
+                // In Gen3 bind/wrap/etc. usually last 2-5 turns; emulate with random 2..5
+                var dur = irandom_range(2,5);
+                if (is_struct(s)) s.turns = dur;
+                __battle_request_animation_safe(mon, { type: "status_apply", status: "trap" });
+            } catch (e) {}
+        });
+        // on_tick: apply 1/8 of max HP as damage (rounded down, minimum 1), heal source if available
+        variable_struct_set(_tr, "on_tick", function(mon, s, dt){
+            try {
+                // Skip first tick immediately after apply when requested
+                if (is_struct(s) && variable_struct_exists(s, "_skip_first_tick") && s._skip_first_tick == true){
+                    // clear the flag and do not apply damage this tick
+                    variable_struct_set(s, "_skip_first_tick", undefined);
+                    return;
+                }
+                // Compute damage amount: floor(maxhp/8) min 1
+                var mh = (variable_struct_exists(mon, "hp_max") ? variable_struct_get(mon, "hp_max") : (is_struct(mon) && variable_struct_exists(mon, "mon") && variable_struct_exists(variable_struct_get(mon, "mon"), "hp_max") ? variable_struct_get(variable_struct_get(mon, "mon"), "hp_max") : undefined));
+                if (!is_real(mh) || mh <= 0) mh = 1;
+                var dmg = max(1, floor(real(mh) * 1.0/8.0));
+                var did = __status_apply_percent_damage(mon, 1.0/8.0, "trap");
+                if (did && is_struct(s) && variable_struct_exists(s, "source") && is_struct(variable_struct_get(s, "source"))){
+                    var src = variable_struct_get(s, "source");
+                    try {
+                        // Heal source by same amount using canonical helpers when possible
+                        if (!is_undefined(__battle_set_hp_now) && !is_undefined(__battle_hp_now)){
+                            var cur = __battle_hp_now(src);
+                            var cap = (variable_struct_exists(src, "hp_max") ? variable_struct_get(src, "hp_max") : cur);
+                            __battle_set_hp_now(src, min(cap, cur + dmg));
+                            if (!is_undefined(__battle_clear_fainted_if_healed)) __battle_clear_fainted_if_healed(src);
+                            // mark meta flag on the battle slot
+                            try { var _pid_s = __status_find_battle_pid(src); if (!is_undefined(_pid_s)){ var __Bf2 = __battle_ensure_slot(_pid_s); if (is_struct(__Bf2)) variable_struct_set(__Bf2, "_meta_effect_applied", true); } } catch(e_pf){}
+                        } else {
+                            if (variable_struct_exists(src, "hp_now") && variable_struct_exists(src, "hp_max")){
+                                var cur2 = variable_struct_get(src, "hp_now"); var cap2 = variable_struct_get(src, "hp_max"); variable_struct_set(src, "hp_now", min(cap2, cur2 + dmg));
+                            }
+                        }
+                    } catch (e_hs) {}
+                }
+            } catch (e_tick) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][trap] on_tick failed: " + string(e_tick)); }
+        });
+        // on_clear: request a cleared dialog
+        variable_struct_set(_tr, "on_clear", function(mon, s){ try { __battle_request_animation_safe(mon, { type: "status_cured", status: "trap" }); } catch (e) {} });
+        variable_struct_set(_reg, "trap", _tr);
     }
     // sleep
     if (variable_struct_exists(_reg, "sleep")){
