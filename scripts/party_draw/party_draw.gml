@@ -9,10 +9,6 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     if (!party_is_open(_pid)) return;
     var _P = party_ensure(_pid);
 
-    // Static-analysis aid: declare expected fields on _P in a dead branch so analyzers
-    // recognize commonly-used fields (avoids 'Undeclared symbol' warnings in some IDEs)
-    if (false){ var _dummy = { mode:"list", mons:[], sel:0, scroll:0, menu_sel:0, party_order:undefined, sel_order:undefined, scroll_order:undefined }; }
-
     var _S  = max(1, min(floor(_rw / 240), floor(_rh / 160)));
     var _OX = _rx + (_rw - 240 * _S) div 2;
     var _OY = _ry + (_rh - 160 * _S) div 2;
@@ -64,50 +60,12 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     var sprSelector     = spr_selector;
     var sprPlaceholder  = spr_mon_icon_placeholder;
 
-    // If party_order exists, render using that ordering so fainted mons can be pushed to bottom
-    var _order = undefined;
-    if (variable_struct_exists(_P, "party_order")){
-        var _po = variable_struct_get(_P, "party_order");
-        if (is_array(_po)) _order = _po;
-        else if (!is_undefined(_po) && ds_exists(_po, ds_type_list)){
-            // convert ds_list -> array for safe indexed reads
-            var _llen = ds_list_size(_po);
-            _order = [];
-            for (var _ii = 0; _ii < _llen; _ii++) array_push(_order, ds_list_find_value(_po, _ii));
-        } else if (is_struct(_po) && variable_struct_exists(_po, "_list") && is_array(variable_struct_get(_po, "_list"))){
-            _order = variable_struct_get(_po, "_list");
-        } else {
-            // unknown shape: treat as undefined to fall back to canonical ordering
-            _order = undefined;
-        }
-    }
-    var _scroll_src = _P.scroll;
-    if (variable_struct_exists(_P, "scroll_order")){
-        var _ss = variable_struct_get(_P, "scroll_order"); if (is_real(_ss)) _scroll_src = real(_ss);
-    }
-    var _sel_src = _P.sel;
-    if (variable_struct_exists(_P, "sel_order")){
-        var _sls = variable_struct_get(_P, "sel_order"); if (is_real(_sls)) _sel_src = real(_sls);
-    }
-
     for (var _r = 0; _r < _ROWS; _r++){
-        var _idx_view = (_order != undefined) ? (_scroll_src + _r) : (_P.scroll + _r);
-        if (_order != undefined){ if (_idx_view >= array_length(_order)) break; var _idx = _order[_idx_view]; }
-        else { var _idx = _idx_view; if (_idx >= _n) break; }
+        var _idx = _P.scroll + _r; if (_idx >= _n) break;
         var _M = _mons[_idx];
         var _row_y_gui = _OY + (_LIST_Y + 8 + _r*(_ROW_H + PARTY_ROW_PAD_UI)) * _S;
 
-    // If an ordered party view is present, selection is expressed in view-space
-    // (sel_order = index into _order). Use view-index comparison so the
-    // highlight visibly follows the cursor within the visible rows.
-    var _is_sel_view = false;
-    if (_order != undefined){
-        _is_sel_view = (is_real(_sel_src) && _idx_view == _sel_src);
-    } else {
-        var _sel_canonical = (is_struct(_P) && variable_struct_exists(_P, "sel") ? variable_struct_get(_P, "sel") : 0);
-        _is_sel_view = (_idx == _sel_canonical);
-    }
-    if (_is_sel_view){
+        if (_idx == _P.sel){
             var _rx1 = _OX + (_LIST_X + 2) * _S;
             var _ry1 = _row_y_gui - (_ROW_H * 0.65) * _S;
             var _rx2 = _OX + (_LIST_X + _LIST_W - 2) * _S;
@@ -119,14 +77,14 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
             draw_set_color(c_white);
         }
 
-    if (_is_sel_view){
+        if (_idx == _P.sel){
             var _sh2 = max(1, sprite_get_height(sprSelector));
             var _tgt2 = _ROW_H * _S;
             var _sc2  = _tgt2 / _sh2;
             draw_sprite_ext(sprSelector, 0, _OX + (_LIST_X + 2)*_S - 10*_S, _row_y_gui - _tgt2*0.15, _sc2, _sc2, 0, c_white, 1);
         }
 
-    var _sprDown = -1;
+        var _sprDown = -1;
         if (!is_undefined(pkicons_get_icon32_dir_by_mon)) _sprDown = pkicons_get_icon32_dir_by_mon(_M, "down");
         var _hasIcon = (_sprDown != -1);
         if (!_hasIcon){ _sprDown = sprPlaceholder; _hasIcon = true; }
@@ -141,15 +99,7 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
             var _ix_gui = _OX + (_LIST_X + 2) * _S;
             var _iw_gui = sprite_get_width(_sprDown) * _sc_icon;
             var _iy_gui = _row_y_gui - _target_h_gui * 0.5 - 4*_S; // raised by 4 UI pixels
-            // If mon is fainted, render with lower alpha
-            var _hp_val = undefined;
-            if (is_struct(_M)){
-                if (variable_struct_exists(_M, "hp")) _hp_val = _M.hp;
-                else if (variable_struct_exists(_M, "hp_now")) _hp_val = _M.hp_now;
-            }
-            var _alpha_draw = 1;
-            if (!is_undefined(_hp_val) && _hp_val <= 0) _alpha_draw = 0.5;
-            draw_sprite_ext(_sprDown, _frame, floor(_ix_gui), floor(_iy_gui), _sc_icon, _sc_icon, 0, c_white, _alpha_draw);
+            draw_sprite_ext(_sprDown, _frame, floor(_ix_gui), floor(_iy_gui), _sc_icon, _sc_icon, 0, c_white, 1);
             // Sparkle overlay (new helper) – visually animated & stable
             if (is_struct(_M) && variable_struct_exists(_M,"shiny") && _M.shiny){
                 var _cx = floor(_ix_gui + _iw_gui * 0.65);
@@ -190,7 +140,7 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
             }
         }
 
-    var _disp_name = "???";
+        var _disp_name = "???";
         if (is_struct(_M)){
             if (variable_struct_exists(_M,"species_id")){
                 var _sid = _M.species_id;
@@ -208,16 +158,7 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         }
         var _name_x_ui = 120 + 2 + _drawnIconW_ui + 6;
         var _name_x_gui = _OX + _name_x_ui * _S;
-        // fainted detection
-        var _hp_val = undefined;
-        if (is_struct(_M)){
-            if (variable_struct_exists(_M, "hp")) _hp_val = _M.hp;
-            else if (variable_struct_exists(_M, "hp_now")) _hp_val = _M.hp_now;
-        }
-        var _is_fainted_draw = (!is_undefined(_hp_val) && _hp_val <= 0);
-        if (_is_fainted_draw) draw_set_color(make_color_rgb(176,176,176)); else draw_set_color(c_white);
         draw_text(_name_x_gui, _row_y_gui, _disp_name);
-        if (_is_fainted_draw){ draw_set_color(make_color_rgb(232,80,80)); draw_text(_name_x_gui + 48*_S, _row_y_gui, "FNT"); draw_set_color(c_white); }
     }
 
     var _ix1 = _OX + _INFO_X*_S, _iy1 = _OY + _INFO_Y*_S;
@@ -293,7 +234,7 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
 
         draw_set_color(c_white);
 
-    var _items = ["Summary","Swap In","Item","Cancel"];
+        var _items = ["Summary","Switch","Item","Cancel"];
         var _m_h   = max(12, string_height("A") + 2);
         for (var _i = 0; _i < 4; _i++){
             var _yy_menu = _by1 + (6 + _i*_m_h);

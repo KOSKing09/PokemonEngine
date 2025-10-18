@@ -71,8 +71,6 @@ function party_close(_pid){
     var _P = global.PARTY[_pid];
     if (!is_struct(_P)) return;
     _P.open = false;
-    // Clear any in-battle marker so subsequent opens behave normally
-    if (variable_struct_exists(_P, "in_battle_view")) variable_struct_set(_P, "in_battle_view", undefined);
 }
 function party_toggle(_pid){
     if (!variable_global_exists("PARTY")) return;
