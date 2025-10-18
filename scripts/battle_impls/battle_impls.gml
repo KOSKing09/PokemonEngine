@@ -1,7 +1,6 @@
-// [Battle] battle_impls — helper implementations
-// These functions are internal implementation helpers extracted from
-// battle_system.gml. They provide safe, standalone implementations
-// that the public API in battle_system.gml can call into.
+// Extracted battle helper implementations to modularize large battle_system.gml
+// These functions are internal impls; the public API in battle_system.gml
+// continues to expose the original function names and delegates to these.
 
 function __battle_set_hp_now_impl(_ent, _val){
     var v = (is_real(_val) ? max(0, floor(_val)) : 0);
