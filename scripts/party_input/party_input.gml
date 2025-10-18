@@ -14,6 +14,10 @@ function __party_impl_party_update(){
                    summary_spin_angle:0, summary_prev_sel:0 };
         // dummy bag struct for static analysis of bag references in this file
         var _b = { items: [], page:0, sel:0, scroll:0 };
+        // dummy battle slot struct for static analysis when this file references battle internals
+        var _B = { actor:[], turn_queue:[], turn_action_player:undefined, turn_action_enemy:undefined,
+                   _pending_close:false, _defer_turn_until_no_dialog:false, turn_i:0, turn_action_player:undefined };
+        var _B2 = _B;
     }
     if (!variable_global_exists("PARTY")) return;
     var _players = array_length(global.PARTY); if (_players <= 0) return;
@@ -40,14 +44,17 @@ function __party_impl_party_update(){
                 _P.scroll = clamp(_P.scroll, 0, max(0, _n - _ROWS));
                 if (_P.sel <  _P.scroll)        _P.scroll = _P.sel;
                 if (_P.sel >= _P.scroll + _ROWS) _P.scroll = max(0, _P.sel - _ROWS + 1);
+                // Allow opening the submenu/menu while in battle but prevent move edits.
                 if (controls_pressed(_pid,"Interact") && _P.lock == 0){
-                    // Always open the submenu/menu when interacting a party member.
-                    // Previously the code forced entry into the learn_summary when a
-                    // pending learn existed; that caused the submenu to be skipped.
-                    // Opening the menu consistently ensures the player sees available
-                    // actions (Summary/Swap/Item/Cancel) and can intentionally navigate
-                    // to the learn UI from the Summary page.
+                    // Open submenu/menu. If battle is open, mark that the party UI
+                    // is being viewed from a battle so later flows (summary_forget)
+                    // can block move changes while still letting the player navigate.
                     _P.mode = "menu"; _P.menu_sel = 0; _P.lock = 2;
+                    if (!is_undefined(battle_is_open) && battle_is_open(_pid)){
+                        try { variable_struct_set(_P, "in_battle_view", true); } catch (e_iv) {}
+                    } else {
+                        if (variable_struct_exists(_P, "in_battle_view")) variable_struct_set(_P, "in_battle_view", undefined);
+                    }
                 }
             break;
 
@@ -57,8 +64,32 @@ function __party_impl_party_update(){
                 if (controls_pressed(_pid,"Interact") && _P.lock == 0){
                     switch (_P.menu_sel){
                         case 0: _P.mode="summary_profile"; _P.sum_move_sel=0; _P.sum_learn_sel=0; _P.lock=2; break;
-            case 1: _P.swap_index = _P.sel; _P.mode="select"; _P.lock=2; 
-                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party][menu] pid=" + string(_pid) + ", swap_index=" + string(_P.swap_index));
+            case 1:
+                // Prepare ordered view for select: healthy mons first, fainted last.
+                _P.swap_index = _P.sel; // keep canonical outgoing index
+                var _order = [];
+                var _order_fainted = [];
+                var _pm = (variable_struct_exists(_P, "mons") ? variable_struct_get(_P, "mons") : []);
+                for (var __i = 0; __i < array_length(_pm); __i++){
+                    var __m = _pm[__i];
+                    var __hp = undefined;
+                    if (is_struct(__m)){
+                        if (variable_struct_exists(__m, "hp")) __hp = __m.hp;
+                        else if (variable_struct_exists(__m, "hp_now")) __hp = __m.hp_now;
+                    }
+                    var __is_fainted = (is_undefined(__hp) ? false : (__hp <= 0));
+                    if (__is_fainted) array_push(_order_fainted, __i);
+                    else array_push(_order, __i);
+                }
+                for (var __j = 0; __j < array_length(_order_fainted); __j++) array_push(_order, _order_fainted[__j]);
+                variable_struct_set(_P, "party_order", _order);
+                // compute sel_order so UI selection remains on the same mon
+                var _sel_order = 0; for (var __k = 0; __k < array_length(_order); __k++){ if (_order[__k] == _P.sel){ _sel_order = __k; break; } }
+                variable_struct_set(_P, "sel_order", _sel_order);
+                // scroll in ordered space
+                var _ROWS = 6; var _scroll_o = max(0, _sel_order - (_ROWS - 1)); variable_struct_set(_P, "scroll_order", _scroll_o);
+                _P.mode="select"; _P.lock=2; 
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party][menu] pid=" + string(_pid) + ", swap_index=" + string(_P.swap_index) + ", sel_order=" + string(_sel_order));
                 break;
                         case 2:
                             // Enter item action submenu (Give / Take / Cancel)
@@ -132,13 +163,86 @@ function __party_impl_party_update(){
             break;
 
             case "select":
-                if (controls_pressed(_pid,"MoveDown") && _n > 0) _P.sel = clamp(_P.sel + 1, 0, _n - 1);
-                if (controls_pressed(_pid,"MoveUp")   && _n > 0) _P.sel = clamp(_P.sel - 1, 0, _n - 1);
-                _P.scroll = clamp(_P.scroll, 0, max(0, _n - _ROWS));
-                if (_P.sel <  _P.scroll)        _P.scroll = _P.sel;
-                if (_P.sel >= _P.scroll + _ROWS) _P.scroll = max(0, _P.sel - _ROWS + 1);
+                // If a confirmation is pending, allow Interact/Run to confirm/cancel
+                if (variable_struct_exists(_P, "confirm_pending") && is_struct(variable_struct_get(_P, "confirm_pending"))){
+                    var _cp = variable_struct_get(_P, "confirm_pending");
+                    // Allow L/R to change choice, Interact = Yes, Run = No
+                    if (controls_pressed(_pid, "MoveLeft") && _P.lock == 0){
+                        var _ci = (variable_struct_exists(_cp, "choice_idx") ? variable_struct_get(_cp, "choice_idx") : 0);
+                        _ci = max(0, _ci - 1); variable_struct_set(_cp, "choice_idx", _ci); variable_struct_set(_P, "confirm_pending", _cp); _P.lock = 2; return;
+                    }
+                    if (controls_pressed(_pid, "MoveRight") && _P.lock == 0){
+                        var _ci2 = (variable_struct_exists(_cp, "choice_idx") ? variable_struct_get(_cp, "choice_idx") : 0);
+                        _ci2 = min(1, _ci2 + 1); variable_struct_set(_cp, "choice_idx", _ci2); variable_struct_set(_P, "confirm_pending", _cp); _P.lock = 2; return;
+                    }
+                    if (controls_pressed(_pid, "Interact") && _P.lock == 0){
+                        // Execute switch (Yes)
+                        var _src2 = (variable_struct_exists(_cp, "src") ? variable_struct_get(_cp, "src") : -1);
+                        var _dst2 = (variable_struct_exists(_cp, "dst") ? variable_struct_get(_cp, "dst") : -1);
+                        if (!is_undefined(battle_switch_to) && !is_undefined(battle_is_open) && battle_is_open(_pid)){
+                            try { if (!is_undefined(party_close)) party_close(_pid); battle_switch_to(_pid, _dst2, {}); } catch (e_switch) { party_model_swap(_pid, _src2, _dst2); }
+                        } else {
+                            party_model_swap(_pid, _src2, _dst2);
+                        }
+                        variable_struct_set(_P, "confirm_pending", undefined);
+                        // Clear ordered view state so draw/input return to canonical indices
+                        if (variable_struct_exists(_P, "party_order")) variable_struct_set(_P, "party_order", undefined);
+                        if (variable_struct_exists(_P, "sel_order")) variable_struct_set(_P, "sel_order", undefined);
+                        if (variable_struct_exists(_P, "scroll_order")) variable_struct_set(_P, "scroll_order", undefined);
+                        if (variable_struct_exists(_P, "in_battle_view")) variable_struct_set(_P, "in_battle_view", undefined);
+                        _P.mode = "list"; _P.swap_index = -1; _P.lock = 4;
+                        return;
+                    }
+                    if (controls_pressed(_pid, "Run") && _P.lock == 0){
+                        // cancel (No)
+                        variable_struct_set(_P, "confirm_pending", undefined);
+                        _P.lock = 2;
+                        return;
+                    }
+                }
+
+                // Use ordered selection if present — normalize party_order to an array
+                var _order = undefined;
+                if (variable_struct_exists(_P, "party_order")){
+                    var _po = variable_struct_get(_P, "party_order");
+                    if (is_array(_po)) _order = _po;
+                    else if (!is_undefined(_po) && ds_exists(_po, ds_type_list)){
+                        var _llen = ds_list_size(_po); _order = []; for (var _ii = 0; _ii < _llen; _ii++) array_push(_order, ds_list_find_value(_po, _ii));
+                    } else if (is_struct(_po) && variable_struct_exists(_po, "_list") && is_array(variable_struct_get(_po, "_list"))){
+                        _order = variable_struct_get(_po, "_list");
+                    } else { _order = undefined; }
+                }
+                var _sel_o = (variable_struct_exists(_P, "sel_order") ? variable_struct_get(_P, "sel_order") : _P.sel);
+                var _scroll_o = (variable_struct_exists(_P, "scroll_order") ? variable_struct_get(_P, "scroll_order") : _P.scroll);
+                var _len_o = (is_array(_order) ? array_length(_order) : _n);
+                if (is_array(_order)){
+                    if (controls_pressed(_pid,"MoveDown") && _len_o > 0) {
+                        var _try = clamp(_sel_o + 1, 0, _len_o - 1);
+                        // skip fainted
+                        while (_try < _len_o){ var _ti = _order[_try]; var _tm = _P.mons[_ti]; var _thp = (is_struct(_tm) && variable_struct_exists(_tm, "hp") ? _tm.hp : (is_struct(_tm) && variable_struct_exists(_tm, "hp_now") ? _tm.hp_now : undefined)); if (is_undefined(_thp) || _thp > 0) break; _try += 1; }
+                        _sel_o = _try;
+                    }
+                    if (controls_pressed(_pid,"MoveUp")   && _len_o > 0) {
+                        var _try2 = clamp(_sel_o - 1, 0, _len_o - 1);
+                        while (_try2 >= 0){ var _ti2 = _order[_try2]; var _tm2 = _P.mons[_ti2]; var _thp2 = (is_struct(_tm2) && variable_struct_exists(_tm2, "hp") ? _tm2.hp : (is_struct(_tm2) && variable_struct_exists(_tm2, "hp_now") ? _tm2.hp_now : undefined)); if (is_undefined(_thp2) || _thp2 > 0) break; _try2 -= 1; }
+                        _sel_o = _try2;
+                    }
+                    _scroll_o = clamp(_scroll_o, 0, max(0, _len_o - _ROWS));
+                    if (_sel_o <  _scroll_o)        _scroll_o = _sel_o;
+                    if (_sel_o >= _scroll_o + _ROWS) _scroll_o = max(0, _sel_o - _ROWS + 1);
+                    variable_struct_set(_P, "sel_order", _sel_o);
+                    variable_struct_set(_P, "scroll_order", _scroll_o);
+                } else {
+                    if (controls_pressed(_pid,"MoveDown") && _n > 0) _P.sel = clamp(_P.sel + 1, 0, _n - 1);
+                    if (controls_pressed(_pid,"MoveUp")   && _n > 0) _P.sel = clamp(_P.sel - 1, 0, _n - 1);
+                    _P.scroll = clamp(_P.scroll, 0, max(0, _n - _ROWS));
+                    if (_P.sel <  _P.scroll)        _P.scroll = _P.sel;
+                    if (_P.sel >= _P.scroll + _ROWS) _P.scroll = max(0, _P.sel - _ROWS + 1);
+                }
+
                 if (controls_pressed(_pid,"Interact") && _P.lock == 0){
-                    var _src = _P.swap_index, _dst = _P.sel;
+                    var _src = _P.swap_index;
+                    var _dst = (is_array(_order) ? _order[_sel_o] : _P.sel);
                     if (_n > 0 && _src >= 0 && _src < _n && _dst >= 0 && _dst < _n && _src != _dst){
                         // log moves before swap
                         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
@@ -148,20 +252,68 @@ function __party_impl_party_update(){
                             var __pre_dst_moves = (is_struct(__pre_dst) && variable_struct_exists(__pre_dst, "moves")) ? variable_struct_get(__pre_dst, "moves") : "[]";
                             show_debug_message("[party][swap_before] pid=" + string(_pid) + ", src=" + string(_src) + ", dst=" + string(_dst) + ", src_moves=" + string(__pre_src_moves) + ", dst_moves=" + string(__pre_dst_moves));
                         }
-                        party_model_swap(_pid, _src, _dst);
-                        // Mirror any potential model changes
+                        // If a battle is open for this player, request a battle switch
+                        if (!is_undefined(battle_is_open) && battle_is_open(_pid)){
+                            // If the selected mon is fainted, do nothing. Otherwise show confirm dialog.
+                            var _dst_mon = _P.mons[_dst];
+                            var _dst_hp = undefined;
+                            if (is_struct(_dst_mon)){
+                                if (variable_struct_exists(_dst_mon, "hp")) _dst_hp = _dst_mon.hp;
+                                else if (variable_struct_exists(_dst_mon, "hp_now")) _dst_hp = _dst_mon.hp_now;
+                            }
+                            var _is_fainted_dst = (is_undefined(_dst_hp) ? false : (_dst_hp <= 0));
+                            if (_is_fainted_dst){
+                                // ignore selection of fainted mons
+                                _P.lock = 2;
+                            } else {
+                                // Ask for confirmation before switching in battle. Show an in-UI Yes/No box.
+                                var _name_try = "that Pokémon";
+                                if (is_struct(_dst_mon)){
+                                    if (variable_struct_exists(_dst_mon, "name")) _name_try = string(_dst_mon.name);
+                                    else if (variable_struct_exists(_dst_mon, "species")) _name_try = string(_dst_mon.species);
+                                }
+                                // store pending confirm action on _P so party_draw can render an overlay
+                                variable_struct_set(_P, "confirm_pending", { type: "swap_in", src: _src, dst: _dst, name: _name_try, choice_idx:0 });
+                                // shorter lock while waiting for explicit Yes/No
+                                _P.lock = 2;
+                            }
+                        } else {
+                            party_model_swap(_pid, _src, _dst);
+                        }
+                        // Mirror any potential model changes in the UI selection.
                         _P.sel = _dst;
+                        // Only emit a post-swap debug message if we performed the swap locally
+                        // (i.e., party_model_swap was called here). If the swap is deferred to
+                        // the battle system via battle_switch_to, it will log its own debug
+                        // trace when it applies the canonical swap at the visual midpoint.
                         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
-                            var __post_src = (is_array(_P.mons) && _src >= 0 && _src < array_length(_P.mons)) ? _P.mons[_src] : undefined;
-                            var __post_dst = (is_array(_P.mons) && _dst >= 0 && _dst < array_length(_P.mons)) ? _P.mons[_dst] : undefined;
-                            var __post_src_moves = (is_struct(__post_src) && variable_struct_exists(__post_src, "moves")) ? variable_struct_get(__post_src, "moves") : "[]";
-                            var __post_dst_moves = (is_struct(__post_dst) && variable_struct_exists(__post_dst, "moves")) ? variable_struct_get(__post_dst, "moves") : "[]";
-                            show_debug_message("[party][swap_after] pid=" + string(_pid) + ", src=" + string(_src) + ", dst=" + string(_dst) + ", src_moves=" + string(__post_src_moves) + ", dst_moves=" + string(__post_dst_moves));
+                            var _did_local_swap = false;
+                            // Simple heuristic: if battle_is_open and we invoked battle_switch_to,
+                            // assume swap was deferred (do not print). Otherwise print.
+                            try { if (!is_undefined(battle_is_open) && battle_is_open(_pid)) _did_local_swap = false; else _did_local_swap = true; } catch (e_lh) { _did_local_swap = true; }
+                            if (_did_local_swap){
+                                var __post_src = (is_array(_P.mons) && _src >= 0 && _src < array_length(_P.mons)) ? _P.mons[_src] : undefined;
+                                var __post_dst = (is_array(_P.mons) && _dst >= 0 && _dst < array_length(_P.mons)) ? _P.mons[_dst] : undefined;
+                                var __post_src_moves = (is_struct(__post_src) && variable_struct_exists(__post_src, "moves")) ? variable_struct_get(__post_src, "moves") : "[]";
+                                var __post_dst_moves = (is_struct(__post_dst) && variable_struct_exists(__post_dst, "moves")) ? variable_struct_get(__post_dst, "moves") : "[]";
+                                show_debug_message("[party][swap_after] pid=" + string(_pid) + ", src=" + string(_src) + ", dst=" + string(_dst) + ", src_moves=" + string(__post_src_moves) + ", dst_moves=" + string(__post_dst_moves));
+                            }
                         }
                     }
+                        // Clear ordered view state so draw/input return to canonical indices
+                        if (variable_struct_exists(_P, "party_order")) variable_struct_set(_P, "party_order", undefined);
+                        if (variable_struct_exists(_P, "sel_order")) variable_struct_set(_P, "sel_order", undefined);
+                        if (variable_struct_exists(_P, "scroll_order")) variable_struct_set(_P, "scroll_order", undefined);
+                        if (variable_struct_exists(_P, "in_battle_view")) variable_struct_set(_P, "in_battle_view", undefined);
+                        _P.mode="list"; _P.swap_index=-1; _P.lock=2;
+                }
+                if (controls_pressed(_pid,"Run") && _P.lock == 0){
+                    if (variable_struct_exists(_P, "party_order")) variable_struct_set(_P, "party_order", undefined);
+                    if (variable_struct_exists(_P, "sel_order")) variable_struct_set(_P, "sel_order", undefined);
+                    if (variable_struct_exists(_P, "scroll_order")) variable_struct_set(_P, "scroll_order", undefined);
+                    if (variable_struct_exists(_P, "in_battle_view")) variable_struct_set(_P, "in_battle_view", undefined);
                     _P.mode="list"; _P.swap_index=-1; _P.lock=2;
                 }
-                if (controls_pressed(_pid,"Run") && _P.lock == 0){ _P.mode="list"; _P.swap_index=-1; _P.lock=2; }
             break;
 
             case "select_item":
@@ -210,7 +362,7 @@ function __party_impl_party_update(){
                                                         var _ln = string(_dref.all_lines[_li]);
                                                         _pv += "[" + string(_li) + "]" + string_copy(_ln, 1, min(120, string_length(_ln))) + "; ";
                                                     }
-                                                    show_debug_message("[dialog][debug] all_lines_preview pid=" + string(_pid) + ", count=" + string(array_length(_dref.all_lines)) + ", preview='" + _pv + "'");
+                                                    try { if (variable_global_exists("DIALOG_DEBUG") && global.DIALOG_DEBUG) show_debug_message("[dialog][debug] all_lines_preview pid=" + string(_pid) + ", count=" + string(array_length(_dref.all_lines)) + ", preview='" + _pv + "'"); } catch (e){}
                                                 }
                                             }
                                         }
@@ -400,6 +552,8 @@ function __party_impl_party_update(){
                     // If Inventory is held, scrolling is handled above via controls_repeat;
                     // otherwise pressing MoveDown should enter the moves summary.
                     if (!controls_down(_pid,"Inventory")){
+                        // If we're in a battle-view, allow viewing the moves summary but
+                        // block any interactive learning actions from this screen later.
                         _P.mode = "summary_moves"; _P.lock = 2;
                         // Aggressive hotfix: clear any existing learn_pending when entering
                         // the moves summary. This ensures stale state (e.g. step == "list")
@@ -584,7 +738,15 @@ function __party_impl_party_update(){
 
                 // --- Handle confirm (Interact) first so simultaneous Move+Interact
                 // inputs don't accidentally change the selection right before apply.
-                if (controls_pressed(_pid,"Interact") && _P.lock == 0){
+                // Block replacing moves while in battle (summary_forget)
+                if (!is_undefined(battle_is_open) && battle_is_open(_pid)){
+                    if (controls_pressed(_pid,"Interact") && _P.lock == 0){
+                        if (!is_undefined(__battle_stub_dialog)) __battle_stub_dialog(_pid, "You can't change moves during a battle.");
+                        else if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, "You can't change moves during a battle.");
+                        _P.lock = 4;
+                        return;
+                    }
+                } else if (controls_pressed(_pid,"Interact") && _P.lock == 0){
                     // Ensure sum_move_sel exists and is in-bounds
                     if (!variable_struct_exists(_P, "sum_move_sel")) _P.sum_move_sel = 0;
                     _P.sum_move_sel = clamp(_P.sum_move_sel, 0, max(0, array_length(_mv2) - 1));
