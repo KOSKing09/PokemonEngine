@@ -35,6 +35,19 @@ global.DATA_DEBUG = true;
 globalvar DATA_DEBUG_VERBOSE;
 global.DATA_DEBUG_VERBOSE = false;
 
+// MOVES_DEBUG is noisy; default to false. Set to true when actively debugging moves.
+global.MOVES_DEBUG = true;
+// Developer-only move-report runner (disabled by default). Enable to run
+// `dev_moves_impl_report()` at boot for a one-time diagnostics print.
+global.DEV_REPORT_MOVES = true;
+
+// run once (debug boot or in a quick test script)
+if (variable_global_exists("_battle_impls") && is_struct(global._battle_impls)){
+    show_debug_message("[reg] __battle_perform_action_impl present? " + string(variable_struct_exists(global._battle_impls, "__battle_perform_action_impl")));
+} else show_debug_message("[reg] _battle_impls missing");
+
+
+
 // --- DATA: ensure globals exist BEFORE loading ----------------------------
 // Ensure `global._pokemon` exists (alias older `global.pokemon` if present).
 if (!(variable_global_exists("_pokemon") && is_real(global._pokemon))) {
@@ -145,4 +158,19 @@ wc_reset();
 wc_bind_layers(["WALL", "BLOCKS"]);
 wc_set_solids([noone]); // add object ids here if you have solid instances
 
-show_debug_message(global._move_meta[79])
+show_debug_message(global._move_meta[79]);
+
+
+show_debug_message(global._move_meta[79]);
+// Safe check: avoid direct indexing into global._move_meta here (struct vs array issues).
+if (variable_global_exists("_move_meta") && !is_undefined(global._move_meta)) {
+    show_debug_message("[moves_dbg] _move_meta loaded (rows mapped)");
+ } else {
+    show_debug_message("[moves_dbg] _move_meta not present; skipping debug probe");
+}
+
+// Run the moves implementation report only when explicitly enabled to avoid
+// accidental compile-time or runtime noise.
+if (variable_global_exists("DEV_REPORT_MOVES") && global.DEV_REPORT_MOVES){
+    try { dev_moves_impl_report(); } catch (e) { show_debug_message("[dev] dev_moves_impl_report failed: " + string(e)); }
+}

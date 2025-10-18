@@ -18,6 +18,44 @@
 // and `scripts/battle_moves_impls/battle_moves_impls.gml`. Do not provide duplicate
 // definitions here or the GM compiler will report duplicate script names.
 
+// Quiet-mode defaults: prevent noisy debug spam by default. Projects that
+// want verbose debug output can set these to true in a controlled place
+// (for example at boot or via an in-game debug toggle). We guard each
+// assignment so we don't override an explicit debug enable set elsewhere.
+try {
+    if (!variable_global_exists("DATA_DEBUG")) global.DATA_DEBUG = false;
+} catch (e) {}
+try {
+    if (!variable_global_exists("BATTLE_META_DEBUG")) global.BATTLE_META_DEBUG = false;
+} catch (e) {}
+// Add more fine-grained, quiet-mode defaults for high-volume subsystems.
+try { if (!variable_global_exists("DIALOG_DEBUG")) global.DIALOG_DEBUG = false; } catch (e) {}
+try { if (!variable_global_exists("MOVES_DEBUG")) global.MOVES_DEBUG = false; } catch (e) {}
+
+// Auto-register battle move implementations if the impl file exposes the register function.
+// This is idempotent and guarded so it won't override explicit init behavior elsewhere.
+try {
+    if (!variable_global_exists("_battle_impls_registered") || !global._battle_impls_registered){
+        if (!is_undefined(__battle_moves_impls_register)){
+            try {
+                __battle_moves_impls_register();
+                global._battle_impls_registered = true;
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][init] __battle_moves_impls_register() auto-called");
+            } catch (e_regcall){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][init] __battle_moves_impls_register() failed: " + string(e_regcall)); }
+        }
+    }
+} catch (e_auto) {}
+
+
+// IMPORTANT CONFIGURATION NOTE:
+// GameMaker requires that global script/function names be unique across the
+// entire project. The function `__battle_apply_move_meta_effects` is the
+// canonical meta-effect handler and must be implemented only once. If you
+// provide alternative implementations (for testing or modularization), either
+// register them via the `_battle_impls` registry or place them in this file.
+// Do NOT define `__battle_apply_move_meta_effects` in multiple files — doing
+// so will cause the engine to fail script compilation.
+
 
 // Finalize catch handler: real implementation may live elsewhere. Provide a
 // minimal guarded no-op so callers can safely invoke the symbol without the
@@ -40,7 +78,7 @@ function __battle_perform_action(_pid, _step){
     // Fallback: implementation not present. Return a safe placeholder and advance turn to avoid blocking.
     var _B = __battle_ensure_slot(_pid);
     try { if (is_struct(_B)) _B.turn_i = (is_real(_B.turn_i) ? _B.turn_i + 1 : 0); } catch (e) {}
-    return "An action occurred.";
+        return "An action was performed.";
 }
 function __battle_apply_entry_hazards(_pid, _actor_index){
     // Apply entry hazards and related effects for a switched-in actor.
@@ -315,17 +353,20 @@ if (is_undefined(__battle_apply_move_meta_effects)){
             // Process drain (positive = heal attacker; negative = recoil to attacker)
             if (variable_struct_exists(_mm, "drain") && is_real(variable_struct_get(_mm, "drain"))){
                 var drain_v = real(variable_struct_get(_mm, "drain"));
+                // Use absolute damage magnitude: move implementations may pass negative deltas
+                var dmg_abs = 0;
+                if (is_real(_dmg)) dmg_abs = abs(_dmg);
                 // Healing (Absorb/Drain style)
-                if (is_real(_dmg) && _dmg > 0 && drain_v > 0){
+                if (dmg_abs > 0 && drain_v > 0){
                     var heal_amt = 0;
                     if (drain_v > 0 && drain_v <= 100){
-                        heal_amt = floor(_dmg * drain_v / 100);
+                        heal_amt = floor(dmg_abs * drain_v / 100);
                     } else {
                         // treat as absolute
                         heal_amt = floor(drain_v);
                     }
                     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
-                        try { show_debug_message("[battle][meta][heal] move="+string(_move_id)+", dmg="+string(_dmg)+", drain_v="+string(drain_v)+", heal_amt="+string(heal_amt)+", A_before="+string(A_before)+", A_max="+string(A_max)); } catch (e_dbg) {}
+                        try { show_debug_message("[battle][meta][heal] move="+string(_move_id)+", dmg_abs="+string(dmg_abs)+", drain_v="+string(drain_v)+", heal_amt="+string(heal_amt)+", A_before="+string(A_before)+", A_max="+string(A_max)); } catch (e_dbg) {}
                     }
                     if (heal_amt > 0){
                         var newhp = min(A_max, A_before + heal_amt);
@@ -345,10 +386,10 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                     }
                 }
                 // Recoil (negative drain values): user takes damage equal to percent/absolute
-                else if (is_real(_dmg) && _dmg > 0 && drain_v < 0){
+                else if (dmg_abs > 0 && drain_v < 0){
                     var abs_v = abs(drain_v);
                     var recoil_amt = 0;
-                    if (abs_v > 0 && abs_v <= 100) recoil_amt = floor(_dmg * abs_v / 100);
+                    if (abs_v > 0 && abs_v <= 100) recoil_amt = floor(dmg_abs * abs_v / 100);
                     else recoil_amt = floor(abs_v);
                     if (recoil_amt > 0){
                         // Try to determine attacker actor index for __battle_apply_damage
@@ -746,7 +787,9 @@ function battle_open(_a0, _a1){
 
     // Player actor from party
     var _P = party_ensure(_pid);
-    var _mons = _P.mons;
+    // Guard access to mons (some analyzers complain about undeclared symbols);
+    // ensure _mons is a valid array for subsequent loops.
+    var _mons = (is_struct(_P) && variable_struct_exists(_P, "mons") && is_array(_P.mons)) ? _P.mons : [];
     var _first = 0;
     for (var _i=0; _i<array_length(_mons); ++_i){
         var _m = _mons[_i];
@@ -1002,6 +1045,7 @@ function battle_update(_pid){
         }
         if (!is_undefined(__battle_check_play_cries)) __battle_check_play_cries(_pid);
         _B._dlg_active = true;
+    try { if (variable_global_exists("DIALOG_DEBUG") && global.DIALOG_DEBUG){ show_debug_message("[battle][dialog] detected open pid=" + string(_pid) + ", page_idx=" + string(page) + ", phase=" + string(_B.phase)); } } catch(e){}
         return;
     }
 
@@ -1010,6 +1054,7 @@ function battle_update(_pid){
         var now3 = current_time;
         _B._dlg_active = false;
         _B._dlg_page_last = -1;
+        try { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){ var _tq_len = (variable_struct_exists(_B, "turn_queue") && is_array(variable_struct_get(_B, "turn_queue")) ? string(array_length(variable_struct_get(_B, "turn_queue"))) : "<nil>"); show_debug_message("[battle][dialog] closed pid=" + string(_pid) + ", phase_before=" + string(_B.phase) + ", turn_i=" + string(_B.turn_i) + ", turn_queue_len=" + _tq_len); } } catch(e){}
         // Small input-grace window: suppress accidental buffered inputs that
         // occurred while the dialog was open (e.g. the same button that
         // advanced/closed the dialog). This prevents immediate re-selection
@@ -1152,6 +1197,57 @@ function battle_update(_pid){
                         var _outgoing = undefined;
                         try { if (is_struct(_B.actor[0])) _outgoing = _B.actor[0]; } catch (e_out) { _outgoing = undefined; }
                         _B.actor[0] = __battle_actor_from_party_mon(__pm_tmp);
+                        // If auto_apply is enabled, also update the canonical party ordering
+                        // so the party_model reflects the swap that visually occurred.
+                        try {
+                            if (auto_apply && !is_undefined(party_model_swap) && is_struct(_outgoing)){
+                                // Attempt to locate the outgoing mon's index in the party by matching
+                                // a stable identifier (prefer idno when available) or by reference.
+                                var _found_idx = undefined;
+                                try {
+                                    var _mons_arr = party_model_get_mons(_pid);
+                                    for (var _ii = 0; _ii < array_length(_mons_arr); ++_ii){
+                                        var _cand = _mons_arr[_ii];
+                                        if (!is_struct(_cand)) continue;
+                                        // Prefer exact struct reference match when possible by checking inner .mon when available
+                                        try {
+                                            var _out_mon_ref = undefined;
+                                            if (variable_struct_exists(_outgoing, "mon")) _out_mon_ref = variable_struct_get(_outgoing, "mon"); else _out_mon_ref = _outgoing;
+                                            if (is_struct(_out_mon_ref) && _cand == _out_mon_ref){ _found_idx = _ii; break; }
+                                        } catch (e_ref) { }
+                                        // Fallback: match by idno when present
+                                        try {
+                                            if (variable_struct_exists(_cand, "idno") && variable_struct_exists(_outgoing, "idno") && variable_struct_get(_cand, "idno") == variable_struct_get(_outgoing, "idno")) { _found_idx = _ii; break; }
+                                        } catch (ee){}
+                                        // Fallback: match by species_id + name
+                                        try {
+                                            if (variable_struct_exists(_cand, "species_id") && variable_struct_exists(_outgoing, "species_id") && variable_struct_get(_cand, "species_id") == variable_struct_get(_outgoing, "species_id")){
+                                                if (variable_struct_exists(_cand, "name") && variable_struct_exists(_outgoing, "name") && string(variable_struct_get(_cand, "name")) == string(variable_struct_get(_outgoing, "name"))){ _found_idx = _ii; break; }
+                                            }
+                                        } catch (ee2){}
+                                    }
+                                } catch (e_find) { _found_idx = undefined; }
+                                if (is_real(_found_idx) && _found_idx >= 0 && _found_idx < array_length(P.mons) && _found_idx != idx){
+                                    // Perform canonical swap and emit a debug trace so callers can observe the change
+                                    try {
+                                        party_model_swap(_pid, _found_idx, idx);
+                                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][switch_in][applied_swap] pid=" + string(_pid) + ", src=" + string(_found_idx) + ", dst=" + string(idx));
+                                    } catch (e_swap_apply){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][switch_in] party_model_swap failed: " + string(e_swap_apply)); }
+                                }
+                            }
+                        } catch (e_swap_safe) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][switch_in] swap-safe check failed: " + string(e_swap_safe)); }
+                        // Do not mutate the canonical party ordering here. Instead,
+                        // update the party selection so UI panels opened after the
+                        // switch will focus the active Pokémon.
+                        try {
+                            var _P_up = party_ensure(_pid);
+                            if (is_struct(_P_up) && is_real(idx)){
+                                _P_up.sel = clamp(idx, 0, max(0, array_length(_P_up.mons) - 1));
+                                // ensure scroll shows the selected slot
+                                var _rows_local = 6;
+                                _P_up.scroll = clamp(_P_up.sel, 0, max(0, array_length(_P_up.mons) - _rows_local));
+                            }
+                        } catch (e_sel) { /* non-fatal */ }
                         // If outgoing had a trap status, clear it (also try clearing inner .mon)
                         try {
                             if (!is_undefined(status_system_clear_status) && is_struct(_outgoing)){
@@ -1359,7 +1455,29 @@ function __battle_process_input(_pid){
                 if (!is_undefined(bag_open_for_battle)) bag_open_for_battle(_pid);
             }
             else if (idx == 2){
-                __battle_stub_dialog(_pid, "You checked your party.\n(TODO: switch Pokémon)");
+                // Open the party UI while in battle so player can view/swaps.
+                // party_open will set up the party state. party_input/party_draw
+                // already include guards to prevent move edits while in battle.
+                try {
+                    if (!is_undefined(party_open)){
+                        party_open(_pid);
+                        // Mark party as opened from battle so party_input can enable submenu navigation
+                        try {
+                            if (!is_undefined(party_ensure)){
+                                var __Ptmp = party_ensure(_pid);
+                                if (is_struct(__Ptmp)){
+                                    variable_struct_set(__Ptmp, "in_battle_view", true);
+                                    // Lower the lock so the player can immediately navigate the submenu
+                                    variable_struct_set(__Ptmp, "lock", 0);
+                                }
+                            }
+                        } catch (e_tmp){}
+                    } else {
+                        __battle_stub_dialog(_pid, "You checked your party.\n(TODO: switch Pokémon)");
+                    }
+                } catch (e_party) {
+                    __battle_stub_dialog(_pid, "You examined your party.");
+                }
             }
             else if (idx == 3){
                 __battle_try_escape(_pid);
@@ -1508,6 +1626,29 @@ function __battle_build_turn_actions(_pid){
             }
         }
     } catch (e_immed) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][build_actions] immediate-effect apply failed: " + string(e_immed)); }
+
+    // DEVDEBUG: log the built action queue for this turn (pid + concise per-action info)
+    try {
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+            var __dbg_actions = "[battle][build_turn_actions] pid=" + string(_pid) + ", actions_len=" + string(array_length(actions)) + ", entries=[";
+            for (var __ai=0; __ai < array_length(actions); __ai++){
+                var __act = actions[__ai];
+                var __part = "nil";
+                try {
+                    if (is_struct(__act)){
+                        var __aidx = (variable_struct_exists(__act, "actor_index") ? string(variable_struct_get(__act, "actor_index")) : "?");
+                        var __tidx = (variable_struct_exists(__act, "target_index") ? string(variable_struct_get(__act, "target_index")) : "?");
+                        var __mid = (variable_struct_exists(__act, "move_id") ? string(variable_struct_get(__act, "move_id")) : "");
+                        var __iu = (variable_struct_exists(__act, "item_use") && variable_struct_get(__act, "item_use") == true) ? "item" : "move";
+                        __part = "actor=" + __aidx + ",target=" + __tidx + ",type=" + __iu + (string_length(__mid)>0 ? ",move=" + __mid : "");
+                    }
+                } catch (e_dbg_act) { __part = "err"; }
+                __dbg_actions += __part + ( (__ai < array_length(actions)-1) ? "," : "" );
+            }
+            __dbg_actions += "]";
+            show_debug_message(__dbg_actions);
+        }
+    } catch (e_dbg) {}
 
     return actions;
 }
@@ -2291,6 +2432,7 @@ function battle_switch_to(_pid, _party_idx, _opts){
     _B.phase_progress = 0;
     _B._cry_played_player = false;
     _B._cry_queued_from_switch = true;
+    try { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){ show_debug_message("[battle][switch_to] pid=" + string(_pid) + ", party_idx=" + string(_party_idx) + ", opts=" + string(_opts)); } } catch(e){}
     return true;
 }
 
@@ -2820,6 +2962,64 @@ function __battle_trigger_hit_effect(_pid, _ent, _before, _after, _mult){
         } catch (e_l) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][lerp] trigger failed: " + string(e_l)); }
     } catch (e) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][trigger] failed: " + string(e)); }
 }
+// Backwards-compatible shim: apply a requested HP delta that callers expect
+// to be handled via a "lerped" helper. Some move implementations call
+// __battle_apply_damage_lerped(_pid, target, delta) or the impl registry name
+// __battle_apply_damage_lerped_impl. Provide a safe implementation here that
+// forwards to the canonical __battle_apply_damage path and starts the hit
+// lerp/FX. Returns an array [delta, before, after] to match older stubbed
+// return shapes used by the moves layer.
+function __battle_apply_damage_lerped(_pid, _ent, _delta){
+    try {
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][lerped_shim] called pid=" + string(_pid) + ", ent=" + string(_ent) + ", delta=" + string(_delta));
+        var _B = __battle_ensure_slot(_pid);
+        var before = __battle_hp_now(_ent);
+
+        // Resolve target index in the battle slot if possible
+        var tidx = undefined;
+        try {
+            if (is_struct(_B) && variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor"))){
+                var _acts = variable_struct_get(_B, "actor");
+                for (var _ii = 0; _ii < array_length(_acts); ++_ii){
+                    var _a = _acts[_ii];
+                    if (is_struct(_a) && _a == _ent){ tidx = _ii; break; }
+                    try { if (is_struct(_a) && variable_struct_exists(_a, "mon") && variable_struct_get(_a, "mon") == _ent){ tidx = _ii; break; } } catch (e) {}
+                }
+            }
+        } catch (e_idx) { tidx = undefined; }
+
+        // _delta semantics: moves layer often passes negative values for damage
+        var applied = 0;
+        if (is_real(_delta) && _delta < 0){
+            var dmg = max(0, floor(abs(_delta)));
+            if (is_real(tidx)) __battle_apply_damage(_pid, tidx, dmg, 1.0);
+            else __battle_set_hp_now(_ent, max(0, before - dmg));
+            applied = -dmg;
+        } else {
+            // positive delta -> heal
+            var heal = (is_real(_delta) ? floor(_delta) : 0);
+            var newv = max(0, floor(before + heal));
+            __battle_set_hp_now(_ent, newv);
+            applied = heal;
+        }
+
+    var after = __battle_hp_now(_ent);
+    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][lerped_shim] applied=" + string(applied) + ", before=" + string(before) + ", after=" + string(after));
+        // Trigger the usual visual lerp/sfx
+        try { __battle_trigger_hit_effect(_pid, _ent, before, after, 1.0); } catch (e_fx) {}
+        return [applied, before, after];
+    } catch (e_all){
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][lerped_shim] failed: " + string(e_all));
+        return [_delta, 0, 0];
+    }
+}
+// Ensure the lerped shim is available via the impl registry so move code
+// that prefers `_battle_impls.__battle_apply_damage_lerped` will find it.
+try {
+    if (!variable_global_exists("_battle_impls") || !is_struct(variable_global_get("_battle_impls"))) variable_global_set("_battle_impls", {});
+    var __regtmp = variable_global_get("_battle_impls");
+    try { variable_struct_set(__regtmp, "__battle_apply_damage_lerped", __battle_apply_damage_lerped); } catch (e_r) {}
+} catch (e_reg_l) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][reg][lerped] failed: " + string(e_reg_l)); }
 function __battle_set_hp_now(_ent, _val){
     // Prefer registry impl if available
     try {

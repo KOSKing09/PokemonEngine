@@ -117,11 +117,11 @@ function dialog2p_open_text(_pid, _text){
         for (var _ni=0; _ni<array_length(d.all_lines); ++_ni) _new_full += string(d.all_lines[_ni]) + "\n";
         _new_full = string_trim(_new_full);
         if (_new_full != _prev_text){
-            show_debug_message("[dialog][debug] opened pid=" + string(_pid) + ", preview='" + _new_preview + "'");
+            try { if (variable_global_exists("DIALOG_DEBUG") && global.DIALOG_DEBUG) show_debug_message("[dialog][debug] opened pid=" + string(_pid) + ", preview='" + _new_preview + "'"); } catch (e){}
             // Dump session internals to help trace why dialogs might not render
             try {
                 var _dbg = "[dialog][debug] sess open=" + string(d.open) + ", pages=" + string(array_length(d.all_lines)) + ", page_idx=" + string(d.page_idx) + ", char_idx=" + string(d.char_idx);
-                show_debug_message(_dbg);
+                try { if (variable_global_exists("DIALOG_DEBUG") && global.DIALOG_DEBUG) show_debug_message(_dbg); } catch (e_dbg) { /* ignore */ }
             } catch (e_dbg) { /* ignore */ }
         }
     }
@@ -155,6 +155,8 @@ function dialog2p_update(_pid){
 
     var advance = controls_pressed(_pid,"Interact") || controls_pressed(_pid,"Inventory");
     var cancel  = controls_pressed(_pid,"Run") || controls_pressed(_pid,"Pause");
+    // DEVDEBUG: log input state for dialog advancement
+    try { if (variable_global_exists("DIALOG_DEBUG") && global.DIALOG_DEBUG){ var _ogr = (variable_struct_exists(d, "_open_grace_until") ? string(variable_struct_get(d, "_open_grace_until")) : "<nil>"); show_debug_message("[dialog][update] pid=" + string(_pid) + ", page_idx=" + string(d.page_idx) + ", char_idx=" + string(d.char_idx) + ", advance=" + string(advance) + ", cancel=" + string(cancel) + ", open_grace_until=" + _ogr); } } catch(e){}
     // respect a small input grace period set at open to avoid immediately
     // consuming the same 'Interact' press that opened the dialog (e.g. from
     // party selection). If present, suppress advance until the grace expires.
@@ -185,6 +187,8 @@ function dialog2p_update(_pid){
                 d.char_idx = 0;
                 d.tick = 0;
             } else {
+                // DEVDEBUG: log that dialog is closing and why
+                try { if (variable_global_exists("DIALOG_DEBUG") && global.DIALOG_DEBUG){ show_debug_message("[dialog][update] pid=" + string(_pid) + ", closing page_idx=" + string(d.page_idx) + ", advance=" + string(advance) + ", cancel=" + string(cancel)); } } catch(e){}
                 d.open = false;
             }
         }
