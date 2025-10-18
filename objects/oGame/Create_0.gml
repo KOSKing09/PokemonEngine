@@ -159,18 +159,3 @@ wc_bind_layers(["WALL", "BLOCKS"]);
 wc_set_solids([noone]); // add object ids here if you have solid instances
 
 show_debug_message(global._move_meta[79]);
-
-
-show_debug_message(global._move_meta[79]);
-// Safe check: avoid direct indexing into global._move_meta here (struct vs array issues).
-if (variable_global_exists("_move_meta") && !is_undefined(global._move_meta)) {
-    show_debug_message("[moves_dbg] _move_meta loaded (rows mapped)");
- } else {
-    show_debug_message("[moves_dbg] _move_meta not present; skipping debug probe");
-}
-
-// Run the moves implementation report only when explicitly enabled to avoid
-// accidental compile-time or runtime noise.
-if (variable_global_exists("DEV_REPORT_MOVES") && global.DEV_REPORT_MOVES){
-    try { dev_moves_impl_report(); } catch (e) { show_debug_message("[dev] dev_moves_impl_report failed: " + string(e)); }
-}
