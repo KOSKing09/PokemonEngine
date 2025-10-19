@@ -63,6 +63,9 @@ function party_open(_pid){
     _P.sum_move_sel = 0;
     _P.sum_learn_sel= 0;
     _P.lock         = 4;
+    // Ensure the battle-swap marker is false by default; callers (battle) may set it.
+    if (!variable_struct_exists(_P, "_battle_swap_mode")) variable_struct_set(_P, "_battle_swap_mode", false);
+    if (!variable_struct_exists(_P, "_battle_swap_mode_forced")) variable_struct_set(_P, "_battle_swap_mode_forced", false);
 }
 function party_close(_pid){
     if (!variable_global_exists("PARTY")) return;
@@ -71,6 +74,9 @@ function party_close(_pid){
     var _P = global.PARTY[_pid];
     if (!is_struct(_P)) return;
     _P.open = false;
+    // Clear battle swap marker when closing so next open is normal
+    try { if (variable_struct_exists(_P, "_battle_swap_mode")) variable_struct_set(_P, "_battle_swap_mode", false); } catch (e) {}
+    try { if (variable_struct_exists(_P, "_battle_swap_mode_forced")) variable_struct_set(_P, "_battle_swap_mode_forced", false); } catch (e) {}
 }
 function party_toggle(_pid){
     if (!variable_global_exists("PARTY")) return;

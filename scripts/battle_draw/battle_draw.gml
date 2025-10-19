@@ -496,6 +496,8 @@ function __battle_draw_player(_pid, _B, mx, my, tx, ty){
                     var Pset = party_ensure(_pid);
                     if (is_array(Pset.mons) && idx >= 0 && idx < array_length(Pset.mons)){
                         _B.actor[0] = __battle_actor_from_party_mon(Pset.mons[idx]);
+                        // Ensure actor_index exists for the incoming actor
+                        try { if (is_struct(_B.actor[0])) variable_struct_set(_B.actor[0], "actor_index", 0); } catch (e_ai_draw) {}
                     }
                 }
                 _B._switch_target_idx = undefined;

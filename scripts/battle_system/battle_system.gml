@@ -1386,6 +1386,8 @@ function battle_open(_a0, _a1){
 
     _B.actor = [];
     _B.actor[0] = __battle_actor_from_party_mon(_pm);
+    // Ensure actor_index is set for accurate debug/logging and lookups
+    try { if (is_struct(_B.actor[0])) variable_struct_set(_B.actor[0], "actor_index", 0); } catch (e_ai0) {}
     // Ensure any leftover history is cleared for this actor slot
     try { if (is_struct(_B.actor[0])) variable_struct_set(_B.actor[0], "_last_moves", []); } catch (e_hc_open) {}
     // Debug: log moves on open to diagnose stale copies
@@ -1402,6 +1404,7 @@ function battle_open(_a0, _a1){
     // Wild actor (1..901 only)
     var _sp = irandom_range(1, 901);
     _B.actor[1] = __battle_actor_from_species_level(_sp, _wildLevel);
+    try { if (is_struct(_B.actor[1])) variable_struct_set(_B.actor[1], "actor_index", 1); } catch (e_ai1) {}
 
     _B.caller = _caller;
     if (_B.caller != noone && instance_exists(_B.caller) && variable_instance_exists(_B.caller, "battleAnim")){
@@ -1765,7 +1768,17 @@ function battle_update(_pid){
             var elapsed4 = now4 - start;
             _B.phase_progress = max(0, min(1, elapsed4 / max(1,dur4)));
             if (!is_undefined(__battle_check_play_cries)) __battle_check_play_cries(_pid);
-            if (elapsed4 >= dur4){ _B.phase = "command"; _B._intro_completed = true; } else return;
+            if (elapsed4 >= dur4){
+                // If a switch was requested, enter switch_in now instead of returning to command
+                if (variable_struct_exists(_B, "_pending_switch_after_intro") && _B._pending_switch_after_intro){
+                    _B._pending_switch_after_intro = false;
+                    _B.phase = "switch_in";
+                    _B.phase_start_ms = now4;
+                    _B.phase_progress = 0;
+                } else {
+                    _B.phase = "command"; _B._intro_completed = true;
+                }
+            } else return;
         } else if (stage == "switch_in"){
             var dur5 = (_B.phase_durs.switch_in || 400);
             var elapsed5 = now4 - start;
@@ -1786,6 +1799,8 @@ function battle_update(_pid){
                         try { if (is_struct(_B.actor[0])) _outgoing = _B.actor[0]; } catch (e_out) { _outgoing = undefined; }
                         _B.actor[0] = __battle_actor_from_party_mon(__pm_tmp);
                         try { if (is_struct(_B.actor[0])) variable_struct_set(_B.actor[0], "_last_moves", []); } catch (e_hc_switch) {}
+                        // Ensure actor_index is set so debug logs and targeting can find the correct slot
+                        try { if (is_struct(_B.actor[0])) variable_struct_set(_B.actor[0], "actor_index", 0); } catch (e_ai_sw) {}
                         // If outgoing had a trap status, clear it (also try clearing inner .mon)
                         try {
                             if (!is_undefined(status_system_clear_status) && is_struct(_outgoing)){
@@ -1810,7 +1825,23 @@ function battle_update(_pid){
                 _B._switch_applied = true;
             }
             if (!is_undefined(__battle_check_play_cries)) __battle_check_play_cries(_pid);
-            if (elapsed5 >= dur5){ _B.phase = "command"; } else return;
+            if (elapsed5 >= dur5){
+                // Switch-in completed. Decide whether this swap consumed the player's action.
+                var opts_local = (variable_struct_exists(_B, "_switch_opts") ? _B._switch_opts : {});
+                var consume_turn = true;
+                try { if (variable_struct_exists(opts_local, "consume_turn")) consume_turn = variable_struct_get(opts_local, "consume_turn"); } catch (e_ct) { consume_turn = true; }
+                if (consume_turn){
+                    // Treat the swap as the player's action: queue an enemy response.
+                    _B.turn_action_player = undefined;
+                    _B.turn_action_enemy = __battle_enemy_choose_action(_pid);
+                    _B.turn_queue = __battle_build_turn_actions(_pid);
+                    _B.turn_i = 0;
+                    _B.phase = "turn";
+                } else {
+                    // Forced swap: return to command so the player can choose an action.
+                    _B.phase = "command";
+                }
+            } else return;
         }
         if (!is_undefined(__battle_check_play_cries)) __battle_check_play_cries(_pid);
     }
@@ -1974,26 +2005,30 @@ function __battle_process_input(_pid){
 
     if (_a){
         if (menu == "root"){
+            // Save the current root selection so we can restore it when returning
+            if (is_struct(_B.sys_ui)){
+                variable_struct_set(_B.sys_ui, "_prev_root_selX", _B.sys_ui.selX);
+                variable_struct_set(_B.sys_ui, "_prev_root_selY", _B.sys_ui.selY);
+            }
             if (idx == 0){
-                // Save the current root selection so we can restore it when returning
-                if (is_struct(_B.sys_ui)){
-                    variable_struct_set(_B.sys_ui, "_prev_root_selX", _B.sys_ui.selX);
-                    variable_struct_set(_B.sys_ui, "_prev_root_selY", _B.sys_ui.selY);
-                }
+                // Enter Fight submenu
                 _B.sys_ui.menu = "fight";
                 _B.sys_ui.selX = 0; _B.sys_ui.selY = 0;
             }
             else if (idx == 1){
-                // Open the bag UI in battle mode so player can Use/Give/Discard items
-                // Save root selection before opening bag so it can be restored on return
-                if (is_struct(_B.sys_ui)){
-                    variable_struct_set(_B.sys_ui, "_prev_root_selX", _B.sys_ui.selX);
-                    variable_struct_set(_B.sys_ui, "_prev_root_selY", _B.sys_ui.selY);
-                }
+                // Open the bag UI for battle if available
                 if (!is_undefined(bag_open_for_battle)) bag_open_for_battle(_pid);
+                else __battle_stub_dialog(_pid, "You checked your bag.\n(TODO: bag in battle)");
             }
             else if (idx == 2){
-                __battle_stub_dialog(_pid, "You checked your party.\n(TODO: switch Pokémon)");
+                // Open the party UI in battle context so the player can choose a Pokémon to swap in.
+                if (is_undefined(party_open) || is_undefined(party_ensure)){
+                    __battle_stub_dialog(_pid, "You checked your party.\n(TODO: switch Pok\u00e9mon)");
+                } else {
+                    party_open(_pid);
+                    var _Ptmp = party_ensure(_pid);
+                    try { if (is_struct(_Ptmp)) variable_struct_set(_Ptmp, "_battle_swap_mode", true); } catch (e_bt) {}
+                }
             }
             else if (idx == 3){
                 __battle_try_escape(_pid);
@@ -2638,7 +2673,16 @@ if (is_struct(A1) && variable_struct_exists(A1, "hp_now") && variable_struct_get
             var idxNext = __party_find_next_alive(_pid);
             if (idxNext >= 0){
                 var _name0 = (variable_struct_exists(A0, "name") ? variable_struct_get(A0, "name") : "Pokémon");
-                __battle_stub_dialog(_pid, string(_name0) + " fainted!\n(TODO) Switch to another Pokémon.");
+                // Open the party in forced-swap mode so the player may choose a replacement.
+                // Forced swaps should NOT consume the player's action (enemy does not immediately act).
+                if (!is_undefined(party_open) && !is_undefined(party_ensure)){
+                    party_open(_pid);
+                    var _Ptmp = party_ensure(_pid);
+                    try { if (is_struct(_Ptmp)) { variable_struct_set(_Ptmp, "_battle_swap_mode", true); variable_struct_set(_Ptmp, "_battle_swap_mode_forced", true); } } catch (e_bt) {}
+                } else {
+                    // Fallback: show a simple dialog if party UI isn't available
+                    __battle_stub_dialog(_pid, string(_name0) + " fainted!\n(TODO) Switch to another Pokémon.");
+                }
                 // You can call battle_switch_to here automatically if desired:
                 // battle_switch_to(_pid, idxNext, {});
             } else {
@@ -3173,11 +3217,31 @@ function battle_switch_to(_pid, _party_idx, _opts){
     if (is_undefined(_opts)) _opts = {};
     _B._switch_target_idx = _party_idx;
     _B._switch_opts = _opts;
-    _B.phase = "switch_in";
+    // Start an intro sequence so trainer/pokemon "Go" animation and dialog can play.
+    // After intro_player completes we'll transition into switch_in where the actual swap occurs.
+    _B.phase = "intro_call";
     _B.phase_start_ms = current_time;
     _B.phase_progress = 0;
+    // Prepare for a fresh switch: mark not yet applied so switch_in visuals can apply it mid-animation
+    _B._switch_applied = false;
     _B._cry_played_player = false;
     _B._cry_queued_from_switch = true;
+    // Mark that we want to enter switch_in immediately after the intro sequence completes
+    variable_struct_set(_B, "_pending_switch_after_intro", true);
+    // Ensure we have a battleAnim to render trainer/pokémon intro during switch
+    if (variable_global_exists("battleAnim") && sprite_exists(variable_global_get("battleAnim"))){
+        _B.caller_battleAnim = variable_global_get("battleAnim");
+    }
+    // Optionally open a dialog now (dialog system will be handled during intro phases).
+    try {
+        var _Ptmp = party_ensure(_pid);
+        var _incoming = undefined;
+        if (is_struct(_Ptmp) && variable_struct_exists(_Ptmp, "mons") && is_array(_Ptmp.mons) && _party_idx >= 0 && _party_idx < array_length(_Ptmp.mons)) _incoming = _Ptmp.mons[_party_idx];
+        var incoming_name = "Pok\u00e9mon";
+        if (is_struct(_incoming) && variable_struct_exists(_incoming, "name")) incoming_name = string(variable_struct_get(_incoming, "name"));
+        var dlg_text = "Go. " + incoming_name + "!";
+        if (!is_undefined(dialog2p_open_text)) { dialog2p_open_text(_pid, dlg_text); _B._dlg_active = true; }
+    } catch (e_sw) {}
     return true;
 }
 

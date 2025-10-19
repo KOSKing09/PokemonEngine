@@ -148,9 +148,31 @@ function __party_impl_party_update(){
                             var __pre_dst_moves = (is_struct(__pre_dst) && variable_struct_exists(__pre_dst, "moves")) ? variable_struct_get(__pre_dst, "moves") : "[]";
                             show_debug_message("[party][swap_before] pid=" + string(_pid) + ", src=" + string(_src) + ", dst=" + string(_dst) + ", src_moves=" + string(__pre_src_moves) + ", dst_moves=" + string(__pre_dst_moves));
                         }
-                        party_model_swap(_pid, _src, _dst);
-                        // Mirror any potential model changes
-                        _P.sel = _dst;
+                        // If we were opened from a battle for a swap, trigger battle_switch_to
+                        var _Ptmp = party_ensure(_pid);
+                        var _inBattleSwap = (is_struct(_Ptmp) && variable_struct_exists(_Ptmp, "_battle_swap_mode") && variable_struct_get(_Ptmp, "_battle_swap_mode") && !is_undefined(battle_is_open) && battle_is_open(_pid));
+                        if (_inBattleSwap && !is_undefined(battle_switch_to)){
+                            // Determine whether this swap was opened due to a faint (forced)
+                            var _forced = (is_struct(_Ptmp) && variable_struct_exists(_Ptmp, "_battle_swap_mode_forced") && variable_struct_get(_Ptmp, "_battle_swap_mode_forced") == true);
+                            // For forced swaps (replacement after faint) the player's turn should NOT be consumed.
+                            var _consume = !_forced;
+                            // First update the party model ordering so the battle reads the incoming mon from the updated model
+                            party_model_swap(_pid, _src, _dst);
+                            // Use battle API to animate switch_in and set the party index on the battle slot
+                            var ok = battle_switch_to(_pid, _dst, { auto_apply:true, consume_turn:_consume, forced:_forced });
+                            // Close the party UI (battle will manage intro & dialog)
+                            if (!is_undefined(party_close)) party_close(_pid);
+                            // Give the battle a small input-grace so the switch animation/dialog isn't interrupted
+                            try {
+                                var _Btmpg = __battle_ensure_slot(_pid);
+                                if (is_struct(_Btmpg)) variable_struct_set(_Btmpg, "_input_grace_until", current_time + 220);
+                            } catch (e_ig) {}
+                        } else {
+                            // Local party swap outside of battle
+                            party_model_swap(_pid, _src, _dst);
+                            // Mirror any potential model changes
+                            _P.sel = _dst;
+                        }
                         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
                             var __post_src = (is_array(_P.mons) && _src >= 0 && _src < array_length(_P.mons)) ? _P.mons[_src] : undefined;
                             var __post_dst = (is_array(_P.mons) && _dst >= 0 && _dst < array_length(_P.mons)) ? _P.mons[_dst] : undefined;

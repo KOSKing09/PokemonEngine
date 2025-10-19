@@ -234,7 +234,13 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
 
         draw_set_color(c_white);
 
-        var _items = ["Summary","Switch","Item","Cancel"];
+        // When party was opened from a battle for swapping, change "Switch" -> "Swap In"
+        var _swap_label = "Switch";
+        try {
+            var _tmpP = party_ensure(_pid);
+            if (is_struct(_tmpP) && variable_struct_exists(_tmpP, "_battle_swap_mode") && variable_struct_get(_tmpP, "_battle_swap_mode") && !is_undefined(battle_is_open) && battle_is_open(_pid)) _swap_label = "Swap In";
+        } catch (e_lbl) { /* ignore */ }
+        var _items = ["Summary", _swap_label, "Item", "Cancel"];
         var _m_h   = max(12, string_height("A") + 2);
         for (var _i = 0; _i < 4; _i++){
             var _yy_menu = _by1 + (6 + _i*_m_h);
