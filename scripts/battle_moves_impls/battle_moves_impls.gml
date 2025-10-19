@@ -32,6 +32,30 @@ function __battle_perform_action_impl(_pid, _step){
     var move_slot = (variable_struct_exists(_step, "slot") ? variable_struct_get(_step, "slot") : undefined);
     var move_id   = (variable_struct_exists(_step, "move_id") ? variable_struct_get(_step, "move_id") : undefined);
 
+    // Record per-target last-move for Copycat's reference. Some move impls
+    // bypass __battle_apply_move; we therefore record here centrally so
+    // Copycat can find moves regardless of which low-level path was used.
+    try {
+        var _suppress = false;
+        try { if (is_struct(A) && variable_struct_exists(A, "_suppress_last_move_record") && variable_struct_get(A, "_suppress_last_move_record") == true) _suppress = true; } catch (e_sp) { _suppress = false; }
+        // Only record when we have an attacker and defender, move_id is real,
+        // it's not a Copycat meta-move, and suppression isn't active.
+        if (!_suppress && is_struct(A) && is_struct(D) && is_real(move_id)){
+            var skip_rec = false;
+            try { if (is_array(global._moves) && is_struct(global._moves[move_id]) && variable_struct_exists(global._moves[move_id], "identifier") && string_lower(variable_struct_get(global._moves[move_id], "identifier")) == "copycat") skip_rec = true; } catch (e_sr) { skip_rec = false; }
+            if (!skip_rec){
+                try {
+                    if (!variable_struct_exists(D, "_last_moves") || !is_array(variable_struct_get(D, "_last_moves"))) variable_struct_set(D, "_last_moves", []);
+                    var _arr = variable_struct_get(D, "_last_moves");
+                    array_push(_arr, { move: move_id, src: A, ts: current_time });
+                    if (array_length(_arr) > 8){ var _start = array_length(_arr) - 8; var _new = []; for (var _k=_start; _k < array_length(_arr); ++_k) array_push(_new, _arr[_k]); _arr = _new; }
+                    variable_struct_set(D, "_last_moves", _arr);
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][record_last_move][impl] target=" + string(variable_struct_exists(D, "name") ? variable_struct_get(D, "name") : "?") + " move=" + string(move_id) + " src=" + string(variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "?") + " ts=" + string(current_time));
+                } catch (e_r) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][record_last_move][impl] failed: " + string(e_r)); }
+            }
+        }
+    } catch (e_allrec) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][record_last_move][impl] outer error: " + string(e_allrec)); }
+
     // minimal status check to avoid crashes during refactor
     try {
         if (!is_undefined(status_system_has_status) && is_struct(A) && status_system_has_status(A, "sleep")){

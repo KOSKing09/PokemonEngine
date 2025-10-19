@@ -758,6 +758,8 @@ function battle_open(_a0, _a1){
 
     _B.actor = [];
     _B.actor[0] = __battle_actor_from_party_mon(_pm);
+    // Ensure any leftover history is cleared for this actor slot
+    try { if (is_struct(_B.actor[0])) variable_struct_set(_B.actor[0], "_last_moves", []); } catch (e_hc_open) {}
     // Debug: log moves on open to diagnose stale copies
     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
         try {
@@ -840,6 +842,9 @@ function battle_close(_pid){
         }
     } catch (e3) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to call sound_stop: " + string(e3)); }
     _B.sys_open = false;
+
+    // Clear global last-move so Copycat cannot use a move from a previous battle
+    try { if (variable_global_exists("lastMoveUsed_ID")) global.lastMoveUsed_ID = -1; } catch (e_lm) {}
 
     // Clear any temporary in-battle stat stages to ensure they don't persist
     try {
@@ -1152,6 +1157,7 @@ function battle_update(_pid){
                         var _outgoing = undefined;
                         try { if (is_struct(_B.actor[0])) _outgoing = _B.actor[0]; } catch (e_out) { _outgoing = undefined; }
                         _B.actor[0] = __battle_actor_from_party_mon(__pm_tmp);
+                        try { if (is_struct(_B.actor[0])) variable_struct_set(_B.actor[0], "_last_moves", []); } catch (e_hc_switch) {}
                         // If outgoing had a trap status, clear it (also try clearing inner .mon)
                         try {
                             if (!is_undefined(status_system_clear_status) && is_struct(_outgoing)){
@@ -1369,6 +1375,13 @@ function __battle_process_input(_pid){
             var move_idx = idx;
             var A = _B.actor[0];
             var mv = A.moves[move_idx];
+// [Copycat Fix — use global._moves from CSV]
+if (is_array(global._moves) && is_struct(global._moves[mv]) && global._moves[mv].identifier == "copycat") {
+    // If a global last move exists, show it in the preview so UI matches runtime Copycat behavior
+    if (variable_global_exists("lastMoveUsed_ID") && !is_undefined(global.lastMoveUsed_ID) && is_real(global.lastMoveUsed_ID) && global.lastMoveUsed_ID >= 0 && global.lastMoveUsed_ID != mv){
+        mv = global.lastMoveUsed_ID;
+    }
+}
             var pp = A.pps[move_idx];
 
             // Debug: log chosen move vs actor's stored move for this slot
@@ -1481,29 +1494,24 @@ function __battle_build_turn_actions(_pid){
                 if (!is_real(mid)) continue;
                 var mmq = undefined;
                 try { mmq = __battle_get_move_meta(mid); } catch (e_mmq) { mmq = undefined; }
-                if (is_struct(mmq) && variable_struct_exists(mmq, "protect") && variable_struct_get(mmq, "protect") == true){
-                    // set on canonical battle actor (if exists) so checks during resolution see it
-                    if (variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor"))){
-                        var actorArr = variable_struct_get(_B, "actor");
-                        var aidx = (variable_struct_exists(act, "actor_index") ? variable_struct_get(act, "actor_index") : undefined);
-                        if (is_real(aidx) && aidx >= 0 && aidx < array_length(actorArr)){
-                            var actRef = actorArr[aidx];
-                            if (is_struct(actRef)){
-                                variable_struct_set(actRef, "_protected", true);
-                                // track whether we've shown the 'protected itself' announcement yet
-                                variable_struct_set(actRef, "_protected_announce_shown", false);
-                                // DEVDEBUG: log identity when Protect is set so we can trace failures
-                                try {
-                                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
-                                        var _aname_dbg = "unknown";
-                                        if (variable_struct_exists(actRef, "name")) _aname_dbg = variable_struct_get(actRef, "name");
-                                        else if (variable_struct_exists(actRef, "mon") && is_struct(variable_struct_get(actRef, "mon")) && variable_struct_exists(variable_struct_get(actRef, "mon"), "name")) _aname_dbg = variable_struct_get(variable_struct_get(actRef, "mon"), "name");
-                                        show_debug_message("[battle][protect][set] actor_index=" + string(aidx) + " move_id=" + string(mid) + " name=" + string(_aname_dbg));
-                                    }
-                                } catch (e_dbg) {}
-                            }
-                        }
-                    }
+                if (!(is_struct(mmq) && variable_struct_exists(mmq, "protect") && variable_struct_get(mmq, "protect") == true)) continue;
+
+                // Resolve actor ref safely (actor_index or slot) and set protection flags
+                var aidx = undefined;
+                try { if (variable_struct_exists(act, "actor_index") && is_real(variable_struct_get(act, "actor_index"))) aidx = variable_struct_get(act, "actor_index"); } catch (e_ai) { aidx = undefined; }
+                try { if (!is_real(aidx) && variable_struct_exists(act, "slot") && is_real(variable_struct_get(act, "slot"))) aidx = variable_struct_get(act, "slot"); } catch (e_ai2) { /* ignore */ }
+                var actRef = undefined;
+                try { if (variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor"))){ var _arr = variable_struct_get(_B, "actor"); if (is_real(aidx) && aidx >= 0 && aidx < array_length(_arr)) actRef = _arr[aidx]; } } catch (e_ar) { actRef = undefined; }
+                if (!is_struct(actRef)) continue;
+                try { variable_struct_set(actRef, "_protected", true); } catch (e_ps) {}
+                try { variable_struct_set(actRef, "_protected_announce_shown", false); } catch (e_pa) {}
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                    try {
+                        var _aname_dbg = "unknown";
+                        if (variable_struct_exists(actRef, "name")) _aname_dbg = variable_struct_get(actRef, "name");
+                        else if (variable_struct_exists(actRef, "mon") && is_struct(variable_struct_get(actRef, "mon")) && variable_struct_exists(variable_struct_get(actRef, "mon"), "name")) _aname_dbg = variable_struct_get(variable_struct_get(actRef, "mon"), "name");
+                        show_debug_message("[battle][protect][set] actor_index=" + string(aidx) + " move_id=" + string(mid) + " name=" + string(_aname_dbg));
+                    } catch (e_dbg2) {}
                 }
             }
         }
@@ -2381,7 +2389,11 @@ function __battle_actor_from_party_mon(_M){
             A.species = A.species_id;
         }
 
-        return A;
+    // Give actor a persistent UID for identification across lookups
+    try { if (!variable_struct_exists(A, "_uid") || !is_real(A._uid)) { if (!variable_global_exists("_B_actor_uid_counter")) global._B_actor_uid_counter = 1; A._uid = global._B_actor_uid_counter; global._B_actor_uid_counter += 1; } } catch (e_uid) {}
+    // Clear any residual copycat history on this actor when created
+    try { variable_struct_set(A, "_last_moves", []); } catch (e_cl) {}
+    return A;
     }
 
     // No party mon provided: return a minimal actor struct (same shape as before)

@@ -210,6 +210,87 @@ function __bui_end_impl(_pid){
     try { if (is_struct(_B)) variable_struct_set(_B, "_ui", undefined); } catch (e_ui2) {}
 }
 
+// Helper: determine whether a given move id should be ignored by Copycat
+function __battle_move_copycat_is_ignored(_move_id){
+    try {
+        if (!is_real(_move_id)) return true;
+        if (!variable_global_exists("_moves") || !is_array(global._moves)) return true;
+        if (!is_struct(global._moves[_move_id])) return true;
+        var ident = "";
+        try { if (variable_struct_exists(global._moves[_move_id], "identifier")) ident = string(variable_struct_get(global._moves[_move_id], "identifier")); } catch (e_i) {}
+        ident = string_lower(string(ident));
+        // Canonical identifiers that Copycat must skip (kept as identifiers so they're data-stable)
+        var ignore_ids = ["assist","metronome","sleep-talk","copycat","mimic","mirror-move","mirror-coat","sketch","me-first","protect","snatch","switcheroo","trick","struggle","encore","follow-me","quick-guard","feint","focus-punch","counter","covet","destiny-bond","detect","endure","chatter","helping-hand","thief","wide-guard","quick-guard","roar","whirlwind","uproar"];
+        for (var i=0; i<array_length(ignore_ids); ++i){ if (string_lower(ignore_ids[i]) == ident) return true; }
+        // Additional heuristics: if move appears invalid or is flagged as non-damaging in simple metadata, optionally skip.
+        // Prefer identifier-based filtering; avoid false-positives by default. If move power lookup exists and returns undefined, don't skip.
+        return false;
+    } catch (e_any){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][copycat][is_ignored] err="+string(e_any)); return true; }
+}
+
+// Helper: find the move id candidate for Copycat for a given user (walks per-target history backwards)
+function __battle_find_copycat_candidate(_pid, _user){
+    try {
+        if (!is_struct(_user)) return undefined;
+        var _hist = [];
+        try { if (variable_struct_exists(_user, "_last_moves") && is_array(variable_struct_get(_user, "_last_moves"))) _hist = variable_struct_get(_user, "_last_moves"); } catch (e_h) { _hist = []; }
+        var _Bslot = __battle_ensure_slot(_pid);
+        for (var hi = array_length(_hist)-1; hi >= 0; --hi){
+            var rec = _hist[hi];
+            if (!is_struct(rec) || !variable_struct_exists(rec, "move")) continue;
+            var cand = variable_struct_get(rec, "move");
+            if (!is_real(cand)) continue;
+            // ignore based on identifier/meta
+            if (__battle_move_copycat_is_ignored(cand)){
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][copycat][preview] skipping move id="+string(cand)+" (ignored)");
+                continue;
+            }
+            // ensure source still on-field — be robust to actor-wrapper recreation by matching _uid or inner .mon
+            var src = (variable_struct_exists(rec, "src") ? variable_struct_get(rec, "src") : undefined);
+            var src_ok = false;
+            try {
+                if (is_struct(src) && is_struct(_Bslot) && variable_struct_exists(_Bslot, "actor") && is_array(variable_struct_get(_Bslot, "actor"))){
+                    var acts = variable_struct_get(_Bslot, "actor");
+                    for (var ai=0; ai<array_length(acts); ++ai){
+                        var act = acts[ai];
+                        if (!is_struct(act)) continue;
+                        var matched = false;
+                        // Prefer UID matching when available
+                        try {
+                            if (variable_struct_exists(src, "_uid") && variable_struct_exists(act, "_uid") && is_real(variable_struct_get(src, "_uid")) && is_real(variable_struct_get(act, "_uid"))){
+                                if (variable_struct_get(src, "_uid") == variable_struct_get(act, "_uid")) matched = true;
+                            }
+                        } catch (e_uidm) {}
+                        // Fallback to direct struct equality
+                        if (!matched && act == src) matched = true;
+                        // Fallback to inner mon equality (sometimes stored src could be .mon)
+                        if (!matched){
+                            try {
+                                if (variable_struct_exists(src, "mon") && variable_struct_exists(act, "mon") && variable_struct_get(src, "mon") == variable_struct_get(act, "mon")) matched = true;
+                            } catch (e_mon) {}
+                        }
+                        if (matched){ try { if (__battle_hp_now(act) > 0) src_ok = true; else src_ok = false; } catch (e_chk) { src_ok = true; } break; }
+                    }
+                }
+            } catch (e_s) { src_ok = false; }
+            if (!src_ok){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][copycat][preview] skipping move id="+string(cand)+" (source gone)"); continue; }
+            return cand;
+        }
+    } catch (e_all){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][copycat][find] error: " + string(e_all)); }
+    return undefined;
+}
+
+// Debug helper: print the _last_moves history for an actor struct
+function __battle_dbg_dump_last_moves(_actor){
+    try {
+        if (!is_struct(_actor)) { show_debug_message("[battle][dbg] actor not a struct"); return; }
+        if (!variable_struct_exists(_actor, "_last_moves") || !is_array(variable_struct_get(_actor, "_last_moves"))){ show_debug_message("[battle][dbg] no _last_moves present"); return; }
+        var arr = variable_struct_get(_actor, "_last_moves");
+        show_debug_message("[battle][dbg] _last_moves len=" + string(array_length(arr)));
+        for (var i=0;i<array_length(arr);++i){ var r=arr[i]; if (!is_struct(r)) continue; var mv=(variable_struct_exists(r,"move")?string(variable_struct_get(r,"move")):"?"); var src=(variable_struct_exists(r,"src") && variable_struct_exists(variable_struct_get(r,"src"),"name") ? variable_struct_get(variable_struct_get(r,"src"),"name") : "?"); var ts=(variable_struct_exists(r,"ts")?string(r.ts):"?"); show_debug_message("  ["+string(i)+"] move="+mv+" src="+src+" ts="+ts); }
+    } catch (e) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][dbg] dump failed: " + string(e)); }
+}
+
 function __bxu_impl(_pid,_xv){
     var _slot = __battle_ensure_slot(_pid);
     var _u = (is_struct(_slot) && variable_struct_exists(_slot, "_ui") ? variable_struct_get(_slot, "_ui") : undefined);
@@ -236,4 +317,134 @@ function __bhu_impl(_pid,_hv){
     var _u = (is_struct(_slot) && variable_struct_exists(_slot, "_ui") ? variable_struct_get(_slot, "_ui") : undefined);
     if (is_undefined(_u)) return _hv;
     return floor(_hv * (variable_struct_exists(_u, "s") ? variable_struct_get(_u, "s") : 1));
+}
+
+
+// [FORCE FIX] __battle_apply_move with full Copycat control
+function __battle_apply_move(_pid, _user, _target, _move){
+    if (!__battle_check_can_act(_user)) return;
+
+    var _flags = move_get_flags(_move);
+
+    // === DISABLED MOVE ===
+    if (_user.sys_disabledMove == _move){
+        dialog_queue(_user.name + " is disabled and can't use that move!");
+        return;
+    }
+
+    
+
+    // === COPYCAT: improved, per-target lookup (delegated to helper) ===
+    if ((is_array(global._moves) && is_struct(global._moves[_move]) && variable_struct_exists(variable_struct_get(global._moves, _move) ? variable_struct_get(global._moves, _move) : global._moves[_move], "identifier") && (variable_struct_get(global._moves, _move).identifier == "copycat" || (is_struct(global._moves[_move]) && global._moves[_move].identifier == "copycat")))){
+        // Simple Copycat semantics: copy the global last move used in the battle when available
+        var _copiedMove = undefined;
+        try { if (variable_global_exists("lastMoveUsed_ID") && !is_undefined(global.lastMoveUsed_ID) && is_real(global.lastMoveUsed_ID) && global.lastMoveUsed_ID >= 0 && global.lastMoveUsed_ID != _move) _copiedMove = global.lastMoveUsed_ID; } catch (e_cp) { _copiedMove = undefined; }
+        if (!is_real(_copiedMove)){
+            dialog_queue(_user.name + " failed to Copycat!");
+            return;
+        }
+        var _copiedName = (is_undefined(move_get_name) ? __battle_move_name_impl(_copiedMove) : move_get_name(_copiedMove));
+        dialog_queue(_user.name + " used " + _copiedName + "!");
+        try { variable_struct_set(_user, "_suppress_last_move_record", true); } catch (e_s1) {}
+        try { __battle_apply_move(_pid, _user, _target, _copiedMove); } catch (e_replay){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][copycat] replay failed: " + string(e_replay)); }
+        try { if (variable_struct_exists(_user, "_suppress_last_move_record")) variable_struct_set(_user, "_suppress_last_move_record", false); } catch (e_s2) {}
+        return;
+    }
+
+    // === RECORD LAST MOVE USED ===
+    if (!(is_array(global._moves) && is_struct(global._moves[_move]) && global._moves[_move].identifier == "copycat")){
+        global.lastMoveUsed_ID = _move;
+        var _moveName = move_get_name(_move);
+        dialog_queue(_user.name + " used " + _moveName + "!");
+        // Also record per-target history for Copycat's reference (unless suppressed)
+        try {
+            var _suppress = (variable_struct_exists(_user, "_suppress_last_move_record") && variable_struct_get(_user, "_suppress_last_move_record") == true);
+        } catch (e_sup2){ var _suppress = false; }
+        if (!(_suppress)){
+            try {
+                if (is_struct(_target)){
+                    if (!variable_struct_exists(_target, "_last_moves") || !is_array(variable_struct_get(_target, "_last_moves"))) variable_struct_set(_target, "_last_moves", []);
+                    var _arr2 = variable_struct_get(_target, "_last_moves");
+                    array_push(_arr2, { move: _move, src: _user, ts: current_time });
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                        try { show_debug_message("[battle][record_last_move] target=" + string(variable_struct_exists(_target, "name") ? variable_struct_get(_target, "name") : "?") + " move=" + string(_move) + " src=" + string(variable_struct_exists(_user, "name") ? variable_struct_get(_user, "name") : "?") + " ts=" + string(current_time)); } catch (e_dbg) {}
+                    }
+                    if (array_length(_arr2) > 8){ var _start2 = array_length(_arr2) - 8; var _new2 = []; for (var _ki2 = _start2; _ki2 < array_length(_arr2); ++_ki2) array_push(_new2, _arr2[_ki2]); _arr2 = _new2; }
+                    variable_struct_set(_target, "_last_moves", _arr2);
+                }
+            } catch (e_rec2){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][record_last_move2] failed: " + string(e_rec2)); }
+        }
+    }
+
+    // === DISABLE FLAG ===
+    if (_flags & MOVE_FLAG_DISABLE){
+        __battle_apply_disable(_target, _move);
+        dialog_queue(_target.name + " was disabled!");
+        return;
+    }
+
+    // === PROTECTED FLAG ===
+    if (_target.sys_protected){
+        dialog_queue(_target.name + " protected itself!");
+        return;
+    }
+
+    // === ACCURACY CHECK ===
+    if (!__battle_can_hit_target(_user, _target, _move)){
+        dialog_queue(_user.name + "'s attack missed!");
+        return;
+    }
+
+    // === STATUS MOVE ===
+    var _power = move_get_power(_move);
+    if (_power <= 0){
+        __battle_apply_status_move(_pid, _user, _target, _move);
+        return;
+    }
+
+    // === DAMAGE + ANIM ===
+    __battle_request_animation_safe(_pid, { type: "move", user: _user, target: _target, move_id: _move });
+    var _dmg = __battle_calc_damage_and_apply(_pid, _user, _target, _move);
+
+    // === DRAIN FLAG ===
+    if (_flags & MOVE_FLAG_DRAIN){
+        var _heal = ceil(_dmg * 0.5);
+        _user.hp = min(_user.hp + _heal, _user.hp_max);
+        dialog_queue(_user.name + " absorbed health!");
+    }
+
+    _user.sys_lastMoveUsed = _move;
+}
+
+
+function __battle_check_can_act(_user){
+    switch (_user.sys_status){
+        case "freeze":
+            if (irandom(3) < 3){
+                dialog_queue(_user.name + " is frozen solid!");
+                return false;
+            } else {
+                dialog_queue(_user.name + " thawed out!");
+                _user.sys_status = undefined;
+                return true;
+            }
+        case "sleep":
+            if (_user.sys_status_turns > 0){
+                dialog_queue(_user.name + " is fast asleep...");
+                _user.sys_status_turns -= 1;
+                return false;
+            } else {
+                dialog_queue(_user.name + " woke up!");
+                _user.sys_status = undefined;
+                return true;
+            }
+        case "paralyze":
+            if (irandom(3) == 0){
+                dialog_queue(_user.name + " is paralyzed! It can't move!");
+                return false;
+            }
+            return true;
+        default:
+            return true;
+    }
 }

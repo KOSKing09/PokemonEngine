@@ -170,7 +170,12 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
 
             var mv = A.moves[i];
             var pp = A.pps[i];
-            var nm = __battle_move_name(mv);
+            // If this slot is Copycat, attempt to show the candidate move name in the UI
+                var display_mv = mv;
+                if (A.moves[i] == "copycat" || (is_struct(global._moves[A.moves[i]]) && global._moves[A.moves[i]].identifier == "copycat")){
+                    if (variable_global_exists("lastMoveUsed_ID") && is_real(global.lastMoveUsed_ID) && global.lastMoveUsed_ID >= 0) display_mv = __battle_move_name_impl(global.lastMoveUsed_ID);
+                }
+            var nm = __battle_move_name(display_mv);
             var label = nm + "  " + (is_real(pp) ? string(pp) : "0") + " PP";
             label = __battle_text_fit_ellipsis(_pid, label, cellW);
 
