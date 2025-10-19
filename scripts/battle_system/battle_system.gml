@@ -1699,6 +1699,46 @@ function __battle_step_turn_if_ready(_pid){
             }
         } catch (e_anim) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][anim_queue] error: " + string(e_anim)); }
 
+        // Post-turn: manage per-actor locked-move states such as Thrash (id 37).
+        try {
+            if (variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor"))){
+                var _acts_for_locked = variable_struct_get(_B, "actor");
+                for (var _li=0; _li<array_length(_acts_for_locked); ++_li){
+                    var _a_locked = _acts_for_locked[_li];
+                    if (!is_struct(_a_locked)) continue;
+                    try {
+                        var _lm = (variable_struct_exists(_a_locked, "_locked_move") ? variable_struct_get(_a_locked, "_locked_move") : undefined);
+                        if (is_struct(_lm) && variable_struct_exists(_lm, "move_id") && variable_struct_get(_lm, "move_id") == 37 && is_real(variable_struct_get(_lm, "remaining"))){
+                            var rem = floor(variable_struct_get(_lm, "remaining"));
+                            // Only decrement the lock if the actor actually executed the locked move this turn
+                            var executed = false;
+                            try { executed = (variable_struct_exists(_a_locked, "_locked_move_executed") && variable_struct_get(_a_locked, "_locked_move_executed") == true); } catch (e_ex) { executed = false; }
+                            if (executed){
+                                // decrement by 1 if > 0
+                                if (rem > 0) rem = max(0, rem - 1);
+                                // clear execution flag for next turn
+                                try { variable_struct_set(_a_locked, "_locked_move_executed", undefined); } catch (e_ce) {}
+                            }
+                            // persist remaining even if not decremented
+                            variable_struct_set(_lm, "remaining", rem);
+                            variable_struct_set(_a_locked, "_locked_move", _lm);
+                            // optional: debug suppressed for thrash; use DATA_DEBUG_VERBOSE elsewhere if needed
+                            // if lock expired and config requested confusion, apply confusion
+                            if (rem == 0 && variable_struct_exists(_lm, "apply_confuse_on_end") && variable_struct_get(_lm, "apply_confuse_on_end") == true){
+                                try {
+                                    if (!is_undefined(status_system_apply_status)){
+                                        status_system_apply_status(_a_locked, "confusion", {});
+                                    }
+                                } catch (e_conf) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][thrash] apply confusion failed: " + string(e_conf)); }
+                                // clear lock struct
+                                variable_struct_set(_a_locked, "_locked_move", undefined);
+                            }
+                        }
+                    } catch (e_lm) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][thrash] locked processing failed: " + string(e_lm)); }
+                }
+            }
+        } catch (e_pl) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][thrash] post-turn locked handling failed: " + string(e_pl)); }
+
     // After ticking/animations, decrement per-turn weather durations and expire when necessary
     try {
         var _wt = __battle_get_weather(_pid);

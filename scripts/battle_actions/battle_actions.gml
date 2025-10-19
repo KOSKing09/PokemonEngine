@@ -29,15 +29,22 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
         if (!is_undefined(__battle_get_move_meta) && is_real(_move_id)){
             try { oh = __battle_get_move_meta(_move_id); } catch (e_gm) { oh = undefined; }
         }
-        if (is_struct(oh) && variable_struct_exists(oh, "ohko") && variable_struct_get(oh, "ohko") == true){
+    // Treat explicit meta or classic Horn Drill id (32) as OHKO
+    if ((is_struct(oh) && variable_struct_exists(oh, "ohko") && variable_struct_get(oh, "ohko") == true) || (is_real(_move_id) && _move_id == 32)){
             // OHKO move: accuracy is 30 + (user.level - target.level). If user.level < target.level the move fails.
             var ulevel = (is_struct(_A) && variable_struct_exists(_A, "level") && is_real(variable_struct_get(_A, "level"))) ? floor(variable_struct_get(_A, "level")) : 0;
             var tlevel = (is_struct(_D) && variable_struct_exists(_D, "level") && is_real(variable_struct_get(_D, "level"))) ? floor(variable_struct_get(_D, "level")) : 0;
             var acc_base = 30;
             var acc = acc_base + max(0, ulevel - tlevel);
+            if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][ohko] attempt move_id=" + string(_move_id) + ", ulevel=" + string(ulevel) + ", tlevel=" + string(tlevel) + ", acc=" + string(acc));
             // If user is lower level, OHKO fails.
+            var _Bslot_oh = __battle_ensure_slot(_pid);
+            // If user level < target level, OHKO fails
             if (ulevel < tlevel){
                 if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][ohko] failed: user level < target level (" + string(ulevel) + " < " + string(tlevel) + ")");
+                try { if (is_struct(_Bslot_oh)) variable_struct_set(_Bslot_oh, "_last_ohko_miss", true); } catch (e_ohf) {}
+                // Visible single-line OHKO tag for noisy logs
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[OHKO] OHKO failed (level) pid=" + string(_pid) + " move=" + string(_move_id) + " attacker_lvl=" + string(ulevel) + " target_lvl=" + string(tlevel));
                 return [0, __battle_hp_now(_D), __battle_hp_now(_D)];
             }
             // Roll against computed accuracy
@@ -55,6 +62,9 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
             } else {
                 // Miss
                 if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][ohko] missed (acc roll)");
+                try { if (is_struct(_Bslot_oh)) variable_struct_set(_Bslot_oh, "_last_ohko_miss", true); } catch (e_ohm) {}
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[OHKO] OHKO missed (acc roll) pid=" + string(_pid) + " move=" + string(_move_id) + " roll=" + string(roll) + " need<" + string(acc));
+                if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][ohko] marked _last_ohko_miss due to acc roll for pid=" + string(_pid) + ", roll=" + string(roll) + ", needed<" + string(acc));
                 return [0, __battle_hp_now(_D), __battle_hp_now(_D)];
             }
         }

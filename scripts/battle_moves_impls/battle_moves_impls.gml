@@ -19,6 +19,21 @@ function __battle_perform_action_impl(_pid, _step){
         }
     } catch (e_a) { A = undefined; D = undefined; }
 
+    // Local helper to centralize the 'used' vs 'ohko miss' return message.
+    // Accept explicit parameters to avoid closure/scope issues with the static analyser.
+    function __battle_impl_return_used(_pid_in, _A_in, _mv_name_in){
+        try {
+            var _Bslot_rr = __battle_ensure_slot(_pid_in);
+            if (is_struct(_Bslot_rr) && variable_struct_exists(_Bslot_rr, "_last_ohko_miss") && variable_struct_get(_Bslot_rr, "_last_ohko_miss") == true){
+                // Log consumption explicitly so it stands out in noisy logs
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[OHKO] performer consuming _last_ohko_miss for pid=" + string(_pid_in) + " move=" + string(_mv_name_in));
+                try { variable_struct_set(_Bslot_rr, "_last_ohko_miss", undefined); } catch (e_clr) {}
+                return string((variable_struct_exists(_A_in,"name")?variable_struct_get(_A_in,"name"):"The user")) + "'s attack missed!";
+            }
+        } catch (e_ru) {}
+        return string((variable_struct_exists(_A_in,"name")?variable_struct_get(_A_in,"name"):"The user")) + " used " + string(_mv_name_in) + "!";
+    }
+
     // item use shortcut (keeps prior behavior simple)
     if (is_struct(_step) && variable_struct_exists(_step, "item_use") && _step.item_use == true){
         var item_id = (variable_struct_exists(_step, "item_id") ? variable_struct_get(_step, "item_id") : undefined);
@@ -33,6 +48,13 @@ function __battle_perform_action_impl(_pid, _step){
 
     var move_slot = (variable_struct_exists(_step, "slot") ? variable_struct_get(_step, "slot") : undefined);
     var move_id   = (variable_struct_exists(_step, "move_id") ? variable_struct_get(_step, "move_id") : undefined);
+
+    // Debug: log selection immediately so we can trace Horn Drill choices
+    try {
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+            try { __battle_stub_dialog(_pid, "[battle_select][debug] pid=" + string(_pid) + ", slot=" + string(move_slot) + ", mv_selected=" + string(move_id) + ", actor.moves[slot]=" + string((is_struct(A) && is_array(variable_struct_get(A, "moves")) && is_real(move_slot) && move_slot >=0 && move_slot < array_length(variable_struct_get(A, "moves")) ? variable_struct_get(A, "moves")[move_slot] : "?")) ); } catch (e_sd) {}
+        }
+    } catch (e_dbgsel) {}
 
     // Record per-target last-move for Copycat's reference. Some move impls
     // bypass __battle_apply_move; we therefore record here centrally so
@@ -150,6 +172,17 @@ function __battle_perform_action_impl(_pid, _step){
             var two_ids = [13,76,130,143,19,91,291,340]; // razor-wind, solar-beam, skull-bash, sky-attack, fly, dig, dive, bounce
             var is_two = false;
             for (var _ti=0; _ti<array_length(two_ids); ++_ti) if (two_ids[_ti] == move_id) { is_two = true; break; }
+            // Special-case: Thrash / Rage-like behavior (lock for 2-3 turns then confuse)
+            // Move id 37 => Thrash (Gen3 behavior: successful use locks user for 2-3 turns,
+            // forcing repeated use of the same move; at the end the user becomes confused.)
+            if (is_real(move_id) && move_id == 37){
+                var _locked = (variable_struct_exists(A, "_locked_move") ? variable_struct_get(A, "_locked_move") : undefined);
+                // If not previously locked, initialize lock state (2..3 turns inclusive)
+                if (!is_struct(_locked) || !variable_struct_exists(_locked, "move_id") || variable_struct_get(_locked, "move_id") != 37){
+                    var dur = irandom_range(2,3);
+                    variable_struct_set(A, "_locked_move", { move_id: 37, remaining: dur, apply_confuse_on_end: true });
+                }
+            }
             if (is_two){
                 var charging = (variable_struct_exists(A, "_charging_move") ? variable_struct_get(A, "_charging_move") : undefined);
                 // If actor is already charging this same move, consume the charge and continue
@@ -179,11 +212,26 @@ function __battle_perform_action_impl(_pid, _step){
                         } catch (e_si) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][two-turn] failed to set _semi_invuln: " + string(e_si)); }
                     // Request a charge animation if available and return the 'used' dialog
                     try { __battle_request_animation_safe(A, { type: "charge", move_id: move_id }); } catch (e_ch) {}
-                    return string((variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"The user")) + " used " + mv_name + "!";
+                    return __battle_impl_return_used(_pid, A, mv_name);
                 }
             }
         }
     } catch (e_two){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][two-turn] handler error: " + string(e_two)); }
+
+    // Thrash lock enforcement: if attacker is locked into Thrash (move 37), ensure
+    // they must continue using the move until lock expires. If they attempt a
+    // different move, block it and force the thrash move instead (consuming PP already).
+    try {
+        if (is_struct(A) && is_real(move_id) && move_id != 37){
+            var _lm = (variable_struct_exists(A, "_locked_move") ? variable_struct_get(A, "_locked_move") : undefined);
+            if (is_struct(_lm) && variable_struct_exists(_lm, "move_id") && variable_struct_get(_lm, "move_id") == 37 && is_real(variable_struct_get(_lm, "remaining")) && variable_struct_get(_lm, "remaining") > 0){
+                // Block non-thrash selection: replace move_id with 37 and keep flow
+                move_id = 37;
+                mv_name = __battle_move_name(move_id);
+                mv_power = __battle_move_power(move_id, A, D);
+            }
+        }
+    } catch (e_tl) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][thrash] enforcement error: " + string(e_tl)); }
 
     // Counter / Mirror Coat / Metal Burst: reflect last-received damage if appropriate
     try {
@@ -201,12 +249,12 @@ function __battle_perform_action_impl(_pid, _step){
                     if (is_real(atk_idx) && is_struct(_Bslot2)){
                         __battle_apply_damage(_pid, atk_idx, reflect, 1.0);
                         try { __battle_request_animation_safe(A, { type: "counter", amount: reflect }); } catch (e_ca) {}
-                        return string((variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"The user")) + " used " + mv_name + "!";
+                        return __battle_impl_return_used(_pid, A, mv_name);
                     }
                 }
                 // If nothing to reflect, play a blocked/miss animation
                 try { __battle_request_animation_safe(A, { type: "blocked", reason: "counter_none" }); } catch (e_bn) {}
-                return string((variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"The user")) + " used " + mv_name + "!";
+                return __battle_impl_return_used(_pid, A, mv_name);
             }
 
             // Mirror Coat: reflects special moves (damage class 3) back at double damage
@@ -220,11 +268,11 @@ function __battle_perform_action_impl(_pid, _step){
                     if (is_real(atk_idx2) && is_struct(_Bslot3)){
                         __battle_apply_damage(_pid, atk_idx2, reflect2, 1.0);
                         try { __battle_request_animation_safe(A, { type: "mirror_coat", amount: reflect2 }); } catch (e_mc) {}
-                        return string((variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"The user")) + " used " + mv_name + "!";
+                        return __battle_impl_return_used(_pid, A, mv_name);
                     }
                 }
                 try { __battle_request_animation_safe(A, { type: "blocked", reason: "mirror_none" }); } catch (e_bn2) {}
-                return string((variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"The user")) + " used " + mv_name + "!";
+                return __battle_impl_return_used(_pid, A, mv_name);
             }
 
             // Metal Burst (id 368): reflect 1.5x last received damage (phys or spec in Gen4+; in Gen3 returns 1.5x both?)
@@ -237,21 +285,30 @@ function __battle_perform_action_impl(_pid, _step){
                     if (is_real(atk_idx3) && is_struct(_Bslot4)){
                         __battle_apply_damage(_pid, atk_idx3, reflect3, 1.0);
                         try { __battle_request_animation_safe(A, { type: "metal_burst", amount: reflect3 }); } catch (e_mb) {}
-                        return string((variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"The user")) + " used " + mv_name + "!";
+                        return __battle_impl_return_used(_pid, A, mv_name);
                     }
                 }
                 try { __battle_request_animation_safe(A, { type: "blocked", reason: "metal_none" }); } catch (e_mb2) {}
-                return string((variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"The user")) + " used " + mv_name + "!";
+                return __battle_impl_return_used(_pid, A, mv_name);
             }
         }
     } catch (e_cm) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][counter] handler error: " + string(e_cm)); }
 
-    if (is_real(mv_power) && mv_power > 0 && is_struct(D)){
+    // Allow moves with power > 0 OR explicit OHKO moves (e.g. Horn Drill) to proceed
+    // to the damage application path. Some OHKO moves have no power value but
+    // must still run the OHKO semantic branch in __battle_apply_move_damage.
+    if (is_struct(D)){
         // Detect multi-hit moves via move meta (min_hits/max_hits). If multi-hit,
         // apply first hit now and schedule remaining hits in _pending_multi_hit so
         // the engine can show per-hit dialogs between hits (Emerald style).
         var mm_local = undefined;
         try { mm_local = __battle_get_move_meta(move_id); } catch (e_mm) { mm_local = undefined; }
+        // Detect OHKO-type moves (explicit meta or classic Horn Drill id=32)
+        var is_ohko_move = false;
+        try {
+            if (is_struct(mm_local) && variable_struct_exists(mm_local, "ohko") && variable_struct_get(mm_local, "ohko") == true) is_ohko_move = true;
+            if (!is_ohko_move && is_real(move_id) && move_id == 32) is_ohko_move = true;
+        } catch (e_o) { is_ohko_move = is_ohko_move; }
         var total_hits = 1;
         try {
             if (is_struct(mm_local)){
@@ -265,10 +322,38 @@ function __battle_perform_action_impl(_pid, _step){
             }
         } catch (e_h) { total_hits = 1; }
 
-        // Apply first hit now
-        var resf = __battle_apply_move_damage(_pid, target_idx, A, D, move_id, mv_power);
+        // Apply first hit now (only if move has power or is OHKO)
+        if ((is_real(mv_power) && mv_power > 0) || is_ohko_move){
+    // If this is Thrash (id 37) mark that the actor executed the locked move
+    try { if (is_real(move_id) && move_id == 37 && is_struct(A)) { variable_struct_set(A, "_locked_move_executed", true); } } catch (e_lf) {}
+    var resf = __battle_apply_move_damage(_pid, target_idx, A, D, move_id, mv_power);
         var dmgh = (is_array(resf) ? resf[0] : 0);
         try { __battle_apply_move_meta_effects(_pid, _step, A, D, move_id, dmgh, mm_local); } catch (e_meta) {}
+
+        // Special-case: Jump Kick (id 26) — if the move missed (dmgh == 0) but the
+        // attacker selected Jump Kick, apply miss recoil equal to 50% of attacker's max HP
+        // (original Gen3 behavior). Ensure recoil uses canonical damage so animations run.
+        try {
+            if (is_real(move_id) && move_id == 26 && is_struct(A)){
+                if (!is_real(dmgh) || dmgh <= 0){
+                    // attacker actor index discovery
+                    var atk_idx = undefined;
+                    try { if (variable_struct_exists(A, "actor_index")) atk_idx = variable_struct_get(A, "actor_index"); } catch (e_ai) {}
+                    try { if (!is_real(atk_idx) && variable_struct_exists(A, "slot")) atk_idx = variable_struct_get(A, "slot"); } catch (e_ai2) {}
+                    try {
+                        if (!is_real(atk_idx)){
+                            var _Bt = __battle_ensure_slot(_pid);
+                            if (is_struct(_Bt) && variable_struct_exists(_Bt, "actor") && is_array(variable_struct_get(_Bt, "actor"))){ var __acts_t = variable_struct_get(_Bt, "actor"); for (var _ii=0; _ii<array_length(__acts_t); ++_ii) if (is_struct(__acts_t[_ii]) && __acts_t[_ii] == A){ atk_idx = _ii; break; } }
+                        }
+                    } catch (e_ad) {}
+                    var ahpmax = (variable_struct_exists(A, "hp_max") ? variable_struct_get(A, "hp_max") : (variable_struct_exists(A, "maxhp") ? variable_struct_get(A, "maxhp") : (variable_struct_exists(A, "mon") && is_struct(variable_struct_get(A, "mon")) && variable_struct_exists(variable_struct_get(A, "mon"), "hp_max") ? variable_struct_get(variable_struct_get(A, "mon"), "hp_max") : 1)));
+                    ahpmax = max(1, floor(real(ahpmax)));
+                    var recoil = max(1, floor(ahpmax * 0.5));
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][jump-kick] miss recoil for " + string(variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"?") + ", amt=" + string(recoil));
+                    try { if (is_real(atk_idx)) __battle_apply_damage(_pid, atk_idx, recoil, 1.0); else __battle_set_hp_now(A, max(0, __battle_hp_now(A) - recoil)); } catch (e_rk) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][jump-kick] recoil failed: " + string(e_rk)); }
+                }
+            }
+        } catch (e_jk) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][jump-kick] handler error: " + string(e_jk)); }
 
         // Fury Cutter: if this move hit successfully, increment a per-attacker multiplier so
         // subsequent uses in the same battle become stronger. If the move missed, reset multiplier.
@@ -301,11 +386,28 @@ function __battle_perform_action_impl(_pid, _step){
             } catch (e_sched) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][multihit] scheduling failed: " + string(e_sched)); }
         }
 
-        return string((variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"The user")) + " used " + mv_name + "!";
+        // If the slot recorded an OHKO miss, present a miss message instead of generic 'used' text
+        try {
+            var _Bslot_rr = __battle_ensure_slot(_pid);
+            if (is_struct(_Bslot_rr) && variable_struct_exists(_Bslot_rr, "_last_ohko_miss") && variable_struct_get(_Bslot_rr, "_last_ohko_miss") == true){
+                // clear the marker and return a clearer miss message
+                try { variable_struct_set(_Bslot_rr, "_last_ohko_miss", undefined); } catch (e_clr) {}
+                return string((variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"The user")) + "'s attack missed!";
+            }
+        } catch (e_rr) {}
+    return __battle_impl_return_used(_pid, A, mv_name);
     }
+}
 
     try { __battle_apply_move_meta_effects(_pid, _step, A, D, move_id, 0, __battle_get_move_meta(move_id)); } catch (e) {}
-    return string((variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"The user")) + " used " + mv_name + "!";
+    try {
+        var _Bslot_rr2 = __battle_ensure_slot(_pid);
+        if (is_struct(_Bslot_rr2) && variable_struct_exists(_Bslot_rr2, "_last_ohko_miss") && variable_struct_get(_Bslot_rr2, "_last_ohko_miss") == true){
+            try { variable_struct_set(_Bslot_rr2, "_last_ohko_miss", undefined); } catch (e_clr2) {}
+            return string((variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"The user")) + "'s attack missed!";
+        }
+    } catch (e_rr2) {}
+    return __battle_impl_return_used(_pid, A, mv_name);
 }
 
 // Ensure this impl is discoverable via the central registry
