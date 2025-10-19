@@ -543,6 +543,73 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                 }
             } catch (e_scl) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] stat_changes apply failed: " + string(e_scl)); }
 
+            // Process flinch meta (if present): some moves may set mm.flinch=true and mm.flinch_chance
+            try {
+                var fl = (variable_struct_exists(_mm, "flinch") ? variable_struct_get(_mm, "flinch") : false);
+                var flch = (variable_struct_exists(_mm, "flinch_chance") && is_real(variable_struct_get(_mm, "flinch_chance"))) ? floor(variable_struct_get(_mm, "flinch_chance")) : -1;
+                // Fallbacks: mm.chance or move effect_chance may be used by loaders
+                if ((flch <= 0) && variable_struct_exists(_mm, "chance") && is_real(variable_struct_get(_mm, "chance"))) flch = floor(variable_struct_get(_mm, "chance"));
+                if ((flch <= 0) && variable_struct_exists(_mm, "effect_chance") && is_real(variable_struct_get(_mm, "effect_chance"))) flch = floor(variable_struct_get(_mm, "effect_chance"));
+                // Allow a developer override to force flinch chance for testing.
+                // A value of -1 explicitly disables the override and restores
+                // normal move-meta behavior; only apply when the global is a
+                // real number and not -1.
+                if (variable_global_exists("DEV_FORCE_FLINCH_CHANCE") && is_real(global.DEV_FORCE_FLINCH_CHANCE) && floor(global.DEV_FORCE_FLINCH_CHANCE) != -1){
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] DEV_FORCE_FLINCH_CHANCE override in effect: " + string(global.DEV_FORCE_FLINCH_CHANCE));
+                    flch = floor(global.DEV_FORCE_FLINCH_CHANCE);
+                }
+                // If a flinch_chance is present but the explicit `flinch` boolean
+                // wasn't set in the meta, treat the presence of a positive
+                // flinch_chance as an implicit enable for flinch behavior.
+                if (!fl && is_real(flch) && flch > 0) fl = true;
+                // Dev: if testing specific moves, print detailed flinch diagnostics
+                if (is_real(_move_id) && ( _move_id == 23 || _move_id == 27 || _move_id == 29 ) && variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                    try { show_debug_message("[dev][flinch-check] move="+string(_move_id)+", mm="+string(_mm)+", fl="+string(fl)+", flch="+string(flch)+", dmg="+string(_dmg)+", target_present="+string(is_struct(_D))); } catch (e_dbgd) {}
+                }
+                if (fl && is_real(flch) && flch > 0){
+                    // Only attempt flinch if the damage actually hit (dmg > 0) and defender is present
+                    if (is_real(_dmg) && _dmg > 0 && is_struct(_D)){
+                        var rollf = irandom(99);
+                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] flinch attempt move=" + string(_move_id) + ", chance=" + string(flch) + ", roll=" + string(rollf));
+                        if (rollf < flch){
+                            // Mark defender as flinched (temporary per-turn flag). The action executor should honor this flag and skip the mon's next action.
+                            try {
+                                // If caller passed an actor wrapper, set on wrapper and inner mon
+                                if (is_struct(_D)){
+                                    try { variable_struct_set(_D, "_flinched", true); } catch (e_f) {}
+                                    try {
+                                        if (variable_struct_exists(_D, "mon") && is_struct(variable_struct_get(_D, "mon"))){
+                                            var _inner = variable_struct_get(_D, "mon");
+                                            try { variable_struct_set(_inner, "_flinched", true); } catch (e_f2) {}
+                                        }
+                                    } catch (e_inner) {}
+                                } else {
+                                    // If caller passed an inner mon, set flag there and attempt to find its actor wrapper
+                                    try { variable_struct_set(_D, "_flinched", true); } catch (e_if) {}
+                                    try {
+                                        if (variable_global_exists("sys_battles") && is_array(global.sys_battles)){
+                                            for (var _bi = 0; _bi < array_length(global.sys_battles); ++_bi){
+                                                var _BB = global.sys_battles[_bi]; if (!is_struct(_BB) || !variable_struct_exists(_BB, "actor")) continue;
+                                                var _acts = variable_struct_get(_BB, "actor"); if (!is_array(_acts)) continue;
+                                                for (var _ai = 0; _ai < array_length(_acts); ++_ai){ var _act = _acts[_ai]; if (!is_struct(_act)) continue; if (variable_struct_exists(_act, "mon") && variable_struct_get(_act, "mon") == _D){ try { variable_struct_set(_act, "_flinched", true); } catch (e_wr) {} }
+                                                }
+                                            }
+                                        }
+                                    } catch (e_find) {}
+                                }
+                            } catch (e_f) {}
+                            // Queue a small flinch dialog/animation so player sees the effect
+                            try {
+                                var _tname = (variable_struct_exists(_D, "name") ? variable_struct_get(_D, "name") : "The Pokémon");
+                                __battle_stub_dialog(_pid, string(_tname) + " flinched!");
+                                __battle_request_animation_safe(_D, { type: "flinch" });
+                            } catch (e_f2) { }
+                            try { var _B2 = __battle_ensure_slot(_pid); if (is_struct(_B2)) variable_struct_set(_B2, "_meta_effect_applied", true); } catch (e_b2) {}
+                        }
+                    }
+                }
+            } catch (e_fa) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] flinch apply failed: " + string(e_fa)); }
+
         } catch (e_meta){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] apply failed: " + string(e_meta)); }
 
         return undefined;
@@ -1558,7 +1625,8 @@ function __battle_step_turn_if_ready(_pid){
                 // compute how many times this target has been hit so far in the sequence
                 var total_hits = (variable_struct_exists(pm, "total_hits") ? variable_struct_get(pm, "total_hits") : undefined);
                 var remaining_now = (variable_struct_exists(pm, "remaining") ? floor(variable_struct_get(pm, "remaining")) : 0);
-                var hit_count = (is_real(total_hits) ? (total_hits - remaining_now) : 1);
+                // Include the initial hit already applied when computing the per-hit count
+                var hit_count = (is_real(total_hits) ? (total_hits - remaining_now + 1) : 1);
                 var times_txt = string(hit_count) + " time" + (hit_count == 1 ? "" : "s");
                 var hitMsg = string(tgt_name) + " was hit by " + mv_name_pm + " (" + times_txt + ")!";
                 __battle_stub_dialog(_pid, hitMsg);
@@ -2812,22 +2880,22 @@ function __battle_trigger_hit_effect(_pid, _ent, _before, _after, _mult){
         // Visible debug: report that the trigger was called and brief context
         try {
             var _ename = (variable_struct_exists(_ent, "name") ? string(variable_struct_get(_ent, "name")) : "<no-name>");
-            show_debug_message("[battle][sound] hit-effect triggered for " + _ename + ", hp_before=" + string(_before) + ", hp_after=" + string(_after) + ", mult=" + string(_mult));
+            if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][sound] hit-effect triggered for " + _ename + ", hp_before=" + string(_before) + ", hp_after=" + string(_after) + ", mult=" + string(_mult));
         } catch (ee) { /* ignore */ }
         var mult = (is_real(_mult) ? _mult : 1.0);
-        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][sound] trigger mult=" + string(mult) + ", audio_play_sound?=" + string(!is_undefined(audio_play_sound)));
+    if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][sound] trigger mult=" + string(mult) + ", audio_play_sound?=" + string(!is_undefined(audio_play_sound)));
         // Directly call the imported sound resources by name as requested.
         try {
             if (!is_undefined(audio_play_sound)){
                 if (mult > 1.0){
                     audio_play_sound(snd_SuperEffective, 1, false);
-                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][sound] played snd_SuperEffective");
+                    if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][sound] played snd_SuperEffective");
                 } else if (mult < 1.0 && mult > 0.0){
                     audio_play_sound(snd_NotVeryEffective, 1, false);
-                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][sound] played snd_NotVeryEffective");
+                    if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][sound] played snd_NotVeryEffective");
                 } else {
                     audio_play_sound(snd_Effective, 1, false);
-                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][sound] played snd_Effective");
+                    if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][sound] played snd_Effective");
                 }
             } else {
                 // If audio_play_sound isn't available, attempt the safe wrapper with the same resource variables

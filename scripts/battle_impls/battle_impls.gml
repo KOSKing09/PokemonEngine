@@ -49,7 +49,28 @@ function __battle_calc_damage_impl(_A, _D, _move_id, _power){
     var dmg = floor(base * variance);
 
     // crit ~ 1/24
-    var crit = (irandom(23) == 0);
+    // crit: base chance ~1/24; allow per-move override via move_meta.crit_rate
+    var crit = false;
+    try {
+        var crit_rate_level = 0;
+        // Prefer move meta accessor if present
+        if (!is_undefined(__battle_get_move_meta) && is_real(_move_id)){
+            try {
+                var _mm = __battle_get_move_meta(_move_id);
+                if (is_struct(_mm) && variable_struct_exists(_mm, "crit_rate") && is_real(variable_struct_get(_mm, "crit_rate"))) crit_rate_level = variable_struct_get(_mm, "crit_rate");
+            } catch (e_mm) { crit_rate_level = 0; }
+        } else if (variable_global_exists("_move_meta") && is_array(global._move_meta) && is_struct(global._move_meta[_move_id])){
+            try { var _mm2 = global._move_meta[_move_id]; if (variable_struct_exists(_mm2, "crit_rate") && is_real(variable_struct_get(_mm2, "crit_rate"))) crit_rate_level = variable_struct_get(_mm2, "crit_rate"); } catch (e_m2) { crit_rate_level = 0; }
+        }
+        // Map crit_rate_level to a sampling denominator (conservative mapping)
+        var denom = 24;
+        if (is_real(crit_rate_level)){
+            if (crit_rate_level <= 0) denom = 24;
+            else if (crit_rate_level == 1) denom = 8; // higher crit chance
+            else denom = 2; // very high crit chance for larger values
+        }
+        crit = (irandom(max(1, denom) - 1) == 0);
+    } catch (e_crit) { crit = (irandom(23) == 0); }
     var critMul = crit ? 1.5 : 1.0;
     dmg = floor(dmg * critMul);
 
@@ -100,9 +121,9 @@ __battle_set_hp_now(T, newhp);
         if (is_real(cur_hp) && is_real(newhp) && cur_hp != newhp){
             // Use provided multiplier when available, otherwise default to 1.0
             var use_mult = (is_real(_mult) ? _mult : 1.0);
-            try { __battle_trigger_hit_effect(_pid, T, cur_hp, newhp, use_mult); } catch (e_th) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][sound] trigger call failed: " + string(e_th)); }
+            try { __battle_trigger_hit_effect(_pid, T, cur_hp, newhp, use_mult); } catch (e_th) { /* removed noisy sound debug */ }
         }
-    } catch (e_any) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][sound] apply_damage trigger error: " + string(e_any)); }
+    } catch (e_any) { /* removed noisy sound debug */ }
     // Clear faint flag if healed above 0
     __battle_clear_fainted_if_healed(T);
 }
@@ -369,7 +390,7 @@ function __battle_apply_move(_pid, _user, _target, _move){
                     var _arr2 = variable_struct_get(_target, "_last_moves");
                     array_push(_arr2, { move: _move, src: _user, ts: current_time });
                     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
-                        try { show_debug_message("[battle][record_last_move] target=" + string(variable_struct_exists(_target, "name") ? variable_struct_get(_target, "name") : "?") + " move=" + string(_move) + " src=" + string(variable_struct_exists(_user, "name") ? variable_struct_get(_user, "name") : "?") + " ts=" + string(current_time)); } catch (e_dbg) {}
+                        try { if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][record_last_move] target=" + string(variable_struct_exists(_target, "name") ? variable_struct_get(_target, "name") : "?") + " move=" + string(_move) + " src=" + string(variable_struct_exists(_user, "name") ? variable_struct_get(_user, "name") : "?") + " ts=" + string(current_time)); } catch (e_dbg) {}
                     }
                     if (array_length(_arr2) > 8){ var _start2 = array_length(_arr2) - 8; var _new2 = []; for (var _ki2 = _start2; _ki2 < array_length(_arr2); ++_ki2) array_push(_new2, _arr2[_ki2]); _arr2 = _new2; }
                     variable_struct_set(_target, "_last_moves", _arr2);
@@ -438,6 +459,62 @@ function __battle_apply_move(_pid, _user, _target, _move){
     var _semim = 1.0;
     try { if (variable_struct_exists(_user, "__semi_mult_tmp")) { _semim = max(1.0, real(variable_struct_get(_user, "__semi_mult_tmp"))); variable_struct_set(_user, "__semi_mult_tmp", undefined); } } catch (e_sm2) {}
     __battle_apply_damage(_pid, _tidx, _dmg, _semim);
+
+    // === APPLY AILMENT / FLINCH / STAT EFFECTS FROM move_meta ===
+    try {
+        var _mm = undefined;
+        if (!is_undefined(__battle_get_move_meta) && is_real(_move)){
+            try { _mm = __battle_get_move_meta(_move); } catch (e_m) { _mm = undefined; }
+        } else if (variable_global_exists("_move_meta") && is_array(global._move_meta) && _move >= 0 && _move < array_length(global._move_meta)){
+            try { _mm = global._move_meta[_move]; } catch (e_gm2) { _mm = undefined; }
+        }
+        if (is_struct(_mm)){
+            // Ailment application
+            try {
+                var ail_id = (variable_struct_exists(_mm, "meta_ailment_id") ? variable_struct_get(_mm, "meta_ailment_id") : undefined);
+                var ach = (variable_struct_exists(_mm, "ailment_chance") && is_real(variable_struct_get(_mm, "ailment_chance"))) ? floor(variable_struct_get(_mm, "ailment_chance")) : 0;
+                if (is_real(ail_id) && ail_id > 0 && ach > 0 && !is_undefined(status_system_apply_status)){
+                    // Attempt to resolve ailment name for clearer debug output
+                    var sname_dbg = undefined;
+                    try { if (!is_undefined(scr_move_meta_ailment_to_name)) sname_dbg = scr_move_meta_ailment_to_name(ail_id); } catch (e_sdbg) { sname_dbg = undefined; }
+                    if (is_undefined(sname_dbg) && variable_global_exists("_move_meta_ailments") && is_array(global._move_meta_ailments) && ail_id < array_length(global._move_meta_ailments)){
+                        try { var _amn_dbg = global._move_meta_ailments[ail_id]; if (is_struct(_amn_dbg) && variable_struct_exists(_amn_dbg, "name")) sname_dbg = variable_struct_get(_amn_dbg, "name"); } catch (e_amdbg) { sname_dbg = undefined; }
+                    }
+                    var roll = irandom(99);
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] ailment attempt for move=" + string(_move) + ", id=" + string(ail_id) + ", name=" + string(sname_dbg) + ", chance=" + string(ach) + ", roll=" + string(roll));
+                    if (roll < ach){
+                        // Map ailment id to status name if helper exists
+                        var sname = undefined;
+                        try { if (!is_undefined(scr_move_meta_ailment_to_name)) sname = scr_move_meta_ailment_to_name(ail_id); } catch (e_sm) { sname = undefined; }
+                        // Fallback: try global._move_meta_ailments mapping
+                        if (is_undefined(sname) && variable_global_exists("_move_meta_ailments") && is_array(global._move_meta_ailments) && ail_id < array_length(global._move_meta_ailments)){
+                            try { var _amn = global._move_meta_ailments[ail_id]; if (is_struct(_amn) && variable_struct_exists(_amn, "name")) sname = variable_struct_get(_amn, "name"); } catch (e_am) { sname = undefined; }
+                        }
+                        if (!is_undefined(sname) && is_string(sname) && string_length(sname) > 0){
+                            try { status_system_apply_status(_target, string_lower(sname), { source: _user }); } catch (e_ss) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] status apply failed: " + string(e_ss)); }
+                        } else {
+                            // If we couldn't map name, attempt to apply common named statuses by id heuristics
+                            try {
+                                // common ailment ids: 1=sleep,2=poison,3=burn,4=freeze,5=paralysis,6=confuse,8=trap
+                                var cand = undefined;
+                                if (is_real(ail_id)){
+                                    switch(floor(ail_id)){
+                                        case 1: cand = "sleep"; break;
+                                        case 2: cand = "poison"; break;
+                                        case 3: cand = "burn"; break;
+                                        case 4: cand = "freeze"; break;
+                                        case 5: cand = "paralyze"; break;
+                                        case 6: cand = "confusion"; break;
+                                    }
+                                }
+                                if (!is_undefined(cand)) try { status_system_apply_status(_target, cand, { source: _user }); } catch (e_ss2) {}
+                            } catch (e_apply) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] ailment apply heuristics failed: " + string(e_apply)); }
+                        }
+                    }
+                }
+            } catch (e_a) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] ailment handler error: " + string(e_a)); }
+        }
+    } catch (e_any) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] post-dmg apply failed: " + string(e_any)); }
 
     // === DRAIN FLAG ===
     if (_flags & MOVE_FLAG_DRAIN){

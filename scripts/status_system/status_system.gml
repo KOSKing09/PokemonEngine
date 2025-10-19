@@ -203,6 +203,8 @@ function status_system_apply_status(mon, status_id, opts){
             } catch (e_flag) { /* ignore */ }
         }
     } catch (e_msg) { /* ignore */ }
+    // Play a status-applied sound if available
+    try { __status_play_effect_sound(status_id, "apply", mon); } catch (e_snd) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] apply hook failed: " + string(e_snd)); }
     if (is_struct(meta) && variable_struct_exists(meta, "on_apply") && !is_undefined(variable_struct_get(meta, "on_apply"))){
         try { variable_struct_get(meta, "on_apply")(mon, inst, opts); } catch (e) {}
     }
@@ -257,6 +259,8 @@ function status_system_clear_status(mon, status_id){
     if (is_struct(meta) && variable_struct_exists(meta, "on_clear") && !is_undefined(variable_struct_get(meta, "on_clear"))){
         try { variable_struct_get(meta, "on_clear")(mon, inst); } catch (e) {}
     }
+    // Play a status-cleared sound if available
+    try { __status_play_effect_sound(status_id, "clear", mon); } catch (e_sndc) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] clear hook failed: " + string(e_sndc)); }
     // Clear the canonical entry
     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status_system][clear] clearing status='" + string(status_id) + "' from target='" + string((variable_struct_exists(_target,"name")?variable_struct_get(_target,"name"):"<no-name>")) + "' (before exists=" + string(variable_struct_exists(ss, status_id)) + ")");
     // Use safe removal so we don't leave an `undefined` placeholder in the struct
@@ -490,6 +494,8 @@ function __status_apply_percent_damage(mon, pct, sid){
         if (string_length(stname) > 0) dmg_msg = " is hurt by " + string_upper(string(stname)) + "!";
     var _dlg_txt = (variable_struct_exists(mon, "name") ? string(variable_struct_get(mon, "name")) : "Pokémon") + " " + string(dmg_msg) + " (-" + string(dmg) + ")";
     __status_request_dialog_for_mon(mon, _dlg_txt);
+    // Play tick sound for the status if available (e.g., poison/leech)
+    try { __status_play_effect_sound(stname, "tick", mon); } catch (e_snd) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] tick hook failed: " + string(e_snd)); }
     } catch (e_dialog) { /* ignore */ }
     return true;
 }
@@ -563,6 +569,102 @@ function __status_request_dialog_for_mon(mon, text){
     }
     // fallback: debug message (keeps runtime safe if no dialog system)
     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][dialog] " + string(text));
+    return false;
+}
+
+// Play a status-related sound for apply/clear/tick events. Uses the
+// battle-safe audio helper when available, falls back to audio_play_sound.
+function __status_play_effect_sound(status_id, event, mon){
+    // event: "apply" | "clear" | "tick"
+    if (is_undefined(status_id) || string_length(string(status_id)) == 0) return false;
+    var sid = string(status_id);
+    var res = undefined;
+    var res_name = undefined;
+    switch (sid){
+        case "sleep":
+            res_name = (event == "apply") ? "snd_Asleep" : "snd_Heal";
+            break;
+        case "paralysis":
+            res_name = (event == "apply") ? "snd_Paralyzed" : "snd_Heal";
+            break;
+        case "freeze":
+            res_name = (event == "apply") ? "snd_Frozen" : "snd_Heal";
+            break;
+        case "burn":
+            // play burned sound on apply and on periodic tick; use heal only on explicit clear
+            if (event == "apply" || event == "tick") res_name = "snd_Burned";
+            else res_name = "snd_Heal";
+            break;
+        case "poison":
+            res_name = (event == "apply" || event == "tick") ? "snd_Poisoned" : "snd_Heal";
+            break;
+        case "confusion":
+            if (event == "apply") res_name = "snd_Confused";
+            else if (event == "tick") res_name = "snd_Poisoned";
+            else res_name = "snd_Heal";
+            break;
+        case "infatuation":
+        case "infatuated":
+            res_name = (event == "apply") ? "snd_Infatuated" : "snd_Heal";
+            break;
+        case "leech-seed":
+            if (event == "tick") res_name = "snd_Poisoned";
+            break;
+        case "trap":
+            // no dedicated sound, reuse poisoned for ticks
+            if (event == "tick") res_name = "snd_Poisoned";
+            break;
+        default:
+            if (event == "clear") res_name = "snd_Heal";
+            break;
+    }
+    // Resolve resource id from name using asset_get_index when available; otherwise
+    // attempt to reference the identifier constant directly (wrapped in try).
+    if (!is_undefined(res_name) && string_length(string(res_name)) > 0){
+        try {
+            if (!is_undefined(asset_get_index)){
+                var _idx = asset_get_index(res_name);
+                if (!is_undefined(_idx) && _idx != -1) res = _idx;
+            }
+        } catch (e_ag) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] asset_get_index failed for '"+string(res_name)+"': " + string(e_ag)); }
+        if (is_undefined(res) || res == undefined || res == -1){
+            // fallback: try identifier constant directly
+            try { switch(res_name){
+                case "snd_Asleep": res = snd_Asleep; break;
+                case "snd_Paralyzed": res = snd_Paralyzed; break;
+                case "snd_Frozen": res = snd_Frozen; break;
+                case "snd_Burned": res = snd_Burned; break;
+                case "snd_Poisoned": res = snd_Poisoned; break;
+                case "snd_Confused": res = snd_Confused; break;
+                case "snd_Infatuated": res = snd_Infatuated; break;
+                case "snd_Heal": res = snd_Heal; break;
+                case "snd_Stat_Raise": res = snd_Stat_Raise; break;
+                case "snd_Stat_Lower": res = snd_Stat_Lower; break;
+                default: res = undefined; break;
+            } } catch (e_id) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] direct identifier lookup failed for '"+string(res_name)+"': " + string(e_id)); }
+        }
+    }
+    if (is_undefined(res) || res == undefined) {
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] no resource mapped for status='"+string(sid)+"' event='"+string(event)+"'");
+        return false;
+    }
+    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] attempting to play status='"+string(sid)+"' event='"+string(event)+"' res="+string(res));
+    try {
+        // Play audio directly using audio_play_sound (preferred, fast path)
+        if (!is_undefined(audio_play_sound)) {
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] audio_play_sound available, calling...");
+            try { audio_play_sound(res, 1, false); if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] audio_play_sound invoked for res="+string(res)); return true; } catch (e_ap) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] audio_play_sound failed: " + string(e_ap)); }
+        } else {
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] audio_play_sound is undefined in this runtime");
+        }
+        // Fallback to battle-safe wrapper if direct playback isn't available
+        if (!is_undefined(__battle_sound_play_safe)) {
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] calling __battle_sound_play_safe(res="+string(res)+")");
+            try { __battle_sound_play_safe(res); if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] __battle_sound_play_safe invoked for res="+string(res)); return true; } catch (e_bs) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] __battle_sound_play_safe failed: " + string(e_bs)); }
+        } else {
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] __battle_sound_play_safe is undefined");
+        }
+    } catch (e_s) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] play failed: " + string(e_s)); }
     return false;
 }
 

@@ -172,7 +172,7 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
         def_hp_max = max(1, def_hp_max);
 
         var pct = (def_hp_max > 0) ? (actual_delta / def_hp_max) : 0;
-        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][sound] move dmg play attempt mult=" + string(mult) + ", delta=" + string(actual_delta) + ", hp_max=" + string(def_hp_max) + ", pct=" + string(pct));
+    if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][sound] move dmg play attempt mult=" + string(mult) + ", delta=" + string(actual_delta) + ", hp_max=" + string(def_hp_max) + ", pct=" + string(pct));
 
         // Heuristic thresholds (tunable):
         // - pct >= 0.25 => loud/super-effective
@@ -191,7 +191,7 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
                 if (use_super) audio_play_sound(snd_SuperEffective, 1, false);
                 else if (use_notvery) audio_play_sound(snd_NotVeryEffective, 1, false);
                 else audio_play_sound(snd_Effective, 1, false);
-                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][sound] move played via audio_play_sound (direct resource) chosen_super=" + string(use_super) + ", chosen_notvery=" + string(use_notvery));
+                if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][sound] move played via audio_play_sound (direct resource) chosen_super=" + string(use_super) + ", chosen_notvery=" + string(use_notvery));
             } catch (e_ap2) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][sound] audio_play_sound failed: " + string(e_ap2)); }
         } else {
             try {

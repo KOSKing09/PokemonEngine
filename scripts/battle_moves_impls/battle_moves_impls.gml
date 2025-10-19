@@ -54,11 +54,11 @@ function __battle_perform_action_impl(_pid, _step){
                     variable_struct_set(D, "_last_moves", _arr);
                     // Keep the global scalar in sync for the simple Copycat implementation
                     try { global.lastMoveUsed_ID = move_id; } catch (e_g) {}
-                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][record_last_move][impl] target=" + string(variable_struct_exists(D, "name") ? variable_struct_get(D, "name") : "?") + " move=" + string(move_id) + " src=" + string(variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "?") + " ts=" + string(current_time) + " (global.lastMoveUsed_ID set)");
-                } catch (e_r) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][record_last_move][impl] failed: " + string(e_r)); }
+                    if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][record_last_move][impl] target=" + string(variable_struct_exists(D, "name") ? variable_struct_get(D, "name") : "?") + " move=" + string(move_id) + " src=" + string(variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "?") + " ts=" + string(current_time) + " (global.lastMoveUsed_ID set)");
+                } catch (e_r) { if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][record_last_move][impl] failed: " + string(e_r)); }
             }
         }
-    } catch (e_allrec) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][record_last_move][impl] outer error: " + string(e_allrec)); }
+    } catch (e_allrec) { if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][record_last_move][impl] outer error: " + string(e_allrec)); }
 
     // minimal status check to avoid crashes during refactor
     try {
@@ -69,6 +69,50 @@ function __battle_perform_action_impl(_pid, _step){
             return "";
         }
     } catch (e) { }
+
+    // flinch: if the actor was flinched by a previous hit, they lose their turn
+    try {
+        if (is_struct(A) && variable_struct_exists(A, "_flinched") && variable_struct_get(A, "_flinched") == true){
+            // Debug: report pre-clear state
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                try {
+                    var _an = (variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"<no-name>");
+                    var _has_wrap = variable_struct_exists(A, "_flinched") && variable_struct_get(A, "_flinched") == true;
+                    var _inner_has = false;
+                    if (variable_struct_exists(A, "mon") && is_struct(variable_struct_get(A, "mon"))){
+                        var _inner_m = variable_struct_get(A, "mon");
+                        _inner_has = (variable_struct_exists(_inner_m, "_flinched") && variable_struct_get(_inner_m, "_flinched") == true);
+                    }
+                    show_debug_message("[battle][flinch][exec] pre-clear actor='"+string(_an)+"' wrapper_flag="+string(_has_wrap)+" inner_flag="+string(_inner_has));
+                } catch (e_dbgp) {}
+            }
+            // clear the flag and show a flinch animation/dialog
+            try { variable_struct_set(A, "_flinched", undefined); } catch (e_fclr) {}
+            // also clear inner mon flag if present
+            try {
+                if (variable_struct_exists(A, "mon") && is_struct(variable_struct_get(A, "mon"))){
+                    var _inner_m2 = variable_struct_get(A, "mon");
+                    try { variable_struct_set(_inner_m2, "_flinched", undefined); } catch (e_ic) {}
+                }
+            } catch (e_in2) {}
+            try { __battle_request_animation_safe(A, { type: "flinch" }); } catch (e_fa) {}
+            try { __battle_stub_dialog(_pid, string(variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"The user") + " flinched!"); } catch (e_fd) {}
+            // Debug: report post-clear state
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                try {
+                    var _an2 = (variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"<no-name>");
+                    var _has_wrap2 = (variable_struct_exists(A, "_flinched") && variable_struct_get(A, "_flinched") == true);
+                    var _inner_has2 = false;
+                    if (variable_struct_exists(A, "mon") && is_struct(variable_struct_get(A, "mon"))){
+                        var _inner_m3 = variable_struct_get(A, "mon");
+                        _inner_has2 = (variable_struct_exists(_inner_m3, "_flinched") && variable_struct_get(_inner_m3, "_flinched") == true);
+                    }
+                    show_debug_message("[battle][flinch][exec] post-clear actor='"+string(_an2)+"' wrapper_flag="+string(_has_wrap2)+" inner_flag="+string(_inner_has2));
+                } catch (e_dbg2) {}
+            }
+            return "";
+        }
+    } catch (e_fl) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][flinch] check failed: " + string(e_fl)); }
 
     // check for Imprison on the target slot: if target slot has an _imprisoned map/list and it contains this move, fail
     try {
