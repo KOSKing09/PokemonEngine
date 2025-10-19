@@ -515,7 +515,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                         var change = (variable_struct_exists(rec, "change") ? variable_struct_get(rec, "change") : undefined);
                         if (!is_real(sid) || !is_real(change)) continue;
                         // Map stat_id to internal stage key: 1=hp,2=atk,3=def,4=spa,5=spd,6=spe, 8=??(special cases)
-                        function __stat_key_by_id(_id){ switch(floor(_id)){ case 1: return "hp"; case 2: return "atk"; case 3: return "def"; case 4: return "spa"; case 5: return "spd"; case 6: return "spe"; case 8: return "spa"; } return undefined; }
+                        function __stat_key_by_id(_id){ switch(floor(_id)){ case 1: return "hp"; case 2: return "atk"; case 3: return "def"; case 4: return "spa"; case 5: return "spd"; case 6: return "spe"; case 7: return "accuracy"; case 8: return "evasion"; } return undefined; }
                         var sk = __stat_key_by_id(sid);
                         if (is_undefined(sk)) continue;
                         // Target stages stored on defender (_D)
@@ -2170,6 +2170,29 @@ function __battle_move_accuracy(_code){
         }
     }
     return 100; // fallback
+}
+// Determine whether a move hits considering accuracy/evasion stages
+function __battle_can_hit_target(_A, _D, _move_id){
+    try {
+        var base_acc = __battle_move_accuracy(_move_id);
+        // Read stages (if present) and compute multiplier using same stage table
+        var acc_stage = 0; var eva_stage = 0;
+        try {
+            if (is_struct(_A) && variable_struct_exists(_A, "_stages") && is_struct(variable_struct_get(_A, "_stages"))){ var sA = variable_struct_get(_A, "_stages"); if (variable_struct_exists(sA, "accuracy")) acc_stage = variable_struct_get(sA, "accuracy"); }
+        } catch (e_accA) { acc_stage = 0; }
+        try {
+            if (is_struct(_D) && variable_struct_exists(_D, "_stages") && is_struct(variable_struct_get(_D, "_stages"))){ var sD = variable_struct_get(_D, "_stages"); if (variable_struct_exists(sD, "evasion")) eva_stage = variable_struct_get(sD, "evasion"); }
+        } catch (e_accD) { eva_stage = 0; }
+        // Convert stages to multiplier using same stage formula
+        var acc_mul = __battle_stage_multiplier(is_real(acc_stage) ? acc_stage : 0);
+        var eva_mul = __battle_stage_multiplier(is_real(eva_stage) ? eva_stage : 0);
+        // Effective accuracy = base_acc * (acc_mul / eva_mul)
+        var eff_acc = base_acc * (acc_mul / max(0.0001, eva_mul));
+        eff_acc = clamp(floor(eff_acc), 0, 100);
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][accuracy] base=" + string(base_acc) + ", acc_stage=" + string(acc_stage) + ", eva_stage=" + string(eva_stage) + ", eff=" + string(eff_acc));
+        var roll = irandom(99);
+        return (roll < eff_acc);
+    } catch (e) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][accuracy] compute failed: " + string(e)); return true; }
 }
 // (action helpers moved to battle_actions.gml)
 

@@ -10,7 +10,13 @@ function __battle_consume_pp(_A, _move_slot){
     return true;
 }
 
-function __battle_roll_hit(_move_id){
+function __battle_roll_hit(_move_id, _A, _D){
+    // If attacker and defender are provided, use the new stage-aware check
+    try {
+        if (!is_undefined(_A) && !is_undefined(_D) && !is_undefined(__battle_can_hit_target)){
+            return __battle_can_hit_target(_A, _D, _move_id);
+        }
+    } catch (e) { /* fall back to simple check */ }
     var acc = __battle_move_accuracy(_move_id);
     return (irandom(99) < clamp(floor(acc), 0, 100));
 }

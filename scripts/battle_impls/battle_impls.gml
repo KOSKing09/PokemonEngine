@@ -1,3 +1,5 @@
+// [Battle] battle_impls — Build v0.2.0 — Updated 2025-10-18
+
 // Extracted battle helper implementations to modularize large battle_system.gml
 // These functions are internal impls; the public API in battle_system.gml
 // continues to expose the original function names and delegates to these.
@@ -91,8 +93,8 @@ function __battle_apply_damage_impl(_pid, _target_index, _dmg, _mult){
     } catch (e_prot){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][protect] guard error: " + string(e_prot)); }
 
     var cur_hp = __battle_hp_now(T);
-    var newhp = max(0, cur_hp - max(0, _dmg));
-    __battle_set_hp_now(T, newhp);
+    var newhp = max(0, cur_hp - max(0, round(_dmg * (is_real(_mult) ? _mult : 1))));
+__battle_set_hp_now(T, newhp);
     // Trigger visual lerp and hit SFX for this applied damage
     try {
         if (is_real(cur_hp) && is_real(newhp) && cur_hp != newhp){
@@ -389,6 +391,33 @@ function __battle_apply_move(_pid, _user, _target, _move){
         return;
     }
 
+
+    // === SEMI-INVULNERABLE CHECK ===
+    try {
+        if (is_struct(_target) && variable_struct_exists(_target, "_semi_invuln") && !is_undefined(variable_struct_get(_target, "_semi_invuln"))){
+            var _phase = string_lower(string(variable_struct_get(_target, "_semi_invuln")));
+            var _mname = string_lower(__battle_move_name(_move));
+            var _allow = false; var _mult = 1.0;
+            if (_phase == "fly"){
+                if (string_pos("gust", _mname) > 0 || string_pos("twister", _mname) > 0) { _allow = true; _mult = 2.0; }
+            } else if (_phase == "dig"){
+                if (string_pos("earthquake", _mname) > 0 || string_pos("magnitude", _mname) > 0) { _allow = true; _mult = 2.0; }
+            } else if (_phase == "dive"){
+                if (string_pos("surf", _mname) > 0 || string_pos("whirlpool", _mname) > 0) { _allow = true; _mult = 2.0; }
+            } else if (_phase == "bounce"){
+                if (string_pos("gust", _mname) > 0 || string_pos("twister", _mname) > 0) { _allow = true; _mult = 2.0; }
+            }
+            if (!_allow){
+                dialog_queue(_user.name + "'s attack missed!");
+                return;
+            } else {
+                // Stash multiplier for this strike (consumed below)
+                var _semi_invuln_mult = _mult;
+                // Store on user temp field to carry through to apply call if needed
+                try { variable_struct_set(_user, "__semi_mult_tmp", _semi_invuln_mult); } catch (e_sm) {}
+            }
+        }
+    } catch (e_si) {}
     // === ACCURACY CHECK ===
     if (!__battle_can_hit_target(_user, _target, _move)){
         dialog_queue(_user.name + "'s attack missed!");
@@ -404,7 +433,11 @@ function __battle_apply_move(_pid, _user, _target, _move){
 
     // === DAMAGE + ANIM ===
     __battle_request_animation_safe(_pid, { type: "move", user: _user, target: _target, move_id: _move });
-    var _dmg = __battle_calc_damage_and_apply(_pid, _user, _target, _move);
+    var _dmg = __battle_calc_damage(_user, _target, _move, move_get_power(_move));
+    var _tidx = (variable_struct_exists(_target, "actor_index") ? variable_struct_get(_target, "actor_index") : 0);
+    var _semim = 1.0;
+    try { if (variable_struct_exists(_user, "__semi_mult_tmp")) { _semim = max(1.0, real(variable_struct_get(_user, "__semi_mult_tmp"))); variable_struct_set(_user, "__semi_mult_tmp", undefined); } } catch (e_sm2) {}
+    __battle_apply_damage(_pid, _tidx, _dmg, _semim);
 
     // === DRAIN FLAG ===
     if (_flags & MOVE_FLAG_DRAIN){

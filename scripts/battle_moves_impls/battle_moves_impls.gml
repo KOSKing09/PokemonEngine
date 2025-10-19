@@ -1,4 +1,6 @@
-﻿// Minimal, clean move resolver placeholder
+﻿// [Battle] battle_moves_impls — Build v0.2.0 — Updated 2025-10-18
+
+// Minimal, clean move resolver placeholder
 // This file intentionally contains a small, syntactically-correct placeholder implementation
 // for __battle_perform_action_impl so the project can compile while the full move resolver
 // is being refactored. Replace with the full implementation when ready.
@@ -50,7 +52,9 @@ function __battle_perform_action_impl(_pid, _step){
                     array_push(_arr, { move: move_id, src: A, ts: current_time });
                     if (array_length(_arr) > 8){ var _start = array_length(_arr) - 8; var _new = []; for (var _k=_start; _k < array_length(_arr); ++_k) array_push(_new, _arr[_k]); _arr = _new; }
                     variable_struct_set(D, "_last_moves", _arr);
-                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][record_last_move][impl] target=" + string(variable_struct_exists(D, "name") ? variable_struct_get(D, "name") : "?") + " move=" + string(move_id) + " src=" + string(variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "?") + " ts=" + string(current_time));
+                    // Keep the global scalar in sync for the simple Copycat implementation
+                    try { global.lastMoveUsed_ID = move_id; } catch (e_g) {}
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][record_last_move][impl] target=" + string(variable_struct_exists(D, "name") ? variable_struct_get(D, "name") : "?") + " move=" + string(move_id) + " src=" + string(variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "?") + " ts=" + string(current_time) + " (global.lastMoveUsed_ID set)");
                 } catch (e_r) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][record_last_move][impl] failed: " + string(e_r)); }
             }
         }
@@ -108,11 +112,27 @@ function __battle_perform_action_impl(_pid, _step){
                 if (is_struct(charging) && variable_struct_exists(charging, "move_id") && variable_struct_get(charging, "move_id") == move_id){
                     // Clear charging state and proceed with normal attack
                     variable_struct_set(A, "_charging_move", undefined);
-                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][two-turn] " + string(variable_struct_get(A, "name")) + " completes charge for move=" + string(move_id));
+                // Clear semi-invulnerable phase now that the strike resolves
+                try { if (variable_struct_exists(A, "_semi_invuln")) variable_struct_set(A, "_semi_invuln", undefined); } catch (e_clrsi) {} 
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][two-turn] " + string(variable_struct_get(A, "name")) + " completes charge for move=" + string(move_id));
                 } else {
                     // Start charging: store move and intended target index so the second
                     // turn can reference it. PP already consumed earlier.
-                    variable_struct_set(A, "_charging_move", { move_id: move_id, target_index: target_idx });
+                        variable_struct_set(A, "_charging_move", { move_id: move_id, target_index: target_idx });
+                        // If this is a semi-invulnerable two-turn move (fly/dig/dive/bounce/sky-attack),
+                        // mark the actor so other move handlers can apply the special rules.
+                        try {
+                            var _phase = undefined;
+                            if (move_id == 19) _phase = "fly";           // Fly
+                            else if (move_id == 91) _phase = "dig";      // Dig
+                            else if (move_id == 291) _phase = "dive";    // Dive
+                            else if (move_id == 340) _phase = "bounce";  // Bounce
+                            else if (move_id == 143) _phase = "fly";     // Sky Attack behaves like fly for interactions
+                            if (!is_undefined(_phase)){
+                                variable_struct_set(A, "_semi_invuln", _phase);
+                                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][two-turn] set _semi_invuln=" + string(_phase) + " for " + string(variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "?"));
+                            }
+                        } catch (e_si) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][two-turn] failed to set _semi_invuln: " + string(e_si)); }
                     // Request a charge animation if available and return the 'used' dialog
                     try { __battle_request_animation_safe(A, { type: "charge", move_id: move_id }); } catch (e_ch) {}
                     return string((variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"The user")) + " used " + mv_name + "!";

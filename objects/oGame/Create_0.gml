@@ -120,7 +120,7 @@ global._REGIONMUSIC = snd_Littleroot_Town;
 // --- PARTY / BAGS / PLAYERS -----------------------------------------------
 party_init(); // must be before demo seed (party_ensure uses it)
 // global.DEMO_FORCE_SPECIES = [250, 249]; // optional override
-global.DEMO_FORCE_SPECIES = [188, 268, 471, 559];
+global.DEMO_FORCE_SPECIES = [188, 268, 471, 559, 17];
 scr_poke_runtime_demo_init_random(6); // seeds PARTY[0] (and [1] if present)
 
 // Initialize bags (seed with some items for demo/dev)
