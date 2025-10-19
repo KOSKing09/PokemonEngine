@@ -582,30 +582,28 @@ function __status_play_effect_sound(status_id, event, mon){
     var res_name = undefined;
     switch (sid){
         case "sleep":
-            res_name = (event == "apply") ? "snd_Asleep" : "snd_Heal";
+            res_name = (event == "apply") ? "snd_Asleep" : undefined;
             break;
         case "paralysis":
-            res_name = (event == "apply") ? "snd_Paralyzed" : "snd_Heal";
+            res_name = (event == "apply") ? "snd_Paralyzed" : undefined;
             break;
         case "freeze":
-            res_name = (event == "apply") ? "snd_Frozen" : "snd_Heal";
+            res_name = (event == "apply") ? "snd_Frozen" : undefined;
             break;
         case "burn":
-            // play burned sound on apply and on periodic tick; use heal only on explicit clear
+            // play burned sound on apply and on periodic tick
             if (event == "apply" || event == "tick") res_name = "snd_Burned";
-            else res_name = "snd_Heal";
             break;
         case "poison":
-            res_name = (event == "apply" || event == "tick") ? "snd_Poisoned" : "snd_Heal";
+            res_name = (event == "apply" || event == "tick") ? "snd_Poisoned" : undefined;
             break;
         case "confusion":
             if (event == "apply") res_name = "snd_Confused";
             else if (event == "tick") res_name = "snd_Poisoned";
-            else res_name = "snd_Heal";
             break;
         case "infatuation":
         case "infatuated":
-            res_name = (event == "apply") ? "snd_Infatuated" : "snd_Heal";
+            res_name = (event == "apply") ? "snd_Infatuated" : undefined;
             break;
         case "leech-seed":
             if (event == "tick") res_name = "snd_Poisoned";
@@ -614,8 +612,12 @@ function __status_play_effect_sound(status_id, event, mon){
             // no dedicated sound, reuse poisoned for ticks
             if (event == "tick") res_name = "snd_Poisoned";
             break;
+        case "yawn":
+            // Use the stat-raise SFX for yawning (as requested)
+            if (event == "apply") res_name = "snd_Stat_Raise";
+            break;
         default:
-            if (event == "clear") res_name = "snd_Heal";
+            // Do not default to heal SFX here; play heal only on explicit heal actions
             break;
     }
     // Resolve resource id from name using asset_get_index when available; otherwise
@@ -704,6 +706,8 @@ if (variable_global_exists("STATUS_SYS") && variable_struct_exists(global.STATUS
                     var cap = (variable_struct_exists(src, "hp_max") ? variable_struct_get(src, "hp_max") : cur);
                     __battle_set_hp_now(src, min(cap, cur + heal));
                     if (!is_undefined(__battle_clear_fainted_if_healed)) __battle_clear_fainted_if_healed(src);
+                        // Play heal SFX for leech-source healing (one-shot)
+                        try { __battle_play_heal_once(snd_Heal); } catch (e_hs) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] leech heal SFX failed: " + string(e_hs)); }
                     // mark meta flag on the battle slot
                     try { var _pid_s = __status_find_battle_pid(src); if (!is_undefined(_pid_s)){ var __Bf2 = __battle_ensure_slot(_pid_s); if (is_struct(__Bf2)) variable_struct_set(__Bf2, "_meta_effect_applied", true); } } catch(e_pf){}
                 } else {
@@ -752,6 +756,8 @@ if (variable_global_exists("STATUS_SYS") && variable_struct_exists(global.STATUS
                             var cap = (variable_struct_exists(src, "hp_max") ? variable_struct_get(src, "hp_max") : cur);
                             __battle_set_hp_now(src, min(cap, cur + dmg));
                             if (!is_undefined(__battle_clear_fainted_if_healed)) __battle_clear_fainted_if_healed(src);
+                                // Play heal SFX for trap-source healing (one-shot)
+                                try { __battle_play_heal_once(snd_Heal); } catch (e_hs2) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] trap heal SFX failed: " + string(e_hs2)); }
                             // mark meta flag on the battle slot
                             try { var _pid_s = __status_find_battle_pid(src); if (!is_undefined(_pid_s)){ var __Bf2 = __battle_ensure_slot(_pid_s); if (is_struct(__Bf2)) variable_struct_set(__Bf2, "_meta_effect_applied", true); } } catch(e_pf){}
                         } else {

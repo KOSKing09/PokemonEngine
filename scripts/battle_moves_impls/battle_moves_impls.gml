@@ -49,6 +49,182 @@ function __battle_perform_action_impl(_pid, _step){
     var move_slot = (variable_struct_exists(_step, "slot") ? variable_struct_get(_step, "slot") : undefined);
     var move_id   = (variable_struct_exists(_step, "move_id") ? variable_struct_get(_step, "move_id") : undefined);
 
+    // Helper: simple identifier-based ignore list used by metronome/assist/etc.
+    function __is_meta_move_ignored(_mid){
+        try {
+            if (!is_real(_mid)) return true;
+            if (!variable_global_exists("_moves") || !is_array(global._moves)) return true;
+            var mv = global._moves[_mid];
+            if (!is_struct(mv)) return true;
+            var ident = "";
+            if (variable_struct_exists(mv, "identifier")) ident = string(variable_struct_get(mv, "identifier"));
+            ident = string_lower(ident);
+            var ignore_ids = ["assist","metronome","sleep-talk","copycat","mimic","mirror-move","mirror-coat","sketch","me-first","protect","snatch","switcheroo","trick","struggle","encore","follow-me","quick-guard","feint","focus-punch","counter","covet","destiny-bond","detect","endure","chatter","helping-hand","thief","wide-guard","roar","whirlwind","uproar"];
+            for (var ii=0; ii<array_length(ignore_ids); ++ii) if (string_lower(ignore_ids[ii]) == ident) return true;
+            return false;
+        } catch (e_i) { return true; }
+    }
+
+    // === META MOVES IMPLEMENTATION ===
+    try {
+        // METRONOME (118): select a random non-meta move from the global move list
+        if (is_real(move_id) && move_id == 118){
+            var candidates = [];
+            if (variable_global_exists("_moves") && is_array(global._moves)){
+                for (var mi=0; mi<array_length(global._moves); ++mi){
+                    if (!is_struct(global._moves[mi])) continue;
+                    // Skip invalid entries and our ignore list
+                    if (__is_meta_move_ignored(mi)) continue;
+                    // Skip moves the user already knows (Metronome must pick a move the user doesn't already have)
+                    try {
+                        if (is_struct(A) && variable_struct_exists(A, "moves") && is_array(variable_struct_get(A, "moves"))){
+                            var _am = variable_struct_get(A, "moves");
+                            var _known = false;
+                            for (var _ki = 0; _ki < array_length(_am); ++_ki){ if (is_real(_am[_ki]) && _am[_ki] == mi) { _known = true; break; } }
+                            if (_known) continue;
+                        }
+                    } catch (e_k) { /* defensive: ignore and continue */ }
+                    // Skip moves with no identifier/name
+                    var ok = true;
+                    try { if (!variable_struct_exists(global._moves[mi], "identifier")) ok = false; } catch (e_ok) { ok = false; }
+                    if (!ok) continue;
+                    array_push(candidates, mi);
+                }
+            }
+            if (array_length(candidates) == 0) return string((variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"The user")) + " failed to use Metronome!";
+            var pick = candidates[irandom(array_length(candidates)-1)];
+            // Announce and replay the picked move
+            try { variable_struct_set(A, "_suppress_last_move_record", true); } catch (e_sup) {}
+            try { __battle_request_animation_safe(A, { type: "metronome" }); } catch (e_ma) {}
+            var namep = __battle_move_name(pick);
+            var ret = __battle_impl_return_used(_pid, A, namep);
+            // (removed temporary metronome debug)
+            try { __battle_apply_move(_pid, A, D, pick); } catch (e_rp) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][metronome] apply failed: " + string(e_rp)); }
+            try { variable_struct_set(A, "_suppress_last_move_record", false); } catch (e_sup2) {}
+            return ret;
+        }
+
+        // ASSIST (274): pick a random move known by an ally (other actors in the same slot)
+        if (is_real(move_id) && move_id == 274){
+            var _Bslot = __battle_ensure_slot(_pid);
+            var ally_moves = [];
+            try {
+                if (is_struct(_Bslot) && variable_struct_exists(_Bslot, "actor") && is_array(variable_struct_get(_Bslot, "actor"))){
+                    var acts = variable_struct_get(_Bslot, "actor");
+                    for (var ai=0; ai<array_length(acts); ++ai){
+                        var act = acts[ai];
+                        if (!is_struct(act)) continue;
+                        if (act == A) continue; // skip self
+                        if (is_real(variable_struct_get(act, "hp_now")) && variable_struct_get(act, "hp_now") <= 0) continue; // fainted
+                        if (!variable_struct_exists(act, "moves") || !is_array(variable_struct_get(act, "moves"))) continue;
+                        var mlist = variable_struct_get(act, "moves");
+                        for (var mi2=0; mi2<array_length(mlist); ++mi2){ var mv = mlist[mi2]; if (is_real(mv) && !__is_meta_move_ignored(mv)) array_push(ally_moves, mv); }
+                    }
+                }
+            } catch (e_as) { ally_moves = []; }
+            if (array_length(ally_moves) == 0) return __battle_impl_return_used(_pid, A, __battle_move_name(move_id));
+            var pick2 = ally_moves[irandom(array_length(ally_moves)-1)];
+            try { variable_struct_set(A, "_suppress_last_move_record", true); } catch (e_sup3) {}
+            try { __battle_apply_move(_pid, A, D, pick2); } catch (e_ap) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][assist] apply failed: " + string(e_ap)); }
+            try { variable_struct_set(A, "_suppress_last_move_record", false); } catch (e_sup4) {}
+            return __battle_impl_return_used(_pid, A, __battle_move_name(pick2));
+        }
+
+        // MIMIC (102): copy the last move used by the target (if valid)
+        if (is_real(move_id) && move_id == 102){
+            var cand = undefined;
+            try {
+                if (is_struct(D) && variable_struct_exists(D, "_last_moves") && is_array(variable_struct_get(D, "_last_moves"))){
+                    var lr = variable_struct_get(D, "_last_moves");
+                    for (var ii=array_length(lr)-1; ii>=0; --ii){ var rec = lr[ii]; if (!is_struct(rec) || !variable_struct_exists(rec, "move")) continue; var mv = rec.move; if (!is_real(mv)) continue; if (__is_meta_move_ignored(mv)) continue; cand = mv; break; }
+                }
+            } catch (e_mi) { cand = undefined; }
+            if (!is_real(cand)) return __battle_impl_return_used(_pid, A, __battle_move_name(move_id));
+            try { variable_struct_set(A, "_suppress_last_move_record", true); } catch (e_su) {}
+            try { __battle_apply_move(_pid, A, D, cand); } catch (e_ca) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][mimic] failed: " + string(e_ca)); }
+            try { variable_struct_set(A, "_suppress_last_move_record", false); } catch (e_su2) {}
+            return __battle_impl_return_used(_pid, A, __battle_move_name(cand));
+        }
+
+        // MIRROR-MOVE (119): use the last move that targeted this user (if available)
+        if (is_real(move_id) && move_id == 119){
+            var cand2 = undefined;
+            try {
+                if (is_struct(A) && variable_struct_exists(A, "_last_moves") && is_array(variable_struct_get(A, "_last_moves"))){
+                    var lr2 = variable_struct_get(A, "_last_moves");
+                    for (var jj=array_length(lr2)-1; jj>=0; --jj){ var rec2 = lr2[jj]; if (!is_struct(rec2) || !variable_struct_exists(rec2, "move")) continue; var mv2 = rec2.move; if (!is_real(mv2)) continue; if (__is_meta_move_ignored(mv2)) continue; cand2 = mv2; break; }
+                }
+            } catch (e_mm2) { cand2 = undefined; }
+            if (!is_real(cand2)) return __battle_impl_return_used(_pid, A, __battle_move_name(move_id));
+            try { variable_struct_set(A, "_suppress_last_move_record", true); } catch (e_su3) {}
+            try { __battle_apply_move(_pid, A, D, cand2); } catch (e_mr) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][mirror-move] failed: " + string(e_mr)); }
+            try { variable_struct_set(A, "_suppress_last_move_record", false); } catch (e_su4) {}
+            return __battle_impl_return_used(_pid, A, __battle_move_name(cand2));
+        }
+
+        // SKETCH (166): permanently replace the user's selected move slot with the target's last used move
+        if (is_real(move_id) && move_id == 166){
+            if (!is_struct(A) || !is_real(move_slot)) return __battle_impl_return_used(_pid, A, __battle_move_name(move_id));
+            var sketch_cand = undefined;
+            try {
+                if (is_struct(D) && variable_struct_exists(D, "_last_moves") && is_array(variable_struct_get(D, "_last_moves"))){
+                    var lr3 = variable_struct_get(D, "_last_moves");
+                    for (var kk=array_length(lr3)-1; kk>=0; --kk){ var rec3 = lr3[kk]; if (!is_struct(rec3) || !variable_struct_exists(rec3, "move")) continue; var mv3 = rec3.move; if (!is_real(mv3)) continue; if (__is_meta_move_ignored(mv3)) continue; sketch_cand = mv3; break; }
+                }
+            } catch (e_sk) { sketch_cand = undefined; }
+            if (!is_real(sketch_cand)) return __battle_impl_return_used(_pid, A, __battle_move_name(move_id));
+            // Replace the move in the user's moves array at slot
+            try {
+                if (!variable_struct_exists(A, "moves") || !is_array(variable_struct_get(A, "moves"))) variable_struct_set(A, "moves", []);
+                var _alist = variable_struct_get(A, "moves");
+                if (is_real(move_slot) && move_slot >= 0){
+                    // Expand if necessary
+                    while (array_length(_alist) <= move_slot) array_push(_alist, -1);
+                    _alist[move_slot] = sketch_cand;
+                    variable_struct_set(A, "moves", _alist);
+                    try { __battle_request_animation_safe(A, { type: "sketch" }); } catch (e_sa) {}
+                    return string((variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"The user")) + " sketched " + __battle_move_name(sketch_cand) + "!";
+                }
+            } catch (e_rep) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][sketch] failed: " + string(e_rep)); }
+            return __battle_impl_return_used(_pid, A, __battle_move_name(move_id));
+        }
+
+        // TRANSFORM (144): make the user copy the target's form/stats/moves roughly
+        if (is_real(move_id) && move_id == 144){
+            try {
+                if (!is_struct(A) || !is_struct(D)) return __battle_impl_return_used(_pid, A, __battle_move_name(move_id));
+                // Shallow copy of D.mon into A._transformed_mon so the renderer/logic can use it
+                var srcmon = (variable_struct_exists(D, "mon") ? variable_struct_get(D, "mon") : undefined);
+                if (is_struct(srcmon)){
+                        // store original mon for revert if needed and assign transform mon reference
+                        try { variable_struct_set(A, "_original_mon", (variable_struct_exists(A, "mon") ? variable_struct_get(A, "mon") : undefined)); } catch (e_om) {}
+                        try { variable_struct_set(A, "mon", srcmon); } catch (e_setm) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][transform] warning: failed to set reference mon: " + string(e_setm)); }
+                    variable_struct_set(A, "_transformed", true);
+                    try { __battle_request_animation_safe(A, { type: "transform" }); } catch (e_tf) {}
+                    return string((variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"The user")) + " transformed into " + string(variable_struct_exists(D, "name") ? variable_struct_get(D, "name") : "the target") + "!";
+                }
+            } catch (e_t) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][transform] failed: " + string(e_t)); }
+            return __battle_impl_return_used(_pid, A, __battle_move_name(move_id));
+        }
+
+        // ME-FIRST (382): attempt to use the target's move immediately when it is a damaging move
+        if (is_real(move_id) && move_id == 382){
+            var mf = undefined;
+            try {
+                // Prefer to inspect target's _last_moves for their most recent chosen move
+                if (is_struct(D) && variable_struct_exists(D, "_last_moves") && is_array(variable_struct_get(D, "_last_moves"))){
+                    var lr4 = variable_struct_get(D, "_last_moves");
+                    for (var zz=array_length(lr4)-1; zz>=0; --zz){ var r4 = lr4[zz]; if (!is_struct(r4) || !variable_struct_exists(r4, "move")) continue; var mv4 = r4.move; if (!is_real(mv4)) continue; if (__is_meta_move_ignored(mv4)) continue; mf = mv4; break; }
+                }
+            } catch (e_mf) { mf = undefined; }
+            if (!is_real(mf)) return __battle_impl_return_used(_pid, A, __battle_move_name(move_id));
+            try { variable_struct_set(A, "_suppress_last_move_record", true); } catch (e_su5) {}
+            try { __battle_apply_move(_pid, A, D, mf); } catch (e_mf2) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][me-first] apply failed: " + string(e_mf2)); }
+            try { variable_struct_set(A, "_suppress_last_move_record", false); } catch (e_su6) {}
+            return __battle_impl_return_used(_pid, A, __battle_move_name(mf));
+        }
+    } catch (e_metaAll) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta_moves] handler error: " + string(e_metaAll)); }
+
     // Debug: log selection immediately so we can trace Horn Drill choices
     try {
         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
@@ -187,11 +363,25 @@ function __battle_perform_action_impl(_pid, _step){
                 var charging = (variable_struct_exists(A, "_charging_move") ? variable_struct_get(A, "_charging_move") : undefined);
                 // If actor is already charging this same move, consume the charge and continue
                 if (is_struct(charging) && variable_struct_exists(charging, "move_id") && variable_struct_get(charging, "move_id") == move_id){
+                    // Use stored target_index from the charging record (defensive: override current target_idx)
+                    try {
+                        var _stored_tidx = (variable_struct_exists(charging, "target_index") ? variable_struct_get(charging, "target_index") : undefined);
+                        if (is_real(_stored_tidx)){
+                            target_idx = _stored_tidx;
+                            // Recompute D from the actor array so subsequent code targets the correct defender
+                            try {
+                                if (is_array(__acts) && is_real(target_idx) && target_idx >= 0 && target_idx < array_length(__acts)){
+                                    D = __acts[target_idx];
+                                }
+                            } catch (e_recomp) {}
+                        }
+                    } catch (e_st) {}
+
                     // Clear charging state and proceed with normal attack
                     variable_struct_set(A, "_charging_move", undefined);
-                // Clear semi-invulnerable phase now that the strike resolves
-                try { if (variable_struct_exists(A, "_semi_invuln")) variable_struct_set(A, "_semi_invuln", undefined); } catch (e_clrsi) {} 
-                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][two-turn] " + string(variable_struct_get(A, "name")) + " completes charge for move=" + string(move_id));
+                    // Clear semi-invulnerable phase now that the strike resolves
+                    try { if (variable_struct_exists(A, "_semi_invuln")) variable_struct_set(A, "_semi_invuln", undefined); } catch (e_clrsi) {}
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][two-turn] " + string(variable_struct_get(A, "name")) + " completes charge for move=" + string(move_id) + ", stored_target=" + string(_stored_tidx) + ", resolved_target_idx=" + string(target_idx));
                 } else {
                     // Start charging: store move and intended target index so the second
                     // turn can reference it. PP already consumed earlier.
@@ -329,6 +519,43 @@ function __battle_perform_action_impl(_pid, _step){
     var resf = __battle_apply_move_damage(_pid, target_idx, A, D, move_id, mv_power);
         var dmgh = (is_array(resf) ? resf[0] : 0);
         try { __battle_apply_move_meta_effects(_pid, _step, A, D, move_id, dmgh, mm_local); } catch (e_meta) {}
+
+        // Hazard removal moves: Rapid Spin (229) clears hazards on user's side;
+        // Defog (432) clears hazards on the target's side. Implement here
+        // to ensure flags set by meta handlers are removed immediately when used.
+        try {
+            if (is_real(move_id) && (move_id == 229 || move_id == 432)){
+                var _Bslot_rrr = __battle_ensure_slot(_pid);
+                if (is_struct(_Bslot_rrr)){
+                    if (move_id == 229){
+                        // Rapid Spin: clear hazards on user's side (slot-side of the user)
+                        try {
+                            variable_struct_set(_Bslot_rrr, "_side_spikes", 0);
+                            variable_struct_set(_Bslot_rrr, "_side_toxic_spikes", 0);
+                            variable_struct_set(_Bslot_rrr, "_side_stealth_rock", 0);
+                            variable_struct_set(_Bslot_rrr, "_side_sticky_web", false);
+                            // Request a clear-hazards animation and dialog
+                            try { __battle_request_animation_safe(_pid, { type: "clear_hazards", actor: A, target: D }); } catch (e_anim) {}
+                            try { var nmC = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokémon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, string(nmC) + " removed entry hazards!"); } catch (e_msgc) {}
+                        } catch (e_clr) {}
+                    } else if (move_id == 432){
+                        // Defog: clears hazards on the target's side. Attempt to determine
+                        // which side the target occupies. If D is undefined, clear both.
+                        try {
+                            variable_struct_set(_Bslot_rrr, "_side_spikes", 0);
+                            variable_struct_set(_Bslot_rrr, "_side_toxic_spikes", 0);
+                            variable_struct_set(_Bslot_rrr, "_side_stealth_rock", 0);
+                            variable_struct_set(_Bslot_rrr, "_side_sticky_web", false);
+                            // Request a clear-hazards animation and dialog
+                            try { __battle_request_animation_safe(_pid, { type: "clear_hazards", actor: A, target: D }); } catch (e_anim2) {}
+                            try { var nmD = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokémon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, string(nmD) + " cleared the field!"); } catch (e_msgd) {}
+                        } catch (e_defc) {}
+                    }
+                    // Mark that a meta-effect change occurred so UI updates can run
+                    try { variable_struct_set(_Bslot_rrr, "_meta_effect_applied", true); } catch (e_me) {}
+                }
+            }
+        } catch (e_hclr) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] hazard-clear failed: " + string(e_hclr)); }
 
         // Special-case: Jump Kick (id 26) — if the move missed (dmgh == 0) but the
         // attacker selected Jump Kick, apply miss recoil equal to 50% of attacker's max HP

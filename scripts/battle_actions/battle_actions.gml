@@ -72,6 +72,16 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
 
     var dmg = __battle_calc_damage(_A, _D, _move_id, _mv_power);
     var before = __battle_hp_now(_D);
+    // Temporary debug: print attacker/defender and indices to trace mis-targeting
+    try {
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+            var aname_dbg = (is_struct(_A) && variable_struct_exists(_A, "name")) ? variable_struct_get(_A, "name") : (is_struct(_A) && variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon")) && variable_struct_exists(variable_struct_get(_A, "mon"), "name") ? variable_struct_get(variable_struct_get(_A, "mon"), "name") : "<attacker?>");
+            var dname_dbg = (is_struct(_D) && variable_struct_exists(_D, "name")) ? variable_struct_get(_D, "name") : (is_struct(_D) && variable_struct_exists(_D, "mon") && is_struct(variable_struct_get(_D, "mon")) && variable_struct_exists(variable_struct_get(_D, "mon"), "name") ? variable_struct_get(variable_struct_get(_D, "mon"), "name") : "<defender?>");
+            var a_idx_dbg = (is_struct(_A) && variable_struct_exists(_A, "actor_index") ? string(variable_struct_get(_A, "actor_index")) : (variable_struct_exists(_A, "slot") ? string(variable_struct_get(_A, "slot")) : "?"));
+            var d_idx_dbg = (is_struct(_D) && variable_struct_exists(_D, "actor_index") ? string(variable_struct_get(_D, "actor_index")) : (variable_struct_exists(_D, "slot") ? string(variable_struct_get(_D, "slot")) : "?"));
+            show_debug_message("[dbg][apply_move_damage] pid=" + string(_pid) + ", target_idx_param=" + string(_target_index) + ", move=" + string(_move_id) + ", mv_power=" + string(_mv_power) + ", attacker=[" + string(aname_dbg) + ", idx=" + string(a_idx_dbg) + "], defender=[" + string(dname_dbg) + ", idx=" + string(d_idx_dbg) + "], computed_dmg=" + string(dmg) + ", defender_beforeHP=" + string(before));
+        }
+    } catch (e_dbgd) { }
 
     // Compute type-effectiveness multiplier (best-effort) so we can pick a hit sound
     var mult = 1.0;
@@ -143,6 +153,43 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
             }
         }
     } catch (e_ms) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][move_special] handler error: " + string(e_ms)); }
+
+    // Defensive guard: prevent accidental self-hits when target == attacker and move is not a self-targeting move
+    try {
+        var _att_idx_chk = undefined;
+        if (is_struct(_A) && variable_struct_exists(_A, "actor_index") && is_real(variable_struct_get(_A, "actor_index"))) _att_idx_chk = variable_struct_get(_A, "actor_index");
+        else if (is_struct(_A) && variable_struct_exists(_A, "slot") && is_real(variable_struct_get(_A, "slot"))) _att_idx_chk = variable_struct_get(_A, "slot");
+        var _is_self_target_allowed = false;
+        // Try move meta first
+        try {
+            if (!is_undefined(__battle_get_move_meta) && is_real(_move_id)){
+                var _mm_local = __battle_get_move_meta(_move_id);
+                if (is_struct(_mm_local) && variable_struct_exists(_mm_local, "target")){
+                    var _tstr = string(variable_struct_get(_mm_local, "target"));
+                    _tstr = string_lower(_tstr);
+                    if (string_pos("self", _tstr) > 0 || string_pos("user", _tstr) > 0 || string_pos("own", _tstr) > 0 || string_pos("ally", _tstr) > 0) _is_self_target_allowed = true;
+                }
+            }
+        } catch (e_mmeta) {}
+        // Fallback: check global._moves entry if available
+        try {
+            if (!_is_self_target_allowed && variable_global_exists("_moves") && is_array(global._moves) && is_real(_move_id) && _move_id >= 0 && _move_id < array_length(global._moves)){
+                var _mEntry = global._moves[_move_id];
+                if (is_struct(_mEntry) && variable_struct_exists(_mEntry, "target")){
+                    var _t2 = string(variable_struct_get(_mEntry, "target")); _t2 = string_lower(_t2);
+                    if (string_pos("self", _t2) > 0 || string_pos("user", _t2) > 0 || string_pos("own", _t2) > 0 || string_pos("ally", _t2) > 0) _is_self_target_allowed = true;
+                }
+            }
+        } catch (e_mf) {}
+        if (is_real(_att_idx_chk) && is_real(_target_index) && _att_idx_chk == _target_index && !_is_self_target_allowed){
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) {
+                var _an = (is_struct(_A) && variable_struct_exists(_A, "name") ? variable_struct_get(_A, "name") : "<att?>");
+                var _dn = (is_struct(_D) && variable_struct_exists(_D, "name") ? variable_struct_get(_D, "name") : "<def?>");
+                show_debug_message("[guard][apply_move_damage] prevented accidental self-hit: pid=" + string(_pid) + ", move=" + string(_move_id) + ", attacker=" + string(_an) + ", idx=" + string(_att_idx_chk) + ", defender=" + string(_dn) + ", idx=" + string(_target_index) + ", meta_allows_self=" + string(_is_self_target_allowed));
+            }
+            return [0, before, before];
+        }
+    } catch (e_guard) { /* silently continue to apply damage if guard fails */ }
 
     // Apply damage (this will update hp_now). Pass effectiveness multiplier so SFX choice can match.
     __battle_apply_damage(_pid, _target_index, dmg, mult);
