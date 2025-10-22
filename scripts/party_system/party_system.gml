@@ -63,6 +63,10 @@ function party_open(_pid){
     _P.sum_move_sel = 0;
     _P.sum_learn_sel= 0;
     _P.lock         = 4;
+    // Reorder fainted mons to bottom when opening the party so UI shows alive mons first.
+    if (!is_undefined(party_model_reorder_fainted_to_bottom)){
+        try { party_model_reorder_fainted_to_bottom(_pid); } catch (e_re) {}
+    }
     // Ensure the battle-swap marker is false by default; callers (battle) may set it.
     if (!variable_struct_exists(_P, "_battle_swap_mode")) variable_struct_set(_P, "_battle_swap_mode", false);
     if (!variable_struct_exists(_P, "_battle_swap_mode_forced")) variable_struct_set(_P, "_battle_swap_mode_forced", false);

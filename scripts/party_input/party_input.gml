@@ -14,6 +14,8 @@ function __party_impl_party_update(){
                    summary_spin_angle:0, summary_prev_sel:0 };
         // dummy bag struct for static analysis of bag references in this file
         var _b = { items: [], page:0, sel:0, scroll:0 };
+        // dummy battle slot reference for static analysis of _B fields
+        var _B = { actor:[], turn_queue:[], turn_action_player:undefined, turn_action_enemy:undefined, _pending_close:false };
     }
     if (!variable_global_exists("PARTY")) return;
     var _players = array_length(global.PARTY); if (_players <= 0) return;
@@ -27,10 +29,11 @@ function __party_impl_party_update(){
         if (!_P.open) continue;
         if (_P.lock > 0) _P.lock--;
 
-        var _mons = _P.mons, _n = array_length(_mons), _ROWS = 6;
+    var _mons = _P.mons, _n = array_length(_mons), _ROWS = 6;
+    var _is_forced = (is_struct(_P) && variable_struct_exists(_P, "_battle_swap_mode_forced") && variable_struct_get(_P, "_battle_swap_mode_forced") == true);
 
         if (_P.mode != "select" && _P.mode != "summary_profile" && _P.mode != "summary_moves" && _P.mode != "summary_forget"){
-            if (controls_pressed(_pid,"Run") && _P.lock == 0){ _P.open = false; _P.lock = 2; continue; }
+            if (controls_pressed(_pid,"Run") && _P.lock == 0 && !_is_forced){ _P.open = false; _P.lock = 2; continue; }
         }
 
         switch (_P.mode){
@@ -41,13 +44,34 @@ function __party_impl_party_update(){
                 if (_P.sel <  _P.scroll)        _P.scroll = _P.sel;
                 if (_P.sel >= _P.scroll + _ROWS) _P.scroll = max(0, _P.sel - _ROWS + 1);
                 if (controls_pressed(_pid,"Interact") && _P.lock == 0){
-                    // Always open the submenu/menu when interacting a party member.
-                    // Previously the code forced entry into the learn_summary when a
-                    // pending learn existed; that caused the submenu to be skipped.
-                    // Opening the menu consistently ensures the player sees available
-                    // actions (Summary/Swap/Item/Cancel) and can intentionally navigate
-                    // to the learn UI from the Summary page.
-                    _P.mode = "menu"; _P.menu_sel = 0; _P.lock = 2;
+                    // If opened from a battle for swapping, a single press should
+                    // immediately choose the selected Pokémon as the incoming one.
+                    var _PtmpChk = party_ensure(_pid);
+                    var _inBattleSwapNow = (is_struct(_PtmpChk) && variable_struct_exists(_PtmpChk, "_battle_swap_mode") && variable_struct_get(_PtmpChk, "_battle_swap_mode") && !is_undefined(battle_is_open) && battle_is_open(_pid));
+                    if (_inBattleSwapNow && !is_undefined(battle_switch_to)){
+                        var _dst = _P.sel;
+                        // Prevent selecting fainted mon
+                        var _tmon = party_model_get_mon(_pid, _dst);
+                        var _t_hp = 1;
+                        if (is_struct(_tmon)){
+                            if (variable_struct_exists(_tmon, "hp")) _t_hp = variable_struct_get(_tmon, "hp");
+                            else if (variable_struct_exists(_tmon, "HP")) _t_hp = variable_struct_get(_tmon, "HP");
+                        }
+                        if (is_real(_t_hp) && _t_hp <= 0){
+                            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party][list] cannot swap to fainted idx=" + string(_dst));
+                            _P.lock = 6;
+                        } else {
+                            // Determine if forced (replacement after faint)
+                            var _forced = (is_struct(_PtmpChk) && variable_struct_exists(_PtmpChk, "_battle_swap_mode_forced") && variable_struct_get(_PtmpChk, "_battle_swap_mode_forced") == true);
+                            var _consume = !_forced;
+                            var ok = battle_switch_to(_pid, _dst, { auto_apply:true, consume_turn:_consume, forced:_forced });
+                            if (ok){ if (!is_undefined(party_close)) party_close(_pid); try { var _Btmpg = __battle_ensure_slot(_pid); if (is_struct(_Btmpg)) variable_struct_set(_Btmpg, "_input_grace_until", current_time + 220); } catch (e_ig) {} }
+                            else { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party][list] battle_switch_to returned false; keep party open"); _P.lock = 6; }
+                        }
+                    } else {
+                        // Default behavior: open menu
+                        _P.mode = "menu"; _P.menu_sel = 0; _P.lock = 2;
+                    }
                 }
             break;
 
@@ -57,8 +81,34 @@ function __party_impl_party_update(){
                 if (controls_pressed(_pid,"Interact") && _P.lock == 0){
                     switch (_P.menu_sel){
                         case 0: _P.mode="summary_profile"; _P.sum_move_sel=0; _P.sum_learn_sel=0; _P.lock=2; break;
-            case 1: _P.swap_index = _P.sel; _P.mode="select"; _P.lock=2; 
-                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party][menu] pid=" + string(_pid) + ", swap_index=" + string(_P.swap_index));
+            case 1:
+                _P.swap_index = _P.sel;
+                // If party open was requested from battle (swap mode), perform immediate swap
+                var _Ptmp2 = party_ensure(_pid);
+                var _inBattleSwap2 = (is_struct(_Ptmp2) && variable_struct_exists(_Ptmp2, "_battle_swap_mode") && variable_struct_get(_Ptmp2, "_battle_swap_mode") && !is_undefined(battle_is_open) && battle_is_open(_pid));
+                if (_inBattleSwap2 && !is_undefined(battle_switch_to)){
+                    var _dst2 = _P.swap_index;
+                    // Prevent selecting fainted mon
+                    var _tmon2 = party_model_get_mon(_pid, _dst2);
+                    var _t_hp2 = 1;
+                    if (is_struct(_tmon2)){
+                        if (variable_struct_exists(_tmon2, "hp")) _t_hp2 = variable_struct_get(_tmon2, "hp");
+                        else if (variable_struct_exists(_tmon2, "HP")) _t_hp2 = variable_struct_get(_tmon2, "HP");
+                    }
+                    if (is_real(_t_hp2) && _t_hp2 <= 0){
+                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party][menu] cannot swap to fainted idx=" + string(_dst2));
+                        _P.lock = 6;
+                    } else {
+                        var _forced2 = (is_struct(_Ptmp2) && variable_struct_exists(_Ptmp2, "_battle_swap_mode_forced") && variable_struct_get(_Ptmp2, "_battle_swap_mode_forced") == true);
+                        var _consume2 = !_forced2;
+                        var ok2 = battle_switch_to(_pid, _dst2, { auto_apply:true, consume_turn:_consume2, forced:_forced2 });
+                        if (ok2){ if (!is_undefined(party_close)) party_close(_pid); try { var _Btmpg2 = __battle_ensure_slot(_pid); if (is_struct(_Btmpg2)) variable_struct_set(_Btmpg2, "_input_grace_until", current_time + 220); } catch (e_ig2) {} }
+                        else { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party][menu] battle_switch_to returned false; keep party open"); _P.lock = 6; }
+                    }
+                } else {
+                    _P.mode="select"; _P.lock=2;
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party][menu] pid=" + string(_pid) + ", swap_index=" + string(_P.swap_index));
+                }
                 break;
                         case 2:
                             // Enter item action submenu (Give / Take / Cancel)
@@ -67,7 +117,17 @@ function __party_impl_party_update(){
                             _P.item_menu_sel = 0;
                             _P.lock = 2;
                             break;
-                        case 3: _P.mode="list"; _P.lock=2; break;
+                        case 3:
+                            // If party was opened as a forced swap, disallow cancel/back
+                            var _Ptmp_cancel = party_ensure(_pid);
+                            var _forced_cancel = (is_struct(_Ptmp_cancel) && variable_struct_exists(_Ptmp_cancel, "_battle_swap_mode_forced") && variable_struct_get(_Ptmp_cancel, "_battle_swap_mode_forced") == true);
+                            if (_forced_cancel){
+                                // ignore cancel, keep menu visible briefly
+                                _P.lock = 6;
+                            } else {
+                                _P.mode="list"; _P.lock=2;
+                            }
+                            break;
                     }
                 }
 
@@ -127,7 +187,7 @@ function __party_impl_party_update(){
                             _P.mode = "menu"; _P.lock = 2;
                         }
                     }
-                    if (controls_pressed(_pid,"Run") && _P.lock == 0){ _P.mode = "menu"; _P.lock = 2; }
+                    if (controls_pressed(_pid,"Run") && _P.lock == 0 && !_is_forced){ _P.mode = "menu"; _P.lock = 2; }
                 }
             break;
 
@@ -156,17 +216,35 @@ function __party_impl_party_update(){
                             var _forced = (is_struct(_Ptmp) && variable_struct_exists(_Ptmp, "_battle_swap_mode_forced") && variable_struct_get(_Ptmp, "_battle_swap_mode_forced") == true);
                             // For forced swaps (replacement after faint) the player's turn should NOT be consumed.
                             var _consume = !_forced;
-                            // First update the party model ordering so the battle reads the incoming mon from the updated model
-                            party_model_swap(_pid, _src, _dst);
-                            // Use battle API to animate switch_in and set the party index on the battle slot
-                            var ok = battle_switch_to(_pid, _dst, { auto_apply:true, consume_turn:_consume, forced:_forced });
-                            // Close the party UI (battle will manage intro & dialog)
-                            if (!is_undefined(party_close)) party_close(_pid);
-                            // Give the battle a small input-grace so the switch animation/dialog isn't interrupted
-                            try {
-                                var _Btmpg = __battle_ensure_slot(_pid);
-                                if (is_struct(_Btmpg)) variable_struct_set(_Btmpg, "_input_grace_until", current_time + 220);
-                            } catch (e_ig) {}
+                            // Prevent selecting a fainted Pokémon as the incoming target
+                            var _targetMon = party_model_get_mon(_pid, _dst);
+                            var _t_hp = 1;
+                            if (is_struct(_targetMon)){
+                                if (variable_struct_exists(_targetMon, "hp")) _t_hp = variable_struct_get(_targetMon, "hp");
+                                else if (variable_struct_exists(_targetMon, "HP")) _t_hp = variable_struct_get(_targetMon, "HP");
+                            }
+                            if (is_real(_t_hp) && _t_hp <= 0){
+                                // invalid selection: cannot choose a fainted mon. Give feedback and ignore.
+                                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party][select] cannot swap to fainted mon idx=" + string(_dst));
+                                // optional: play a negative sound if available (no-op if undefined)
+                                if (!is_undefined(audio_play_sound) && false) audio_play_sound(-1, 0, false);
+                            } else {
+                                // Use battle API to animate switch_in; the battle will apply the model swap at midpoint
+                                var ok = battle_switch_to(_pid, _dst, { auto_apply:true, consume_turn:_consume, forced:_forced });
+                                // Only close the party if the battle accepted the switch request.
+                                if (ok){
+                                    if (!is_undefined(party_close)) party_close(_pid);
+                                    // Give the battle a small input-grace so the switch animation/dialog isn't interrupted
+                                    try {
+                                        var _Btmpg = __battle_ensure_slot(_pid);
+                                        if (is_struct(_Btmpg)) variable_struct_set(_Btmpg, "_input_grace_until", current_time + 220);
+                                    } catch (e_ig) {}
+                                } else {
+                                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party][select] battle_switch_to returned false; swap aborted (pid=" + string(_pid) + ", dst=" + string(_dst) + ")");
+                                    // small lock to avoid immediate input spam
+                                    _P.lock = 6;
+                                }
+                            }
                         } else {
                             // Local party swap outside of battle
                             party_model_swap(_pid, _src, _dst);
@@ -183,7 +261,7 @@ function __party_impl_party_update(){
                     }
                     _P.mode="list"; _P.swap_index=-1; _P.lock=2;
                 }
-                if (controls_pressed(_pid,"Run") && _P.lock == 0){ _P.mode="list"; _P.swap_index=-1; _P.lock=2; }
+                if (controls_pressed(_pid,"Run") && _P.lock == 0 && !_is_forced){ _P.mode="list"; _P.swap_index=-1; _P.lock=2; }
             break;
 
             case "select_item":
@@ -271,17 +349,18 @@ function __party_impl_party_update(){
                             var _B2 = __battle_ensure_slot(_pid);
                             if (is_struct(_B2)){
                                 // No player action this turn (item use consumes player's action)
-                                _B2.turn_action_player = undefined;
+                                variable_struct_set(_B2, "turn_action_player", undefined);
                                 // Defensive: clear any stale pending_close flags so the battle isn't closed
                                 // immediately if another codepath set _pending_close earlier.
-                                if (variable_struct_exists(_B2, "_pending_close") && _B2._pending_close){
+                                if (variable_struct_exists(_B2, "_pending_close") && variable_struct_get(_B2, "_pending_close")){
                                     show_debug_message("[party][debug] Clearing stale _pending_close due to in-battle item use (pid=" + string(_pid) + ")");
-                                    _B2._pending_close = false;
+                                    variable_struct_set(_B2, "_pending_close", false);
                                 }
                                 // Choose a simple enemy action locally (avoid referencing external helpers)
                                 var actE = undefined;
-                                if (is_array(_B2.actor) && array_length(_B2.actor) > 1){
-                                    var AE = _B2.actor[1];
+                                var _actor_arr = (variable_struct_exists(_B2, "actor") ? variable_struct_get(_B2, "actor") : undefined);
+                                if (is_array(_actor_arr) && array_length(_actor_arr) > 1){
+                                    var AE = _actor_arr[1];
                                     if (is_struct(AE)){
                                         var choices = [];
                                         for (var __i=0; __i<4; __i++){
@@ -299,11 +378,11 @@ function __party_impl_party_update(){
                                     // Queue the enemy action but DO NOT immediately switch to 'turn'.
                                     // Instead, set a defer flag so `battle_update` will begin the turn
                                     // only after any open dialog has fully closed.
-                                    _B2.turn_action_enemy = actE;
-                                    _B2.turn_queue = [ actE ];
-                                    _B2.turn_i = 0;
+                                    variable_struct_set(_B2, "turn_action_enemy", actE);
+                                    variable_struct_set(_B2, "turn_queue", [ actE ]);
+                                    variable_struct_set(_B2, "turn_i", 0);
                                     // Defer starting the turn until after dialog closes
-                                    _B2._defer_turn_until_no_dialog = true;
+                                    variable_struct_set(_B2, "_defer_turn_until_no_dialog", true);
                                     show_debug_message("[party][debug] queued enemy action (deferred) for pid=" + string(_pid) + ", slot=" + string(actE.slot));
                                 }
                             }
@@ -348,16 +427,20 @@ function __party_impl_party_update(){
                                             // fallback: try resolving from item_id via bag pages
                                             var _tryName = undefined;
                                             var _b_src = bag_inventory_ensure(bpid);
-                                            if (is_struct(_b_src)){
-                                                for (var __p=0; __p<array_length(_b_src.items); __p++){
-                                                    var __arr = _b_src.items[__p];
-                                                    for (var __r=0; __r<array_length(__arr); __r++){
-                                                        var __it = __arr[__r];
-                                                        if (is_struct(__it) && variable_struct_exists(__it, "item_id") && __it.item_id == item_id){
-                                                            if (variable_struct_exists(__it, "real_name")) { _tryName = string(__it.real_name); break; }
+                                            if (is_struct(_b_src) && variable_struct_exists(_b_src, "items")){
+                                                var __items_arr = variable_struct_get(_b_src, "items");
+                                                if (is_array(__items_arr)){
+                                                    for (var __p=0; __p<array_length(__items_arr); __p++){
+                                                        var __arr = __items_arr[__p];
+                                                        if (!is_array(__arr)) continue;
+                                                        for (var __r=0; __r<array_length(__arr); __r++){
+                                                            var __it = __arr[__r];
+                                                            if (is_struct(__it) && variable_struct_exists(__it, "item_id") && variable_struct_get(__it, "item_id") == item_id){
+                                                                if (variable_struct_exists(__it, "real_name")) { _tryName = string(variable_struct_get(__it, "real_name")); break; }
+                                                            }
                                                         }
+                                                        if (!is_undefined(_tryName)) break;
                                                     }
-                                                    if (!is_undefined(_tryName)) break;
                                                 }
                                             }
                                             if (!is_undefined(_tryName)) variable_struct_set(target, "held_item_real_name", _tryName);
@@ -372,8 +455,9 @@ function __party_impl_party_update(){
                                         if (!is_undefined(party_close)) party_close(_pid);
                                         if (!is_undefined(bag_open)) bag_open(bpid);
                                         var _b_after = bag_inventory_ensure(bpid);
-                                        _b_after.page = clamp(page, 0, max(0, array_length(_b_after.items) - 1));
-                                        var _arrAfter = _b_after.items[_b_after.page];
+                                        var _items_after = (is_struct(_b_after) && variable_struct_exists(_b_after, "items")) ? variable_struct_get(_b_after, "items") : [];
+                                        _b_after.page = clamp(page, 0, max(0, array_length(_items_after) - 1));
+                                        var _arrAfter = (is_array(_items_after) && _b_after.page >= 0 && _b_after.page < array_length(_items_after)) ? _items_after[_b_after.page] : [];
                                         var _maxSel = max(0, array_length(_arrAfter) - 1);
                                         _b_after.sel = clamp(brow, 0, _maxSel);
                                         var _rows = 8;
@@ -393,7 +477,7 @@ function __party_impl_party_update(){
                     _P.mode = "list"; _P.lock = 2;
                 }
 
-                if (controls_pressed(_pid,"Run") && _P.lock == 0){ _P.mode = "list"; _P.lock = 2; _P.give_pending = undefined; }
+                if (controls_pressed(_pid,"Run") && _P.lock == 0 && !_is_forced){ _P.mode = "list"; _P.lock = 2; _P.give_pending = undefined; }
             break;
 
             case "summary_profile":
@@ -431,7 +515,7 @@ function __party_impl_party_update(){
                         }
                     }
                 }
-                if (controls_pressed(_pid,"Run") && _P.lock == 0){ _P.mode = "list"; _P.lock = 2; }
+                if (controls_pressed(_pid,"Run") && _P.lock == 0 && !_is_forced){ _P.mode = "list"; _P.lock = 2; }
             break;
 
             case "summary_moves":
@@ -590,7 +674,7 @@ function __party_impl_party_update(){
                         }
                     }
                 }
-                if (controls_pressed(_pid,"Run") && _P.lock == 0){ _P.mode = "summary_profile"; _P.lock = 2; }
+                if (controls_pressed(_pid,"Run") && _P.lock == 0 && !_is_forced){ _P.mode = "summary_profile"; _P.lock = 2; }
             break;
 
             case "summary_forget":

@@ -6,4 +6,3 @@ pause_update();
 party_update();     // alongside your bags_update();
 
 // (Developer F12 debug removed)
-

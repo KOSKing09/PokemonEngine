@@ -2679,6 +2679,8 @@ if (is_struct(A1) && variable_struct_exists(A1, "hp_now") && variable_struct_get
                     party_open(_pid);
                     var _Ptmp = party_ensure(_pid);
                     try { if (is_struct(_Ptmp)) { variable_struct_set(_Ptmp, "_battle_swap_mode", true); variable_struct_set(_Ptmp, "_battle_swap_mode_forced", true); } } catch (e_bt) {}
+                    // Ensure fainted mons are moved to bottom so player can't select them
+                    // party_open already reorders fainted mons to bottom; no-op here.
                 } else {
                     // Fallback: show a simple dialog if party UI isn't available
                     __battle_stub_dialog(_pid, string(_name0) + " fainted!\n(TODO) Switch to another Pokémon.");
@@ -3211,8 +3213,22 @@ function __battle_check_play_cries(_pid){
 // API: switch the player's active Pokémon to the party index with visuals
 function battle_switch_to(_pid, _party_idx, _opts){
     var _B = __battle_ensure_slot(_pid);
-    if (!is_struct(_B) || !_B.sys_open) return false;
-    if (string(_B.phase) != "command") return false;
+    if (!is_struct(_B) || !variable_struct_exists(_B, "sys_open") || !variable_struct_get(_B, "sys_open")){
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_switch_to] rejected: no valid battle slot or sys_open=false (pid=" + string(_pid) + ")");
+        return false;
+    }
+    var _phase_val = (variable_struct_exists(_B, "phase") ? string(variable_struct_get(_B, "phase")) : "<none>");
+    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+        show_debug_message("[battle_switch_to] pid=" + string(_pid) + ", party_idx=" + string(_party_idx) + ", sys_open=" + string(variable_struct_get(_B, "sys_open")) + ", phase=" + _phase_val);
+    }
+    if (_phase_val != "command"){
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_switch_to] rejected: phase not 'command' (pid=" + string(_pid) + ", phase=" + _phase_val + ")");
+        return false;
+    }
+
+    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+        show_debug_message("[battle_switch_to] pid=" + string(_pid) + ", party_idx=" + string(_party_idx));
+    }
 
     if (is_undefined(_opts)) _opts = {};
     _B._switch_target_idx = _party_idx;

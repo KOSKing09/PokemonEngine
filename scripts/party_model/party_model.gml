@@ -161,3 +161,39 @@ function party_model_update_mon(_pid, _index, _mon){
     }
     return true;
 }
+
+// Move fainted mons (hp <= 0) to the end of the party array preserving relative order.
+// Returns true if any reorder occurred.
+function party_model_reorder_fainted_to_bottom(_pid){
+    var _mons = party_model_get_mons(_pid);
+    if (!is_array(_mons)) return false;
+    var _alive = [];
+    var _fainted = [];
+    var changed = false;
+    for (var i = 0; i < array_length(_mons); i++){
+        var m = _mons[i];
+        var hp = 1;
+        if (is_struct(m)){
+            if (variable_struct_exists(m, "hp")) hp = m.hp;
+            else if (variable_struct_exists(m, "HP")) hp = m.HP;
+        }
+        if (is_real(hp) && hp <= 0) array_push(_fainted, m);
+        else array_push(_alive, m);
+    }
+    if (array_length(_fainted) > 0){
+        var _new = array_create(0);
+        for (var ai = 0; ai < array_length(_alive); ai++) array_push(_new, _alive[ai]);
+        for (var fi = 0; fi < array_length(_fainted); fi++) array_push(_new, _fainted[fi]);
+        // Check whether ordering changed
+        if (array_length(_new) == array_length(_mons)){
+            for (var k = 0; k < array_length(_new); k++){
+                if (_new[k] != _mons[k]){ changed = true; break; }
+            }
+        } else changed = true;
+        if (changed){
+            var _P = global.PARTY[_pid]; _P.mons = _new; global.PARTY[_pid] = _P;
+            return true;
+        }
+    }
+    return false;
+}
