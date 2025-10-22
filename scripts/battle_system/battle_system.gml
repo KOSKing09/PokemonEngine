@@ -251,6 +251,7 @@ function __battle_ensure_slot(_pid){
             _meta_effect_applied: false,
             _last_crit: false,
             _pending_status_msgs: [],
+        result: "",
             // Switch and UI defaults
             _switch_target_idx: undefined,
             _switch_opts: undefined,
@@ -1490,6 +1491,15 @@ function battle_close(_pid){
     // Clear any temporary per-battle weather state
     try { if (variable_struct_exists(_B, "_weather")) variable_struct_set(_B, "_weather", undefined); } catch (e_w) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][close] failed clearing weather: " + string(e_w)); }
 
+    // Temporary defeat handling: if the player lost, fully heal the party in-place
+    // (until Pokémon Centers are implemented). This restores HP to max and clears
+    // all status effects but does not change the player's location.
+    try {
+        if (variable_struct_exists(_B, "result") && string(_B.result) == "lose"){
+            if (!is_undefined(__battle_heal_party_full)) __battle_heal_party_full(_pid);
+        }
+    } catch (e_healclose) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][close] heal-on-lose failed: " + string(e_healclose)); }
+
     // Ensure the battle music (bgm) is stopped (use stored resource when possible)
     try {
         var _stop_bgm_res_local = (variable_struct_exists(_B, "_battle_music") ? variable_struct_get(_B, "_battle_music") : undefined);
@@ -1551,6 +1561,39 @@ function battle_close(_pid){
     } catch (e_rrall) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] restore/fallback failed: " + string(e_rrall)); }
 }
 
+// ===== Intro animation extension hooks =====
+/// battle_intro_set_handlers(pid, update_fn, draw_fn)
+/// Allows external code to register intro sprite animation handlers.
+/// Handlers will be called during intro phases: transition_in, intro_enemy, intro_call, intro_player.
+function battle_intro_set_handlers(_pid, _update_fn, _draw_fn){
+    var _B = __battle_ensure_slot(_pid);
+    try { variable_struct_set(_B, "_intro_update_fn", _update_fn); } catch (e1) {}
+    try { variable_struct_set(_B, "_intro_draw_fn", _draw_fn); } catch (e2) {}
+}
+
+/// Internal: update hook for intro animations (safe no-op by default)
+function __battle_intro_update(_pid){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B)) return;
+    if (variable_struct_exists(_B, "_intro_update_fn")){
+        var _fn = variable_struct_get(_B, "_intro_update_fn");
+        if (!is_undefined(_fn)){
+            try { _fn(_pid, _B); } catch (e_upd) {}
+        }
+    }
+}
+
+/// Internal: draw hook for intro animations (safe no-op by default)
+function __battle_intro_draw(_pid, _B){
+    if (!is_struct(_B)) return;
+    if (variable_struct_exists(_B, "_intro_draw_fn")){
+        var _fn = variable_struct_get(_B, "_intro_draw_fn");
+        if (!is_undefined(_fn)){
+            try { _fn(_pid, _B); } catch (e_dr) {}
+        }
+    }
+}
+
 // ===== Update / Draw =====
 function battle_update(_pid){
     if (!battle_is_open(_pid)) return;
@@ -1601,6 +1644,16 @@ function battle_update(_pid){
         _B._last_phase = _curr_phase;
     }
 
+    // Intro sprite animation hook: allow custom per-battle intro animation logic to update
+    if (!is_undefined(__battle_intro_update)){
+        var _phname_upd = (variable_struct_exists(_B, "phase") ? string(_B.phase) : "");
+        if (_phname_upd == "transition_in" || _phname_upd == "intro_enemy" || _phname_upd == "intro_call" || _phname_upd == "intro_player"){
+            __battle_intro_update(_pid);
+        }
+    }
+
+    // (Do not pause update here during closing; we handle closing below so the fade can complete and then close.)
+
     var dlg_open = (is_undefined(dialog2p_is_open) ? false : dialog2p_is_open(_pid));
     if (dlg_open){
         if (!is_undefined(dialog2p_update)) dialog2p_update(_pid);
@@ -1612,11 +1665,9 @@ function battle_update(_pid){
         if (page != _B._dlg_page_last){
             var now = current_time;
             if (!variable_struct_exists(_B, "_intro_completed") || !_B._intro_completed){
-                if (page == 0){
-                    if (string(_B.phase) == "transition_in"){
-                        _B.phase = "intro_enemy"; _B.phase_start_ms = now;
-                    }
-                } else if (page == 1){
+                // Do not skip the fade-in: let transition_in complete based on its timer.
+                // We only advance to intro_call on page==1; intro_enemy is entered when transition_in finishes.
+                if (page == 1){
                     _B.phase = "intro_call"; _B.phase_start_ms = now;
                 }
             }
@@ -1624,7 +1675,13 @@ function battle_update(_pid){
         }
 
         var now2 = current_time;
-        if (string(_B.phase) == "intro_enemy"){
+        // While dialog is open, keep the fade-in progression if we're still in transition_in
+        if (string(_B.phase) == "transition_in"){
+            var dur_t = _B.phase_durs.transition;
+            var elapsed_t = now2 - (variable_struct_exists(_B,"phase_start_ms") ? _B.phase_start_ms : now2);
+            _B.phase_progress = max(0, min(1, elapsed_t / max(1, dur_t)));
+            if (elapsed_t >= dur_t){ _B.phase = "intro_enemy"; _B.phase_start_ms = now2; }
+        } else if (string(_B.phase) == "intro_enemy"){
             var dur_e = _B.phase_durs.enemy;
             var elapsed_e = now2 - (variable_struct_exists(_B,"phase_start_ms") ? _B.phase_start_ms : now2);
             _B.phase_progress = max(0, min(1, elapsed_e / max(1, dur_e)));
@@ -1666,52 +1723,63 @@ function battle_update(_pid){
                 // delay has expired, open the party UI now.
                 var _dlg_open_now = (is_undefined(dialog2p_is_open) ? false : dialog2p_is_open(_pid));
                 if (_delay_ok && !_dlg_open_now){
-                    if (!is_undefined(party_open) && !is_undefined(party_ensure)){
-                        party_open(_pid);
-                        var _Ptmp2 = party_ensure(_pid);
-                        try {
-                            if (is_struct(_Ptmp2)){
-                                // Prefer central helper if available, otherwise fall back.
-                                try {
-                                    if (!is_undefined(party_set_swap_mode_impl)) party_set_swap_mode_impl(_pid, true, true);
-                                    else {
-                                        // fallback: ensure the struct fields exist then set directly
-                                        try { if (!variable_struct_exists(_Ptmp2, "_battle_swap_mode")) variable_struct_set(_Ptmp2, "_battle_swap_mode", true); else variable_struct_set(_Ptmp2, "_battle_swap_mode", true); } catch (e_f1) {}
-                                        try { if (!variable_struct_exists(_Ptmp2, "_battle_swap_mode_forced")) variable_struct_set(_Ptmp2, "_battle_swap_mode_forced", true); else variable_struct_set(_Ptmp2, "_battle_swap_mode_forced", true); } catch (e_f2) {}
+                    // Guard: if battle is already marked as a loss OR there is no usable Pokémon,
+                    // do NOT open the party UI. Clear the pending flag and exit this branch.
+                    var __isLoss = false;
+                    try { if (variable_struct_exists(_B, "result")) __isLoss = (string(variable_struct_get(_B, "result")) == "lose"); } catch (e_rl) { __isLoss = false; }
+                    var __idxAlive = -1;
+                    try { __idxAlive = __party_find_next_alive(_pid); } catch (e_fn) { __idxAlive = -1; }
+                    if (__isLoss || __idxAlive < 0){
+                        try { variable_struct_set(_B, "_pending_open_party", false); } catch (e_clx) {}
+                        try { variable_struct_set(_B, "_pending_open_party_next_mon_ref", undefined); } catch (e_clx2) {}
+                    } else {
+                        if (!is_undefined(party_open) && !is_undefined(party_ensure)){
+                            party_open(_pid);
+                            var _Ptmp2 = party_ensure(_pid);
+                            try {
+                                if (is_struct(_Ptmp2)){
+                                    // Prefer central helper if available, otherwise fall back.
+                                    try {
+                                        if (!is_undefined(party_set_swap_mode_impl)) party_set_swap_mode_impl(_pid, true, true);
+                                        else {
+                                            // fallback: ensure the struct fields exist then set directly
+                                            try { if (!variable_struct_exists(_Ptmp2, "_battle_swap_mode")) variable_struct_set(_Ptmp2, "_battle_swap_mode", true); else variable_struct_set(_Ptmp2, "_battle_swap_mode", true); } catch (e_f1) {}
+                                            try { if (!variable_struct_exists(_Ptmp2, "_battle_swap_mode_forced")) variable_struct_set(_Ptmp2, "_battle_swap_mode_forced", true); else variable_struct_set(_Ptmp2, "_battle_swap_mode_forced", true); } catch (e_f2) {}
+                                        }
+                                    } catch (e_h) {
+                                        // last-resort fallback: best-effort set
+                                        try { variable_struct_set(_Ptmp2, "_battle_swap_mode", true); variable_struct_set(_Ptmp2, "_battle_swap_mode_forced", true); } catch (e2) {}
                                     }
-                                } catch (e_h) {
-                                    // last-resort fallback: best-effort set
-                                    try { variable_struct_set(_Ptmp2, "_battle_swap_mode", true); variable_struct_set(_Ptmp2, "_battle_swap_mode_forced", true); } catch (e2) {}
-                                }
-                                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
-                                    show_debug_message("[battle_system] pending_open_party -> pid=" + string(_pid) + ", set _battle_swap_mode=true, _battle_swap_mode_forced=true");
-                                }
-                                // Allow immediate selection on forced opens
-                                variable_struct_set(_Ptmp2, "lock", 0);
-                                // Attempt to restore a preferred sel if provided
-                                try {
-                                    if (variable_struct_exists(_B, "_pending_open_party_next_mon_ref")){
-                                        var _mref2 = variable_struct_get(_B, "_pending_open_party_next_mon_ref");
-                                        if (is_struct(_mref2)){
-                                            var _mons2 = party_model_get_mons(_pid);
-                                            for (var _ii2 = 0; _ii2 < array_length(_mons2); ++_ii2){
-                                                if (is_struct(_mons2[_ii2]) && (_mons2[_ii2] == _mref2)){
-                                                    _Ptmp2.sel = _ii2; break;
+                                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                                        show_debug_message("[battle_system] pending_open_party -> pid=" + string(_pid) + ", set _battle_swap_mode=true, _battle_swap_mode_forced=true");
+                                    }
+                                    // Allow immediate selection on forced opens
+                                    variable_struct_set(_Ptmp2, "lock", 0);
+                                    // Attempt to restore a preferred sel if provided
+                                    try {
+                                        if (variable_struct_exists(_B, "_pending_open_party_next_mon_ref")){
+                                            var _mref2 = variable_struct_get(_B, "_pending_open_party_next_mon_ref");
+                                            if (is_struct(_mref2)){
+                                                var _mons2 = party_model_get_mons(_pid);
+                                                for (var _ii2 = 0; _ii2 < array_length(_mons2); ++_ii2){
+                                                    if (is_struct(_mons2[_ii2]) && (_mons2[_ii2] == _mref2)){
+                                                        _Ptmp2.sel = _ii2; break;
+                                                    }
                                                 }
                                             }
                                         }
-                                    }
-                                } catch (e_map2) {}
-                                try { if (!is_undefined(party_model_reorder_fainted_to_bottom)) party_model_reorder_fainted_to_bottom(_pid); } catch (e_reord2) {}
-                            }
-                        } catch (e_bt2) {}
-                    } else {
-                        // Fallback: if party UI isn't available, re-open a simple faint dialog
-                        try { if (!is_undefined(__battle_stub_dialog)) __battle_stub_dialog(_pid, "(Unknown) fainted!\n(TODO) Switch to another Pokémon."); } catch (e_fd) {}
+                                    } catch (e_map2) {}
+                                    try { if (!is_undefined(party_model_reorder_fainted_to_bottom)) party_model_reorder_fainted_to_bottom(_pid); } catch (e_reord2) {}
+                                }
+                            } catch (e_bt2) {}
+                        } else {
+                            // Fallback: if party UI isn't available, re-open a simple faint dialog
+                            try { if (!is_undefined(__battle_stub_dialog)) __battle_stub_dialog(_pid, "(Unknown) fainted!\n(TODO) Switch to another Pok\u00e9mon."); } catch (e_fd) {}
+                        }
+                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][faint] executing scheduled party_open for pid=" + string(_pid));
+                        try { variable_struct_set(_B, "_pending_open_party", false); } catch (e_cl) {}
+                        try { variable_struct_set(_B, "_pending_open_party_next_mon_ref", undefined); } catch (e_cl2) {}
                     }
-                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][faint] executing scheduled party_open for pid=" + string(_pid));
-                    try { variable_struct_set(_B, "_pending_open_party", false); } catch (e_cl) {}
-                    try { variable_struct_set(_B, "_pending_open_party_next_mon_ref", undefined); } catch (e_cl2) {}
                 }
             }
         } catch (e_pending_open) {}
@@ -1741,8 +1809,58 @@ function battle_update(_pid){
         if (is_real(now3)) variable_struct_set(_B, "_input_grace_until", now3 + 180);
         if (_B.phase == "intro_call"){
             _B.phase = "intro_player"; _B.phase_start_ms = now3;
-        } else if (_B._pending_close){
-            _B._pending_close = false; battle_close(_pid); return;
+        } else if (variable_struct_exists(_B, "_pending_close") && variable_struct_get(_B, "_pending_close")){
+            // If there are queued end-of-battle messages (e.g., defeat pages), show them BEFORE starting the fade
+            // so they are not skipped by the close flow.
+            try {
+                var _dlg_now_c = (is_undefined(dialog2p_is_open) ? false : dialog2p_is_open(_pid));
+                var _has_msgs_c = (variable_struct_exists(_B, "_pending_status_msgs") && is_array(variable_struct_get(_B, "_pending_status_msgs")) && array_length(variable_struct_get(_B, "_pending_status_msgs")) > 0);
+                var _fainting_c = (variable_struct_exists(_B, "_faint_pending") && variable_struct_get(_B, "_faint_pending"));
+                var _ph_c = (variable_struct_exists(_B, "phase") ? string(_B.phase) : "");
+                var _skip_c = (_ph_c == "transition_in" || _ph_c == "intro_enemy" || _ph_c == "intro_call" || _ph_c == "intro_player" || _ph_c == "switch_in");
+                if (_has_msgs_c && !_fainting_c && !_dlg_now_c && !_skip_c){
+                    var _pack_c = (is_undefined(__battle_coalesce_head_stat_msgs) ? undefined : __battle_coalesce_head_stat_msgs(_B));
+                    var _text_c = undefined;
+                    var _cons_c = 1;
+                    if (is_struct(_pack_c) && variable_struct_exists(_pack_c, "text")){
+                        _text_c = variable_struct_get(_pack_c, "text");
+                        if (variable_struct_exists(_pack_c, "consumed") && is_real(variable_struct_get(_pack_c, "consumed"))) _cons_c = max(1, floor(variable_struct_get(_pack_c, "consumed")));
+                    } else {
+                        var _arr_c = variable_struct_get(_B, "_pending_status_msgs");
+                        _text_c = _arr_c[0];
+                        _cons_c = 1;
+                    }
+                    var _old_c = variable_struct_get(_B, "_pending_status_msgs");
+                    var _new_c = [];
+                    for (var _ii_c = _cons_c; _ii_c < array_length(_old_c); ++_ii_c) _new_c[array_length(_new_c)] = _old_c[_ii_c];
+                    variable_struct_set(_B, "_pending_status_msgs", _new_c);
+                    try { if (!is_undefined(__battle_stub_dialog)) __battle_stub_dialog(_pid, _text_c); } catch (e_msgc) {}
+                    return;
+                }
+            } catch (e_preclose_msg) {}
+            // Start or progress a fade-to-black before closing the battle
+            var nowc = current_time;
+            var _has_start = (variable_struct_exists(_B, "_close_start_ms") && is_real(variable_struct_get(_B, "_close_start_ms")));
+            if (!_has_start){
+                variable_struct_set(_B, "_close_start_ms", nowc);
+                variable_struct_set(_B, "_close_dur_ms", 600);
+                variable_struct_set(_B, "_closing", true);
+                return;
+            } else {
+                var _st = (is_real(variable_struct_get(_B, "_close_start_ms")) ? variable_struct_get(_B, "_close_start_ms") : nowc);
+                var elapsed_close = nowc - _st;
+                var _durv = (variable_struct_exists(_B, "_close_dur_ms") && is_real(variable_struct_get(_B, "_close_dur_ms")) ? variable_struct_get(_B, "_close_dur_ms") : 600);
+                var dur_close = _durv;
+                if (elapsed_close >= dur_close){
+                    variable_struct_set(_B, "_closing", false);
+                    variable_struct_set(_B, "_pending_close", false);
+                    battle_close(_pid);
+                    return;
+                } else {
+                    // keep fading; defer close until duration elapses
+                    return;
+                }
+            }
         }
         // If some code deferred starting the turn until after dialog closed, do it now.
         if (variable_struct_exists(_B, "_defer_turn_until_no_dialog") && _B._defer_turn_until_no_dialog){
@@ -1753,6 +1871,64 @@ function battle_update(_pid){
                 return;
             }
         }
+    }
+
+    // Global closing handler: if a close is pending or an active closing fade is in progress,
+    // run the fade timer here and close when done. This covers cases where we scheduled close
+    // without a dialog closing event on the exact frame.
+    try {
+        var __isPendingClose = (variable_struct_exists(_B, "_pending_close") && variable_struct_get(_B, "_pending_close"));
+        var __isClosing = (variable_struct_exists(_B, "_closing") && variable_struct_get(_B, "_closing"));
+        if (__isPendingClose || __isClosing){
+            // If we owe the player queued messages (e.g., defeat text), surface them before starting/resuming the fade
+            try {
+                var _dlg_now_g = (is_undefined(dialog2p_is_open) ? false : dialog2p_is_open(_pid));
+                var _has_msgs_g = (variable_struct_exists(_B, "_pending_status_msgs") && is_array(variable_struct_get(_B, "_pending_status_msgs")) && array_length(variable_struct_get(_B, "_pending_status_msgs")) > 0);
+                var _fainting_g = (variable_struct_exists(_B, "_faint_pending") && variable_struct_get(_B, "_faint_pending"));
+                var _ph_g = (variable_struct_exists(_B, "phase") ? string(_B.phase) : "");
+                var _skip_g = (_ph_g == "transition_in" || _ph_g == "intro_enemy" || _ph_g == "intro_call" || _ph_g == "intro_player" || _ph_g == "switch_in");
+                if (_has_msgs_g && !_fainting_g && !_dlg_now_g && !_skip_g){
+                    var _pack_g = (is_undefined(__battle_coalesce_head_stat_msgs) ? undefined : __battle_coalesce_head_stat_msgs(_B));
+                    var _text_g = undefined;
+                    var _cons_g = 1;
+                    if (is_struct(_pack_g) && variable_struct_exists(_pack_g, "text")){
+                        _text_g = variable_struct_get(_pack_g, "text");
+                        if (variable_struct_exists(_pack_g, "consumed") && is_real(variable_struct_get(_pack_g, "consumed"))) _cons_g = max(1, floor(variable_struct_get(_pack_g, "consumed")));
+                    } else {
+                        var _arr_g = variable_struct_get(_B, "_pending_status_msgs");
+                        _text_g = _arr_g[0];
+                        _cons_g = 1;
+                    }
+                    var _old_g = variable_struct_get(_B, "_pending_status_msgs");
+                    var _new_g = [];
+                    for (var _ii_g = _cons_g; _ii_g < array_length(_old_g); ++_ii_g) _new_g[array_length(_new_g)] = _old_g[_ii_g];
+                    variable_struct_set(_B, "_pending_status_msgs", _new_g);
+                    try { if (!is_undefined(__battle_stub_dialog)) __battle_stub_dialog(_pid, _text_g); } catch (e_msgg) {}
+                    return;
+                }
+            } catch (e_preclose_msg_g) {}
+            var nowc2 = current_time;
+            var hasStart2 = (variable_struct_exists(_B, "_close_start_ms") && is_real(variable_struct_get(_B, "_close_start_ms")));
+            if (!hasStart2){
+                variable_struct_set(_B, "_close_start_ms", nowc2);
+                variable_struct_set(_B, "_close_dur_ms", 600);
+                variable_struct_set(_B, "_closing", true);
+                return;
+            } else {
+                var st2 = (is_real(variable_struct_get(_B, "_close_start_ms")) ? variable_struct_get(_B, "_close_start_ms") : nowc2);
+                var dur2 = (variable_struct_exists(_B, "_close_dur_ms") && is_real(variable_struct_get(_B, "_close_dur_ms")) ? variable_struct_get(_B, "_close_dur_ms") : 600);
+                var el2 = nowc2 - st2;
+                if (el2 >= dur2){
+                    variable_struct_set(_B, "_closing", false);
+                    variable_struct_set(_B, "_pending_close", false);
+                    battle_close(_pid);
+                    return;
+                } else {
+                    return;
+                }
+            }
+        }
+    } catch (e_closeflow) {}
             // If any status messages were deferred (we applied status with skip_dialog=true),
             // show them now in-order before other pending flows so the player sees them.
             // However, do NOT show deferred status messages during intro/transition/switch
@@ -1768,12 +1944,22 @@ function battle_update(_pid){
             if (!_skip_pending_show && ( !variable_struct_exists(_B, "_faint_pending") || !variable_struct_get(_B, "_faint_pending") ) && variable_struct_exists(_B, "_pending_status_msgs") && is_array(variable_struct_get(_B, "_pending_status_msgs"))){
                 var _ps = variable_struct_get(_B, "_pending_status_msgs");
                 if (array_length(_ps) > 0){
-                    var _m = _ps[0];
-                    // pop first
+                    // Coalesce consecutive stat-change messages into one page
+                    var pack = __battle_coalesce_head_stat_msgs(_B);
+                    var _text_to_show = undefined;
+                    var _consume_n = 1;
+                    if (is_struct(pack) && variable_struct_exists(pack, "text")){
+                        _text_to_show = variable_struct_get(pack, "text");
+                        if (variable_struct_exists(pack, "consumed") && is_real(variable_struct_get(pack, "consumed"))) _consume_n = max(1, floor(variable_struct_get(pack, "consumed")));
+                    } else {
+                        _text_to_show = _ps[0];
+                        _consume_n = 1;
+                    }
+                    // pop consumed items
                     var _new = [];
-                    for (var _ii = 1; _ii < array_length(_ps); ++_ii) _new[array_length(_new)] = _ps[_ii];
+                    for (var _ii = _consume_n; _ii < array_length(_ps); ++_ii) _new[array_length(_new)] = _ps[_ii];
                     variable_struct_set(_B, "_pending_status_msgs", _new);
-                    try { __battle_stub_dialog(_pid, _m); } catch (e_p) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][pending_status] failed to show: " + string(e_p)); }
+                    try { __battle_stub_dialog(_pid, _text_to_show); } catch (e_p) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][pending_status] failed to show: " + string(e_p)); }
                     return;
                 }
             }
@@ -1824,7 +2010,7 @@ function battle_update(_pid){
         // the player returns to the same spot they had selected.
         // Individual code paths that need to force a reset should set
         // `_B.sys_ui.menu`/`selX`/`selY` explicitly.
-    }
+
 
     // Phase timing (intros + switch)
     if (string(_B.phase) == "transition_in" || string(_B.phase) == "intro_enemy" || string(_B.phase) == "intro_call" || string(_B.phase) == "intro_player" || string(_B.phase) == "switch_in"){
@@ -2036,6 +2222,13 @@ function battle_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     draw_rectangle(__bxu(_pid,0), __byu(_pid,0), __bxu(_pid,240), __byu(_pid,160), false);
 
     __battle_draw_battlers(_pid, _B);
+    // Optional intro sprite animations hook: draw during intro phases
+    if (!is_undefined(__battle_intro_draw)){
+        var _phname = (variable_struct_exists(_B, "phase") ? string(_B.phase) : "");
+        if (_phname == "transition_in" || _phname == "intro_enemy" || _phname == "intro_call" || _phname == "intro_player"){
+            __battle_intro_draw(_pid, _B);
+        }
+    }
 
     __battle_enemy_box_rect(_pid, 16,16,112,40, _B.actor[1]);
     __battle_player_box_rect(_pid,112,104,128,48, _B.actor[0]);
@@ -2055,6 +2248,26 @@ function battle_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
 
     // Draw any overlays that should appear above the UI (pokéball during catch animation)
     if (!is_undefined(__battle_draw_ball_overlay)) __battle_draw_ball_overlay(_pid, _B);
+
+    // Fade-to-black overlay during closing
+    if (variable_struct_exists(_B, "_closing") && variable_struct_get(_B, "_closing")){
+        var start_ms = current_time;
+        if (variable_struct_exists(_B, "_close_start_ms")){
+            var __tmp_s = variable_struct_get(_B, "_close_start_ms");
+            if (is_real(__tmp_s)) start_ms = __tmp_s;
+        }
+        var dur_ms = 600;
+        if (variable_struct_exists(_B, "_close_dur_ms")){
+            var __tmp_d = variable_struct_get(_B, "_close_dur_ms");
+            if (is_real(__tmp_d)) dur_ms = __tmp_d;
+        }
+        var tnow     = current_time;
+        var prog     = clamp((tnow - start_ms) / max(1, dur_ms), 0, 1);
+        draw_set_color(c_black);
+        draw_set_alpha(prog);
+        draw_rectangle(__bxu(_pid,0), __byu(_pid,0), __bxu(_pid,240), __byu(_pid,160), false);
+        draw_set_alpha(1);
+    }
 
     __bui_end(_pid);
 }
@@ -2712,11 +2925,21 @@ function __battle_step_turn_if_ready(_pid){
         if (( !variable_struct_exists(_B, "_faint_pending") || !variable_struct_get(_B, "_faint_pending") ) && variable_struct_exists(_B, "_pending_status_msgs") && is_array(variable_struct_get(_B, "_pending_status_msgs"))){
             var _psend = variable_struct_get(_B, "_pending_status_msgs");
             if (array_length(_psend) > 0){
-                var _m = _psend[0];
+                // Coalesce consecutive stat-change messages into one page at end-of-turn as well
+                var pack2 = __battle_coalesce_head_stat_msgs(_B);
+                var _text_to_show2 = undefined;
+                var _consume_n2 = 1;
+                if (is_struct(pack2) && variable_struct_exists(pack2, "text")){
+                    _text_to_show2 = variable_struct_get(pack2, "text");
+                    if (variable_struct_exists(pack2, "consumed") && is_real(variable_struct_get(pack2, "consumed"))) _consume_n2 = max(1, floor(variable_struct_get(pack2, "consumed")));
+                } else {
+                    _text_to_show2 = _psend[0];
+                    _consume_n2 = 1;
+                }
                 var _new = [];
-                for (var _ii = 1; _ii < array_length(_psend); ++_ii) _new[array_length(_new)] = _psend[_ii];
+                for (var _ii = _consume_n2; _ii < array_length(_psend); ++_ii) _new[array_length(_new)] = _psend[_ii];
                 variable_struct_set(_B, "_pending_status_msgs", _new);
-                try { __battle_stub_dialog(_pid, _m); } catch (e_pend) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][pending_status_endturn] failed to show: " + string(e_pend)); }
+                try { __battle_stub_dialog(_pid, _text_to_show2); } catch (e_pend) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][pending_status_endturn] failed to show: " + string(e_pend)); }
                 return;
             }
         }
@@ -2927,9 +3150,26 @@ if (is_struct(A1) && variable_struct_exists(A1, "hp_now") && variable_struct_get
             } else {
                 var _name0b = (variable_struct_exists(A0, "name") ? variable_struct_get(A0, "name") : "Pokémon");
                 try { variable_struct_set(_B, "_faint_pending", true); } catch (e_fp3) {}
-                __battle_stub_dialog(_pid, string(_name0b) + " fainted!\nYou blacked out...");
+                // First page: the active Pokémon fainted
+                __battle_stub_dialog(_pid, string(_name0b) + " fainted!");
+                // Queue defeat sequence messages so they show as separate pages
+                var trainer_name = (variable_global_exists("PLAYER_NAME") ? string(global.PLAYER_NAME) : "You");
+                var pend = (variable_struct_exists(_B, "_pending_status_msgs") ? variable_struct_get(_B, "_pending_status_msgs") : []);
+                if (!is_array(pend)) pend = [];
+                array_push(pend, "You're out of usable Pokémon!");
+                array_push(pend, string(trainer_name) + " has whited out!");
+                variable_struct_set(_B, "_pending_status_msgs", pend);
+                // Ensure we won't open the party UI: clear any pending flag defensively
+                try { variable_struct_set(_B, "_pending_open_party", false); } catch (e_clpop) {}
+                // Mark loss and schedule close after messages are shown
                 _B.result = "lose";
                 _B._pending_close = true;
+                // Prevent double-queueing defeat flow and stop any remaining turn actions
+                try { variable_struct_set(_B, "_defeat_queued", true); } catch (e_dq) {}
+                // Clear any in-flight turn actions so the enemy doesn't get another move
+                try { _B.turn_action_player = undefined; _B.turn_action_enemy = undefined; } catch (e_ta) {}
+                try { _B.turn_queue = []; _B.turn_i = 0; } catch (e_tq) {}
+                try { variable_struct_set(_B, "_action_active", false); } catch (e_aa2) {}
             }
             _B.phase = "command";
             return;
@@ -2949,6 +3189,45 @@ if (is_struct(A1) && variable_struct_exists(A1, "hp_now") && variable_struct_get
         }
         return;
     }
+
+    // If the player has already lost, do not process further turn logic
+    try {
+        if (variable_struct_exists(_B, "result") && string(variable_struct_get(_B, "result")) == "lose") return;
+    } catch (e_resguard) {}
+
+    // Hard guard: if the active player Pokémon is fainted and there are no usable replacements,
+    // immediately queue the defeat sequence if it hasn't been queued yet and stop processing.
+    try {
+        var _A0_chk = (is_array(_B.actor) ? _B.actor[0] : undefined);
+        var _hp0 = (is_struct(_A0_chk) ? __battle_hp_now(_A0_chk) : 1);
+        if (is_real(_hp0) && _hp0 <= 0){
+            var _idxAlive2 = __party_find_next_alive(_pid);
+            if (_idxAlive2 < 0){
+                var _alreadyQueued = (variable_struct_exists(_B, "_defeat_queued") && variable_struct_get(_B, "_defeat_queued"));
+                if (!_alreadyQueued){
+                    var _name_act = (is_struct(_A0_chk) && variable_struct_exists(_A0_chk, "name") ? string(variable_struct_get(_A0_chk, "name")) : "Pokémon");
+                    // Show immediate faint, then queue out-of-usable + whited out
+                    __battle_stub_dialog(_pid, _name_act + " fainted!");
+                    var _trainer = (variable_global_exists("PLAYER_NAME") ? string(global.PLAYER_NAME) : "You");
+                    var _pend2 = (variable_struct_exists(_B, "_pending_status_msgs") ? variable_struct_get(_B, "_pending_status_msgs") : []);
+                    if (!is_array(_pend2)) _pend2 = [];
+                    array_push(_pend2, "You're out of usable Pokémon!");
+                    array_push(_pend2, _trainer + " has whited out!");
+                    variable_struct_set(_B, "_pending_status_msgs", _pend2);
+                    try { variable_struct_set(_B, "_pending_open_party", false); } catch (e_clp3) {}
+                    _B.result = "lose";
+                    _B._pending_close = true;
+                    variable_struct_set(_B, "_defeat_queued", true);
+                    // Stop any remaining turn processing immediately
+                    try { _B.turn_action_player = undefined; _B.turn_action_enemy = undefined; } catch (e_ta2) {}
+                    try { _B.turn_queue = []; _B.turn_i = 0; } catch (e_tq2) {}
+                    try { variable_struct_set(_B, "_action_active", false); } catch (e_aa3) {}
+                    _B.phase = "command";
+                }
+                return;
+            }
+        }
+    } catch (e_lossguard) {}
 
     // Skip actions by fainted actors
     var step = _B.turn_queue[_B.turn_i];
@@ -3528,6 +3807,88 @@ function __battle_text_fit_ellipsis(_pid, _str, _max_px){
         if (string_width(cand) <= _max_px) return cand;
     }
     return ell;
+}
+
+// Heal the player's party fully and clear all status effects (temporary defeat behavior).
+function __battle_heal_party_full(_pid){
+    var _P = (is_undefined(party_ensure) ? undefined : party_ensure(_pid));
+    if (!is_struct(_P) || !variable_struct_exists(_P, "mons") || !is_array(_P.mons)) return false;
+    var mlist = _P.mons;
+    for (var i = 0; i < array_length(mlist); ++i){
+        var M = mlist[i];
+        if (!is_struct(M)) continue;
+        // Determine max HP using common aliases
+        var mh = 0;
+        try {
+            if (variable_struct_exists(M, "hp_max") && is_real(variable_struct_get(M, "hp_max"))) mh = max(mh, real(variable_struct_get(M, "hp_max")));
+            if (variable_struct_exists(M, "maxhp") && is_real(variable_struct_get(M, "maxhp"))) mh = max(mh, real(variable_struct_get(M, "maxhp")));
+            if (mh <= 0){
+                // Fallback to current hp or a small default
+                var cur = __battle_hp_now(M);
+                if (is_real(cur) && cur > 0) mh = cur; else mh = 20;
+            }
+        } catch (e_hp) { mh = max(1, __battle_hp_now(M)); }
+        // Set HP now to max and clear fainted flags
+        __battle_set_hp_now(M, mh);
+        if (!is_undefined(__battle_clear_fainted_if_healed)) __battle_clear_fainted_if_healed(M);
+        // Clear primary status fields
+        try { if (variable_struct_exists(M, "status_id")) variable_struct_set(M, "status_id", 0); } catch (e_sid) {}
+        try { if (variable_struct_exists(M, "statuses")) variable_struct_set(M, "statuses", {}); } catch (e_ss) {}
+        // Also try to clear actor-wrapper if present
+        try {
+            var _B = __battle_ensure_slot(_pid);
+            if (is_struct(_B) && variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor"))){
+                var acts = variable_struct_get(_B, "actor");
+                for (var ai = 0; ai < array_length(acts); ++ai){
+                    var act = acts[ai]; if (!is_struct(act)) continue;
+                    if (variable_struct_exists(act, "mon") && variable_struct_get(act, "mon") == M){
+                        if (variable_struct_exists(act, "statuses")) variable_struct_set(act, "statuses", {});
+                        // Mirror HP on wrapper too
+                        __battle_set_hp_now(act, mh);
+                        if (!is_undefined(__battle_clear_fainted_if_healed)) __battle_clear_fainted_if_healed(act);
+                    }
+                }
+            }
+        } catch (e_aw) {}
+    }
+    return true;
+}
+
+// Detect if a status message line looks like a stat stage change (e.g., "NAME ATK +1").
+function __battle_is_stat_status_line(_s){
+    var t = string_upper(string_trim(string(_s)));
+    if (string_length(t) <= 0) return false;
+    // Treat typical stat tokens as indicators; include ACCURACY/EVASION.
+    var tokens = [" ATK ", " DEF ", " SPA ", " SPD ", " SPE ", " ACCURACY", " EVASION"];
+    for (var i = 0; i < array_length(tokens); ++i){ if (string_pos(tokens[i], t) > 0) return true; }
+    return false;
+}
+
+// From the head of _B._pending_status_msgs, coalesce consecutive stat lines into a single multi-line string.
+// Returns a struct { text: <string>, consumed: <int> } or undefined if nothing to show.
+function __battle_coalesce_head_stat_msgs(_B){
+    if (!is_struct(_B) || !variable_struct_exists(_B, "_pending_status_msgs")) return undefined;
+    var arr = variable_struct_get(_B, "_pending_status_msgs");
+    if (!is_array(arr) || array_length(arr) <= 0) return undefined;
+    var first = arr[0];
+    if (!__battle_is_stat_status_line(first)){
+        return { text: first, consumed: 1 };
+    }
+    var lines = [];
+    var consumed = 0;
+    for (var i = 0; i < array_length(arr); ++i){
+        var _line = arr[i];
+        if (__battle_is_stat_status_line(_line)){
+            lines[array_length(lines)] = string_trim(string(_line));
+            consumed += 1;
+        } else break;
+    }
+    var combined = "";
+    for (var j = 0; j < array_length(lines); ++j){
+        if (j > 0) combined += "\n";
+        combined += lines[j];
+    }
+    return { text: combined, consumed: max(1, consumed) };
 }
 
 // ===== Actor creation =====
@@ -4178,12 +4539,16 @@ function __party_find_next_alive(_pid){
     if (is_undefined(party_ensure)) return -1;
     var P = party_ensure(_pid);
     if (!is_struct(P) || !is_array(P.mons)) return -1;
+    var B = __battle_ensure_slot(_pid);
+    var A0 = (is_struct(B) && is_array(B.actor)) ? B.actor[0] : undefined;
     for (var i=0;i<array_length(P.mons);++i){
         var m = P.mons[i];
-        if (is_struct(m) && variable_struct_exists(m,"hp") && is_real(m.hp) && m.hp > 0){
-            // skip if this is already the current actor
-            var A0 = __battle_ensure_slot(_pid).actor[0];
-            if (is_struct(A0) && variable_struct_exists(A0,"mon") && A0.mon == m) continue;
+        if (!is_struct(m)) continue;
+        // Prefer canonical hp_now when available; fall back to hp. Use battle helper to normalize.
+        var mhp = __battle_hp_now(m);
+        if (is_real(mhp) && mhp > 0){
+            // skip if this is already the current actor's mon
+            try { if (is_struct(A0) && variable_struct_exists(A0, "mon") && variable_struct_get(A0, "mon") == m) continue; } catch (e_cmp) {}
             return i;
         }
     }

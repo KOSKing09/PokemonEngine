@@ -39,6 +39,13 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
             drawScaleE *= grow;
         }
     }
+    // During enemy intro, start offscreen to the right and slide in based on phase_progress
+    if (string(_B.phase) == "intro_enemy"){
+        var p_in = (variable_struct_exists(_B, "phase_progress") ? _B.phase_progress : 0);
+        var start_cx = __bxu(_pid, 280); // logical 280 -> offscreen right of 240-wide canvas
+        var ease = 1 - (1 - p_in) * (1 - p_in);
+        fx = lerp(start_cx, fx, ease);
+    }
     var draw_x = fx - (w*drawScaleE)/2;
     var draw_y = fy - (h*drawScaleE)/2;
     // If a catch animation is active, allow it to modify the enemy scale and draw a pokéball

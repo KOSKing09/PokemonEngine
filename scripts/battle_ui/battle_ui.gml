@@ -56,94 +56,9 @@ function __battle_player_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_A){
     var _expBarH = __bhu(_pid,3); // slightly thinner
     var _expPct = 0;
     var _B = __battle_ensure_slot(_pid);
-    // If the battle slot thinks a dialog is active (set by wrappers when
-    // opening a dialog), hide the command UI until that flag is cleared.
-    // Also hide while a turn/action sequence is still active so the root
-    // command/menu cannot appear mid-animation. This covers cases where
-    // the dialog system may not report open yet or where we set a queued
-    // active marker to avoid UI flashing.
-    try { if (variable_struct_exists(_B, "_dlg_active") && variable_struct_get(_B, "_dlg_active")) return; } catch (e_dlgguard) {}
-    try { if (variable_struct_exists(_B, "_action_active") && variable_struct_get(_B, "_action_active")) return; } catch (e_actguard) {}
-    // If the battle has queued system animations, multi-hit sequences, pending
-    // status messages, or is deferring the turn until dialogs close, hide UI
-    // until those finish to avoid the command menu briefly appearing.
-    try {
-        if (variable_struct_exists(_B, "sys_anim") && is_struct(variable_struct_get(_B, "sys_anim"))){
-            var _sact = variable_struct_get(_B, "sys_anim");
-            if (variable_struct_exists(_sact, "active") && is_array(variable_struct_get(_sact, "active")) && array_length(variable_struct_get(_sact, "active")) > 0) return;
-        }
-        if (variable_struct_exists(_B, "_pending_multi_hit") && is_struct(variable_struct_get(_B, "_pending_multi_hit"))) return;
-        if (variable_struct_exists(_B, "_pending_status_msgs") && is_array(variable_struct_get(_B, "_pending_status_msgs")) && array_length(variable_struct_get(_B, "_pending_status_msgs")) > 0) return;
-        if (variable_struct_exists(_B, "_defer_turn_until_no_dialog") && variable_struct_get(_B, "_defer_turn_until_no_dialog")) return;
-    } catch (e_queueguard){}
-    // If a global cutscene flag or a dedicated cutscene instance is running,
-    // hide the command UI as well. Many cutscene systems set a global flag
-    // like CUTSCENE_ACTIVE; check a few common names safely.
-    try {
-        if (variable_global_exists("CUTSCENE_ACTIVE") && global.CUTSCENE_ACTIVE){
-            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_ui][debug] suppressed UI: CUTSCENE_ACTIVE");
-            return;
-        }
-        if (variable_global_exists("GLOBAL_CUTSCENE") && global.GLOBAL_CUTSCENE){
-            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_ui][debug] suppressed UI: GLOBAL_CUTSCENE");
-            return;
-        }
-        if (variable_global_exists("CUTSCENE") && global.CUTSCENE){
-            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_ui][debug] suppressed UI: CUTSCENE");
-            return;
-        }
-        // If a dedicated cutscene object exists and an instance is present, hide UI.
-        // (Not checking specific object types here to avoid undeclared-symbol errors.)
-    } catch (e_cutscene_guard){}
-    // If a caller/global battle animation is playing (trainer/player intro or other
-    // battleAnim), hide the command/root menus so they don't overlap the animation.
-    // We must respect dialog: if a dialog is open, it's already handled above.
-    try {
-        var _phase_str = (variable_struct_exists(_B, "phase") ? string(variable_struct_get(_B, "phase")) : "");
-    // Consider intro_player as an animation phase as well: some caller
-    // battleAnim sprites/rendering happen during the player intro and we
-    // should hide the system UI until the animation+holds fully finish.
-    var _anim_phase_allowed_check = (_phase_str == "intro_call" || _phase_str == "intro_player" || _phase_str == "switch_in");
-        // If an eligible animation sprite exists on the battle slot, hide UI while
-        // the full animation duration (including holds) hasn't elapsed. This is
-        // more robust than testing phase_progress alone because some flows use
-        // phase_holds to keep the animation visible while dialog appears.
-        if (_anim_phase_allowed_check){
-            // Determine the animation total duration using the phase-specific duration
-            // (intro_call -> "call", intro_player -> "player", switch_in -> "switch_in").
-            var _start_ms = (variable_struct_exists(_B, "phase_start_ms") ? real(variable_struct_get(_B, "phase_start_ms")) : current_time);
-            var _dur_key = "call";
-            if (_phase_str == "intro_player") _dur_key = "player";
-            else if (_phase_str == "switch_in") _dur_key = "switch_in";
-
-            var _call_dur = 0;
-            if (variable_struct_exists(_B, "phase_durs") && variable_struct_exists(variable_struct_get(_B, "phase_durs"), _dur_key)){
-                _call_dur = max(0, real(variable_struct_get(variable_struct_get(_B, "phase_durs"), _dur_key)));
-            }
-            var _hold_ms = 0;
-            if (variable_struct_exists(_B, "phase_holds") && variable_struct_exists(variable_struct_get(_B, "phase_holds"), _dur_key)){
-                _hold_ms = max(0, real(variable_struct_get(variable_struct_get(_B, "phase_holds"), _dur_key)));
-            }
-            var _total_ms = _call_dur + _hold_ms;
-            // Add a small safety buffer so UI doesn't flash immediately when dialog closes
-            var _safety_buf = 120;
-            var _elapsed = current_time - _start_ms;
-
-            // If a caller-specific anim sprite exists and is valid, hide UI until elapsed >= total
-            var _hide_for_anim = false;
-            if (variable_struct_exists(_B, "caller_battleAnim")){
-                var _cb_anim2 = variable_struct_get(_B, "caller_battleAnim");
-                if (!is_undefined(_cb_anim2) && sprite_exists(_cb_anim2)){
-                    if (_elapsed < (_total_ms + _safety_buf)) _hide_for_anim = true;
-                }
-            }
-            // Otherwise check for global fallback anim
-            if (! _hide_for_anim && variable_global_exists("battleAnim") && sprite_exists(global.battleAnim)){
-                if (_elapsed < (_total_ms + _safety_buf)) _hide_for_anim = true;
-            }
-            if (_hide_for_anim) return;
-        }
-    } catch (e_anim_check){}
+    // Note: command/menu suppression (dialog/cutscene/animations) should not
+    // hide the player panel's EXP bar. Those guards belong in the command box
+    // draw path, not here.
     if (is_struct(_B) && variable_struct_exists(_B, "_exp_anim")){
         var _ea = variable_struct_get(_B, "_exp_anim");
         if (is_struct(_ea) && variable_struct_exists(_ea, "active") && _ea.active && variable_struct_exists(_ea, "cur")){
@@ -236,6 +151,9 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
         // UI, hide the command box here as well to cover the exact frame of closure.
         if (variable_struct_exists(_B, "_suppress_wait_for_dialog_close") && variable_struct_get(_B, "_suppress_wait_for_dialog_close")) return;
     } catch (e_introguard) {}
+    // If a closing fade is active, hide command UI entirely
+    try { if (variable_struct_exists(_B, "_closing") && variable_struct_get(_B, "_closing")) return; } catch (e_closeguard) {}
+
     // If a switch animation is active (switch_in phase), hide the command/root menus
     // so the command window stays blank while the Pokémon is switching. This mirrors
     // the existing behavior used for catch animations.
