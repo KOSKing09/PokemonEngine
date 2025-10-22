@@ -13,6 +13,44 @@
 globalvar PARTY;
 globalvar sys_party_desc_scroll_req;
 
+// Implementations for swap helpers (moved here so they are declared early).
+function party_set_swap_mode_impl(_pid, _swap, _forced){
+    if (!variable_global_exists("PARTY")) return;
+    if (!is_array(global.PARTY)) return;
+    if (array_length(global.PARTY) <= _pid) return;
+    var _P = global.PARTY[_pid];
+    if (!is_struct(_P)) return;
+    try {
+        if (!variable_struct_exists(_P, "_battle_swap_mode")) variable_struct_set(_P, "_battle_swap_mode", false);
+        if (!variable_struct_exists(_P, "_battle_swap_mode_forced")) variable_struct_set(_P, "_battle_swap_mode_forced", false);
+        // Coerce booleans safely without using '!!' which confuses the parser
+        if (_swap) variable_struct_set(_P, "_battle_swap_mode", true); else variable_struct_set(_P, "_battle_swap_mode", false);
+        if (_swap && _forced) variable_struct_set(_P, "_battle_swap_mode_forced", true); else variable_struct_set(_P, "_battle_swap_mode_forced", false);
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+            show_debug_message("[party_swap_helpers] party_set_swap_mode pid=" + string(_pid) + ", swap=" + string(_swap == true) + ", forced=" + string((_forced == true) && (_swap == true)));
+        }
+    } catch (e) {}
+}
+
+function party_clear_swap_mode_impl(_pid){
+    if (!variable_global_exists("PARTY")) return;
+    if (!is_array(global.PARTY)) return;
+    if (array_length(global.PARTY) <= _pid) return;
+    var _P = global.PARTY[_pid];
+    if (!is_struct(_P)) return;
+    try {
+        variable_struct_set(_P, "_battle_swap_mode", false);
+        variable_struct_set(_P, "_battle_swap_mode_forced", false);
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+            show_debug_message("[party_swap_helpers] party_clear_swap_mode pid=" + string(_pid));
+        }
+    } catch (e) {}
+}
+
+// Expose the canonical names expected by other scripts by aliasing to impls.
+function party_set_swap_mode(_pid, _swap, _forced){ return party_set_swap_mode_impl(_pid, _swap, _forced); }
+function party_clear_swap_mode(_pid){ return party_clear_swap_mode_impl(_pid); }
+
 #macro PARTY_ICON_H_UI 20
 #macro PARTY_ROW_PAD_UI 7
 #macro PARTY_HILITE_COL make_color_rgb(255,255,255)
@@ -68,8 +106,13 @@ function party_open(_pid){
         try { party_model_reorder_fainted_to_bottom(_pid); } catch (e_re) {}
     }
     // Ensure the battle-swap marker is false by default; callers (battle) may set it.
-    if (!variable_struct_exists(_P, "_battle_swap_mode")) variable_struct_set(_P, "_battle_swap_mode", false);
-    if (!variable_struct_exists(_P, "_battle_swap_mode_forced")) variable_struct_set(_P, "_battle_swap_mode_forced", false);
+    try { party_set_swap_mode_impl(_pid, false, false); } catch (e_psi) {}
+    // Debug: report initial swap flags when opening party
+    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+        var _bm_val = (variable_struct_exists(_P, "_battle_swap_mode") ? variable_struct_get(_P, "_battle_swap_mode") : false);
+        var _bf_val = (variable_struct_exists(_P, "_battle_swap_mode_forced") ? variable_struct_get(_P, "_battle_swap_mode_forced") : false);
+        show_debug_message("[party_system] party_open pid=" + string(_pid) + ", _battle_swap_mode=" + string(_bm_val) + ", _battle_swap_mode_forced=" + string(_bf_val));
+    }
 }
 function party_close(_pid){
     if (!variable_global_exists("PARTY")) return;
@@ -78,9 +121,21 @@ function party_close(_pid){
     var _P = global.PARTY[_pid];
     if (!is_struct(_P)) return;
     _P.open = false;
-    // Clear battle swap marker when closing so next open is normal
-    try { if (variable_struct_exists(_P, "_battle_swap_mode")) variable_struct_set(_P, "_battle_swap_mode", false); } catch (e) {}
-    try { if (variable_struct_exists(_P, "_battle_swap_mode_forced")) variable_struct_set(_P, "_battle_swap_mode_forced", false); } catch (e) {}
+    // Clear battle swap marker when closing so next open is normal, but preserve
+    // the marker if a battle is still active for this player. This prevents
+    // the Swap label from disappearing when the party is closed while the
+    // battle remains open (e.g., early close during faint handling).
+    var _battle_still_open = (is_undefined(battle_is_open) ? false : battle_is_open(_pid));
+    if (!_battle_still_open){
+        // Centralised clearing helper (no-op if structures aren't present)
+        try { party_clear_swap_mode(_pid); } catch (e) {}
+        // Debug: report cleared swap flags when closing party (only if battle not open)
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+            var _bm_c = (variable_struct_exists(_P, "_battle_swap_mode") ? variable_struct_get(_P, "_battle_swap_mode") : "undef");
+            var _bf_c = (variable_struct_exists(_P, "_battle_swap_mode_forced") ? variable_struct_get(_P, "_battle_swap_mode_forced") : "undef");
+            show_debug_message("[party_system] party_close pid=" + string(_pid) + ", cleared -> _battle_swap_mode=" + string(_bm_c) + ", _battle_swap_mode_forced=" + string(_bf_c));
+        }
+    }
 }
 function party_toggle(_pid){
     if (!variable_global_exists("PARTY")) return;

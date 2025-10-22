@@ -486,7 +486,29 @@ function __battle_draw_player(_pid, _B, mx, my, tx, ty){
             var scy = floor(draw_y_out + (h * outScale) * 0.5 + sh * 0.8 + floor(15 * ui_s));
             draw_ellipse(scx - sw div 2, scy - sh div 2, scx + sw div 2, scy + sh div 2, false);
             draw_set_alpha(1);
-            draw_sprite_ext(sprP, subP, draw_x_out, draw_y_out, outScale, outScale, 0, c_white, 1);
+            if (sprite_exists(sprP)){
+                draw_sprite_ext(sprP, subP, draw_x_out, draw_y_out, outScale, outScale, 0, c_white, 1);
+            } else {
+                // Fallback placeholder when sprite missing during switch-out.
+                // Prefer drawing the project's placeholder sprite if present.
+                var _ph = (variable_global_exists("spr_mon_placeholder") ? global.spr_mon_placeholder : undefined);
+                var _scale_ph = outScale * ui_s;
+                if (!is_undefined(_ph) && sprite_exists(_ph)){
+                    var ph_w = sprite_get_width(_ph);
+                    var ph_h = sprite_get_height(_ph);
+                    var ph_x = mx - (ph_w * _scale_ph) / 2;
+                    var ph_y = my - (ph_h * _scale_ph) / 2;
+                    draw_sprite_ext(_ph, 0, ph_x, ph_y, _scale_ph, _scale_ph, 0, c_white, 1);
+                } else {
+                    draw_set_color(make_color_rgb(20,20,20)); draw_set_alpha(0.45);
+                    var _fw_o = max(8, floor(64 * ui_s * outScale));
+                    var _fh_o = max(8, floor(64 * ui_s * outScale));
+                    draw_ellipse(mx - _fw_o/2, my - _fh_o/2, mx + _fw_o/2, my + _fh_o/2, false);
+                    draw_set_alpha(1);
+                    draw_set_color(c_white);
+                    draw_text(mx - _fw_o/2, my - _fh_o/2 - __bhu(_pid,6), string(P.name));
+                }
+            }
 
             if (out_prog >= 1 && variable_struct_exists(_B, "_switch_target_idx")){
                 var idx = _B._switch_target_idx;

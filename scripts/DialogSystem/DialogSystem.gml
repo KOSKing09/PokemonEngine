@@ -92,6 +92,36 @@ function __dlg_wrap_text(_text, _box_w){
 function dialog2p_open_text(_pid, _text){
     var d = global.DIALOG2P[_pid];
 
+    // If a battle slot exists for this pid and a faint is pending, do not
+    // immediately replace the dialog. Instead enqueue the text as a pending
+    // status message so it will be shown after the faint dialog completes.
+    try {
+        if (variable_global_exists("sys_battles") && is_array(global.sys_battles) && array_length(global.sys_battles) > _pid){
+            var _Bchk = global.sys_battles[_pid];
+            if (is_struct(_Bchk) && variable_struct_exists(_Bchk, "_faint_pending") && variable_struct_get(_Bchk, "_faint_pending") == true){
+                // Ensure pending array exists and avoid duplicates/runaway growth
+                var _ps = (variable_struct_exists(_Bchk, "_pending_status_msgs") ? variable_struct_get(_Bchk, "_pending_status_msgs") : []);
+                var _txt_s = string(_text);
+                var _already = false;
+                for (var _ii=0; _ii<array_length(_ps); ++_ii) if (string(_ps[_ii]) == _txt_s){ _already = true; break; }
+                if (!_already){
+                    // Cap the pending queue to a reasonable size to avoid runaway loops
+                    if (array_length(_ps) < 64) array_push(_ps, _txt_s);
+                    else {
+                        // If queue is full, drop the oldest and push the new one
+                        var _tmpn = [];
+                        for (var _jj = 1; _jj < array_length(_ps); ++_jj) _tmpn[array_length(_tmpn)] = _ps[_jj];
+                        _tmpn[array_length(_tmpn)] = _txt_s;
+                        _ps = _tmpn;
+                    }
+                    variable_struct_set(_Bchk, "_pending_status_msgs", _ps);
+                }
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[dialog][queue] queued pid=" + string(_pid) + ", preview='" + string_copy(string(_text),1,min(48,string_length(string(_text)))) + "'");
+                return;
+            }
+        }
+    } catch (e_q) { /* ignore queuing failures and fall through to open */ }
+
     // Preserve previous content preview so we can avoid logging repeats
     var _prev_text = "";
     if (is_struct(d) && variable_struct_exists(d, "all_lines") && is_array(variable_struct_get(d, "all_lines"))){

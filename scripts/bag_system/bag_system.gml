@@ -330,6 +330,9 @@ function bag__use_item_on_self(_pid, _row){
             if (is_struct(_B)) variable_struct_set(_B, "turn_action_player", actP);
             if (is_struct(_B)) variable_struct_set(_B, "turn_action_enemy", (is_undefined(__battle_enemy_choose_action) ? undefined : __battle_enemy_choose_action(_pid)));
             if (is_struct(_B)) variable_struct_set(_B, "turn_queue", (is_undefined(__battle_build_turn_actions) ? undefined : __battle_build_turn_actions(_pid)));
+            // Ensure UI remains hidden while the throw/catch action plays
+            try { if (is_struct(_B)) variable_struct_set(_B, "_action_active", true); } catch (e_bagact) {}
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){ try { show_debug_message("[bag][dbg]_action_active set=true pid=" + string(_pid)); } catch (e_dbg_bag) {} }
             if (is_struct(_B)) variable_struct_set(_B, "turn_i", 0);
             if (is_struct(_B)) variable_struct_set(_B, "phase", "turn");
             if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[bag][debug] queued item as player turn pid=" + string(_pid) + ", iid=" + string(iid) + ", mult=" + string(ball_mult));

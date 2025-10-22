@@ -173,7 +173,64 @@ function __battle_apply_damage_impl(_pid, _target_index, _dmg, _mult){
 
     var cur_hp = __battle_hp_now(T);
     var newhp = max(0, cur_hp - max(0, round(_dmg * (is_real(_mult) ? _mult : 1))));
-__battle_set_hp_now(T, newhp);
+    __battle_set_hp_now(T, newhp);
+    // If this damage caused a faint, mark the entity and inner mon as fainted
+    // and schedule a pending party open on the battle slot so the UI can prompt
+    // the player to choose a replacement after dialog closes.
+    try {
+        if (cur_hp > 0 && newhp <= 0){
+            if (is_struct(T) && variable_struct_exists(T, "_fainted")) variable_struct_set(T, "_fainted", true);
+            if (is_struct(T) && variable_struct_exists(T, "mon") && is_struct(variable_struct_get(T, "mon"))){
+                var __mi_f = variable_struct_get(T, "mon");
+                if (variable_struct_exists(__mi_f, "_fainted")) variable_struct_set(__mi_f, "_fainted", true);
+            }
+            // Schedule pending party open on the battle slot so it's handled in battle_system
+            try {
+                var _B_sch = __battle_ensure_slot(_pid);
+                if (is_struct(_B_sch)){
+                    variable_struct_set(_B_sch, "_pending_open_party", true);
+                    // Ensure the faint dialog has at least one frame to render before
+                    // the party UI may open: set a short delay marker the battle
+                    // update loop will honor.
+                    // Give the faint dialog a slightly longer window to render before
+                    // the party UI opens. Increase from 120ms to 300ms to reduce
+                    // chances the party menu occludes the faint message on slow
+                    // machines or when multiple UI updates occur in the same frame.
+                    try { variable_struct_set(_B_sch, "_pending_open_party_delay_until", current_time + 300); } catch (e_pd) {}
+                    // Immediately open a faint dialog so the player sees it at the moment of faint
+                    try {
+                        var _fnt_name = "(Unknown)";
+                        if (variable_struct_exists(T, "name")) _fnt_name = variable_struct_get(T, "name");
+                        else if (variable_struct_exists(T, "mon") && is_struct(variable_struct_get(T, "mon")) && variable_struct_exists(variable_struct_get(T, "mon"), "name")) _fnt_name = variable_struct_get(variable_struct_get(T, "mon"), "name");
+                        if (!is_undefined(__battle_stub_dialog)) __battle_stub_dialog(_pid, string(_fnt_name) + " fainted!");
+                        else if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, string(_fnt_name) + " fainted!");
+                    } catch (e_sd_local) {}
+                    // Mark faint as pending so it takes priority over multi-hit/status messages
+                    // We set this after opening the faint dialog so the faint message itself
+                    // is not enqueued by dialog2p_open_text.
+                    try { variable_struct_set(_B_sch, "_faint_pending", true); } catch (e_fp_local) {}
+                    // Store a reference to the fainted actor's inner mon (preferred) so selection
+                    // mapping can resolve correctly even after the party is reordered.
+                    var _refm = T;
+                    if (variable_struct_exists(T, "mon") && is_struct(variable_struct_get(T, "mon"))) _refm = variable_struct_get(T, "mon");
+                    variable_struct_set(_B_sch, "_pending_open_party_next_mon_ref", _refm);
+                    // Preserve current UI menu/selection so we can restore it after forced swap
+                    try {
+                        if (variable_struct_exists(_B_sch, "sys_ui") && is_struct(variable_struct_get(_B_sch, "sys_ui"))){
+                            var _su = variable_struct_get(_B_sch, "sys_ui");
+                            // Save menu and selection coordinates
+                            if (variable_struct_exists(_su, "menu")) variable_struct_set(_B_sch, "_pending_open_party_prev_menu", variable_struct_get(_su, "menu"));
+                            if (variable_struct_exists(_su, "selX")) variable_struct_set(_B_sch, "_pending_open_party_prev_selX", variable_struct_get(_su, "selX"));
+                            if (variable_struct_exists(_su, "selY")) variable_struct_set(_B_sch, "_pending_open_party_prev_selY", variable_struct_get(_su, "selY"));
+                        }
+                    } catch (e_saveui) {}
+                    // Also clear any deferred turn resume so we don't accidentally continue
+                    // the turn while the party selection is pending.
+                    variable_struct_set(_B_sch, "_defer_turn_until_no_dialog", false);
+                }
+            } catch (e_sch) {}
+        }
+    } catch (e_pf){}
     // Trigger visual lerp and hit SFX for this applied damage
     try {
         if (is_real(cur_hp) && is_real(newhp) && cur_hp != newhp){

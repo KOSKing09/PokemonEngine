@@ -228,7 +228,8 @@ function __battle_perform_action_impl(_pid, _step){
     // Debug: log selection immediately so we can trace Horn Drill choices
     try {
         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
-            try { __battle_stub_dialog(_pid, "[battle_select][debug] pid=" + string(_pid) + ", slot=" + string(move_slot) + ", mv_selected=" + string(move_id) + ", actor.moves[slot]=" + string((is_struct(A) && is_array(variable_struct_get(A, "moves")) && is_real(move_slot) && move_slot >=0 && move_slot < array_length(variable_struct_get(A, "moves")) ? variable_struct_get(A, "moves")[move_slot] : "?")) ); } catch (e_sd) {}
+            // Debug-only: log to console rather than opening a player dialog
+            try { show_debug_message("[battle_select][debug] pid=" + string(_pid) + ", slot=" + string(move_slot) + ", mv_selected=" + string(move_id) + ", actor.moves[slot]=" + string((is_struct(A) && is_array(variable_struct_get(A, "moves")) && is_real(move_slot) && move_slot >=0 && move_slot < array_length(variable_struct_get(A, "moves")) ? variable_struct_get(A, "moves")[move_slot] : "?")) ); } catch (e_sd) {}
         }
     } catch (e_dbgsel) {}
 

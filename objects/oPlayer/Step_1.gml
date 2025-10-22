@@ -12,7 +12,7 @@ if (battle_is_open(0)){
 
 if (keyboard_check_pressed(vk_f1)){
 	if (!battle_is_open(0)){
-		battle_open(0, irandom_range(5, 5));
+		battle_open(0, irandom_range(20, 20));
 	}else{
 		battle_close(0);
 	}

@@ -40,8 +40,12 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         draw_rectangle(_OX, _OY + _yy*_S, _OX + 240*_S, _OY + (_yy+_stripe_h)*_S, false);
     }
 
-    // If party was opened from a battle for swapping, draw a top white prompt so
-    // the player knows they are choosing a Pokémon to switch in.
+    // Draw a top white prompt ("Switch with which Pokémon ?") only when appropriate:
+    // - Always during forced in-battle replacement (after faint)
+    // - During out-of-battle switch flows (select mode, or list with swap_index set,
+    //   or menu with the Swap entry highlighted)
+    // - NOT during normal in-battle swap unless the player has entered the switch
+    //   flow (e.g., swap_index set or menu_sel == 1)
     try {
         var _Ptmp = party_ensure(_pid);
         // Only show the prompt when the party UI is actively in a swap flow:
@@ -51,12 +55,22 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         var _show_prompt = false;
         if (is_struct(_Ptmp)){
             var _mode_now = (variable_struct_exists(_Ptmp, "mode") ? string(variable_struct_get(_Ptmp, "mode")) : "");
-            var _is_battle_swap = false;
-            if (variable_struct_exists(_Ptmp, "_battle_swap_mode") && variable_struct_get(_Ptmp, "_battle_swap_mode")){
-                if (!is_undefined(battle_is_open) && battle_is_open(_pid)) _is_battle_swap = true;
+            var _swap_idx = (variable_struct_exists(_Ptmp, "swap_index") ? variable_struct_get(_Ptmp, "swap_index") : -1);
+            var _menu_sel_now = (variable_struct_exists(_Ptmp, "menu_sel") ? variable_struct_get(_Ptmp, "menu_sel") : -1);
+            var _battle_open_now = (!is_undefined(battle_is_open) && battle_is_open(_pid));
+            var _is_forced_now = (_battle_open_now && variable_struct_exists(_Ptmp, "_battle_swap_mode_forced") && variable_struct_get(_Ptmp, "_battle_swap_mode_forced") == true);
+
+            // Always show during forced in-battle replacement
+            if (_is_forced_now) { _show_prompt = true; }
+            else {
+                // Not forced: only show the prompt when OUT of battle and the user
+                // explicitly entered a switch flow (select, or menu focus, or swap_index set)
+                if (!_battle_open_now){
+                    if (_mode_now == "select") _show_prompt = true;
+                    else if (_mode_now == "list" && _swap_idx != -1) _show_prompt = true;
+                    else if (_mode_now == "menu" && _menu_sel_now == 1) _show_prompt = true;
+                }
             }
-            if (_mode_now == "select") _show_prompt = true;
-            else if (_mode_now == "list" && ((variable_struct_exists(_Ptmp, "swap_index") && variable_struct_get(_Ptmp, "swap_index") != -1) || _is_battle_swap)) _show_prompt = true;
         }
         if (_show_prompt){
             var _bar_h_ui = 10; // UI pixels (reduced height)
@@ -224,7 +238,8 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         // Draw FNT marker for fainted mons
         if (_is_fainted){
             var _fnt_x = _OX + (_LIST_X + _LIST_W - 18) * _S;
-            draw_set_color(make_color_rgb(240,240,240));
+            // Draw faint marker in red so it's clearly visible
+            draw_set_color(make_color_rgb(232,64,48));
             if (variable_global_exists("FNT_POKEMON")) draw_set_font(global.FNT_POKEMON_SMALL);
             draw_text(_fnt_x, _row_y_gui, "FNT");
             if (variable_global_exists("FNT_POKEMON")) draw_set_font(global.FNT_POKEMON);
@@ -305,13 +320,27 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
 
         draw_set_color(c_white);
 
-        // When party was opened from a battle for swapping, change "Switch" -> "Swap In"
+        // When party was opened from a battle for swapping, change "Switch" -> "Swap In".
+        // Also mirror input logic: only hide the Swap/ Switch label for fainted mons when
+        // the battle is open AND the party was not opened specifically for an in-battle swap.
         var _swap_label = "Switch";
+        var _preserve_swap_label = false;
+        var _battle_open_draw = (!is_undefined(battle_is_open) && battle_is_open(_pid));
         try {
             var _tmpP = party_ensure(_pid);
-            if (is_struct(_tmpP) && variable_struct_exists(_tmpP, "_battle_swap_mode") && variable_struct_get(_tmpP, "_battle_swap_mode") && !is_undefined(battle_is_open) && battle_is_open(_pid)) _swap_label = "Swap In";
+            if (is_struct(_tmpP)){
+                var _psw = false;
+                if (variable_struct_exists(_tmpP, "_battle_swap_mode") && variable_struct_get(_tmpP, "_battle_swap_mode")) _psw = true;
+                if (variable_struct_exists(_tmpP, "_battle_swap_mode_forced") && variable_struct_get(_tmpP, "_battle_swap_mode_forced") == true) _psw = true;
+                if (_psw && _battle_open_draw){ _preserve_swap_label = true; _swap_label = "Swap In"; }
+            }
         } catch (e_lbl) { /* ignore */ }
         var _items = ["Summary", _swap_label, "Item", "Cancel"];
+        if (_is_fainted && !_preserve_swap_label && _battle_open_draw){
+            // Keep array length stable so input indices remain consistent, but render an empty label
+            // for Swap so it's effectively removed when not in swap mode during an active battle.
+            _items[1] = "";
+        }
         var _m_h   = max(12, string_height("A") + 2);
         for (var _i = 0; _i < 4; _i++){
             var _yy_menu = _by1 + (6 + _i*_m_h);
@@ -343,6 +372,8 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
                     _shouldShowGive = true;
                 }
             }
+            // If the mon is fainted, do not show Give even if it would otherwise be shown.
+            if (_is_fainted) _shouldShowGive = false;
             // extend labels if necessary
             if (_shouldShowGive) {
                 _labels[0] = "Give";
