@@ -1,8 +1,9 @@
 
-
+// Drain any queued dialog first (opens next item if allowed), then advance if open
+if (!is_undefined(dialog2p_step)) dialog2p_step(pid);
 // Advance this player's dialog if open
-if (dialog2p_is_open(pid)) {
-    dialog2p_update(pid);
+if (!is_undefined(dialog2p_is_open) && dialog2p_is_open(pid)) {
+    if (!is_undefined(dialog2p_update)) dialog2p_update(pid);
 }
 
 // battle system
@@ -12,7 +13,7 @@ if (battle_is_open(0)){
 
 if (keyboard_check_pressed(vk_f1)){
 	if (!battle_is_open(0)){
-		battle_open(0, irandom_range(20, 20));
+		battle_open(0, irandom_range(5, 10));
 	}else{
 		battle_close(0);
 	}
@@ -28,7 +29,7 @@ if (talk_cd > 0) talk_cd--;
 
 // open when close to a box, but respect cooldown
 
-if (!dialog2p_is_open(pid)) {
+if (!is_undefined(dialog2p_is_open) && !dialog2p_is_open(pid)) {
     var box = instance_nearest(x, y, oDialogBox);
     if (box != noone && point_distance(x, y, box.x, box.y) <= 16) {
         if (controls_pressed(pid,"Interact") && talk_cd <= 0) {

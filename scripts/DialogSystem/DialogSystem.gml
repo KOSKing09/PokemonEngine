@@ -54,6 +54,11 @@ function __dlg_make_session(){
 // ---------- Init ------------------------------------------------------------
 function dialog2p_init(){
     global.DIALOG2P = [ __dlg_make_session(), __dlg_make_session() ];
+    // Lightweight per-pid dialog queues managed by the dialog system itself.
+    // Each item: { text: string, key: string, gate: string, ts: real }
+    // Gates: "any" (default), "after-faint" (wait until faint_pending=false),
+    //        "no-intro" (skip during transition/intro/switch phases)
+    global.DIALOG2P_Q = [ [], [] ];
 }
 
 // ---------- Query -----------------------------------------------------------
@@ -61,6 +66,84 @@ function dialog2p_is_open(_pid){
     if (!variable_global_exists("DIALOG2P")) return false;
     var d = global.DIALOG2P[_pid];
     return (is_struct(d) && variable_struct_exists(d,"open")) ? d.open : false;
+}
+
+// ---------- Queue helpers (enqueue + gated drain) --------------------------
+function __dlg_gate_allows_now(_pid, _gate){
+    var gate = string_lower(string(_gate));
+    if (!variable_global_exists("sys_battles") || !is_array(global.sys_battles) || array_length(global.sys_battles) <= _pid) return true;
+    var _B = global.sys_battles[_pid];
+    if (!is_struct(_B)) return true;
+    // Faint gating
+    if (gate == "after-faint"){
+        if (variable_struct_exists(_B, "_faint_pending") && variable_struct_get(_B, "_faint_pending")) return false;
+    }
+    // Intro gating (avoid during intro/switch)
+    if (gate == "no-intro"){
+        var _ph = (variable_struct_exists(_B, "phase") ? string(_B.phase) : "");
+        if (_ph == "transition_in" || _ph == "intro_enemy" || _ph == "intro_call" || _ph == "intro_player" || _ph == "switch_in") return false;
+    }
+    return true;
+}
+
+function dialog2p_enqueue_text(_pid, _text, _key, _gate){
+    if (!variable_global_exists("DIALOG2P_Q")) dialog2p_init();
+    var q = global.DIALOG2P_Q[_pid];
+    var key = (is_undefined(_key) || _key == "" ? string(_text) : string(_key));
+    var gate = (is_undefined(_gate) || _gate == "" ? "any" : string_lower(string(_gate)));
+    var is_faint = (gate == "faint");
+    if (!is_faint){
+        // Fallback detection: look for canonical faint phrasing
+        var _txt_s = string(_text);
+        if (string_pos(" fainted!", _txt_s) > 0 || string_pos("fainted!", _txt_s) > 0) is_faint = true;
+    }
+    // Deduplicate by key if an identical item is already queued
+    var exists = false;
+    for (var i=0; i<array_length(q); ++i){ var it = q[i]; if (is_struct(it) && variable_struct_exists(it, "key") && string(it.key) == key){ exists = true; break; } }
+    if (!exists){
+        array_push(q, { text: string(_text), key: key, gate: gate, is_faint: is_faint, ts: (is_real(current_time)? current_time : 0) });
+        global.DIALOG2P_Q[_pid] = q;
+    }
+}
+
+function dialog2p_step(_pid){
+    if (!variable_global_exists("DIALOG2P_Q")) return;
+    if (dialog2p_is_open(_pid)) return;
+    var q = global.DIALOG2P_Q[_pid];
+    if (!is_array(q) || array_length(q) == 0) return;
+    // If the head item is a faint message and there exists any non-faint item
+    // in the queue, rotate the faint item to the tail so it will always open last.
+    var item = q[0];
+    if (is_struct(item)){
+        var _is_faint = (variable_struct_exists(item, "is_faint") && item.is_faint);
+        if (_is_faint){
+            var has_nonfaint = false;
+            for (var k=1; k<array_length(q); ++k){ var it2 = q[k]; if (is_struct(it2) && (!variable_struct_exists(it2, "is_faint") || !it2.is_faint)){ has_nonfaint = true; break; } }
+            if (has_nonfaint){
+                // rotate head to tail
+                var _tail = [];
+                for (var m=1; m<array_length(q); ++m) _tail[array_length(_tail)] = q[m];
+                _tail[array_length(_tail)] = item;
+                global.DIALOG2P_Q[_pid] = _tail;
+                return; // wait until non-faint items drain
+            }
+        }
+    }
+    // Peek (possibly new head) and open if allowed by gate
+    item = global.DIALOG2P_Q[_pid][0];
+    if (!is_struct(item)){
+        // Malformed; drop it
+        var _new = []; for (var ii=1; ii<array_length(q); ++ii) _new[array_length(_new)] = q[ii];
+        global.DIALOG2P_Q[_pid] = _new; return;
+    }
+    var gate = (variable_struct_exists(item, "gate") ? string(item.gate) : "any");
+    if (__dlg_gate_allows_now(_pid, gate)){
+        // Pop head
+        var _new2 = []; for (var jj=1; jj<array_length(q); ++jj) _new2[array_length(_new2)] = q[jj];
+        global.DIALOG2P_Q[_pid] = _new2;
+        // Open text
+        dialog2p_open_text(_pid, variable_struct_exists(item, "text") ? item.text : "");
+    }
 }
 
 // ---------- Open text (wrap + reset) ---------------------------------------
@@ -122,6 +205,31 @@ function dialog2p_open_text(_pid, _text){
         }
     } catch (e_q) { /* ignore queuing failures and fall through to open */ }
 
+    // Hard duplicate suppression (scoped): after handling faint-queueing above, only
+    // block if the same exact text was just opened extremely recently (same frame/beat),
+    // to prevent back-to-back opens. Do NOT suppress across turns.
+    try {
+        // Determine whether a faint is pending; if so, don't suppress here—the text may need
+        // to be queued (the queue logic above already handled that) and suppression here could
+        // eat the rightful first display on the next frame.
+        var _fp2 = false;
+        try {
+            if (variable_global_exists("sys_battles") && is_array(global.sys_battles) && array_length(global.sys_battles) > _pid){
+                var _B2 = global.sys_battles[_pid];
+                if (is_struct(_B2) && variable_struct_exists(_B2, "_faint_pending") && variable_struct_get(_B2, "_faint_pending")) _fp2 = true;
+            }
+        } catch (e_fp2) { _fp2 = false; }
+        if (!_fp2){
+            var _txt_s2 = string(_text);
+            var _last_t2 = (variable_struct_exists(d, "_last_open_text") ? string(variable_struct_get(d, "_last_open_text")) : "");
+            var _last_ms2 = (variable_struct_exists(d, "_last_open_ts") && is_real(variable_struct_get(d, "_last_open_ts")) ? variable_struct_get(d, "_last_open_ts") : -9999999);
+            if (_last_t2 == _txt_s2 && is_real(current_time) && abs(current_time - _last_ms2) < 300){
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[dialog][suppress] duplicate within short window pid=" + string(_pid) + ", preview='" + string_copy(_txt_s2,1,min(48,string_length(_txt_s2))) + "'");
+                return;
+            }
+        }
+    } catch (e_ds) { /* ignore and continue */ }
+
     // Preserve previous content preview so we can avoid logging repeats
     var _prev_text = "";
     if (is_struct(d) && variable_struct_exists(d, "all_lines") && is_array(variable_struct_get(d, "all_lines"))){
@@ -137,6 +245,10 @@ function dialog2p_open_text(_pid, _text){
     d.tick       = 0;
     d.arrow_tick = 0;
     d.open       = true;
+
+    // Record last-open to support suppression on subsequent calls
+    try { variable_struct_set(d, "_last_open_text", string(_text)); } catch (e_lo) {}
+    try { if (is_real(current_time)) variable_struct_set(d, "_last_open_ts", current_time); } catch (e_lt) {}
 
     // Debug: log dialog opens to help trace timing issues
     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){

@@ -24,8 +24,14 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
     } else {
         _spr_missing = true;
     }
-    var _ui = __battle_ensure_slot(_pid)._ui;
-    var ui_s = (is_struct(_ui) && variable_struct_exists(_ui,"s")) ? _ui.s : 1;
+    var ui_s = 1;
+    try {
+        var __Bsl = __battle_ensure_slot(_pid);
+        if (is_struct(__Bsl) && variable_struct_exists(__Bsl, "_ui")){
+            var __ui = variable_struct_get(__Bsl, "_ui");
+            if (is_struct(__ui) && variable_struct_exists(__ui, "s")) ui_s = variable_struct_get(__ui, "s");
+        }
+    } catch (e_ui) { ui_s = 1; }
     var drawScaleE = scale_foe * ui_s;
     var cry_started_e = (variable_struct_exists(_B, "_cry_play_start_ms_enemy") && is_real(_B._cry_play_start_ms_enemy)) ? real(_B._cry_play_start_ms_enemy) : -1;
     if (cry_started_e > 0){
@@ -324,8 +330,14 @@ function __battle_draw_player(_pid, _B, mx, my, tx, ty){
     var subP = pkicons_get_art96_subimg_by_mon(mP, true);
     var w = sprite_exists(sprP) ? sprite_get_width(sprP) : 0;
     var h = sprite_exists(sprP) ? sprite_get_height(sprP) : 0;
-    var _ui = __battle_ensure_slot(_pid)._ui;
-    var ui_s = (is_struct(_ui) && variable_struct_exists(_ui,"s")) ? _ui.s : 1;
+    var ui_s = 1;
+    try {
+        var __Bsl2 = __battle_ensure_slot(_pid);
+        if (is_struct(__Bsl2) && variable_struct_exists(__Bsl2, "_ui")){
+            var __ui2 = variable_struct_get(__Bsl2, "_ui");
+            if (is_struct(__ui2) && variable_struct_exists(__ui2, "s")) ui_s = variable_struct_get(__ui2, "s");
+        }
+    } catch (e_ui2) { ui_s = 1; }
     var drawScaleP = scale_us * ui_s;
     var cry_started_p = (variable_struct_exists(_B, "_cry_play_start_ms_player") && is_real(_B._cry_play_start_ms_player)) ? real(_B._cry_play_start_ms_player) : -1;
     if (cry_started_p > 0){

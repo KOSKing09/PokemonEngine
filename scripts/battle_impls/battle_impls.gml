@@ -99,6 +99,23 @@ function __battle_calc_damage_impl(_A, _D, _move_id, _power){
     var Atk = __battle_stat_get(_A, "atk");
     var Def = __battle_stat_get(_D, "def");
 
+    // If this is a physical move and the attacker is burned, halve its attack
+    try {
+        var _dc = undefined;
+        if (!is_undefined(scr_move_damage_class_by_id) && is_real(_move_id)){
+            _dc = scr_move_damage_class_by_id(_move_id);
+        } else if (!is_undefined(__battle_get_move_meta) && is_real(_move_id)){
+            var __mm_try = __battle_get_move_meta(_move_id);
+            if (is_struct(__mm_try) && variable_struct_exists(__mm_try, "damage_class_id")) _dc = variable_struct_get(__mm_try, "damage_class_id");
+        }
+        // damage class 2 == physical in most datasets
+        if (is_real(_dc) && floor(_dc) == 2){
+            if (!is_undefined(status_system_has_status) && status_system_has_status(_A, "burn")){
+                Atk = floor(Atk / 2);
+            }
+        }
+    } catch (e_burn) {}
+
     // base formula (Pokémon-like, simplified)
     var base = floor( (((2*L/5 + 2) * _power * Atk) / max(1,Def)) / 50 ) + 2;
 
@@ -185,10 +202,15 @@ function __battle_apply_damage_impl(_pid, _target_index, _dmg, _mult){
                 if (variable_struct_exists(__mi_f, "_fainted")) variable_struct_set(__mi_f, "_fainted", true);
             }
             // Schedule pending party open on the battle slot so it's handled in battle_system
+            // Only schedule a forced party open when the fainted actor is the player's active Pokémon
+            // (actor index 0). This prevents the party UI from opening when an enemy faints.
             try {
                 var _B_sch = __battle_ensure_slot(_pid);
                 if (is_struct(_B_sch)){
-                    variable_struct_set(_B_sch, "_pending_open_party", true);
+                    // Only open party UI for player's side (target_index == 0)
+                    if (is_real(_target_index) && _target_index == 0){
+                        variable_struct_set(_B_sch, "_pending_open_party", true);
+                    }
                     // Ensure the faint dialog has at least one frame to render before
                     // the party UI may open: set a short delay marker the battle
                     // update loop will honor.
@@ -197,18 +219,15 @@ function __battle_apply_damage_impl(_pid, _target_index, _dmg, _mult){
                     // chances the party menu occludes the faint message on slow
                     // machines or when multiple UI updates occur in the same frame.
                     try { variable_struct_set(_B_sch, "_pending_open_party_delay_until", current_time + 300); } catch (e_pd) {}
-                    // Immediately open a faint dialog so the player sees it at the moment of faint
+                    // Queue faint text to show last; do not open immediately.
                     try {
                         var _fnt_name = "(Unknown)";
                         if (variable_struct_exists(T, "name")) _fnt_name = variable_struct_get(T, "name");
                         else if (variable_struct_exists(T, "mon") && is_struct(variable_struct_get(T, "mon")) && variable_struct_exists(variable_struct_get(T, "mon"), "name")) _fnt_name = variable_struct_get(variable_struct_get(T, "mon"), "name");
                         if (!is_undefined(__battle_stub_dialog)) __battle_stub_dialog(_pid, string(_fnt_name) + " fainted!");
-                        else if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, string(_fnt_name) + " fainted!");
+                        else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, string(_fnt_name) + " fainted!", string(_fnt_name) + " fainted!", "faint");
                     } catch (e_sd_local) {}
-                    // Mark faint as pending so it takes priority over multi-hit/status messages
-                    // We set this after opening the faint dialog so the faint message itself
-                    // is not enqueued by dialog2p_open_text.
-                    try { variable_struct_set(_B_sch, "_faint_pending", true); } catch (e_fp_local) {}
+                    // Do NOT set _faint_pending here; allow other messages to show before faint.
                     // Store a reference to the fainted actor's inner mon (preferred) so selection
                     // mapping can resolve correctly even after the party is reordered.
                     var _refm = T;
@@ -492,7 +511,6 @@ function __battle_apply_move(_pid, _user, _target, _move){
             return;
         }
         var _copiedName = (is_undefined(move_get_name) ? __battle_move_name_impl(_copiedMove) : move_get_name(_copiedMove));
-        dialog_queue(_user.name + " used " + _copiedName + "!");
         try { variable_struct_set(_user, "_suppress_last_move_record", true); } catch (e_s1) {}
         try { __battle_apply_move(_pid, _user, _target, _copiedMove); } catch (e_replay){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][copycat] replay failed: " + string(e_replay)); }
         try { if (variable_struct_exists(_user, "_suppress_last_move_record")) variable_struct_set(_user, "_suppress_last_move_record", false); } catch (e_s2) {}
@@ -503,7 +521,18 @@ function __battle_apply_move(_pid, _user, _target, _move){
     if (!_isCopycatMove){
         global.lastMoveUsed_ID = _move;
         var _moveName = move_get_name(_move);
-        dialog_queue(_user.name + " used " + _moveName + "!");
+        // Prevent duplicate "used X!" dialogs when the same actor/move enqueues it
+        // multiple times in quick succession (copycat/replay/multi-hit/faint ordering).
+        var _should_enqueue_used = true;
+        try {
+            var _last_id = (variable_struct_exists(_user, "_last_move_dialog_id") ? variable_struct_get(_user, "_last_move_dialog_id") : undefined);
+            var _last_ts = (variable_struct_exists(_user, "_last_move_dialog_ts") ? variable_struct_get(_user, "_last_move_dialog_ts") : -9999999);
+            if (is_real(_last_id) && _last_id == _move && is_real(_last_ts) && abs(_last_ts - current_time) < 500) _should_enqueue_used = false;
+        } catch (e_dup) { _should_enqueue_used = true; }
+        if (_should_enqueue_used) {
+            dialog_queue(_user.name + " used " + _moveName + "!");
+            try { variable_struct_set(_user, "_last_move_dialog_id", _move); variable_struct_set(_user, "_last_move_dialog_ts", current_time); } catch (e_setd) {}
+        }
         // Also record per-target history for Copycat's reference (unless suppressed)
         try {
             var _suppress = (variable_struct_exists(_user, "_suppress_last_move_record") && variable_struct_get(_user, "_suppress_last_move_record") == true);
@@ -682,7 +711,48 @@ function __battle_apply_move(_pid, _user, _target, _move){
 
 
 function __battle_check_can_act(_user){
-    // Safely read status fields from the actor struct to avoid runtime errors
+    // Use the centralized status system when available. Fall back to legacy
+    // sys_status fields if the status system isn't present.
+    try {
+        if (!is_undefined(status_system_has_status) && !is_undefined(status_system_get)){
+            // Freeze handling: 75% chance to remain frozen each attempt; thaw on success
+            if (status_system_has_status(_user, "freeze")){
+                var r2 = irandom(99);
+                if (r2 < 75){ dialog_queue((variable_struct_exists(_user, "name") ? variable_struct_get(_user, "name") : "The user") + " is frozen solid!"); return false; }
+                else { dialog_queue((variable_struct_exists(_user, "name") ? variable_struct_get(_user, "name") : "The user") + " thawed out!"); status_system_clear_status(_user, "freeze"); return true; }
+            }
+            // Sleep handling: use turns on the status instance if available
+            if (status_system_has_status(_user, "sleep")){
+                var inst_s = status_system_get(_user, "sleep");
+                var turns = (is_struct(inst_s) && variable_struct_exists(inst_s, "turns") && is_real(variable_struct_get(inst_s, "turns"))) ? variable_struct_get(inst_s, "turns") : undefined;
+                if (is_real(turns) && turns > 0){ dialog_queue((variable_struct_exists(_user, "name") ? variable_struct_get(_user, "name") : "The user") + " is fast asleep..."); if (is_struct(inst_s) && is_real(inst_s.turns)) inst_s.turns = max(0, inst_s.turns - 1); return false; }
+                // no turns left -> wake up
+                dialog_queue((variable_struct_exists(_user, "name") ? variable_struct_get(_user, "name") : "The user") + " woke up!"); status_system_clear_status(_user, "sleep"); return true;
+            }
+            // Paralysis: 25% chance to be immobilized
+            if (status_system_has_status(_user, "paralysis") || status_system_has_status(_user, "paralyze")){
+                // Prefer the canonical instance when available so callers can set per-instance flags
+                var _pinst = undefined;
+                try { if (status_system_has_status(_user, "paralysis")) _pinst = status_system_get(_user, "paralysis");
+                      else if (status_system_has_status(_user, "paralyze")) _pinst = status_system_get(_user, "paralyze"); } catch (e_pi) { _pinst = undefined; }
+                var _immobilized = (irandom(3) == 0); // 1/4 chance
+                if (_immobilized){
+                    // Suppress duplicate immobilize messages for the same actor in short windows
+                    var _last_ts = (variable_struct_exists(_user, "_last_paralyze_msg_ts") ? variable_struct_get(_user, "_last_paralyze_msg_ts") : -9999999);
+                    if (abs(current_time - _last_ts) >= 500){
+                        dialog_queue((variable_struct_exists(_user, "name") ? variable_struct_get(_user, "name") : "The user") + " is paralyzed! It can't move!");
+                        try { variable_struct_set(_user, "_last_paralyze_msg_ts", current_time); } catch (e_setp) {}
+                    }
+                    return false;
+                }
+                return true;
+            }
+        }
+    } catch (e_status_fallback) {
+        // fallback to legacy behavior if status_system calls fail
+    }
+
+    // Legacy fallback: read status fields from the actor struct to avoid runtime errors
     var _status = undefined; var _status_turns = 0;
     try {
         if (is_struct(_user) && variable_struct_exists(_user, "sys_status")) _status = variable_struct_get(_user, "sys_status");

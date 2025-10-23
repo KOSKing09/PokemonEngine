@@ -132,12 +132,34 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
 
     // Special-case move semantics that alter computed damage before application
     try {
+        // Sonic Boom: fixed 20 HP damage (classic behavior). Ensure this
+        // move deals a flat 20 HP and does not use the normal damage formula.
+        if (is_real(_move_id) && _move_id == 49){
+            var sb_flat = 20;
+            dmg = sb_flat;
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][move_special] Sonic Boom applied flat dmg=" + string(dmg));
+        }
+        // Dragon Rage: fixed 40 (classic)
+        if (is_real(_move_id) && _move_id == 82){
+            dmg = 40;
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][move_special] Dragon Rage flat dmg=40");
+        }
+
         // Super Fang (id 162) deals damage equal to half the target's current HP
         if (is_real(_move_id) && _move_id == 162){
             var curhp_sf = __battle_hp_now(_D);
             var sf_dmg = max(0, floor(curhp_sf / 2));
             dmg = sf_dmg;
             if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][move_special] Super Fang computed dmg=" + string(dmg) + ", target_hp=" + string(curhp_sf));
+        }
+
+        // Seismic Toss and Night Shade: damage equal to attacker's level (classic)
+        if (is_real(_move_id) && (_move_id == 69 || _move_id == 101)){
+            try {
+                var atk_level_flat = (is_struct(_A) && variable_struct_exists(_A, "level") && is_real(variable_struct_get(_A, "level"))) ? floor(variable_struct_get(_A, "level")) : 1;
+                dmg = max(0, atk_level_flat);
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][move_special] level-based move applied move="+string(_move_id)+", dmg="+string(dmg));
+            } catch (e_lvl) { }
         }
 
         // False Swipe (id 206) must not reduce the target below 1 HP (can't OHKO)
@@ -152,6 +174,68 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
                 }
             }
         }
+        // Terrain effects: adjust damage or cancel based on battlefield terrain
+        try {
+            var _Bterr = __battle_ensure_slot(_pid);
+            var terr = (is_struct(_Bterr) && variable_struct_exists(_Bterr, "_terrain")) ? string_lower(string(variable_struct_get(_Bterr, "_terrain"))) : "";
+            if (string_length(terr) > 0){
+                // Helper: grounded checks (reuse __actor_is_grounded if present)
+                var A_grounded = true; var D_grounded = true;
+                try { if (!is_undefined(__actor_is_grounded)) { A_grounded = __actor_is_grounded(_A); D_grounded = __actor_is_grounded(_D); } } catch (e_gr) {}
+                // Move type id when available
+                var mv_type = -1;
+                try { if (!is_undefined(scr_move_type_id_by_id) && is_real(_move_id)) mv_type = scr_move_type_id_by_id(_move_id); } catch (e_mt) { mv_type = -1; }
+                // Psychic Terrain: block priority moves against grounded targets, and boost Psychic-type moves (grounded attacker)
+                if (terr == "psychic"){
+                    var priority_val = 0;
+                    try {
+                        if (!is_undefined(__battle_get_move_meta) && is_real(_move_id)){
+                            var _mm_pt = __battle_get_move_meta(_move_id);
+                            if (is_struct(_mm_pt) && variable_struct_exists(_mm_pt, "priority") && is_real(variable_struct_get(_mm_pt, "priority"))) priority_val = variable_struct_get(_mm_pt, "priority");
+                        }
+                    } catch (e_pr) { priority_val = 0; }
+                    if (is_real(priority_val) && priority_val > 0 && D_grounded){
+                        // Cancel the move's damage application
+                        try { var _dnm = (is_struct(_D) && variable_struct_exists(_D, "name") ? variable_struct_get(_D, "name") : "The target"); __battle_stub_dialog(_pid, string(_dnm) + " was protected by the terrain!"); } catch (e_msg) {}
+                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                            var _an_dbg = (is_struct(_A) && variable_struct_exists(_A, "name") ? variable_struct_get(_A, "name") : "<att>");
+                            show_debug_message("[battle][terrain] Psychic Terrain blocked priority move id=" + string(_move_id) + " from attacker=" + string(_an_dbg));
+                        }
+                        return [0, before, before];
+                    }
+                    // Boost Psychic-type moves by 1.3x for grounded users
+                    var psy_id = -1;
+                    try { if (variable_global_exists("TYPE_ID_BY_NAME")) { var _tmap_psy = variable_global_get("TYPE_ID_BY_NAME"); if (ds_exists(_tmap_psy, ds_type_map)) psy_id = ds_map_find_value(_tmap_psy, "psychic"); } } catch (e_tp) { psy_id = -1; }
+                    if (is_real(psy_id) && mv_type == psy_id && A_grounded){
+                        dmg = floor(dmg * 1.3);
+                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][terrain] Psychic Terrain 1.3x boost applied to Psychic move id=" + string(_move_id));
+                    }
+                }
+                // Electric Terrain: boost Electric-type moves used by grounded attacker (x1.3)
+                if (terr == "electric" && is_real(mv_type)){
+                    var ele_id = -1;
+                    try { if (variable_global_exists("TYPE_ID_BY_NAME")){ var _tmap = variable_global_get("TYPE_ID_BY_NAME"); if (ds_exists(_tmap, ds_type_map)) ele_id = ds_map_find_value(_tmap, "electric"); } } catch (e_te) { ele_id = -1; }
+                    if (is_real(ele_id) && mv_type == ele_id && A_grounded){ dmg = floor(dmg * 1.3); if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][terrain] Electric Terrain 1.3x boost applied to Electric move id=" + string(_move_id)); }
+                }
+                // Grassy Terrain: halve EQ/Bulldoze/Magnitude damage; boost Grass-type moves for grounded attackers
+                if (terr == "grassy"){
+                    // Identify EQ/Bulldoze/Magnitude by identifier or name
+                    var iden = "";
+                    try { if (variable_global_exists("_moves") && is_array(global._moves) && is_real(_move_id) && _move_id >= 0 && _move_id < array_length(global._moves)){ var mv = global._moves[_move_id]; if (is_struct(mv) && variable_struct_exists(mv, "identifier")) iden = string_lower(string(variable_struct_get(mv, "identifier"))); } } catch (e_id) { iden = ""; }
+                    if (string_length(iden) > 0){ if (string_pos("earthquake", iden) > 0 || string_pos("bulldoze", iden) > 0 || string_pos("magnitude", iden) > 0){ dmg = floor(dmg * 0.5); if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][terrain] Grassy Terrain halved ground-type quake-like move id=" + string(_move_id)); } }
+                    // Boost Grass-type moves by 1.3x for grounded users
+                    var grass_id = -1;
+                    try { if (variable_global_exists("TYPE_ID_BY_NAME")){ var _tmap3 = variable_global_get("TYPE_ID_BY_NAME"); if (ds_exists(_tmap3, ds_type_map)) grass_id = ds_map_find_value(_tmap3, "grass"); } } catch (e_tg) { grass_id = -1; }
+                    if (is_real(grass_id) && mv_type == grass_id && A_grounded){ dmg = floor(dmg * 1.3); if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][terrain] Grassy Terrain 1.3x boost applied to Grass move id=" + string(_move_id)); }
+                }
+                // Misty Terrain: halve Dragon-type move damage against grounded targets
+                if (terr == "misty" && is_real(mv_type) && D_grounded){
+                    var drag_id = -1;
+                    try { if (variable_global_exists("TYPE_ID_BY_NAME")){ var _tmap2 = variable_global_get("TYPE_ID_BY_NAME"); if (ds_exists(_tmap2, ds_type_map)) drag_id = ds_map_find_value(_tmap2, "dragon"); } } catch (e_td) { drag_id = -1; }
+                    if (is_real(drag_id) && mv_type == drag_id){ dmg = floor(dmg * 0.5); if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][terrain] Misty Terrain halved Dragon move id=" + string(_move_id)); }
+                }
+            }
+        } catch (e_terr) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][terrain] damage adjust failed: " + string(e_terr)); }
     } catch (e_ms) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][move_special] handler error: " + string(e_ms)); }
 
     // Defensive guard: prevent accidental self-hits when target == attacker and move is not a self-targeting move

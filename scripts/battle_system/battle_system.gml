@@ -14,6 +14,40 @@
 //   battle_switch_to(pid, party_index);// switch active mon with visuals (midpoint swap)
 // -----------------------------------------------------------------------------
 
+/*
+Battle System — Architecture overview
+
+Phases (string stored in _B.phase):
+- transition_in: fade from black into the battle scene.
+- intro_enemy: enemy enters (slide-in), enemy cry.
+- intro_call: trainer slide/call, optional sprite; shows “A wild X appeared!\n\nGo. Y!”.
+- intro_player: player Pokémon scales in; then command.
+- command: player selects an action; UI shown.
+- turn: actions resolve in a queue; dialogs and animations may appear.
+- switch_in: forced/voluntary swap animation; may consume turn.
+
+State slot (_B) shape (per pid via __battle_ensure_slot):
+- sys_open (bool), phase (string), phase_start_ms (int), phase_progress (0..1), phase_durs (struct)
+- actor[0] (player actor struct), actor[1] (enemy actor struct)
+- sys_ui: { menu, selX, selY, msg_list }, theme, _ui (canvas metrics), _closing flags
+- turn_queue (array), turn_i (int), turn_action_player/enemy (struct|undef), result (ongoing|win|lose)
+- flags: _dlg_active, _faint_pending, _pending_open_party, _pending_status_msgs, _pending_close
+- intro hooks: _intro_update_fn, _intro_draw_fn
+
+Integration contracts:
+- Call battle_update(pid) from Step each frame; call battle_draw_gui(pid) from Draw GUI.
+- Ensure scr_controls() at boot and controls_update() each Step so input works.
+- Use party_init() at boot; party_ensure(pid) for party state.
+- Use pkicons_set_*_base(..) before file-based art/cry loading.
+
+Extension hooks:
+- battle_intro_set_handlers(pid, update_fn, draw_fn) to register per-battle intro sprite logic.
+- __battle_on_phase_enter(pid, phase) runs on phase transitions (optional to override).
+
+Error modes:
+- Functions guard missing globals and undefined symbols; safe fallbacks avoid hard crashes.
+*/
+
 // NOTE: registration helpers are implemented in `scripts/battle_impls/battle_impls.gml`
 // and `scripts/battle_moves_impls/battle_moves_impls.gml`. Do not provide duplicate
 // definitions here or the GM compiler will report duplicate script names.
@@ -56,6 +90,19 @@ function __battle_apply_entry_hazards(_pid, _actor_index){
         } catch (e_act) { A = undefined; }
         if (!is_struct(A)) return false;
 
+        // Determine which opponent-side hazards affect this entrant. For player entrant (index 0),
+        // hazards set by the enemy side should apply (suffix "_enemy"). For enemy entrant (index 1),
+        // hazards set by the player side should apply (suffix "_player").
+        var _haz_suffix = (is_real(_actor_index) && _actor_index == 0) ? "_enemy" : "_player";
+        // Helper to read a hazard value with side-specific key fallback to legacy key
+        function __get_hazard_val(_key_side, _key_legacy, _default){
+            try {
+                if (variable_struct_exists(_B, _key_side)) return variable_struct_get(_B, _key_side);
+                if (variable_struct_exists(_B, _key_legacy)) return variable_struct_get(_B, _key_legacy);
+            } catch (e) {}
+            return _default;
+        }
+
         // Collect defender types into tlist (supports various shapes)
         var tlist = [];
         try {
@@ -76,26 +123,59 @@ function __battle_apply_entry_hazards(_pid, _actor_index){
             }
         } catch (e_t){}
 
-        // Normalize: check for any type id that maps to "flying" name
-        var immune_flying = false;
-        var flying_id = undefined;
+        // Resolve common type ids we need for checks
+        var flying_id = undefined, poison_id = undefined, steel_id = undefined, rock_id_global = undefined;
         if (variable_global_exists("TYPE_ID_BY_NAME")){
-            try { var _tmp_type_by_name = variable_global_get("TYPE_ID_BY_NAME"); if (ds_exists(_tmp_type_by_name, ds_type_map)) flying_id = ds_map_find_value(_tmp_type_by_name, string_lower("flying")); } catch (e) { flying_id = undefined; }
+            try {
+                var _tmp_type_by_name = variable_global_get("TYPE_ID_BY_NAME");
+                if (ds_exists(_tmp_type_by_name, ds_type_map)){
+                    flying_id = ds_map_find_value(_tmp_type_by_name, string_lower("flying"));
+                    poison_id = ds_map_find_value(_tmp_type_by_name, string_lower("poison"));
+                    steel_id  = ds_map_find_value(_tmp_type_by_name, string_lower("steel"));
+                    rock_id_global = ds_map_find_value(_tmp_type_by_name, string_lower("rock"));
+                }
+            } catch (e) { flying_id = undefined; poison_id = undefined; steel_id = undefined; rock_id_global = undefined; }
         }
-        for (var _j=0; _j<array_length(tlist); ++_j){ var tv = tlist[_j]; if (!is_undefined(flying_id) && is_real(tv) && tv == flying_id) { immune_flying = true; break; } }
 
-        // Ability/item levitate check (conservative): if ability field equals 'levitate' or numeric id 26
+        // Ability checks used by hazards
         var has_levitate = false;
-        try { if (variable_struct_exists(A, "ability")) { var ab = variable_struct_get(A, "ability"); if ((is_string(ab) && string_lower(string(ab)) == "levitate") || (is_real(ab) && floor(ab) == 26)) has_levitate = true; } } catch (e_lev) { has_levitate = false; }
+        var has_magic_guard = false;
+        try {
+            if (variable_struct_exists(A, "ability")){
+                var ab = variable_struct_get(A, "ability");
+                var ab_str = is_string(ab) ? string_lower(string(ab)) : "";
+                var abi = is_real(ab) ? floor(ab) : -1;
+                if (ab_str == "levitate" || abi == 26) has_levitate = true;
+                if (ab_str == "magic guard" || abi == global.ABILITY_MAGIC_GUARD) has_magic_guard = true;
+            }
+        } catch (e_lev) { has_levitate = has_levitate; }
 
-        // If immunities present, skip hazards that damage or poison
-        var skip_entry_damage = (immune_flying || has_levitate);
+        // Helper: is the entrant of POISON or STEEL type?
+        var is_poison_type = false;
+        var is_steel_type  = false;
+        for (var _j=0; _j<array_length(tlist); ++_j){ var tv = tlist[_j]; if (is_real(tv)) { if (!is_undefined(poison_id) && tv == poison_id) is_poison_type = true; if (!is_undefined(steel_id) && tv == steel_id) is_steel_type = true; } }
+
+        // Helper: grounded predicate (reuse local helper if available)
+        var is_grounded = true;
+        try {
+            if (!is_undefined(__actor_is_grounded)) is_grounded = __actor_is_grounded(A);
+            else {
+                var has_fly = false;
+                for (var __ti=0; __ti<array_length(tlist); ++__ti){ var __tv=tlist[__ti]; if (is_real(__tv) && !is_undefined(flying_id) && is_real(flying_id) && __tv == flying_id) { has_fly = true; break; } }
+                is_grounded = !(has_fly || has_levitate);
+            }
+        } catch (e_g) { is_grounded = !(has_levitate); }
+
+        // If not grounded, skip hazards that require grounding (Spikes, Toxic Spikes, Sticky Web). Stealth Rock still applies.
+        var skip_grounded_hazards = (!is_grounded);
 
         // Apply Spikes
         try {
-            if (variable_struct_exists(_B, "_side_spikes") && is_real(variable_struct_get(_B, "_side_spikes"))){
-                var layers = variable_struct_get(_B, "_side_spikes");
-                if (is_real(layers) && layers > 0 && !skip_entry_damage){
+                var layers = __get_hazard_val("_side_spikes" + _haz_suffix, "_side_spikes", 0);
+                if (is_real(layers) && layers > 0 && !skip_grounded_hazards){
+                    // Magic Guard prevents indirect hazard damage
+                    if (has_magic_guard) { /* skip spikes damage */ }
+                    else {
                     var hpmax = (variable_struct_exists(A, "hp_max") ? variable_struct_get(A, "hp_max") : (variable_struct_exists(A, "maxhp") ? variable_struct_get(A, "maxhp") : 0));
                     var frac_amt = 0.125;
                     if (layers == 2) frac_amt = 1.0/6.0; else if (layers >= 3) frac_amt = 0.25;
@@ -109,42 +189,50 @@ function __battle_apply_entry_hazards(_pid, _actor_index){
                         var _aname_sp = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokémon");
                         if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, string(_aname_sp) + " was hurt by the spikes!");
                     } catch (e_msg) {}
-                    try { variable_struct_set(_B, "_meta_effect_applied", true); } catch (e) {}
+                        try { variable_struct_set(_B, "_meta_effect_applied", true); } catch (e) {}
+                    }
                 }
-            }
         } catch (e_sp) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][hazards] spikes apply failed: " + string(e_sp)); }
 
         // Apply Toxic Spikes: single layer -> poison, double layer -> bad poison (try 'toxic' then 'poison')
         try {
-            if (variable_struct_exists(_B, "_side_toxic_spikes") && is_real(variable_struct_get(_B, "_side_toxic_spikes"))){
-                var tlay = variable_struct_get(_B, "_side_toxic_spikes");
-                if (is_real(tlay) && tlay > 0 && !skip_entry_damage){
-                    try {
-                        if (tlay >= 2){ // attempt to apply 'toxic' (bad poison)
-                            if (!is_undefined(status_system_apply_status)) { var ok = status_system_apply_status(A, "toxic", {}); if (!ok) status_system_apply_status(A, "poison", {}); }
+                var tlay = __get_hazard_val("_side_toxic_spikes" + _haz_suffix, "_side_toxic_spikes", 0);
+                if (is_real(tlay) && tlay > 0){
+                    // Only interacts if grounded
+                    if (!skip_grounded_hazards){
+                        // Poison-type grounded Pokémon absorb the layers entirely
+                        if (is_poison_type){
+                            try { variable_struct_set(_B, "_side_toxic_spikes", 0); } catch (eclr) {}
+                            try { var _aname_abs = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokémon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, string(_aname_abs) + " absorbed the Toxic Spikes!"); } catch (e_msgabs) {}
                         } else {
-                            if (!is_undefined(status_system_apply_status)) status_system_apply_status(A, "poison", {});
+                            // Steel-type are immune to poison; do nothing. Flying/Levitate already skipped via grounded
+                            if (!is_steel_type){
+                                try {
+                                    if (tlay >= 2){ // attempt to apply 'toxic' (bad poison)
+                                        if (!is_undefined(status_system_apply_status)) { var ok = status_system_apply_status(A, "toxic", {}); if (!ok) status_system_apply_status(A, "poison", {}); }
+                                    } else {
+                                        if (!is_undefined(status_system_apply_status)) status_system_apply_status(A, "poison", {});
+                                    }
+                                } catch (e_ts) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][hazards] toxic spikes apply failed: " + string(e_ts)); }
+                                try { variable_struct_set(_B, "_meta_effect_applied", true); } catch (e) {}
+                            }
                         }
-                    } catch (e_ts) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][hazards] toxic spikes apply failed: " + string(e_ts)); }
-                    try { variable_struct_set(_B, "_meta_effect_applied", true); } catch (e) {}
+                    }
                 }
-            }
         } catch (e_ts_outer) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][hazards] toxic spikes outer error: " + string(e_ts_outer)); }
 
         // Apply Stealth Rock: damage scales by Rock-type effectiveness vs the entrant
         try {
-            if (variable_struct_exists(_B, "_side_stealth_rock") && variable_struct_get(_B, "_side_stealth_rock") == true){
-                if (!skip_entry_damage){
+            // Stealth Rock affects all grounded and airborne alike (Magic Guard prevents damage)
+            if (__get_hazard_val("_side_stealth_rock" + _haz_suffix, "_side_stealth_rock", 0) != 0){
+                if (!has_magic_guard){
                     var hpmax2 = (variable_struct_exists(A, "hp_max") ? variable_struct_get(A, "hp_max") : (variable_struct_exists(A, "maxhp") ? variable_struct_get(A, "maxhp") : 0));
                     var base_frac = 0.125; // gen3: 1/8 of max HP before type multiplier
                     var mult = 1.0;
                     // Attempt to compute type-effectiveness multiplier using BATTLE_TYPE_EFFICACY
                     try {
                         // determine rock type id from TYPE_ID_BY_NAME if available
-                        var rock_id = undefined;
-                        if (variable_global_exists("TYPE_ID_BY_NAME")){
-                            try { var _tmp_type_by_name2 = variable_global_get("TYPE_ID_BY_NAME"); if (ds_exists(_tmp_type_by_name2, ds_type_map)) rock_id = ds_map_find_value(_tmp_type_by_name2, string_lower("rock")); } catch (e_rock) { rock_id = undefined; }
-                        }
+                        var rock_id = rock_id_global;
                         if (!is_undefined(rock_id) && is_real(rock_id) && variable_global_exists("BATTLE_TYPE_EFFICACY")){
                             var _tmp_bte = variable_global_get("BATTLE_TYPE_EFFICACY");
                             if (!is_undefined(_tmp_bte) && ds_exists(_tmp_bte, ds_type_map)){
@@ -180,42 +268,61 @@ function __battle_apply_entry_hazards(_pid, _actor_index){
                     } catch (e_tr) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][hazards] stealth rock type calc failed: " + string(e_tr)); }
 
                     var rawd = floor(hpmax2 * base_frac * max(0.0, mult));
-                    var dmg2 = max(1, rawd);
-                    var _before_sr = __battle_hp_now(A);
-                    __battle_apply_damage(_pid, _actor_index, dmg2, 1.0);
-                    var _after_sr = __battle_hp_now(A);
-                    __battle_trigger_hit_effect(_pid, A, _before_sr, _after_sr, mult);
-                    try { var _aname_sr = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokémon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, string(_aname_sr) + " was hurt by the stealth rock!"); } catch (e_msg2) {}
-                    try { variable_struct_set(_B, "_meta_effect_applied", true); } catch (e) {}
+                    if (rawd > 0){
+                        var dmg2 = rawd; // allow 0 damage when multiplier yields 0
+                        var _before_sr = __battle_hp_now(A);
+                        __battle_apply_damage(_pid, _actor_index, dmg2, 1.0);
+                        var _after_sr = __battle_hp_now(A);
+                        __battle_trigger_hit_effect(_pid, A, _before_sr, _after_sr, mult);
+                        try { var _aname_sr = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokémon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, string(_aname_sr) + " was hurt by the stealth rock!"); } catch (e_msg2) {}
+                        try { variable_struct_set(_B, "_meta_effect_applied", true); } catch (e) {}
+                    }
                 }
             }
         } catch (e_sr) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][hazards] stealth rock outer error: " + string(e_sr)); }
 
         // Apply Sticky Web: apply -1 Speed stage via stage machinery and request stat-change animation
         try {
-            if (variable_struct_exists(_B, "_side_sticky_web") && variable_struct_get(_B, "_side_sticky_web") == true){
+            if (__get_hazard_val("_side_sticky_web" + _haz_suffix, "_side_sticky_web", false) == true){
                 try {
-                    // Enqueue the sticky-web hit dialog first
-                    try { var _aname_sw = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokémon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, string(_aname_sw) + " was caught in the sticky web!"); } catch (e_) {}
+                    // Only grounded targets are affected
+                    if (!skip_grounded_hazards){
+                        // Ability-based immunity to stat drops: Clear Body, White Smoke, Full Metal Body
+                        var block_drop = false; var contrary = false;
+                        try {
+                            if (variable_struct_exists(A, "ability")){
+                                var _abn = string_lower(string(variable_struct_get(A, "ability")));
+                                if (_abn == "clear body" || _abn == "white smoke" || _abn == "full metal body") block_drop = true;
+                                if (_abn == "contrary") contrary = true;
+                            }
+                        } catch (e_ab) {}
+                        if (block_drop){
+                            try { var _aname_sw0 = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokémon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, string(_aname_sw0) + " wasn't affected by the sticky web!"); } catch (e_msg0) {}
+                        } else {
+                            // Enqueue the sticky-web hit dialog first
+                            try { var _aname_sw = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokémon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, string(_aname_sw) + " was caught in the sticky web!"); } catch (e_) {}
 
-                    // Apply a -1 stage to Speed using the same stage storage as other stat changes
-                    if (!variable_struct_exists(A, "_stages") || !is_struct(variable_struct_get(A, "_stages"))) variable_struct_set(A, "_stages", {});
-                    var st_obj = variable_struct_get(A, "_stages");
-                    var prev_s = (variable_struct_exists(st_obj, "spe") && is_real(variable_struct_get(st_obj, "spe"))) ? variable_struct_get(st_obj, "spe") : 0;
-                    var next_s = clamp(prev_s - 1, -6, 6);
-                    variable_struct_set(st_obj, "spe", next_s);
-                    // Request stat-change animation
-                    __battle_request_animation_safe(_pid, { type: "stat_change", target_index: _actor_index, stat: "spe", from: prev_s, to: next_s });
-                    // Enqueue a concise stat message like other stat changes
-                    var aname_sw = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokémon");
-                    var applied_amt = next_s - prev_s; var sign_amt = (applied_amt > 0) ? ("+" + string(applied_amt)) : string(applied_amt);
-                    var sc_msg_sw = "";
-                    if (applied_amt == 0) sc_msg_sw = string(aname_sw) + "'s SPD won't go any lower!";
-                    else sc_msg_sw = string(aname_sw) + " SPD " + sign_amt;
-                    var _target_mon_ref_sw = A;
-                    if (is_struct(A) && variable_struct_exists(A, "mon") && is_struct(variable_struct_get(A, "mon"))) _target_mon_ref_sw = variable_struct_get(A, "mon");
-                    if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_target_mon_ref_sw, sc_msg_sw);
-                    try { variable_struct_set(_B, "_meta_effect_applied", true); } catch (e) {}
+                            // Apply a stage change to Speed (-1 normally; +1 if Contrary)
+                            if (!variable_struct_exists(A, "_stages") || !is_struct(variable_struct_get(A, "_stages"))) variable_struct_set(A, "_stages", {});
+                            var st_obj = variable_struct_get(A, "_stages");
+                            var prev_s = (variable_struct_exists(st_obj, "spe") && is_real(variable_struct_get(st_obj, "spe"))) ? variable_struct_get(st_obj, "spe") : 0;
+                            var delta = (contrary ? 1 : -1);
+                            var next_s = clamp(prev_s + delta, -6, 6);
+                            variable_struct_set(st_obj, "spe", next_s);
+                            // Request stat-change animation
+                            __battle_request_animation_safe(_pid, { type: "stat_change", target_index: _actor_index, stat: "spe", from: prev_s, to: next_s });
+                            // Enqueue a concise stat message like other stat changes
+                            var aname_sw = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokémon");
+                            var applied_amt = next_s - prev_s; var sign_amt = (applied_amt > 0) ? ("+" + string(applied_amt)) : string(applied_amt);
+                            var sc_msg_sw = "";
+                            if (applied_amt == 0) sc_msg_sw = string(aname_sw) + "'s SPD won't go any lower!";
+                            else sc_msg_sw = string(aname_sw) + " SPD " + sign_amt;
+                            var _target_mon_ref_sw = A;
+                            if (is_struct(A) && variable_struct_exists(A, "mon") && is_struct(variable_struct_get(A, "mon"))) _target_mon_ref_sw = variable_struct_get(A, "mon");
+                            if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_target_mon_ref_sw, sc_msg_sw);
+                            try { variable_struct_set(_B, "_meta_effect_applied", true); } catch (e) {}
+                        }
+                    }
                 } catch (e_sw){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][hazards] sticky web apply failed: " + string(e_sw)); }
             }
         } catch (e_outer_sw) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][hazards] sticky web outer error: " + string(e_outer_sw)); }
@@ -225,6 +332,11 @@ function __battle_apply_entry_hazards(_pid, _actor_index){
     return false;
 }
 
+/// Ensure and return the per-player battle slot.
+/// Params:
+///  - _pid: player id (int)
+/// Returns: struct _B (battle state for this player). Creates and initializes if missing.
+/// Notes: Public helper used by most battle_* functions; do not mutate shape outside documented fields.
 function __battle_ensure_slot(_pid){
     if (!variable_global_exists("sys_battles") || !is_array(global.sys_battles)) global.sys_battles = [];
     if (array_length(global.sys_battles) <= _pid) array_resize(global.sys_battles, _pid + 1);
@@ -264,6 +376,9 @@ function __battle_ensure_slot(_pid){
     }
     return _B;
 }
+/// Check if a battle is currently open for the given player id.
+/// Params: _pid (int)
+/// Returns: bool
 function battle_is_open(_pid){
     var _B = __battle_ensure_slot(_pid);
     return (_B.sys_open == true);
@@ -289,6 +404,11 @@ if (is_undefined(__battle_get_move_meta)){
         return undefined;
     }
 }
+
+// Guarded stub for scr_compute_grounded_flag to satisfy the static analyzer when
+// battle_system references it before the factory script is processed.
+// Note: scr_compute_grounded_flag is defined in pokemon_factory.gml.
+// Do not define a fallback here to avoid duplicate script name errors in GameMaker.
 
 if (is_undefined(__battle_apply_move_meta_effects)){
     function __battle_apply_move_meta_effects(_pid, _step, _A, _D, _move_id, _dmg, _mm){
@@ -529,6 +649,107 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                 var _move_rec = undefined;
                 if (variable_global_exists("_moves") && is_array(global._moves) && is_real(_move_id) && _move_id >= 0 && _move_id < array_length(global._moves)) _move_rec = global._moves[_move_id];
                 var _eid = (is_struct(_move_rec) && variable_struct_exists(_move_rec, "effect_id") && is_real(variable_struct_get(_move_rec, "effect_id"))) ? variable_struct_get(_move_rec, "effect_id") : undefined;
+                // Fallback: some CSV dumps lack effect_id headers or loaders; infer terrain by identifier if needed
+                if (!is_real(_eid) && is_struct(_move_rec) && variable_struct_exists(_move_rec, "identifier")){
+                    var _ident_mv = string_lower(string(variable_struct_get(_move_rec, "identifier")));
+                    if (string_pos("electric-terrain", _ident_mv) > 0) _eid = 369; // Electric Terrain
+                    else if (string_pos("grassy-terrain", _ident_mv) > 0) _eid = 352; // Grassy Terrain
+                    else if (string_pos("misty-terrain", _ident_mv) > 0) _eid = 353;  // Misty Terrain
+                    else if (string_pos("psychic-terrain", _ident_mv) > 0) _eid = 395; // Psychic Terrain
+                }
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                    var _idtxt = (is_struct(_move_rec) && variable_struct_exists(_move_rec, "identifier") ? string(variable_struct_get(_move_rec, "identifier")) : "<no-ident>");
+                    show_debug_message("[battle][meta][trace] move_id=" + string(_move_id) + ", ident=" + _idtxt + ", effect_id_resolved=" + string(_eid));
+                }
+
+                // Early terrain handling: apply even if no stat_changes array exists in move meta
+                if (is_real(_eid)){
+                    // Electric/Grassy/Misty Terrain
+                    if (_eid == 369 || _eid == 352 || _eid == 353){
+                        try {
+                            var terr_name_early = ( _eid == 369 ? "electric" : ( _eid == 352 ? "grassy" : "misty" ) );
+                            var _Bterr_early = __battle_ensure_slot(_pid);
+                            if (is_struct(_Bterr_early)){
+                                variable_struct_set(_Bterr_early, "_terrain", terr_name_early);
+                                var terr_turns_early = 5;
+                                var has_ext_early = false;
+                                try {
+                                    if (variable_struct_exists(_A, "held_item_real_name")){
+                                        var _nm_e = string_lower(string(variable_struct_get(_A, "held_item_real_name")));
+                                        if (string_pos("terrain extender", _nm_e) > 0) has_ext_early = true;
+                                    }
+                                    if (!has_ext_early && variable_struct_exists(_A, "held_item_id")){
+                                        var _iid_e = variable_struct_get(_A, "held_item_id");
+                                        if (is_real(_iid_e) && _iid_e == 896) has_ext_early = true;
+                                        else if (is_real(_iid_e) && _iid_e > 0 && variable_global_exists("_items") && is_array(global._items) && _iid_e < array_length(global._items)){
+                                            var it_e = global._items[_iid_e];
+                                            if (is_struct(it_e)){
+                                                var _ident_e = (variable_struct_exists(it_e, "identifier") ? string_lower(string(variable_struct_get(it_e, "identifier"))) : "");
+                                                var _namev_e = (variable_struct_exists(it_e, "name") ? string_lower(string(variable_struct_get(it_e, "name"))) : "");
+                                                if (string_pos("terrain-extender", _ident_e) > 0 || string_pos("terrain extender", _namev_e) > 0) has_ext_early = true;
+                                            }
+                                        }
+                                    }
+                                } catch (e_tex_e){ has_ext_early = has_ext_early; }
+                                if (has_ext_early) terr_turns_early = 8;
+                                variable_struct_set(_Bterr_early, "_terrain_turns", terr_turns_early);
+                                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                                    try { var _an_set_e = (is_struct(_A) && variable_struct_exists(_A, "name") ? variable_struct_get(_A, "name") : "<actor>"); show_debug_message("[battle][terrain] set=" + string(terr_name_early) + ", turns=" + string(terr_turns_early) + ", by=" + string(_an_set_e)); } catch (e_dbgterr_e) {}
+                                    if (has_ext_early) show_debug_message("[battle][terrain] Terrain Extender detected: duration set to 8 turns for " + terr_name_early);
+                                }
+                            }
+                            // Request animation and enqueue dialog
+                            try { __battle_request_animation_safe(_pid, { type: "set_terrain", terrain: terr_name_early, actor: _A, target: _D }); } catch (e_tr_e) {}
+                            try {
+                                var nmT_e = (variable_struct_exists(_A, "name") ? variable_struct_get(_A, "name") : "The Pokémon");
+                                var disp_e = "";
+                                if (terr_name_early == "electric") disp_e = "Electric Terrain";
+                                else if (terr_name_early == "grassy") disp_e = "Grassy Terrain";
+                                else if (terr_name_early == "misty") disp_e = "Misty Terrain";
+                                else disp_e = string_upper(terr_name_early) + " Terrain";
+                                if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, "The ground became " + disp_e + "!");
+                            } catch (e_msgt_e) {}
+                            try { var _B7_e = __battle_ensure_slot(_pid); if (is_struct(_B7_e)) variable_struct_set(_B7_e, "_meta_effect_applied", true); } catch (e_b7_e) {}
+                        } catch (e_terr_e) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] terrain apply (early) failed: " + string(e_terr_e)); }
+                        return undefined;
+                    }
+                    // Psychic Terrain
+                    if (_eid == 395){
+                        try {
+                            var _Bpsy_e = __battle_ensure_slot(_pid);
+                            if (is_struct(_Bpsy_e)){
+                                variable_struct_set(_Bpsy_e, "_terrain", "psychic");
+                                var psy_turns_e = 5;
+                                var has_ext_p = false;
+                                try {
+                                    if (variable_struct_exists(_A, "held_item_real_name")){
+                                        var _nm2_e = string_lower(string(variable_struct_get(_A, "held_item_real_name")));
+                                        if (string_pos("terrain extender", _nm2_e) > 0) has_ext_p = true;
+                                    }
+                                    if (!has_ext_p && variable_struct_exists(_A, "held_item_id")){
+                                        var _iid2_e = variable_struct_get(_A, "held_item_id");
+                                        if (is_real(_iid2_e) && _iid2_e == 896) has_ext_p = true;
+                                        else if (is_real(_iid2_e) && _iid2_e > 0 && variable_global_exists("_items") && is_array(global._items) && _iid2_e < array_length(global._items)){
+                                            var it2_e = global._items[_iid2_e];
+                                            if (is_struct(it2_e)){
+                                                var _ident2_e = (variable_struct_exists(it2_e, "identifier") ? string_lower(string(variable_struct_get(it2_e, "identifier"))) : "");
+                                                var _namev2_e = (variable_struct_exists(it2_e, "name") ? string_lower(string(variable_struct_get(it2_e, "name"))) : "");
+                                                if (string_pos("terrain-extender", _ident2_e) > 0 || string_pos("terrain extender", _namev2_e) > 0) has_ext_p = true;
+                                            }
+                                        }
+                                    }
+                                } catch (e_tex2_e) { has_ext_p = has_ext_p; }
+                                if (has_ext_p) psy_turns_e = 8;
+                                variable_struct_set(_Bpsy_e, "_terrain_turns", psy_turns_e);
+                                if (has_ext_p && variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][terrain] Terrain Extender detected: duration set to 8 turns for psychic");
+                            }
+                            try { __battle_request_animation_safe(_pid, { type: "set_terrain", terrain: "psychic", actor: _A, target: _D }); } catch (e_pt_e) {}
+                            try { if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, "The ground became Psychic Terrain!"); } catch (e_msgp_e) {}
+                            try { var _B8_e = __battle_ensure_slot(_pid); if (is_struct(_B8_e)) variable_struct_set(_B8_e, "_meta_effect_applied", true); } catch (e_b8_e) {}
+                        } catch (e_psy_e) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] psychic terrain apply (early) failed: " + string(e_psy_e)); }
+                        return undefined;
+                    }
+                }
 
                 // Helper: map stat id -> stage key (same as later loop)
                 function __stat_key_by_id_local(_id){ switch(floor(_id)){ case 1: return "hp"; case 2: return "atk"; case 3: return "def"; case 4: return "spa"; case 5: return "spd"; case 6: return "spe"; case 7: return "accuracy"; case 8: return "evasion"; } return undefined; }
@@ -569,6 +790,8 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                 // Helper: is actor grounded (simplified: not flying-type and doesn't have levitate ability)
                 function __actor_is_grounded(_actor){
                     if (!is_struct(_actor)) return false;
+                    // If an explicit grounded flag is present, prefer it (kept up to date by factory/demo/actor-builders)
+                    try { if (variable_struct_exists(_actor, "grounded") && is_bool(variable_struct_get(_actor, "grounded"))) return variable_struct_get(_actor, "grounded"); } catch (e_exp) {}
                     // Check for flying-type membership
                     var flying_id = undefined;
                     try { if (variable_global_exists("TYPE_ID_BY_NAME")){ var _tmp = variable_global_get("TYPE_ID_BY_NAME"); if (ds_exists(_tmp, ds_type_map)) flying_id = ds_map_find_value(_tmp, string_lower("flying")); } } catch (e) { flying_id = undefined; }
@@ -592,9 +815,15 @@ if (is_undefined(__battle_apply_move_meta_effects)){
 
                         // Choose predicate by effect id
                         if (_eid == 340 || _eid == 351){
-                            // Rototiller / Flower Shield: apply to all Grass-type Pokémon in battle
+                            // Rototiller / Flower Shield
+                            // - Rototiller (340): affect grounded Grass-type only
+                            // - Flower Shield (351): affect all Grass-type (no grounded requirement)
                             var grass_tid_local = 12;
-                            for (var _ai2 = 0; _ai2 < array_length(_actors); ++_ai2){ var act2 = _actors[_ai2]; if (!is_struct(act2)) continue; if (!__actor_has_type(act2, grass_tid_local)) continue; __apply_stat_changes_to_actor(_pid, act2, _ai2, _scarr); }
+                            for (var _ai2 = 0; _ai2 < array_length(_actors); ++_ai2){
+                                var act2 = _actors[_ai2]; if (!is_struct(act2)) continue; if (!__actor_has_type(act2, grass_tid_local)) continue;
+                                if (_eid == 340){ if (!__actor_is_grounded(act2)) continue; }
+                                __apply_stat_changes_to_actor(_pid, act2, _ai2, _scarr);
+                            }
                             return undefined;
                         }
 
@@ -604,8 +833,12 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                 // Determine which side to set: if _D is on opponent side relative to _A
                                 var _Bslot_local = __battle_ensure_slot(_pid);
                                 if (is_struct(_Bslot_local)){
-                                    // By convention, side flags are stored on the battle slot
-                                    // Use _side_sticky_web boolean to indicate presence
+                                    // By convention, hazards are stored per side. Determine target side suffix.
+                                    var _att_idx_sw = (is_struct(_A) && variable_struct_exists(_A, "actor_index") ? variable_struct_get(_A, "actor_index") : 0);
+                                    var _t_suffix_sw = (_att_idx_sw == 0) ? "_enemy" : "_player";
+                                    // Write side-specific key and keep legacy key for compatibility
+                                    variable_struct_set(_Bslot_local, "_side_sticky_web" + _t_suffix_sw, true);
+                                    // Legacy fallback key (not side-specific)
                                     variable_struct_set(_Bslot_local, "_side_sticky_web", true);
                                 }
                                 // Request animation and dialog
@@ -621,9 +854,14 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                             try {
                                 var _Bslot_local2 = __battle_ensure_slot(_pid);
                                 if (is_struct(_Bslot_local2)){
-                                    // store as integer layers (0..3)
-                                    var cur = (variable_struct_exists(_Bslot_local2, "_side_spikes") && is_real(variable_struct_get(_Bslot_local2, "_side_spikes"))) ? variable_struct_get(_Bslot_local2, "_side_spikes") : 0;
+                                    // store as integer layers (0..3) on target side
+                                    var _att_idx_sp = (is_struct(_A) && variable_struct_exists(_A, "actor_index") ? variable_struct_get(_A, "actor_index") : 0);
+                                    var _t_suffix_sp = (_att_idx_sp == 0) ? "_enemy" : "_player";
+                                    var _key_sp = "_side_spikes" + _t_suffix_sp;
+                                    var cur = (variable_struct_exists(_Bslot_local2, _key_sp) && is_real(variable_struct_get(_Bslot_local2, _key_sp))) ? variable_struct_get(_Bslot_local2, _key_sp) : 0;
                                     var nextl = clamp(floor(cur) + 1, 0, 3);
+                                    variable_struct_set(_Bslot_local2, _key_sp, nextl);
+                                    // Legacy key for compatibility (optional)
                                     variable_struct_set(_Bslot_local2, "_side_spikes", nextl);
                                 }
                                 try { __battle_request_animation_safe(_pid, { type: "set_spikes", actor: _A, target: _D }); } catch (e_spa) {}
@@ -638,8 +876,13 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                             try {
                                 var _Bslot_local3 = __battle_ensure_slot(_pid);
                                 if (is_struct(_Bslot_local3)){
-                                    var curts = (variable_struct_exists(_Bslot_local3, "_side_toxic_spikes") && is_real(variable_struct_get(_Bslot_local3, "_side_toxic_spikes"))) ? variable_struct_get(_Bslot_local3, "_side_toxic_spikes") : 0;
+                                    var _att_idx_ts = (is_struct(_A) && variable_struct_exists(_A, "actor_index") ? variable_struct_get(_A, "actor_index") : 0);
+                                    var _t_suffix_ts = (_att_idx_ts == 0) ? "_enemy" : "_player";
+                                    var _key_ts = "_side_toxic_spikes" + _t_suffix_ts;
+                                    var curts = (variable_struct_exists(_Bslot_local3, _key_ts) && is_real(variable_struct_get(_Bslot_local3, _key_ts))) ? variable_struct_get(_Bslot_local3, _key_ts) : 0;
                                     var nextts = clamp(floor(curts) + 1, 0, 2);
+                                    variable_struct_set(_Bslot_local3, _key_ts, nextts);
+                                    // Legacy key
                                     variable_struct_set(_Bslot_local3, "_side_toxic_spikes", nextts);
                                 }
                                 try { __battle_request_animation_safe(_pid, { type: "set_toxic_spikes", actor: _A, target: _D }); } catch (e_ts) {}
@@ -654,7 +897,11 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                             try {
                                 var _Bslot_local4 = __battle_ensure_slot(_pid);
                                 if (is_struct(_Bslot_local4)){
-                                    // store as boolean flag or numeric severity; use 1 to indicate present
+                                    // store as boolean flag or numeric severity on target side; use 1 to indicate present
+                                    var _att_idx_sr = (is_struct(_A) && variable_struct_exists(_A, "actor_index") ? variable_struct_get(_A, "actor_index") : 0);
+                                    var _t_suffix_sr = (_att_idx_sr == 0) ? "_enemy" : "_player";
+                                    variable_struct_set(_Bslot_local4, "_side_stealth_rock" + _t_suffix_sr, 1);
+                                    // Legacy key
                                     variable_struct_set(_Bslot_local4, "_side_stealth_rock", 1);
                                 }
                                 try { __battle_request_animation_safe(_pid, { type: "set_stealth_rock", actor: _A, target: _D }); } catch (e_sr) {}
@@ -768,7 +1015,35 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                 var _Bterr = __battle_ensure_slot(_pid);
                                 if (is_struct(_Bterr)){
                                     variable_struct_set(_Bterr, "_terrain", terr_name);
-                                    variable_struct_set(_Bterr, "_terrain_turns", 5);
+                                    // Terrain Extender support: 8 turns instead of 5 if the user holds Terrain Extender
+                                    var terr_turns = 5;
+                                    var has_extender = false;
+                                    try {
+                                        // Prefer explicit name on actor
+                                        if (variable_struct_exists(_A, "held_item_real_name")){
+                                            var _nm = string_lower(string(variable_struct_get(_A, "held_item_real_name")));
+                                            if (string_pos("terrain extender", _nm) > 0) has_extender = true;
+                                        }
+                                        // Check held item id against known id (896) and item table identifiers
+                                        if (!has_extender && variable_struct_exists(_A, "held_item_id")){
+                                            var _iid = variable_struct_get(_A, "held_item_id");
+                                            if (is_real(_iid) && _iid == 896) has_extender = true;
+                                            else if (is_real(_iid) && _iid > 0 && variable_global_exists("_items") && is_array(global._items) && _iid < array_length(global._items)){
+                                                var it = global._items[_iid];
+                                                if (is_struct(it)){
+                                                    var _ident = (variable_struct_exists(it, "identifier") ? string_lower(string(variable_struct_get(it, "identifier"))) : "");
+                                                    var _namev = (variable_struct_exists(it, "name") ? string_lower(string(variable_struct_get(it, "name"))) : "");
+                                                    if (string_pos("terrain-extender", _ident) > 0 || string_pos("terrain extender", _namev) > 0) has_extender = true;
+                                                }
+                                            }
+                                        }
+                                    } catch (e_tex){ has_extender = has_extender; }
+                                    if (has_extender) terr_turns = 8;
+                                    variable_struct_set(_Bterr, "_terrain_turns", terr_turns);
+                                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                                        try { var _an_set = (is_struct(_A) && variable_struct_exists(_A, "name") ? variable_struct_get(_A, "name") : "<actor>"); show_debug_message("[battle][terrain] set=" + string(terr_name) + ", turns=" + string(terr_turns) + ", by=" + string(_an_set)); } catch (e_dbgterr) {}
+                                        if (has_extender) show_debug_message("[battle][terrain] Terrain Extender detected: duration set to 8 turns for " + terr_name);
+                                    }
                                 }
                                 // Request animation and enqueue dialog
                                 try { __battle_request_animation_safe(_pid, { type: "set_terrain", terrain: terr_name, actor: _A, target: _D }); } catch (e_tr) {}
@@ -792,7 +1067,30 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                 var _Bpsy = __battle_ensure_slot(_pid);
                                 if (is_struct(_Bpsy)){
                                     variable_struct_set(_Bpsy, "_terrain", "psychic");
-                                    variable_struct_set(_Bpsy, "_terrain_turns", 5);
+                                    // Terrain Extender support for Psychic Terrain
+                                    var psy_turns = 5;
+                                    var has_ext = false;
+                                    try {
+                                        if (variable_struct_exists(_A, "held_item_real_name")){
+                                            var _nm2 = string_lower(string(variable_struct_get(_A, "held_item_real_name")));
+                                            if (string_pos("terrain extender", _nm2) > 0) has_ext = true;
+                                        }
+                                        if (!has_ext && variable_struct_exists(_A, "held_item_id")){
+                                            var _iid2 = variable_struct_get(_A, "held_item_id");
+                                            if (is_real(_iid2) && _iid2 == 896) has_ext = true;
+                                            else if (is_real(_iid2) && _iid2 > 0 && variable_global_exists("_items") && is_array(global._items) && _iid2 < array_length(global._items)){
+                                                var it2 = global._items[_iid2];
+                                                if (is_struct(it2)){
+                                                    var _ident2 = (variable_struct_exists(it2, "identifier") ? string_lower(string(variable_struct_get(it2, "identifier"))) : "");
+                                                    var _namev2 = (variable_struct_exists(it2, "name") ? string_lower(string(variable_struct_get(it2, "name"))) : "");
+                                                    if (string_pos("terrain-extender", _ident2) > 0 || string_pos("terrain extender", _namev2) > 0) has_ext = true;
+                                                }
+                                            }
+                                        }
+                                    } catch (e_tex2) { has_ext = has_ext; }
+                                    if (has_ext) psy_turns = 8;
+                                    variable_struct_set(_Bpsy, "_terrain_turns", psy_turns);
+                                    if (has_ext && variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][terrain] Terrain Extender detected: duration set to 8 turns for psychic");
                                 }
                                 try { __battle_request_animation_safe(_pid, { type: "set_terrain", terrain: "psychic", actor: _A, target: _D }); } catch (e_pt) {}
                                 try { if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, "The ground became Psychic Terrain!"); } catch (e_msgp) {}
@@ -817,7 +1115,30 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                     var _B415 = __battle_ensure_slot(_pid);
                                     if (is_struct(_B415)){
                                         variable_struct_set(_B415, "_terrain", "psychic");
-                                        variable_struct_set(_B415, "_terrain_turns", 5);
+                                        // Terrain Extender support if the user holds it when setting terrain post-damage
+                                        var psy_turns2 = 5;
+                                        var has_ext3 = false;
+                                        try {
+                                            if (variable_struct_exists(_A, "held_item_real_name")){
+                                                var _nm3 = string_lower(string(variable_struct_get(_A, "held_item_real_name")));
+                                                if (string_pos("terrain extender", _nm3) > 0) has_ext3 = true;
+                                            }
+                                            if (!has_ext3 && variable_struct_exists(_A, "held_item_id")){
+                                                var _iid3 = variable_struct_get(_A, "held_item_id");
+                                                if (is_real(_iid3) && _iid3 == 896) has_ext3 = true;
+                                                else if (is_real(_iid3) && _iid3 > 0 && variable_global_exists("_items") && is_array(global._items) && _iid3 < array_length(global._items)){
+                                                    var it3 = global._items[_iid3];
+                                                    if (is_struct(it3)){
+                                                        var _ident3 = (variable_struct_exists(it3, "identifier") ? string_lower(string(variable_struct_get(it3, "identifier"))) : "");
+                                                        var _namev3 = (variable_struct_exists(it3, "name") ? string_lower(string(variable_struct_get(it3, "name"))) : "");
+                                                        if (string_pos("terrain-extender", _ident3) > 0 || string_pos("terrain extender", _namev3) > 0) has_ext3 = true;
+                                                    }
+                                                }
+                                            }
+                                        } catch (e_tex3) { has_ext3 = has_ext3; }
+                                        if (has_ext3) psy_turns2 = 8;
+                                        variable_struct_set(_B415, "_terrain_turns", psy_turns2);
+                                        if (has_ext3 && variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][terrain] Terrain Extender detected: duration set to 8 turns for psychic (effect 415)");
                                     }
                                     try { __battle_request_animation_safe(_pid, { type: "set_terrain", terrain: "psychic", actor: _A, target: _D }); } catch (e_r415) {}
                                     try { if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, "The ground became Psychic Terrain!"); } catch (e_msg415) {}
@@ -920,9 +1241,12 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                     // Set leech seed on the defender (_D)
                                     try {
                                         if (is_struct(_D)){
-                                            variable_struct_set(_D, "_leech_seed", true);
-                                            try { __battle_request_animation_safe(_pid, { type: "apply_status", status: "leech_seed", target: _D }); } catch (e_ls) {}
-                                            try { var nmLS = (variable_struct_exists(_D, "name") ? variable_struct_get(_D, "name") : "The Pokémon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_D, string(nmLS) + " was seeded!"); } catch (e_msgls) {}
+                                            // Apply canonical 'leech-seed' status so on_tick handlers
+                                            // receive a status instance that includes the `source` reference.
+                                            try {
+                                                var _ls_opts = { source: _A, skip_first_tick: true };
+                                                if (!is_undefined(status_system_apply_status)) status_system_apply_status(_D, "leech-seed", _ls_opts);
+                                            } catch (e_ls2) {}
                                         }
                                     } catch (e_lsp) {}
                                     try { var _Bls = __battle_ensure_slot(_pid); if (is_struct(_Bls)) variable_struct_set(_Bls, "_meta_effect_applied", true); } catch (e_m3) {}
@@ -1275,6 +1599,13 @@ function __battle_restore_prev_audio(_pid){
 }
 
 // ===== Open / Close =====
+/// Open a new battle for a player.
+/// Params:
+///  - _a0: pid (int) or wild level if only one arg
+///  - _a1: wild level (int)
+/// Behavior:
+///  - Initializes _B state, sets phase to transition_in, seeds actors, music, intro dialog.
+///  - Call battle_update each Step and battle_draw_gui in Draw GUI after opening.
 function battle_open(_a0, _a1){
     var _pid = 0, _wildLevel = 5;
     if (argument_count >= 2){ _pid = max(0, real(_a0)); _wildLevel = max(1, real(_a1)); }
@@ -1389,6 +1720,14 @@ function battle_open(_a0, _a1){
     _B.actor[0] = __battle_actor_from_party_mon(_pm);
     // Ensure actor_index is set for accurate debug/logging and lookups
     try { if (is_struct(_B.actor[0])) variable_struct_set(_B.actor[0], "actor_index", 0); } catch (e_ai0) {}
+    // Debug: print grounded snapshot for actors at open
+    try {
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+            var g0 = (is_struct(_B.actor[0]) && variable_struct_exists(_B.actor[0], "grounded")) ? string(variable_struct_get(_B.actor[0], "grounded")) : "<unset>";
+            var a0 = (is_struct(_B.actor[0]) && variable_struct_exists(_B.actor[0], "ability")) ? string(variable_struct_get(_B.actor[0], "ability")) : "<none>";
+            show_debug_message("[battle_open][grounded] player=" + string(_B.actor[0].name) + ", grounded=" + g0 + ", ability=" + a0);
+        }
+    } catch (e_dbg0) {}
     // Ensure any leftover history is cleared for this actor slot
     try { if (is_struct(_B.actor[0])) variable_struct_set(_B.actor[0], "_last_moves", []); } catch (e_hc_open) {}
     // Debug: log moves on open to diagnose stale copies
@@ -1406,6 +1745,13 @@ function battle_open(_a0, _a1){
     var _sp = irandom_range(1, 901);
     _B.actor[1] = __battle_actor_from_species_level(_sp, _wildLevel);
     try { if (is_struct(_B.actor[1])) variable_struct_set(_B.actor[1], "actor_index", 1); } catch (e_ai1) {}
+    try {
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+            var g1 = (is_struct(_B.actor[1]) && variable_struct_exists(_B.actor[1], "grounded")) ? string(variable_struct_get(_B.actor[1], "grounded")) : "<unset>";
+            var a1 = (is_struct(_B.actor[1]) && variable_struct_exists(_B.actor[1], "ability")) ? string(variable_struct_get(_B.actor[1], "ability")) : "<none>";
+            show_debug_message("[battle_open][grounded] enemy=" + string(_B.actor[1].name) + ", grounded=" + g1 + ", ability=" + a1);
+        }
+    } catch (e_dbg1) {}
 
     _B.caller = _caller;
     if (_B.caller != noone && instance_exists(_B.caller) && variable_instance_exists(_B.caller, "battleAnim")){
@@ -1436,6 +1782,9 @@ function battle_open(_a0, _a1){
 
     global.sys_battles[_pid] = _B;
 }
+/// Close the current battle for a player.
+/// Params: _pid (int)
+/// Behavior: Cleans UI lists, stops/restore audio, heals on loss, and clears sys_open flag.
 function battle_close(_pid){
     var _B = __battle_ensure_slot(_pid);
     if (is_struct(_B.sys_ui) && variable_struct_exists(_B.sys_ui, "msg_list")){
@@ -1565,6 +1914,12 @@ function battle_close(_pid){
 /// battle_intro_set_handlers(pid, update_fn, draw_fn)
 /// Allows external code to register intro sprite animation handlers.
 /// Handlers will be called during intro phases: transition_in, intro_enemy, intro_call, intro_player.
+/// Register per-battle intro animation handlers.
+/// Params:
+///  - _pid (int): player id
+///  - _update_fn (fn|undefined): function(pid, B) called during intro phases (update)
+///  - _draw_fn (fn|undefined): function(pid, B) called during intro phases (draw)
+/// Returns: none
 function battle_intro_set_handlers(_pid, _update_fn, _draw_fn){
     var _B = __battle_ensure_slot(_pid);
     try { variable_struct_set(_B, "_intro_update_fn", _update_fn); } catch (e1) {}
@@ -1595,6 +1950,11 @@ function __battle_intro_draw(_pid, _B){
 }
 
 // ===== Update / Draw =====
+/// Advance battle state for a player. Call from Step every frame.
+/// Params: _pid (int)
+/// Behavior:
+///  - Updates catch/animations, dialog, intro/switch timings, input, and turn resolution.
+///  - Handles defeat/victory flows, fade-to-close, and queued messages ordering.
 function battle_update(_pid){
     if (!battle_is_open(_pid)) return;
     var _B = __battle_ensure_slot(_pid);
@@ -1830,6 +2190,19 @@ function battle_update(_pid){
                         _text_c = _arr_c[0];
                         _cons_c = 1;
                     }
+                    // If we've already shown a 'used' line this turn and this pending
+                    // message is exactly that same line, drop it instead of showing again.
+                    try {
+                        var _lus_shown_c = (variable_struct_exists(_B, "_last_used_dialog_shown") && variable_struct_get(_B, "_last_used_dialog_shown"));
+                        var _lus_text_c  = (variable_struct_exists(_B, "_last_used_dialog_text") ? string(variable_struct_get(_B, "_last_used_dialog_text")) : "");
+                        if (_lus_shown_c && string(_text_c) == _lus_text_c){
+                            var _old_drop_c = variable_struct_get(_B, "_pending_status_msgs");
+                            var _new_drop_c = [];
+                            for (var _ii_dc = _cons_c; _ii_dc < array_length(_old_drop_c); ++_ii_dc) _new_drop_c[array_length(_new_drop_c)] = _old_drop_c[_ii_dc];
+                            variable_struct_set(_B, "_pending_status_msgs", _new_drop_c);
+                            return;
+                        }
+                    } catch (e_dupc) {}
                     var _old_c = variable_struct_get(_B, "_pending_status_msgs");
                     var _new_c = [];
                     for (var _ii_c = _cons_c; _ii_c < array_length(_old_c); ++_ii_c) _new_c[array_length(_new_c)] = _old_c[_ii_c];
@@ -1838,6 +2211,17 @@ function battle_update(_pid){
                     return;
                 }
             } catch (e_preclose_msg) {}
+            // If the dialog queue has items (e.g., a faint line enqueued to show last),
+            // drain it before starting the fade-to-close.
+            try {
+                if (variable_global_exists("DIALOG2P_Q") && is_array(global.DIALOG2P_Q) && array_length(global.DIALOG2P_Q) > _pid){
+                    var _q = global.DIALOG2P_Q[_pid];
+                    if (is_array(_q) && array_length(_q) > 0){
+                        if (!is_undefined(dialog2p_step)) dialog2p_step(_pid);
+                        return;
+                    }
+                }
+            } catch (e_qdrain) {}
             // Start or progress a fade-to-black before closing the battle
             var nowc = current_time;
             var _has_start = (variable_struct_exists(_B, "_close_start_ms") && is_real(variable_struct_get(_B, "_close_start_ms")));
@@ -1899,6 +2283,18 @@ function battle_update(_pid){
                         _text_g = _arr_g[0];
                         _cons_g = 1;
                     }
+                    // Drop duplicate 'used' message if it was already shown earlier.
+                    try {
+                        var _lus_shown_g = (variable_struct_exists(_B, "_last_used_dialog_shown") && variable_struct_get(_B, "_last_used_dialog_shown"));
+                        var _lus_text_g  = (variable_struct_exists(_B, "_last_used_dialog_text") ? string(variable_struct_get(_B, "_last_used_dialog_text")) : "");
+                        if (_lus_shown_g && string(_text_g) == _lus_text_g){
+                            var _old_drop_g = variable_struct_get(_B, "_pending_status_msgs");
+                            var _new_drop_g = [];
+                            for (var _ii_dg = _cons_g; _ii_dg < array_length(_old_drop_g); ++_ii_dg) _new_drop_g[array_length(_new_drop_g)] = _old_drop_g[_ii_dg];
+                            variable_struct_set(_B, "_pending_status_msgs", _new_drop_g);
+                            return;
+                        }
+                    } catch (e_dupg) {}
                     var _old_g = variable_struct_get(_B, "_pending_status_msgs");
                     var _new_g = [];
                     for (var _ii_g = _cons_g; _ii_g < array_length(_old_g); ++_ii_g) _new_g[array_length(_new_g)] = _old_g[_ii_g];
@@ -1907,6 +2303,18 @@ function battle_update(_pid){
                     return;
                 }
             } catch (e_preclose_msg_g) {}
+            // Drain dialog queue (e.g., faint line) before or while fading
+            try {
+                if (variable_global_exists("DIALOG2P_Q") && is_array(global.DIALOG2P_Q) && array_length(global.DIALOG2P_Q) > _pid){
+                    var _q2 = global.DIALOG2P_Q[_pid];
+                    if (is_array(_q2) && array_length(_q2) > 0){
+                        if (!is_undefined(dialog2p_step)) dialog2p_step(_pid);
+                        // If fade hasn't started, defer starting it until after queue drains
+                        var hasStart2_check = (variable_struct_exists(_B, "_close_start_ms") && is_real(variable_struct_get(_B, "_close_start_ms")));
+                        if (!hasStart2_check) return;
+                    }
+                }
+            } catch (e_qdrain2) {}
             var nowc2 = current_time;
             var hasStart2 = (variable_struct_exists(_B, "_close_start_ms") && is_real(variable_struct_get(_B, "_close_start_ms")));
             if (!hasStart2){
@@ -1955,6 +2363,17 @@ function battle_update(_pid){
                         _text_to_show = _ps[0];
                         _consume_n = 1;
                     }
+                    // If duplicate of an already-shown 'used' line, drop it silently.
+                    try {
+                        var _lus_shown = (variable_struct_exists(_B, "_last_used_dialog_shown") && variable_struct_get(_B, "_last_used_dialog_shown"));
+                        var _lus_text  = (variable_struct_exists(_B, "_last_used_dialog_text") ? string(variable_struct_get(_B, "_last_used_dialog_text")) : "");
+                        if (_lus_shown && string(_text_to_show) == _lus_text){
+                            var _new_drop = [];
+                            for (var _ii_d = _consume_n; _ii_d < array_length(_ps); ++_ii_d) _new_drop[array_length(_new_drop)] = _ps[_ii_d];
+                            variable_struct_set(_B, "_pending_status_msgs", _new_drop);
+                            return;
+                        }
+                    } catch (e_dud) {}
                     // pop consumed items
                     var _new = [];
                     for (var _ii = _consume_n; _ii < array_length(_ps); ++_ii) _new[array_length(_new)] = _ps[_ii];
@@ -2198,6 +2617,9 @@ function battle_update(_pid){
     __battle_process_input(_pid);
 }
 
+/// Draw the battle GUI using the player's viewport. Call from Draw GUI.
+/// Params: _pid (int)
+/// Behavior: Computes viewport and calls battle_draw_gui_rect.
 function battle_draw_gui(_pid){
     var _rect = __battle_view_rect_for_pid(_pid);
     if (is_array(_rect) && array_length(_rect) >= 4) {
@@ -2205,6 +2627,11 @@ function battle_draw_gui(_pid){
     }
 }
 
+/// Draw the battle GUI into a specific GUI rectangle.
+/// Params:
+///  - _pid (int)
+///  - _rx, _ry, _rw, _rh (int): GUI-space rect to letterbox into the 240x160 logical canvas
+/// Behavior: Draws panels, command UI, battlers, overlays, and fade effects.
 function battle_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     if (!battle_is_open(_pid)) return;
     var _B = __battle_ensure_slot(_pid);
@@ -2314,6 +2741,9 @@ function __battle_pressed(_pid, _name){
 
     return false;
 }
+/// Process player input on the command UI and enqueue selected actions.
+/// Params: _pid (int)
+/// Behavior: Reads controls via scr_controls API; updates _B.sys_ui and turn intents.
 function __battle_process_input(_pid){
     var _B = __battle_ensure_slot(_pid);
     // If the Bag or Party UI is open for this player, block battle input
@@ -2568,6 +2998,9 @@ function __battle_build_turn_actions(_pid){
 
     return actions;
 }
+/// If a turn queue is ready, step through resolution (actions, damage, dialogs, statuses).
+/// Params: _pid (int)
+/// Side effects: Mutates _B.turn_queue/_B.turn_i, applies damage/status, opens dialogs as needed.
 function __battle_step_turn_if_ready(_pid){
     var _B = __battle_ensure_slot(_pid);
     // DEBUG: report basic turn/actor state when stepping, but only when phase or turn_i changes
@@ -2670,6 +3103,80 @@ function __battle_step_turn_if_ready(_pid){
                     if (is_struct(A0)) status_system_tick_statuses(A0, undefined);
                     if (is_struct(A1)) status_system_tick_statuses(A1, undefined);
                 }
+                // Terrain end-of-turn effects (e.g., Grassy Terrain heal) and duration decrement
+                try {
+                    var terr_name = (variable_struct_exists(_B, "_terrain") ? string_lower(string(variable_struct_get(_B, "_terrain"))) : "");
+                    var terr_turns = (variable_struct_exists(_B, "_terrain_turns") ? variable_struct_get(_B, "_terrain_turns") : 0);
+                    if (string_length(terr_name) > 0){
+                        // Apply Grassy Terrain heal: 1/16 max HP to grounded Pokémon on the field
+                        if (terr_name == "grassy"){
+                            try {
+                                var _acts = (variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor"))) ? variable_struct_get(_B, "actor") : [];
+                                var healed_any = false;
+                                for (var gi = 0; gi < array_length(_acts); ++gi){
+                                    var actg = _acts[gi]; if (!is_struct(actg)) continue;
+                                    var grounded_ok = true; try { if (!is_undefined(__actor_is_grounded)) grounded_ok = __actor_is_grounded(actg); } catch (e_g) {}
+                                    if (!grounded_ok) continue;
+                                    // Resolve max HP robustly (supports hp_max/maxhp on actor or inner mon)
+                                    var maxhp_local = 1;
+                                    try {
+                                        if (!is_undefined(__battle_hp_max)) maxhp_local = __battle_hp_max(actg);
+                                        else {
+                                            if (variable_struct_exists(actg, "hp_max")) maxhp_local = variable_struct_get(actg, "hp_max");
+                                            else if (variable_struct_exists(actg, "maxhp")) maxhp_local = variable_struct_get(actg, "maxhp");
+                                            else if (variable_struct_exists(actg, "mon") && is_struct(variable_struct_get(actg, "mon"))){
+                                                var _mi_h = variable_struct_get(actg, "mon");
+                                                if (variable_struct_exists(_mi_h, "hp_max")) maxhp_local = variable_struct_get(_mi_h, "hp_max");
+                                                else if (variable_struct_exists(_mi_h, "maxhp")) maxhp_local = variable_struct_get(_mi_h, "maxhp");
+                                            }
+                                        }
+                                    } catch (e_mh) { maxhp_local = 1; }
+                                    var heal_amt = max(1, floor(real(maxhp_local) / 16));
+                                    var curhp = __battle_hp_now(actg);
+                                    var newhp = min(maxhp_local, curhp + heal_amt);
+                                    if (newhp > curhp){
+                                        healed_any = true;
+                                        // Apply the heal canonically
+                                        __battle_set_hp_now(actg, newhp);
+                                        // Start HP lerp on the healed actor (and inner mon)
+                                        try {
+                                            variable_struct_set(actg, "_hp_lerp_from", curhp);
+                                            variable_struct_set(actg, "_hp_lerp_to", newhp);
+                                            variable_struct_set(actg, "_hp_lerp_start_ms", current_time);
+                                            variable_struct_set(actg, "_hp_lerp_dur", 400);
+                                            variable_struct_set(actg, "_hp_lerp_active", true);
+                                            if (variable_struct_exists(actg, "mon") && is_struct(variable_struct_get(actg, "mon"))){
+                                                var __mi = variable_struct_get(actg, "mon");
+                                                variable_struct_set(__mi, "_hp_lerp_from", curhp);
+                                                variable_struct_set(__mi, "_hp_lerp_to", newhp);
+                                                variable_struct_set(__mi, "_hp_lerp_start_ms", variable_struct_get(actg, "_hp_lerp_start_ms"));
+                                                variable_struct_set(__mi, "_hp_lerp_dur", variable_struct_get(actg, "_hp_lerp_dur"));
+                                                variable_struct_set(__mi, "_hp_lerp_active", true);
+                                            }
+                                        } catch (e_ll) {}
+                                        // Request a heal animation cue for this actor index
+                                        try { __battle_request_animation_safe(_pid, { type: "heal", target_index: gi, amount: heal_amt }); } catch (e_anim) {}
+                                    }
+                                }
+                                // Only show dialog and play SFX if at least one actor healed
+                                if (healed_any){
+                                    try { __battle_stub_dialog(_pid, "The Grassy Terrain restored HP!"); } catch (e_d) {}
+                                    try { __battle_play_heal_once(snd_Heal); } catch (e_hfx) {}
+                                }
+                            } catch (e_heal) { }
+                        }
+                        // Decrement terrain turns and clear when expired
+                        if (is_real(terr_turns) && terr_turns > 0){
+                            terr_turns = terr_turns - 1;
+                            variable_struct_set(_B, "_terrain_turns", terr_turns);
+                            if (terr_turns <= 0){
+                                variable_struct_set(_B, "_terrain", undefined);
+                                variable_struct_set(_B, "_terrain_turns", 0);
+                                try { __battle_stub_dialog(_pid, "The terrain returned to normal!"); } catch (e_td) {}
+                            }
+                        }
+                    }
+                } catch (e_te) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][terrain] end-of-turn tick failed: " + string(e_te)); }
                 // mark that we've ticked statuses for this end-of-turn so we don't repeat
                 try { variable_struct_set(_B, "_statuses_ticked", true); } catch (e_st) {}
             }
@@ -3621,19 +4128,89 @@ function __battle_try_escape(_pid){
 }
 
 function __battle_stub_dialog(_pid, _text){
+    // Early duplicate/pending suppression: avoid opening or re-queuing the same line
+    // multiple times during faint/close transitions.
+    try {
+        var _Bsup = __battle_ensure_slot(_pid);
+        if (is_struct(_Bsup)){
+            var _txt_s = string(_text);
+            // 1) If a faint dialog is pending and this exact text is already queued
+            //    in the pending-status queue, skip entirely (it will be shown once).
+            var _fp = (variable_struct_exists(_Bsup, "_faint_pending") && variable_struct_get(_Bsup, "_faint_pending"));
+            if (_fp){
+                if (variable_struct_exists(_Bsup, "_pending_status_msgs") && is_array(variable_struct_get(_Bsup, "_pending_status_msgs"))){
+                    var _arrp = variable_struct_get(_Bsup, "_pending_status_msgs");
+                    var _dupp = false;
+                    for (var _ii=0; _ii<array_length(_arrp); ++_ii){ if (string(_arrp[_ii]) == _txt_s){ _dupp = true; break; } }
+                    if (_dupp){
+                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][dialog][suppress] duplicate pending during faint pid=" + string(_pid) + ", preview='" + string_copy(_txt_s,1,min(48,string_length(_txt_s))) + "'");
+                        return;
+                    }
+                }
+            }
+            // 2) Time-window duplicate suppression per battle slot (any source).
+            var _last_txt = (variable_struct_exists(_Bsup, "_last_dialog_text") ? string(variable_struct_get(_Bsup, "_last_dialog_text")) : "");
+            var _last_ts  = (variable_struct_exists(_Bsup, "_last_dialog_ts") && is_real(variable_struct_get(_Bsup, "_last_dialog_ts")) ? variable_struct_get(_Bsup, "_last_dialog_ts") : -9999999);
+            // Only suppress immediate repeats within a very short window, or if a faint is
+            // currently pending (duplicates will be handled via the pending queue instead).
+            var _delta = (is_real(_last_ts) ? abs(_last_ts - current_time) : 9999999);
+            if (_last_txt == _txt_s && ( (_fp && _delta < 2000) || (_delta < 200) ) ){
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][dialog][suppress] duplicate within window pid=" + string(_pid) + ", preview='" + string_copy(_txt_s,1,min(48,string_length(_txt_s))) + "'");
+                return;
+            }
+            // Route faint lines to the end of the queue; route busy box lines into queue as well.
+            var _is_faint_line = (string_pos("fainted!", _txt_s) > 0);
+            if (!is_undefined(dialog2p_enqueue_text)){
+                var _box_open = (!is_undefined(dialog2p_is_open) ? dialog2p_is_open(_pid) : false);
+                if (_is_faint_line){
+                    // Always enqueue faint messages so they appear last.
+                    dialog2p_enqueue_text(_pid, _txt_s, _txt_s, "faint");
+                    if (!is_undefined(dialog2p_step)) dialog2p_step(_pid);
+                    return;
+                } else if (_box_open){
+                    // If dialog box is already open, prefer enqueue.
+                    var _gate_other = (_fp ? "after-faint" : "any");
+                    dialog2p_enqueue_text(_pid, _txt_s, _txt_s, _gate_other);
+                    if (!is_undefined(dialog2p_step)) dialog2p_step(_pid);
+                    return;
+                }
+            }
+        }
+    } catch (e_pre_suppress) { /* ignore and continue */ }
+
     if (!is_undefined(dialog2p_open_text)){
         dialog2p_open_text(_pid, _text);
         // Only mark the battle slot as having an active dialog if the dialog
         // system actually opened the text; dialog2p_open_text may queue the
         // message (when faint is pending) and return without opening.
-        var _opened = (is_undefined(dialog2p_is_open) ? false : dialog2p_is_open(_pid));
+    var _opened = (is_undefined(dialog2p_is_open) ? false : dialog2p_is_open(_pid));
         if (_opened){
             if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][dialog] dialog2p_open_text called pid=" + string(_pid) + ", text_preview='" + string_copy(string(_text),1,min(48,string_length(string(_text)))) + "'");
             var _B = __battle_ensure_slot(_pid);
             _B._dlg_active = true;
             _B._dlg_page_last = -1;
+            // Record last-shown text/time to suppress immediate repeats
+            try { variable_struct_set(_B, "_last_dialog_text", string(_text)); } catch (e_l1) {}
+            try { variable_struct_set(_B, "_last_dialog_ts", current_time); } catch (e_l2) {}
+            // If this looks like a move-use line, remember it as 'shown' so we can drop
+            // duplicate pending copies that may arrive after a faint.
+            try {
+                var _s = string(_text);
+                if (string_pos(" used ", _s) > 0){
+                    variable_struct_set(_B, "_last_used_dialog_text", _s);
+                    variable_struct_set(_B, "_last_used_dialog_shown", true);
+                }
+            } catch (e_lu) {}
         } else {
             if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][dialog] queued pid=" + string(_pid) + ", preview='" + string_copy(string(_text),1,min(48,string_length(string(_text)))) + "'");
+            // If the dialog didn't open (likely due to gating), enqueue in dialog system to ensure it isn't lost.
+            try {
+                if (!is_undefined(dialog2p_enqueue_text)){
+                    var _txt_s2 = string(_text);
+                    var _gate2 = (string_pos("fainted!", _txt_s2) > 0) ? "faint" : ( (_fp) ? "after-faint" : "any" );
+                    dialog2p_enqueue_text(_pid, _txt_s2, _txt_s2, _gate2);
+                }
+            } catch (e_enq) {}
         }
         // Play stat-change SFX when the dialog being shown reports a stat change.
         // Detect simple patterns like "NAME ATK +1" or "NAME DEF -1" and avoid
@@ -3739,6 +4316,12 @@ function __battle_check_play_cries(_pid){
 }
 
 // API: switch the player's active Pokémon to the party index with visuals
+/// Switch the active player Pokémon to a party index with visuals.
+/// Params:
+///  - _pid (int)
+///  - _party_idx (int): target party index
+///  - _opts (struct): { consume_turn?:bool=true, auto_apply?:bool=true }
+/// Behavior: Plays switch_out/in animation, applies hazards on entry, may consume the player's turn.
 function battle_switch_to(_pid, _party_idx, _opts){
     var _B = __battle_ensure_slot(_pid);
     if (!is_struct(_B) || !variable_struct_exists(_B, "sys_open") || !variable_struct_get(_B, "sys_open")){
@@ -3964,6 +4547,15 @@ function __battle_actor_from_party_mon(_M){
             A.species = A.species_id;
         }
 
+    // Compute/refresh grounded snapshot on actor (and inner mon) if helper exists
+    try {
+        if (!is_undefined(scr_compute_grounded_flag)){
+            var g = scr_compute_grounded_flag(A);
+            variable_struct_set(A, "grounded", g);
+            if (variable_struct_exists(A, "mon") && is_struct(variable_struct_get(A, "mon"))) variable_struct_set(variable_struct_get(A, "mon"), "grounded", g);
+        }
+    } catch (e_gac) { /* ignore */ }
+
     // Give actor a persistent UID for identification across lookups
     try { if (!variable_struct_exists(A, "_uid") || !is_real(A._uid)) { if (!variable_global_exists("_B_actor_uid_counter")) global._B_actor_uid_counter = 1; A._uid = global._B_actor_uid_counter; global._B_actor_uid_counter += 1; } } catch (e_uid) {}
     // Clear any residual copycat history on this actor when created
@@ -4017,6 +4609,15 @@ function __battle_actor_from_species_level(_sp,_lvl){
     // Provide numeric species aliases
     _actor.species = _sp;
     if (!variable_struct_exists(_actor.mon, "species_id") || !is_real(_actor.mon.species_id)) _actor.mon.species_id = _sp;
+
+    // Compute grounded snapshot for wild actor (based on type; ability may be unknown)
+    try {
+        if (!is_undefined(scr_compute_grounded_flag)){
+            var g = scr_compute_grounded_flag(_actor);
+            variable_struct_set(_actor, "grounded", g);
+            if (variable_struct_exists(_actor, "mon") && is_struct(variable_struct_get(_actor, "mon"))) variable_struct_set(variable_struct_get(_actor, "mon"), "grounded", g);
+        }
+    } catch (e_gwild) { /* ignore */ }
     // set level on mon
     if (!variable_struct_exists(_actor.mon, "level") || !is_real(_actor.mon.level)) _actor.mon.level = _lvl;
 
@@ -4240,8 +4841,17 @@ function __battle_stat_get(_A, _stat){
         if (_stat == "spd"){
             if (variable_struct_exists(_A, "spe") && is_real(_A.spe)){
                 var _val = _A.spe;
-                // paralysis halves Speed
-                if (!is_undefined(status_system_has_status) && status_system_has_status(_A, "paralysis")) _val = floor(_val / 2);
+                // paralysis halves Speed (accept both canonical 'paralysis' and legacy 'paralyze')
+                try {
+                    if (!is_undefined(status_system_has_status)){
+                        if (status_system_has_status(_A, "paralysis") || status_system_has_status(_A, "paralyze")) _val = floor(_val / 2);
+                        else {
+                            // also check inner mon if actor wrapper provided
+                            var _inner = (variable_struct_exists(_A, "mon") ? variable_struct_get(_A, "mon") : undefined);
+                            if (!is_undefined(_inner) && status_system_has_status(_inner, "paralysis")) _val = floor(_val / 2);
+                        }
+                    }
+                } catch (e_p) {}
                 return _val;
             }
         } else if (_stat == "atk"){
@@ -4263,7 +4873,11 @@ function __battle_stat_get(_A, _stat){
         if (_stat=="spd"){
             if (variable_struct_exists(m,"spe") && is_real(m.spe)){
                 var _spv = m.spe;
-                if (!is_undefined(status_system_has_status) && status_system_has_status(m, "paralysis")) _spv = floor(_spv / 2);
+                try {
+                    if (!is_undefined(status_system_has_status)){
+                        if (status_system_has_status(m, "paralysis") || status_system_has_status(m, "paralyze")) _spv = floor(_spv / 2);
+                    }
+                } catch (e_p2) {}
                 return _spv;
             }
         }
@@ -4354,6 +4968,23 @@ function __battle_hp_visual(_ent){
         }
         return cur;
     } catch (e_vis){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][hp_visual] error: " + string(e_vis)); return __battle_hp_now(_ent); }
+}
+// Resolve an entity's maximum HP, supporting both actor and inner mon shapes
+function __battle_hp_max(_ent){
+    try {
+        if (is_struct(_ent)){
+            // Prefer actor-level hp_max, then maxhp
+            if (variable_struct_exists(_ent, "hp_max") && is_real(variable_struct_get(_ent, "hp_max"))) return floor(variable_struct_get(_ent, "hp_max"));
+            if (variable_struct_exists(_ent, "maxhp") && is_real(variable_struct_get(_ent, "maxhp"))) return floor(variable_struct_get(_ent, "maxhp"));
+            // Fallback to inner mon
+            if (variable_struct_exists(_ent, "mon") && is_struct(variable_struct_get(_ent, "mon"))){
+                var m = variable_struct_get(_ent, "mon");
+                if (variable_struct_exists(m, "hp_max") && is_real(variable_struct_get(m, "hp_max"))) return floor(variable_struct_get(m, "hp_max"));
+                if (variable_struct_exists(m, "maxhp") && is_real(variable_struct_get(m, "maxhp"))) return floor(variable_struct_get(m, "maxhp"));
+            }
+        }
+    } catch (e_hpm) {}
+    return 1;
 }
 // Play an impact sound using audio_play_sound (fallback to sound_play) and
 // start the visual HP lerp on the provided entity. _mult is optional
@@ -4535,6 +5166,9 @@ function __battle_apply_damage(_pid, _target_index, _dmg, _mult){
     // Clear faint flag if healed above 0
     __battle_clear_fainted_if_healed(T);
 }
+/// Return the next alive party index for a player, excluding the active slot.
+/// Params: _pid (int)
+/// Returns: int index >= 0 if found, else -1 when no usable Pokémon remain.
 function __party_find_next_alive(_pid){
     if (is_undefined(party_ensure)) return -1;
     var P = party_ensure(_pid);

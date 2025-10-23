@@ -378,5 +378,60 @@ function pokemon_factory_create(_sid, _level, _opts){
         if (is_array(__ls)) variable_struct_set(mon, "learnset", __ls);
         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[DATA_DEBUG] pokemon_factory_create: assigned learnset length=" + string(is_array(__ls) ? array_length(__ls) : 0) + " for species=" + string(_s) + " lvl=" + string(L));
     }
+    // Compute an initial grounded flag so UI/debug can inspect at a glance.
+    // This uses types and, if already present on the mon, ability. It may be
+    // updated later when ability is assigned by demo/runtime code.
+    try {
+        if (!is_undefined(scr_compute_grounded_flag)) mon.grounded = scr_compute_grounded_flag(mon);
+    } catch (e_gf) { /* ignore */ }
     return mon;
+}
+
+/// scr_compute_grounded_flag(monOrActor) -> bool
+/// Returns true if the mon/actor is considered grounded at snapshot time.
+/// Rules (current simplified implementation):
+/// - Not Flying type AND does not have Levitate ability.
+/// - Ignores transient effects (Magnet Rise, Air Balloon) for now.
+function scr_compute_grounded_flag(_obj){
+    if (!is_struct(_obj)) return true;
+    var flying_id = undefined;
+    try { if (variable_global_exists("TYPE_ID_BY_NAME")){
+        var _tmap = variable_global_get("TYPE_ID_BY_NAME");
+        if (ds_exists(_tmap, ds_type_map)) flying_id = ds_map_find_value(_tmap, string_lower("flying"));
+    } } catch (e_tf) { flying_id = undefined; }
+
+    // Pull type array from common shapes: .types, .type1/.type2, or species lookup
+    var types_arr = [];
+    try {
+        if (variable_struct_exists(_obj, "types") && is_array(_obj.types)){
+            types_arr = _obj.types;
+        } else {
+            var t1 = (variable_struct_exists(_obj, "type1") && is_real(_obj.type1)) ? _obj.type1 : -1;
+            var t2 = (variable_struct_exists(_obj, "type2") && is_real(_obj.type2)) ? _obj.type2 : -1;
+            if (t1 != -1) array_push(types_arr, t1);
+            if (t2 != -1) array_push(types_arr, t2);
+            if (array_length(types_arr) == 0 && variable_struct_exists(_obj, "species_id") && is_real(_obj.species_id) && variable_global_exists("_species_types") && is_array(global._species_types)){
+                var sid = _obj.species_id;
+                if (sid >= 0 && sid < array_length(global._species_types)){
+                    var ta = global._species_types[sid];
+                    if (is_array(ta)) types_arr = ta;
+                }
+            }
+        }
+    } catch (e_ty) { /* keep empty */ }
+
+    // If we can resolve Flying type id and the mon has it, it's not grounded
+    if (!is_undefined(flying_id) && is_real(flying_id)){
+        for (var i=0; i<array_length(types_arr); ++i){ if (is_real(types_arr[i]) && types_arr[i] == flying_id) return false; }
+    }
+
+    // Ability check: treat Levitate as airborne. Accept string name or known id (26).
+    try {
+        if (variable_struct_exists(_obj, "ability")){
+            var ab = _obj.ability;
+            if ((is_string(ab) && string_lower(string(ab)) == "levitate") || (is_real(ab) && floor(ab) == 26)) return false;
+        }
+    } catch (e_ab) { /* ignore */ }
+
+    return true;
 }
