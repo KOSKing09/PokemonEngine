@@ -261,6 +261,7 @@
     {"id":{"name":"battle_ui","path":"scripts/battle_ui/battle_ui.yy",},},
     {"id":{"name":"camera_system","path":"scripts/camera_system/camera_system.yy",},},
     {"id":{"name":"collision_system","path":"scripts/collision_system/collision_system.yy",},},
+    {"id":{"name":"CutsceneSystem","path":"scripts/CutsceneSystem/CutsceneSystem.yy",},},
     {"id":{"name":"dev_assign_test_moves","path":"scripts/dev_assign_test_moves/dev_assign_test_moves.yy",},},
     {"id":{"name":"DialogSystem","path":"scripts/DialogSystem/DialogSystem.yy",},},
     {"id":{"name":"font_pokemon","path":"scripts/font_pokemon/font_pokemon.yy",},},

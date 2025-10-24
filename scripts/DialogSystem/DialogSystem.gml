@@ -182,6 +182,8 @@ function __dlg_wrap_text(_text, _box_w){
 }
 // Internal implementation accepting optional originating item.
 function dialog2p_open_text_impl(_pid, _text, _item){
+    // Ensure dialog system is initialized before accessing the session array
+    if (!variable_global_exists("DIALOG2P")) dialog2p_init();
     var d = global.DIALOG2P[_pid];
 
     // If a battle slot exists for this pid and a faint is pending, do not
@@ -465,6 +467,10 @@ function __dlg_draw_lines_spritefont(_l0, _l1, _x, _y){
 
 
 function dialog2p_draw_world(_pid, _cam){
+    // If a battle is active for this pid, prefer drawing inside the battle GUI
+    // to avoid double-rendering and coordinate mismatches. The battle renderer
+    // will call dialog2p_draw_gui_rect.
+    if (!is_undefined(battle_is_open) && battle_is_open(_pid)) return;
     var d = global.DIALOG2P[_pid];
     if (!d.open) return;
 
@@ -502,6 +508,83 @@ function dialog2p_draw_world(_pid, _cam){
 
     var px = round(vx + (vw - bw) * 0.5);
     var py = round(vy + vh - (bh + d.margin_v));
+
+    // panel
+    draw_set_color(make_color_rgb(30,34,46));
+    draw_rectangle(px, py, px + bw, py + bh, false);
+    draw_set_color(make_color_rgb(80,85,100));
+    draw_roundrect(px, py, px + bw, py + bh, false);
+
+    // name
+    var y_off = 0;
+    if (d.name_label != ""){
+        draw_set_color(c_white);
+        draw_set_halign(fa_left);
+        draw_text(px + pad, py + 4, d.name_label);
+        y_off = 14;
+    }
+
+    // portrait (optional)
+    var text_left = pad;
+    if (d.portrait != noone){
+        var ph = sprite_get_height(d.portrait);
+        var pw = sprite_get_width(d.portrait);
+        var scale = min((d.box_h) / max(1, ph), 1);
+        var pox = round(px + pad);
+        var poy = round(py + pad + y_off + (d.box_h - ph*scale) * 0.5);
+        draw_sprite_ext(d.portrait, d.portrait_frame, pox, poy, scale, scale, 0, c_white, 1);
+        text_left += pw*scale + 6;
+    }
+
+    // visible text of this page
+    var a = d.lines[0], b = d.lines[1];
+    var page_str = a + "\n" + b;
+    var page_len = string_length(page_str);
+    var vis_str  = string_copy(page_str, 1, d.char_idx);
+
+    var vis0 = vis_str, vis1 = "";
+    var npos = string_pos("\n", vis_str);
+    if (npos > 0){
+        vis0 = string_copy(vis_str, 1, npos - 1);
+        vis1 = string_copy(vis_str, npos + 1, string_length(vis_str));
+    }
+
+    var tx = round(px + text_left);
+    var ty = round(py + pad + y_off);
+    __dlg_draw_lines_spritefont(vis0, vis1, tx, ty);
+
+    // next-page arrow
+    var has_next = ((d.page_idx+1)*2) < array_length(d.all_lines);
+    if (d.char_idx >= page_len && has_next){
+        if ((d.arrow_tick div 30) == 0){
+            var ax = round(px + bw - pad - 12);
+            var ay = round(py + bh - pad - 10);
+            draw_set_color(c_white);
+            draw_triangle(ax, ay, ax+8, ay, ax+4, ay+6, false);
+        }
+    }
+}
+
+// ---------- Draw in GUI space within a rect (battle/letterbox-friendly) -----
+/// dialog2p_draw_gui_rect(pid, rx, ry, rw, rh)
+/// Draws the classic dialog box anchored to the bottom-center of the provided
+/// GUI-space rectangle. Mirrors the look/behavior of dialog2p_draw_world.
+function dialog2p_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
+    if (!variable_global_exists("DIALOG2P")) dialog2p_init();
+    var d = global.DIALOG2P[_pid];
+    if (!is_struct(d) || !d.open) return;
+
+    var pad = d.border_pad;
+    var name_h = (d.name_label != "" ? 14 : 0);
+    var bw = d.box_w + pad*2;
+    var bh = d.box_h + pad*2 + name_h;
+
+    // clamp to rect & anchor bottom-center, crisp pixels
+    bw = max(32, min(bw, _rw - 2*d.margin_h));
+    bh = max(24, min(bh, _rh - 2*d.margin_v));
+
+    var px = round(_rx + (_rw - bw) * 0.5);
+    var py = round(_ry + _rh - (bh + d.margin_v));
 
     // panel
     draw_set_color(make_color_rgb(30,34,46));

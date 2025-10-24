@@ -1767,7 +1767,59 @@ function battle_open(_a0, _a1){
     // Diagnostic: log what battleAnim was detected on the caller (temporary)
     // debug removed
 
-    if (!is_undefined(dialog2p_show_now)){
+    // Use CutsceneSystem for the wild-intro when available so intro flow can be
+    // composed/reused as a cutscene. Fall back to the legacy immediate dialog
+    // show/enqueue when the cutscene system isn't present.
+    if (!is_undefined(cutscene_play_now) && !is_undefined(dialog2p_enqueue)){
+        var _mon_name = string(_B.actor[1].name);
+        var _player_mon_name = string(_B.actor[0].name);
+        var _key = "wild_intro:" + string(_mon_name) + ":" + string(current_time);
+        var _payload = {
+            key: _key,
+            gate: "any",
+            // allow the battle's intro phase timing to continue while this cutscene
+            // is active so the fade-in and sprite intros can progress.
+            allow_battle_progress: true,
+            // on_start: enqueue the dialog item so the dialog system can open it
+            on_start: function(_p, _it){
+                try {
+                    // mark bookkeeping on the cutscene item so on_update can detect open/close
+                    try { variable_struct_set(_it, "_seen_dialog", false); } catch (e_set) {}
+                    // Resolve actor names at runtime from the battle slot to avoid closure capture issues
+                    try {
+                        var _txt_mon = "";
+                        var _txt_player = "";
+                        if (variable_global_exists("sys_battles") && is_array(global.sys_battles) && array_length(global.sys_battles) > _p){
+                            var _Bb = global.sys_battles[_p];
+                            if (is_struct(_Bb) && variable_struct_exists(_Bb, "actor")){
+                                try { if (is_struct(variable_struct_get(_Bb, "actor")[1]) && variable_struct_exists(variable_struct_get(_Bb, "actor")[1], "name")) _txt_mon = string(variable_struct_get(variable_struct_get(_Bb, "actor")[1], "name")); } catch(e1){}
+                                try { if (is_struct(variable_struct_get(_Bb, "actor")[0]) && variable_struct_exists(variable_struct_get(_Bb, "actor")[0], "name")) _txt_player = string(variable_struct_get(variable_struct_get(_Bb, "actor")[0], "name")); } catch(e2){}
+                            }
+                        }
+                        var _dlg = { text: "A wild " + _txt_mon + " has appeared!\n\nGo. " + _txt_player + "!", key: _it.key + ":dlg", gate: "any" };
+                        try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_p, _dlg); else dialog2p_enqueue(_p, _dlg); } catch (e_sh) { try { dialog2p_enqueue(_p, _dlg); } catch (e2){} }
+                    } catch (e_r) { /* ignore name-resolve failures */ }
+                } catch (e_on) { /* ignore dialog enqueue failures */ }
+            },
+            // on_update: wait until the dialog is opened then closed, then finish
+            on_update: function(_p, _it, _elapsed){
+                try {
+                    // If dialog is currently open, mark that we've seen it
+                    if (!is_undefined(dialog2p_is_open) && dialog2p_is_open(_p)){
+                        try { variable_struct_set(_it, "_seen_dialog", true); } catch (e_s) {}
+                        return false;
+                    }
+                    // If we have seen it open at least once and it's now closed, we're done
+                    try { if (variable_struct_exists(_it, "_seen_dialog") && variable_struct_get(_it, "_seen_dialog")) return true; } catch (e_g) {}
+                    // Otherwise keep waiting (dialog may still be queued)
+                    return false;
+                } catch (e_u){ return true; }
+            }
+        };
+        try { cutscene_play_now(_pid, _payload); } catch (e_cpn) { /* fallback below */ }
+        _B._dlg_active = true;
+        _B._dlg_page_last = -1;
+    } else if (!is_undefined(dialog2p_show_now)){
         var dlg_txt = "A wild " + string(_B.actor[1].name) + " has appeared!\n\nGo. " + string(_B.actor[0].name) + "!";
         try { dialog2p_show_now(_pid, dlg_txt); } catch (e_dlgopen) { try { dialog2p_enqueue(_pid, dlg_txt); } catch(e_){} }
         _B._dlg_active = true;
@@ -1996,6 +2048,32 @@ function battle_update(_pid){
             }
         }
     }
+
+    // Cutscene system: allow queued cutscenes to start and pause battle progression
+    // when a cutscene is active. This mirrors how the Bag UI and catch animations
+    // temporarily suspend battle logic.
+    try {
+        if (!is_undefined(cutscene_step)) cutscene_step(_pid);
+        if (!is_undefined(cutscene_update)) cutscene_update(_pid);
+        if (!is_undefined(cutscene_is_playing) && cutscene_is_playing(_pid)){
+            // A cutscene is active. By default we pause battle logic while a
+            // cutscene runs. However individual cutscene items may opt-in to
+            // allow certain battle progression (for example: fade-in during
+            // wild-intro). If the current cutscene item has
+            // `allow_battle_progress == true` then let the update continue.
+            var _allow_progress = false;
+            try {
+                if (variable_global_exists("CUTSCENE") && is_array(global.CUTSCENE) && array_length(global.CUTSCENE) > _pid){
+                    var _sess = global.CUTSCENE[_pid];
+                    if (is_struct(_sess) && variable_struct_exists(_sess, "_current_item")){
+                        var _ci = variable_struct_get(_sess, "_current_item");
+                        if (is_struct(_ci) && variable_struct_exists(_ci, "allow_battle_progress") && variable_struct_get(_ci, "allow_battle_progress") == true) _allow_progress = true;
+                    }
+                }
+            } catch (e_ap) { _allow_progress = false; }
+            if (!_allow_progress) return;
+        }
+    } catch (e_cs) { /* ignore if CutsceneSystem not present or errors; continue */ }
 
     // Detect phase entry and run on-enter actions once
     var _curr_phase = (variable_struct_exists(_B, "phase") ? string(_B.phase) : "");

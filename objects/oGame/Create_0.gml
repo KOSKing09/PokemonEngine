@@ -31,6 +31,8 @@ global.DEBUG = true;
 globalvar DATA_DEBUG;
 global.DATA_DEBUG = true;
 
+global.CUTSCENE_DEBUG = true
+
 // Very verbose data debug (opt-in). Default OFF.
 globalvar DATA_DEBUG_VERBOSE;
 global.DATA_DEBUG_VERBOSE = false;
