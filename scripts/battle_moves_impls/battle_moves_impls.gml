@@ -303,7 +303,7 @@ function __battle_perform_action_impl(_pid, _step){
                 }
             } catch (e_in2) {}
             try { __battle_request_animation_safe(A, { type: "flinch" }); } catch (e_fa) {}
-            try { __battle_stub_dialog(_pid, string(variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"The user") + " flinched!"); } catch (e_fd) {}
+            try { dialog2p_show_now(_pid, string(variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"The user") + " flinched!"); } catch (e_fd) {}
             // Debug: report post-clear state
             if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
                 try {

@@ -11,8 +11,8 @@
 try {
     if (is_undefined(dialog_queue)){
         function dialog_queue(_txt){
-            // Prefer the battle dialog stub if available
-            try { if (!is_undefined(__battle_stub_dialog)) __battle_stub_dialog(0, _txt); else show_debug_message(_txt); } catch (e) { try { show_debug_message(_txt); } catch (e2) {} }
+            // Prefer the new dialog dispatcher if available
+            try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(0, _txt); else show_debug_message(_txt); } catch (e) { try { show_debug_message(_txt); } catch (e2) {} }
         }
     }
 } catch (e_sh) {}
@@ -220,13 +220,13 @@ function __battle_apply_damage_impl(_pid, _target_index, _dmg, _mult){
                     // machines or when multiple UI updates occur in the same frame.
                     try { variable_struct_set(_B_sch, "_pending_open_party_delay_until", current_time + 300); } catch (e_pd) {}
                     // Queue faint text to show last; do not open immediately.
-                    try {
-                        var _fnt_name = "(Unknown)";
-                        if (variable_struct_exists(T, "name")) _fnt_name = variable_struct_get(T, "name");
-                        else if (variable_struct_exists(T, "mon") && is_struct(variable_struct_get(T, "mon")) && variable_struct_exists(variable_struct_get(T, "mon"), "name")) _fnt_name = variable_struct_get(variable_struct_get(T, "mon"), "name");
-                        if (!is_undefined(__battle_stub_dialog)) __battle_stub_dialog(_pid, string(_fnt_name) + " fainted!");
-                        else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, string(_fnt_name) + " fainted!", string(_fnt_name) + " fainted!", "faint");
-                    } catch (e_sd_local) {}
+                        try {
+                            var _fnt_name = "(Unknown)";
+                            if (variable_struct_exists(T, "name")) _fnt_name = variable_struct_get(T, "name");
+                            else if (variable_struct_exists(T, "mon") && is_struct(variable_struct_get(T, "mon")) && variable_struct_exists(variable_struct_get(T, "mon"), "name")) _fnt_name = variable_struct_get(variable_struct_get(T, "mon"), "name");
+                            // Queue as a faint-gated dialog so it shows after other pending messages
+                            try { dialog2p_enqueue(_pid, { text: string(_fnt_name) + " fainted!", key: string(_fnt_name) + " fainted!", gate: "faint" }); } catch (e_qf) {}
+                        } catch (e_sd_local) {}
                     // Do NOT set _faint_pending here; allow other messages to show before faint.
                     // Store a reference to the fainted actor's inner mon (preferred) so selection
                     // mapping can resolve correctly even after the party is reordered.

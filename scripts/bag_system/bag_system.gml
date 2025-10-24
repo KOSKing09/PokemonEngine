@@ -281,8 +281,8 @@ function bag__use_item_on_self(_pid, _row){
     // Exception: if item is marked consumable (e.g., potions) allow it to proceed so party selection can occur.
     if (is_array(flag_arr) && array_length(flag_arr) > 0 && !usable_in_battle && !is_consumable_flagged){
         show_debug_message("[bag][debug] abort: item has flags but not usable_in_battle and not consumable (iid=" + string(iid) + ")");
-        out_txt += "\nYou can't use that here.";
-        if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, out_txt);
+    out_txt += "\nYou can't use that here.";
+    try { dialog2p_show(_pid, out_txt); } catch (e_) {}
         return false;
     }
 
@@ -295,14 +295,14 @@ function bag__use_item_on_self(_pid, _row){
     if (page == 1 || string_pos("ball", ident) > 0){
         if (!inBattle){
             out_txt += "\nYou can't use that here.";
-            if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, out_txt);
+            try { dialog2p_show(_pid, out_txt); } catch (e_) {}
             return false;
         }
         var _actor_arr = (variable_struct_exists(_B, "actor") ? variable_struct_get(_B, "actor") : undefined);
         var A1 = (is_array(_actor_arr) && array_length(_actor_arr) > 1) ? _actor_arr[1] : undefined;
         if (!is_struct(A1)){
             out_txt += "\nBut nothing happened.";
-            if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, out_txt);
+            try { dialog2p_show(_pid, out_txt); } catch (e_) {}
             return false;
         }
 
@@ -317,7 +317,7 @@ function bag__use_item_on_self(_pid, _row){
         if (!is_wild){
             // Explicit feedback for unusable item in this context
             out_txt += "\nYou can't use that here.";
-            if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, out_txt);
+            try { dialog2p_show(_pid, out_txt); } catch (e_) {}
             return false;
         }
 
@@ -381,7 +381,7 @@ function bag__use_item_on_self(_pid, _row){
     var _should_open = true;
     if (variable_struct_exists(_B, "_queued_catch") && is_struct(variable_struct_get(_B, "_queued_catch"))) _should_open = false;
     if (variable_struct_exists(_B, "turn_action_player") && is_struct(variable_struct_get(_B, "turn_action_player")) && variable_struct_exists(variable_struct_get(_B, "turn_action_player"), "item_use") && variable_struct_get(variable_struct_get(_B, "turn_action_player"), "item_use") == true) _should_open = false;
-        if (_should_open && !is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, out_txt);
+    if (_should_open) { try { dialog2p_show(_pid, out_txt); } catch(e_){} }
         return consumed;
     }
 
@@ -414,7 +414,7 @@ function bag__use_item_on_self(_pid, _row){
     // Default: not usable in battle
     show_debug_message("[bag][debug] abort: default fallthrough — not usable (iid=" + string(iid) + ")");
     out_txt += "\nYou can't use that here.";
-    if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, out_txt);
+    try { dialog2p_show(_pid, out_txt); } catch (e_) {}
     return false;
 }
 

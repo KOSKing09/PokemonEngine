@@ -196,7 +196,7 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
                     } catch (e_pr) { priority_val = 0; }
                     if (is_real(priority_val) && priority_val > 0 && D_grounded){
                         // Cancel the move's damage application
-                        try { var _dnm = (is_struct(_D) && variable_struct_exists(_D, "name") ? variable_struct_get(_D, "name") : "The target"); __battle_stub_dialog(_pid, string(_dnm) + " was protected by the terrain!"); } catch (e_msg) {}
+                        try { var _dnm = (is_struct(_D) && variable_struct_exists(_D, "name") ? variable_struct_get(_D, "name") : "The target"); try { dialog2p_show_now(_pid, string(_dnm) + " was protected by the terrain!"); } catch (e_msg) { try { dialog2p_enqueue(_pid, string(_dnm) + " was protected by the terrain!"); } catch(e_){} } } catch (e_msg) {}
                         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
                             var _an_dbg = (is_struct(_A) && variable_struct_exists(_A, "name") ? variable_struct_get(_A, "name") : "<att>");
                             show_debug_message("[battle][terrain] Psychic Terrain blocked priority move id=" + string(_move_id) + " from attacker=" + string(_an_dbg));

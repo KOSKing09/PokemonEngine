@@ -1451,7 +1451,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                             // Queue a small flinch dialog/animation so player sees the effect
                             try {
                                 var _tname = (variable_struct_exists(_D, "name") ? variable_struct_get(_D, "name") : "The Pokémon");
-                                __battle_stub_dialog(_pid, string(_tname) + " flinched!");
+                                try { dialog2p_show_now(_pid, string(_tname) + " flinched!"); } catch (e_dfl) { try { dialog2p_enqueue(_pid, string(_tname) + " flinched!"); } catch(e_){} }
                                 __battle_request_animation_safe(_D, { type: "flinch" });
                             } catch (e_f2) { }
                             try { var _B2 = __battle_ensure_slot(_pid); if (is_struct(_B2)) variable_struct_set(_B2, "_meta_effect_applied", true); } catch (e_b2) {}
@@ -1767,9 +1767,9 @@ function battle_open(_a0, _a1){
     // Diagnostic: log what battleAnim was detected on the caller (temporary)
     // debug removed
 
-    if (!is_undefined(dialog2p_open_text)){
+    if (!is_undefined(dialog2p_show_now)){
         var dlg_txt = "A wild " + string(_B.actor[1].name) + " has appeared!\n\nGo. " + string(_B.actor[0].name) + "!";
-        dialog2p_open_text(_pid, dlg_txt);
+        try { dialog2p_show_now(_pid, dlg_txt); } catch (e_dlgopen) { try { dialog2p_enqueue(_pid, dlg_txt); } catch(e_){} }
         _B._dlg_active = true;
         _B._dlg_page_last = -1;
     } else {
@@ -2134,7 +2134,7 @@ function battle_update(_pid){
                             } catch (e_bt2) {}
                         } else {
                             // Fallback: if party UI isn't available, re-open a simple faint dialog
-                            try { if (!is_undefined(__battle_stub_dialog)) __battle_stub_dialog(_pid, "(Unknown) fainted!\n(TODO) Switch to another Pok\u00e9mon."); } catch (e_fd) {}
+                            try { dialog2p_enqueue(_pid, { text: "(Unknown) fainted!\n(TODO) Switch to another Pok\u00e9mon.", key: "(Unknown) fainted!", gate: "faint" }); } catch (e_fd) {}
                         }
                         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][faint] executing scheduled party_open for pid=" + string(_pid));
                         try { variable_struct_set(_B, "_pending_open_party", false); } catch (e_cl) {}
@@ -2207,7 +2207,7 @@ function battle_update(_pid){
                     var _new_c = [];
                     for (var _ii_c = _cons_c; _ii_c < array_length(_old_c); ++_ii_c) _new_c[array_length(_new_c)] = _old_c[_ii_c];
                     variable_struct_set(_B, "_pending_status_msgs", _new_c);
-                    try { if (!is_undefined(__battle_stub_dialog)) __battle_stub_dialog(_pid, _text_c); } catch (e_msgc) {}
+                    try { dialog2p_show_now(_pid, _text_c); } catch (e_msgc) { try { dialog2p_enqueue(_pid, _text_c); } catch(e_){} }
                     return;
                 }
             } catch (e_preclose_msg) {}
@@ -2299,7 +2299,7 @@ function battle_update(_pid){
                     var _new_g = [];
                     for (var _ii_g = _cons_g; _ii_g < array_length(_old_g); ++_ii_g) _new_g[array_length(_new_g)] = _old_g[_ii_g];
                     variable_struct_set(_B, "_pending_status_msgs", _new_g);
-                    try { if (!is_undefined(__battle_stub_dialog)) __battle_stub_dialog(_pid, _text_g); } catch (e_msgg) {}
+                    try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, _text_g); else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, _text_g, _text_g, "any"); } catch (e_msgg) {}
                     return;
                 }
             } catch (e_preclose_msg_g) {}
@@ -2378,7 +2378,7 @@ function battle_update(_pid){
                     var _new = [];
                     for (var _ii = _consume_n; _ii < array_length(_ps); ++_ii) _new[array_length(_new)] = _ps[_ii];
                     variable_struct_set(_B, "_pending_status_msgs", _new);
-                    try { __battle_stub_dialog(_pid, _text_to_show); } catch (e_p) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][pending_status] failed to show: " + string(e_p)); }
+                    try { dialog2p_show_now(_pid, _text_to_show); } catch (e_p) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][pending_status] failed to show: " + string(e_p)); }
                     return;
                 }
             }
@@ -2820,12 +2820,12 @@ function __battle_process_input(_pid){
             else if (idx == 1){
                 // Open the bag UI for battle if available
                 if (!is_undefined(bag_open_for_battle)) bag_open_for_battle(_pid);
-                else __battle_stub_dialog(_pid, "You checked your bag.\n(TODO: bag in battle)");
+                else try { dialog2p_show_now(_pid, "You checked your bag.\n(TODO: bag in battle)"); } catch(e_sb) { try { dialog2p_enqueue(_pid, "You checked your bag.\n(TODO: bag in battle)"); } catch(e_){} }
             }
             else if (idx == 2){
                 // Open the party UI in battle context so the player can choose a Pokémon to swap in.
                 if (is_undefined(party_open) || is_undefined(party_ensure)){
-                    __battle_stub_dialog(_pid, "You checked your party.\n(TODO: switch Pok\u00e9mon)");
+                    try { dialog2p_show_now(_pid, "You checked your party.\n(TODO: switch Pok\u00e9mon)"); } catch(e_sp) { try { dialog2p_enqueue(_pid, "You checked your party.\n(TODO: switch Pok\u00e9mon)"); } catch(e_){} }
                 } else {
                     party_open(_pid);
                     var _Ptmp = party_ensure(_pid);
@@ -2868,7 +2868,7 @@ if (is_array(global._moves) && is_struct(global._moves[mv]) && global._moves[mv]
 
             if (!is_real(mv) || mv < 0){
                 // No move in that slot: show a message but still let the enemy act this turn.
-                __battle_stub_dialog(_pid, "No move registered there.\n(Try another slot.)");
+                try { dialog2p_show_now(_pid, "No move registered there.\n(Try another slot.)"); } catch(e_nm) { try { dialog2p_enqueue(_pid, "No move registered there.\n(Try another slot.)"); } catch(e_){} }
                 _B.turn_action_player = undefined;
                 _B.turn_action_enemy  = __battle_enemy_choose_action(_pid);
                 _B.turn_queue = __battle_build_turn_actions(_pid);
@@ -2878,7 +2878,7 @@ if (is_array(global._moves) && is_struct(global._moves[mv]) && global._moves[mv]
                 _B.phase = "turn";
             } else if (pp <= 0){
                 // No PP: inform player but still proceed with enemy action (player effectively skips this turn)
-                __battle_stub_dialog(_pid, "There's no PP left for that move!\n(TODO: implement Struggle.)");
+                try { dialog2p_show_now(_pid, "There's no PP left for that move!\n(TODO: implement Struggle.)"); } catch(e_pp) { try { dialog2p_enqueue(_pid, "There's no PP left for that move!\n(TODO: implement Struggle.)"); } catch(e_){} }
                 _B.turn_action_player = undefined;
                 _B.turn_action_enemy  = __battle_enemy_choose_action(_pid);
                 _B.turn_queue = __battle_build_turn_actions(_pid);
@@ -3046,10 +3046,10 @@ function __battle_step_turn_if_ready(_pid){
                 var hit_count = (is_real(total_hits) ? (total_hits - remaining_now + 1) : 1);
                 var times_txt = string(hit_count) + " time" + (hit_count == 1 ? "" : "s");
                 var hitMsg = string(tgt_name) + " was hit by " + mv_name_pm + " (" + times_txt + ")!";
-                __battle_stub_dialog(_pid, hitMsg);
+                try { dialog2p_show_now(_pid, hitMsg); } catch(e_hm) { try { dialog2p_enqueue(_pid, hitMsg); } catch(e_){} }
             } catch (e_msg){
                 // fallback to the generic message if anything goes wrong
-                __battle_stub_dialog(_pid, "It hit!");
+                try { dialog2p_show_now(_pid, "It hit!"); } catch(e_ih) { try { dialog2p_enqueue(_pid, "It hit!"); } catch(e_){} }
                 if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][pending_hit] multi-hit dialog build failed: " + string(e_msg));
             }
             // decrement remaining and persist or clear
@@ -3160,7 +3160,7 @@ function __battle_step_turn_if_ready(_pid){
                                 }
                                 // Only show dialog and play SFX if at least one actor healed
                                 if (healed_any){
-                                    try { __battle_stub_dialog(_pid, "The Grassy Terrain restored HP!"); } catch (e_d) {}
+                                    try { dialog2p_show_now(_pid, "The Grassy Terrain restored HP!"); } catch (e_d) { try { dialog2p_enqueue(_pid, "The Grassy Terrain restored HP!"); } catch(e_){} }
                                     try { __battle_play_heal_once(snd_Heal); } catch (e_hfx) {}
                                 }
                             } catch (e_heal) { }
@@ -3172,7 +3172,7 @@ function __battle_step_turn_if_ready(_pid){
                             if (terr_turns <= 0){
                                 variable_struct_set(_B, "_terrain", undefined);
                                 variable_struct_set(_B, "_terrain_turns", 0);
-                                try { __battle_stub_dialog(_pid, "The terrain returned to normal!"); } catch (e_td) {}
+                                try { dialog2p_show_now(_pid, "The terrain returned to normal!"); } catch (e_td) { try { dialog2p_enqueue(_pid, "The terrain returned to normal!"); } catch(e_){} }
                             }
                         }
                     }
@@ -3214,7 +3214,7 @@ function __battle_step_turn_if_ready(_pid){
                                     } catch (e_fire) {}
                                 }
                                 try { __battle_request_animation_safe(_pid, { type: "pledge_fire_tick" }); } catch (e_a) {}
-                                try { __battle_stub_dialog(_pid, "The affected Pokémon are hurt by the Pledge fire!"); } catch (e_d) {}
+                                try { dialog2p_show_now(_pid, "The affected Pokémon are hurt by the Pledge fire!"); } catch (e_d) { try { dialog2p_enqueue(_pid, "The affected Pokémon are hurt by the Pledge fire!"); } catch(e_){} }
                             } catch (e_pfr) {}
                         break;
                         case "pledge_grass_slow":
@@ -3236,7 +3236,7 @@ function __battle_step_turn_if_ready(_pid){
                                     // queue a revert entry that restores this actor's prior speed stage
                                     array_push(new_reverts, { id: "pledge_grass_slow", turns: pturns, side: targetSide, target_actor_index: _ai2, prev_spe: prevs });
                                 }
-                                try { __battle_stub_dialog(_pid, "Affected Pokémon's Speed was sharply cut by the Pledge!"); } catch (e_d2) {}
+                                try { dialog2p_show_now(_pid, "Affected Pokémon's Speed was sharply cut by the Pledge!"); } catch (e_d2) { try { dialog2p_enqueue(_pid, "Affected Pokémon's Speed was sharply cut by the Pledge!"); } catch(e_){} }
                             } catch (e_pgs) {}
                         break;
                         case "pledge_water_boost_effect":
@@ -3247,7 +3247,7 @@ function __battle_step_turn_if_ready(_pid){
                                 variable_struct_set(pflags, key, pturns);
                                 variable_struct_set(_B, "_pledge_flags", pflags);
                                 try { __battle_request_animation_safe(_pid, { type: "pledge_water_apply" }); } catch (e_pw) {}
-                                try { __battle_stub_dialog(_pid, "Allies on the side are boosted: friendly moves have increased effect chance due to the Pledge!"); } catch (e_pd) {}
+                                try { dialog2p_show_now(_pid, "Allies on the side are boosted: friendly moves have increased effect chance due to the Pledge!"); } catch (e_pd) { try { dialog2p_enqueue(_pid, "Allies on the side are boosted: friendly moves have increased effect chance due to the Pledge!"); } catch(e_){} }
                             } catch (e_pw2) {}
                             array_push(new_reverts, { id: "pledge_water_boost_effect", turns: pturns, side: targetSide });
                         break;
@@ -3415,7 +3415,7 @@ function __battle_step_turn_if_ready(_pid){
                         case "hail": endMsg = "The hail stopped."; break;
                         default: endMsg = "The field returned to normal."; break;
                     }
-                    try { __battle_stub_dialog(_pid, endMsg); } catch (e_msg) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][weather] failed to show end dialog: " + string(e_msg)); }
+                    try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, endMsg); else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, endMsg, endMsg, "any"); } catch (e_msg) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][weather] failed to show end dialog: " + string(e_msg)); }
                 }
             }
         }
@@ -3446,7 +3446,7 @@ function __battle_step_turn_if_ready(_pid){
                 var _new = [];
                 for (var _ii = _consume_n2; _ii < array_length(_psend); ++_ii) _new[array_length(_new)] = _psend[_ii];
                 variable_struct_set(_B, "_pending_status_msgs", _new);
-                try { __battle_stub_dialog(_pid, _text_to_show2); } catch (e_pend) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][pending_status_endturn] failed to show: " + string(e_pend)); }
+                try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, _text_to_show2); else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, _text_to_show2, _text_to_show2, "any"); } catch (e_pend) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][pending_status_endturn] failed to show: " + string(e_pend)); }
                 return;
             }
         }
@@ -3638,7 +3638,7 @@ if (is_struct(A1) && variable_struct_exists(A1, "hp_now") && variable_struct_get
                         // instead schedule it to open after the dialog closes so the
                         // faint message remains visible and cannot be overwritten by
                         // immediate UI-driven dialog calls.
-                        try { if (!is_undefined(__battle_stub_dialog)) __battle_stub_dialog(_pid, string(_name0) + " fainted!"); } catch (e_sd) {}
+                        try { dialog2p_enqueue(_pid, { text: string(_name0) + " fainted!", key: string(_name0) + " fainted!", gate: "faint" }); } catch (e_sd) {}
                         // Schedule the party open for after dialogs close. The main
                         // loop checks _pending_open_party and will perform the actual
                         // party_open when dialogs are no longer active.
@@ -3650,7 +3650,7 @@ if (is_struct(A1) && variable_struct_exists(A1, "hp_now") && variable_struct_get
                 } else {
                     // Fallback: show a simple dialog if party UI isn't available
                     try { variable_struct_set(_B, "_faint_pending", true); } catch (e_fp2) {}
-                    __battle_stub_dialog(_pid, string(_name0) + " fainted!\n(TODO) Switch to another Pokémon.");
+                    try { dialog2p_enqueue(_pid, { text: string(_name0) + " fainted!\n(TODO) Switch to another Pokémon.", key: string(_name0) + " fainted!", gate: "faint" }); } catch(e_fbf) {}
                 }
                 // You can call battle_switch_to here automatically if desired:
                 // battle_switch_to(_pid, idxNext, {});
@@ -3658,7 +3658,7 @@ if (is_struct(A1) && variable_struct_exists(A1, "hp_now") && variable_struct_get
                 var _name0b = (variable_struct_exists(A0, "name") ? variable_struct_get(A0, "name") : "Pokémon");
                 try { variable_struct_set(_B, "_faint_pending", true); } catch (e_fp3) {}
                 // First page: the active Pokémon fainted
-                __battle_stub_dialog(_pid, string(_name0b) + " fainted!");
+                try { dialog2p_enqueue(_pid, { text: string(_name0b) + " fainted!", key: string(_name0b) + " fainted!", gate: "faint" }); } catch (e_qf2) {}
                 // Queue defeat sequence messages so they show as separate pages
                 var trainer_name = (variable_global_exists("PLAYER_NAME") ? string(global.PLAYER_NAME) : "You");
                 var pend = (variable_struct_exists(_B, "_pending_status_msgs") ? variable_struct_get(_B, "_pending_status_msgs") : []);
@@ -3714,7 +3714,7 @@ if (is_struct(A1) && variable_struct_exists(A1, "hp_now") && variable_struct_get
                 if (!_alreadyQueued){
                     var _name_act = (is_struct(_A0_chk) && variable_struct_exists(_A0_chk, "name") ? string(variable_struct_get(_A0_chk, "name")) : "Pokémon");
                     // Show immediate faint, then queue out-of-usable + whited out
-                    __battle_stub_dialog(_pid, _name_act + " fainted!");
+                    try { dialog2p_enqueue(_pid, { text: _name_act + " fainted!", key: _name_act + " fainted!", gate: "faint" }); } catch (e_qf3) {}
                     var _trainer = (variable_global_exists("PLAYER_NAME") ? string(global.PLAYER_NAME) : "You");
                     var _pend2 = (variable_struct_exists(_B, "_pending_status_msgs") ? variable_struct_get(_B, "_pending_status_msgs") : []);
                     if (!is_array(_pend2)) _pend2 = [];
@@ -3792,7 +3792,7 @@ if (is_struct(A1) && variable_struct_exists(A1, "hp_now") && variable_struct_get
     }
 
     // Show the message; after dialog closes we'll continue with the next step
-    __battle_stub_dialog(_pid, out_msg);
+    try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, out_msg); else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, out_msg, out_msg, "any"); } catch (e_dlg) {}
     _B.turn_i += 1;
 }
 // __battle_perform_action implementation has been moved to battle_moves_impls.gml (__battle_perform_action_impl).
@@ -4102,7 +4102,7 @@ function __battle_try_escape(_pid){
     var _B = __battle_ensure_slot(_pid);
     var A0 = _B.actor[0], A1 = _B.actor[1];
     if (!is_struct(A0) || !is_struct(A1)){
-        _B.result = "escaped"; __battle_stub_dialog(_pid, "Got away safely!"); _B._pending_close = true; return;
+        _B.result = "escaped"; try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, "Got away safely!"); else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, "Got away safely!", "Got away safely!", "any"); } catch (e_) {} _B._pending_close = true; return;
     }
     if (!variable_struct_exists(_B, "run_tries")) _B.run_tries = 0;
     // Use the stat getter to safely retrieve Speed (handles missing fields and fallbacks)
@@ -4112,13 +4112,13 @@ function __battle_try_escape(_pid){
     var roll = irandom(255);
     if (roll < chance){
         _B.result = "escaped";
-        __battle_stub_dialog(_pid, "Got away safely!\n");
+        try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, "Got away safely!\n"); else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, "Got away safely!\n", "Got away safely!\n", "any"); } catch (e_) {}
         _B._pending_close = true;
     } else {
         _B.run_tries += 1;
         // Failed escape: count as player's turn (player attempted to run),
         // queue enemy action so opponent still acts this turn.
-        __battle_stub_dialog(_pid, "Can't escape!");
+    try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, "Can't escape!"); else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, "Can't escape!", "Can't escape!", "any"); } catch (e_) {}
         _B.turn_action_player = undefined;
         _B.turn_action_enemy  = __battle_enemy_choose_action(_pid);
         _B.turn_queue = __battle_build_turn_actions(_pid);
@@ -4127,120 +4127,8 @@ function __battle_try_escape(_pid){
     }
 }
 
-function __battle_stub_dialog(_pid, _text){
-    // Early duplicate/pending suppression: avoid opening or re-queuing the same line
-    // multiple times during faint/close transitions.
-    try {
-        var _Bsup = __battle_ensure_slot(_pid);
-        if (is_struct(_Bsup)){
-            var _txt_s = string(_text);
-            // 1) If a faint dialog is pending and this exact text is already queued
-            //    in the pending-status queue, skip entirely (it will be shown once).
-            var _fp = (variable_struct_exists(_Bsup, "_faint_pending") && variable_struct_get(_Bsup, "_faint_pending"));
-            if (_fp){
-                if (variable_struct_exists(_Bsup, "_pending_status_msgs") && is_array(variable_struct_get(_Bsup, "_pending_status_msgs"))){
-                    var _arrp = variable_struct_get(_Bsup, "_pending_status_msgs");
-                    var _dupp = false;
-                    for (var _ii=0; _ii<array_length(_arrp); ++_ii){ if (string(_arrp[_ii]) == _txt_s){ _dupp = true; break; } }
-                    if (_dupp){
-                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][dialog][suppress] duplicate pending during faint pid=" + string(_pid) + ", preview='" + string_copy(_txt_s,1,min(48,string_length(_txt_s))) + "'");
-                        return;
-                    }
-                }
-            }
-            // 2) Time-window duplicate suppression per battle slot (any source).
-            var _last_txt = (variable_struct_exists(_Bsup, "_last_dialog_text") ? string(variable_struct_get(_Bsup, "_last_dialog_text")) : "");
-            var _last_ts  = (variable_struct_exists(_Bsup, "_last_dialog_ts") && is_real(variable_struct_get(_Bsup, "_last_dialog_ts")) ? variable_struct_get(_Bsup, "_last_dialog_ts") : -9999999);
-            // Only suppress immediate repeats within a very short window, or if a faint is
-            // currently pending (duplicates will be handled via the pending queue instead).
-            var _delta = (is_real(_last_ts) ? abs(_last_ts - current_time) : 9999999);
-            if (_last_txt == _txt_s && ( (_fp && _delta < 2000) || (_delta < 200) ) ){
-                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][dialog][suppress] duplicate within window pid=" + string(_pid) + ", preview='" + string_copy(_txt_s,1,min(48,string_length(_txt_s))) + "'");
-                return;
-            }
-            // Route faint lines to the end of the queue; route busy box lines into queue as well.
-            var _is_faint_line = (string_pos("fainted!", _txt_s) > 0);
-            if (!is_undefined(dialog2p_enqueue_text)){
-                var _box_open = (!is_undefined(dialog2p_is_open) ? dialog2p_is_open(_pid) : false);
-                if (_is_faint_line){
-                    // Always enqueue faint messages so they appear last.
-                    dialog2p_enqueue_text(_pid, _txt_s, _txt_s, "faint");
-                    if (!is_undefined(dialog2p_step)) dialog2p_step(_pid);
-                    return;
-                } else if (_box_open){
-                    // If dialog box is already open, prefer enqueue.
-                    var _gate_other = (_fp ? "after-faint" : "any");
-                    dialog2p_enqueue_text(_pid, _txt_s, _txt_s, _gate_other);
-                    if (!is_undefined(dialog2p_step)) dialog2p_step(_pid);
-                    return;
-                }
-            }
-        }
-    } catch (e_pre_suppress) { /* ignore and continue */ }
-
-    if (!is_undefined(dialog2p_open_text)){
-        dialog2p_open_text(_pid, _text);
-        // Only mark the battle slot as having an active dialog if the dialog
-        // system actually opened the text; dialog2p_open_text may queue the
-        // message (when faint is pending) and return without opening.
-    var _opened = (is_undefined(dialog2p_is_open) ? false : dialog2p_is_open(_pid));
-        if (_opened){
-            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][dialog] dialog2p_open_text called pid=" + string(_pid) + ", text_preview='" + string_copy(string(_text),1,min(48,string_length(string(_text)))) + "'");
-            var _B = __battle_ensure_slot(_pid);
-            _B._dlg_active = true;
-            _B._dlg_page_last = -1;
-            // Record last-shown text/time to suppress immediate repeats
-            try { variable_struct_set(_B, "_last_dialog_text", string(_text)); } catch (e_l1) {}
-            try { variable_struct_set(_B, "_last_dialog_ts", current_time); } catch (e_l2) {}
-            // If this looks like a move-use line, remember it as 'shown' so we can drop
-            // duplicate pending copies that may arrive after a faint.
-            try {
-                var _s = string(_text);
-                if (string_pos(" used ", _s) > 0){
-                    variable_struct_set(_B, "_last_used_dialog_text", _s);
-                    variable_struct_set(_B, "_last_used_dialog_shown", true);
-                }
-            } catch (e_lu) {}
-        } else {
-            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][dialog] queued pid=" + string(_pid) + ", preview='" + string_copy(string(_text),1,min(48,string_length(string(_text)))) + "'");
-            // If the dialog didn't open (likely due to gating), enqueue in dialog system to ensure it isn't lost.
-            try {
-                if (!is_undefined(dialog2p_enqueue_text)){
-                    var _txt_s2 = string(_text);
-                    var _gate2 = (string_pos("fainted!", _txt_s2) > 0) ? "faint" : ( (_fp) ? "after-faint" : "any" );
-                    dialog2p_enqueue_text(_pid, _txt_s2, _txt_s2, _gate2);
-                }
-            } catch (e_enq) {}
-        }
-        // Play stat-change SFX when the dialog being shown reports a stat change.
-        // Detect simple patterns like "NAME ATK +1" or "NAME DEF -1" and avoid
-        // playing on messages that state "won't go any lower/higher".
-        try {
-            var _tup = string_upper(string_trim(string(_text)));
-            if (string_length(_tup) > 0){
-                // skip explicit no-change messages
-                if (string_pos("WON'T", _tup) <= 0 && string_pos("WONT", _tup) <= 0){
-                    var stat_tokens = [" ATK ", " DEF ", " SPA ", " SPD ", " SPE ", " HP ", " ACCURACY", " EVASION"];
-                    var foundStat = false;
-                    for (var _si = 0; _si < array_length(stat_tokens); ++_si){ if (string_pos(stat_tokens[_si], _tup) > 0){ foundStat = true; break; } }
-                    if (foundStat){
-                        // determine direction by presence of '+' or '-' after stat token
-                        var dir = 0;
-                        if (string_pos("+", _tup) > 0) dir = 1;
-                        else if (string_pos("-", _tup) > 0) dir = -1;
-                        if (dir != 0){
-                            try {
-                                // Use a one-shot play helper to avoid looping or double plays.
-                                if (dir > 0) __battle_play_one_shot(snd_Stat_Raise);
-                                else __battle_play_one_shot(snd_Stat_Lower);
-                            } catch (e_sfxp) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][sound] stat dialog SFX failed: " + string(e_sfxp)); }
-                        }
-                    }
-                }
-            }
-        } catch (e_dialogsfx) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][sound] dialog stat-sfx detection error: " + string(e_dialogsfx)); }
-    }
-}
+// __battle_stub_dialog removed: dialog dispatch is handled by the DialogSystem APIs
+// Use dialog2p_show_now(_pid, text) or dialog2p_enqueue_text/_enqueue for queued/gated messages.
 function __battle_play_switch_in(_pid){
     var _B = __battle_ensure_slot(_pid);
     if (!is_struct(_B) || !_B.sys_open) return;
@@ -4372,8 +4260,8 @@ function battle_switch_to(_pid, _party_idx, _opts){
         if (is_struct(_Ptmp) && variable_struct_exists(_Ptmp, "mons") && is_array(_Ptmp.mons) && _party_idx >= 0 && _party_idx < array_length(_Ptmp.mons)) _incoming = _Ptmp.mons[_party_idx];
         var incoming_name = "Pok\u00e9mon";
         if (is_struct(_incoming) && variable_struct_exists(_incoming, "name")) incoming_name = string(variable_struct_get(_incoming, "name"));
-        var dlg_text = "Go. " + incoming_name + "!";
-        if (!is_undefined(dialog2p_open_text)) { dialog2p_open_text(_pid, dlg_text); _B._dlg_active = true; }
+    var dlg_text = "Go. " + incoming_name + "!";
+    if (!is_undefined(dialog2p_show_now)) { try { dialog2p_show_now(_pid, dlg_text); } catch(e_) { try { dialog2p_enqueue(_pid, dlg_text); } catch(e2){} } _B._dlg_active = true; }
     } catch (e_sw) {}
     return true;
 }
@@ -5459,7 +5347,7 @@ function __battle_award_exp(_pid, _amount){
             variable_struct_set(_B, "_level_stat_bumps", []);
         }
     }
-    __battle_stub_dialog(_pid, _msg);
+    try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, _msg); else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, _msg, _msg, "any"); } catch (e_) {}
 
     // Setup Emerald-style EXP animation queue: for each level-up that occurred, animate prev->1.0, then show level-up dialog,
     // then continue animating the remainder from 0->final. We store a queue of steps on _B._exp_anim.queue.
@@ -5722,7 +5610,7 @@ function __battle_update_animations(_pid){
                                 }
                             }
                             // show the level-up dialog and pause progression until it closes
-                            __battle_stub_dialog(_pid, _dlgtxt);
+                            try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, _dlgtxt); else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, _dlgtxt, _dlgtxt, "any"); } catch (e_) {}
                             variable_struct_set(E, "waiting_for_dialog", true);
                             variable_struct_set(_B, "_exp_anim", E);
                             // Do not advance playing_index here; we'll advance it when dialog closes
@@ -5838,9 +5726,9 @@ function __battle_update_animations(_pid){
                 if (is_array(_pmons_local2) && array_length(_pmons_local2) >= 6) party_full = true;
             }
             if (party_full){
-                __battle_stub_dialog(_pid, "Gotcha!\nYou caught " + string(_B.actor[1].name) + "!\nYour party is full — the Pokémon will be sent to the PC (TODO).");
+                try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, "Gotcha!\nYou caught " + string(_B.actor[1].name) + "!\nYour party is full — the Pokémon will be sent to the PC (TODO)."); else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, "Gotcha!\nYou caught " + string(_B.actor[1].name) + "!\nYour party is full — the Pokémon will be sent to the PC (TODO).", "Gotcha!\nYou caught " + string(_B.actor[1].name) + "!\nYour party is full — the Pokémon will be sent to the PC (TODO).", "any"); } catch (e_) {}
             } else {
-                __battle_stub_dialog(_pid, "Gotcha!\nYou caught " + string(_B.actor[1].name) + "!");
+                try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, "Gotcha!\nYou caught " + string(_B.actor[1].name) + "!"); else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, "Gotcha!\nYou caught " + string(_B.actor[1].name) + "!", "Gotcha!\nYou caught " + string(_B.actor[1].name) + "!", "any"); } catch (e_) {}
                 // TODO: Add the caught mon to the player's party here when party API is available.
             }
             _B._pending_close = true;
@@ -5881,7 +5769,7 @@ function __battle_update_animations(_pid){
         var e5 = now - (variable_struct_exists(A, "phase_start") ? A.phase_start : now);
         if (e5 >= (is_real(A.escape_dur) ? A.escape_dur : 320)){
             // end escape: show broke free dialog and clear animation
-            __battle_stub_dialog(_pid, "Oh no! The Pokémon broke free!");
+            try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, "Oh no! The Pokémon broke free!"); else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, "Oh no! The Pokémon broke free!", "Oh no! The Pokémon broke free!", "any"); } catch (e_) {}
             A.active = false;
             _B._catch_anim = undefined;
         }

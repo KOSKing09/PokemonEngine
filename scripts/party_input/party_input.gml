@@ -466,8 +466,7 @@ function __party_impl_party_update(){
                                     if (variable_struct_exists(up, "out_prefix") && string_length(string(variable_struct_get(up, "out_prefix"))) > 0){
                                         var _dlg_txt = string(variable_struct_get(up, "out_prefix"));
                                         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party][debug] requesting dialog open: pid=" + string(_pid) + ", text_len=" + string(string_length(_dlg_txt)) + ", preview='" + string_copy(_dlg_txt,1,min(48,string_length(_dlg_txt))) + "'");
-                                        if (!is_undefined(__battle_stub_dialog)) __battle_stub_dialog(_pid, _dlg_txt);
-                                        else if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, _dlg_txt);
+                                        try { dialog2p_show_now(_pid, _dlg_txt); } catch (e_dlg) { try { dialog2p_enqueue(_pid, _dlg_txt); } catch(e_e){} }
                                         // Probe whether dialog system reports open immediately after call (verbose only)
                                         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){ if (!is_undefined(dialog2p_is_open)) show_debug_message("[party][debug] dialog2p_is_open(pid) -> " + string(dialog2p_is_open(_pid))); }
                                         // Debug: dump the dialog's all_lines so we can see what the dialog system will render
@@ -475,13 +474,14 @@ function __party_impl_party_update(){
                                             if (variable_global_exists("DIALOG2P") && is_array(global.DIALOG2P) && array_length(global.DIALOG2P) > _pid){
                                                 var _dref = global.DIALOG2P[_pid];
                                                 if (is_struct(_dref) && variable_struct_exists(_dref, "all_lines")){
-                                                    var _max = min(8, array_length(_dref.all_lines));
+                                                    var _al = variable_struct_get(_dref, "all_lines");
+                                                    var _max = min(8, array_length(_al));
                                                     var _pv = "";
                                                     for (var _li = 0; _li < _max; _li++){
-                                                        var _ln = string(_dref.all_lines[_li]);
+                                                        var _ln = string(_al[_li]);
                                                         _pv += "[" + string(_li) + "]" + string_copy(_ln, 1, min(120, string_length(_ln))) + "; ";
                                                     }
-                                                    show_debug_message("[dialog][debug] all_lines_preview pid=" + string(_pid) + ", count=" + string(array_length(_dref.all_lines)) + ", preview='" + _pv + "'");
+                                                    show_debug_message("[dialog][debug] all_lines_preview pid=" + string(_pid) + ", count=" + string(array_length(_al)) + ", preview='" + _pv + "'");
                                                 }
                                             }
                                         }
@@ -771,8 +771,7 @@ function __party_impl_party_update(){
                                     } else if (_st == "skipped"){
                                         // Already knows the move: inform player and do not insert
                                         var _msg = __party_move_name(_learnId) + " already known.";
-                                        if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, _msg);
-                                        else show_debug_message("[party] " + _msg);
+                                        try { dialog2p_show_now(_pid, _msg); } catch (e_pmsg) { try { dialog2p_enqueue(_pid, _msg); } catch(e_) { show_debug_message("[party] " + _msg); } }
                                         _P.lock = 2;
                                     } else if (_st == "need_replace"){
                                         // Fall back to replace flow (enter summary_forget with learn_pending)
@@ -803,8 +802,7 @@ function __party_impl_party_update(){
                                 for (var __k=0; __k<array_length(_mv); __k++) if (_mv[__k] == _learnId) { _known = true; break; }
                                 if (_known){
                                     var _msg2 = __party_move_name(_learnId) + " already known.";
-                                    if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, _msg2);
-                                    else show_debug_message("[party] " + _msg2);
+                                    try { dialog2p_show_now(_pid, _msg2); } catch (e_pmsg2) { try { dialog2p_enqueue(_pid, _msg2); } catch(e_) { show_debug_message("[party] " + _msg2); } }
                                     _P.lock = 2;
                                 } else {
                                     // insert into exact selected slot (pad with placeholders as needed)
@@ -897,8 +895,7 @@ function __party_impl_party_update(){
                         }
                         if (_dup){
                             var _msg_dup = __party_move_name(_chosen_now) + " already known.";
-                            if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, _msg_dup);
-                            else show_debug_message("[party] " + _msg_dup);
+                            try { dialog2p_show_now(_pid, _msg_dup); } catch (e_pmsg3) { try { dialog2p_enqueue(_pid, _msg_dup); } catch(e_) { show_debug_message("[party] " + _msg_dup); } }
                             // Keep learn_pending active and do not apply replacement
                             _P.lock = 2;
                             variable_struct_set(_P, "learn_pending", variable_struct_get(_P, "learn_pending"));

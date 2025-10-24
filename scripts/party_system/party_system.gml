@@ -919,7 +919,7 @@ function __party_input_learn(_pid){
                 for (var __kk = 0; __kk < array_length(_mm); __kk++) if (_mm[__kk] == chosen_mid){ _already_known = true; break; }
             }
             if (_already_known){
-                if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, __party_move_name(chosen_mid) + " is already known.");
+                try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, __party_move_name(chosen_mid) + " is already known."); else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, __party_move_name(chosen_mid) + " is already known.", __party_move_name(chosen_mid) + " is already known.", "any"); } catch(e_){}
                 // keep learn_pending active and remain on list
                 variable_struct_set(P, "learn_pending", lp);
                 return true;
@@ -934,13 +934,13 @@ function __party_input_learn(_pid){
                 // persist mon changes back into party structure if our stub altered it
                 if (is_struct(mon) && is_array(P.mons) && mon_idx >= 0 && mon_idx < array_length(P.mons)) P.mons[mon_idx] = mon;
                 // show learned dialog (use dialog helper if present)
-                if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, __party_move_name(chosen_mid) + " learned!");
+                try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, __party_move_name(chosen_mid) + " learned!"); else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, __party_move_name(chosen_mid) + " learned!", __party_move_name(chosen_mid) + " learned!", "any"); } catch(e_){}
                 // clear pending
                 variable_struct_set(P, "learn_pending", undefined);
                 return true;
             } else if (is_struct(res) && string(res.status) == "need_replace"){
                 // Transition: show replace flow and present the full learn LIST
-                if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, "Need to forget a move — please pick which to replace in the moves screen.");
+                try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, "Need to forget a move — please pick which to replace in the moves screen."); else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, "Need to forget a move — please pick which to replace in the moves screen.", "Need to forget a move — please pick which to replace in the moves screen.", "any"); } catch(e_){}
                 // Enter forget mode
                 P.mode = "summary_forget";
                 // Ensure the learn list wrapper is visible while forgetting so the
@@ -953,7 +953,7 @@ function __party_input_learn(_pid){
                 variable_struct_set(P, "learn_pending", lp);
                 return true;
             } else {
-                if (!is_undefined(dialog2p_open_text)) dialog2p_open_text(_pid, __party_move_name(chosen_mid) + " not learned.");
+                try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, __party_move_name(chosen_mid) + " not learned."); else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, __party_move_name(chosen_mid) + " not learned.", __party_move_name(chosen_mid) + " not learned.", "any"); } catch(e_){}
                 variable_struct_set(P, "learn_pending", undefined);
                 return true;
             }

@@ -32,9 +32,15 @@ if (talk_cd > 0) talk_cd--;
 if (!is_undefined(dialog2p_is_open) && !dialog2p_is_open(pid)) {
     var box = instance_nearest(x, y, oDialogBox);
     if (box != noone && point_distance(x, y, box.x, box.y) <= 16) {
-        if (controls_pressed(pid,"Interact") && talk_cd <= 0) {
+            if (controls_pressed(pid,"Interact") && talk_cd <= 0) {
             if (!variable_global_exists("DIALOG_SPEED")) global.DIALOG_SPEED = 2;
-            dialog2p_open_text(pid, box.text);
+            try {
+                if (!is_undefined(dialog2p_show_now)) {
+                    dialog2p_show_now(pid, box.text);
+                } else if (!is_undefined(dialog2p_enqueue_text)) {
+                    dialog2p_enqueue_text(pid, box.text, box.text, "any");
+                }
+            } catch (e_) {}
             talk_cd = ceil(game_get_speed(gamespeed_fps) * 0.25); // ~0.25s lockout
         }
     }
