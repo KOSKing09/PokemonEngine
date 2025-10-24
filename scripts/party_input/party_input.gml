@@ -666,12 +666,10 @@ function __party_impl_party_update(){
                     if (controls_repeat(_pid, "MoveUp", 12, 4)){
                         if (!variable_global_exists("sys_party_desc_scroll_req")) global.sys_party_desc_scroll_req = 0;
                         global.sys_party_desc_scroll_req -= 28;
-                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party_input] summary_moves_repeat_up -> " + string(global.sys_party_desc_scroll_req));
                     }
                     if (controls_repeat(_pid, "MoveDown", 12, 4)){
                         if (!variable_global_exists("sys_party_desc_scroll_req")) global.sys_party_desc_scroll_req = 0;
                         global.sys_party_desc_scroll_req += 28;
-                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party_input] summary_moves_repeat_down -> " + string(global.sys_party_desc_scroll_req));
                     }
                 }
                 if (controls_pressed(_pid,"MoveLeft")  && _n > 0){ _P.sel = clamp(_P.sel - 1, 0, _n - 1); _P.lock = 2; }
@@ -709,12 +707,10 @@ function __party_impl_party_update(){
                     if (controls_repeat(_pid, "MoveUp", 12, 4)){
                         if (!variable_global_exists("sys_party_desc_scroll_req")) global.sys_party_desc_scroll_req = 0;
                         global.sys_party_desc_scroll_req -= 28;
-                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party_input] summary_moves_repeat_up -> " + string(global.sys_party_desc_scroll_req));
                     }
                     if (controls_repeat(_pid, "MoveDown", 12, 4)){
                         if (!variable_global_exists("sys_party_desc_scroll_req")) global.sys_party_desc_scroll_req = 0;
                         global.sys_party_desc_scroll_req += 28;
-                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party_input] summary_moves_repeat_down -> " + string(global.sys_party_desc_scroll_req));
                     }
                     if (_nl > 0){
                         // When Inventory is held we treat Up/Down as description scrolling only.
