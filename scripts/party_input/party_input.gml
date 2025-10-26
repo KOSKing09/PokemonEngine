@@ -519,9 +519,31 @@ function __party_impl_party_update(){
                                         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
                                             var _healed_val = "0";
                                             if (is_struct(res) && variable_struct_exists(res, "healed")) _healed_val = string(variable_struct_get(res, "healed"));
-                                            show_debug_message("[party][debug] scr_apply_item_effects result: " + string((is_struct(res) && variable_struct_exists(res, "applied")) ? string(variable_struct_get(res, "applied")) : "false") + ", healed=" + _healed_val);
+                                            var _pp_val = "0";
+                                            if (is_struct(res) && variable_struct_exists(res, "pp_restored")) _pp_val = string(variable_struct_get(res, "pp_restored"));
+                                            show_debug_message("[party][debug] scr_apply_item_effects result: " + string((is_struct(res) && variable_struct_exists(res, "applied")) ? string(variable_struct_get(res, "applied")) : "false") + ", healed=" + _healed_val + ", pp=" + _pp_val);
                                         }
-                                        // No extra dialog about effect details — dialog was already opened earlier via out_prefix
+                                        // enqueue effect details if provided
+                                        if (is_struct(res) && variable_struct_exists(res, "messages") && is_array(variable_struct_get(res, "messages"))){
+                                            var _msgs = variable_struct_get(res, "messages");
+                                            var _detail = "";
+                                            for (var _mi = 0; _mi < array_length(_msgs); ++_mi){
+                                                var _msg = string_trim(string(_msgs[_mi]));
+                                                if (string_length(_msg) == 0) continue;
+                                                if (string_length(_detail) > 0) _detail += "\n";
+                                                _detail += _msg;
+                                            }
+                                            if (string_length(_detail) > 0){
+                                                var _enqueued = false;
+                                                try { dialog2p_enqueue(_pid, _detail); _enqueued = true; } catch (e_msgq) {}
+                                                if (!_enqueued){ try { dialog2p_show_now(_pid, _detail); } catch (e_msgn) {} }
+                                            }
+                                        }
+                                    } else if (is_struct(res)){
+                                        var _no_effect = "But it had no effect!";
+                                        var _queued = false;
+                                        try { dialog2p_enqueue(_pid, _no_effect); _queued = true; } catch (e_noq) {}
+                                        if (!_queued){ try { dialog2p_show_now(_pid, _no_effect); } catch (e_non) {} }
                                     }
                                 }
                                 // Reopen/close bag briefly so UI state remains consistent

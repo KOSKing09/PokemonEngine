@@ -1910,8 +1910,12 @@ function data_load_item_effects_structs(){
         if (!is_struct(entry)) continue;
         var s = entry.short_effect;
         if (!is_string(s) || string_length(s) == 0) continue;
+        var s_lower = string_lower(s);
         var effects = [];
         var matched = false;
+        var scope_hint_pp = "single";
+        if (string_pos("each move", s_lower) > 0 || string_pos("all moves", s_lower) > 0 || string_pos("every move", s_lower) > 0 || string_pos("all of its moves", s_lower) > 0 || string_pos("all four moves", s_lower) > 0)
+            scope_hint_pp = "all";
 
         // Apply each pattern in sequence
         // heal_flat
@@ -1932,16 +1936,16 @@ function data_load_item_effects_structs(){
         }
 
         // heal_full
-        if (string_pos("Restores HP to full", s) > 0){ effects[ array_length(effects) ] = { type:"heal_full", params:{} }; global._item_effects[iid] = effects; continue; }
+        if (string_pos("restores hp to full", s_lower) > 0){ effects[ array_length(effects) ] = { type:"heal_full", params:{} }; global._item_effects[iid] = effects; continue; }
 
         // revive patterns
-        if (string_pos("Revives with half HP", s) > 0){ effects[ array_length(effects) ] = { type:"revive", params:{ mode:"half" } }; global._item_effects[iid] = effects; continue; }
-        if (string_pos("Revives with full HP", s) > 0){ effects[ array_length(effects) ] = { type:"revive", params:{ mode:"full" } }; global._item_effects[iid] = effects; continue; }
-        if (string_pos("Revives all fainted", s) > 0 || string_pos("Revives all fainted Pokémon", s) > 0){ effects[ array_length(effects) ] = { type:"revive_all", params:{} }; global._item_effects[iid] = effects; continue; }
+        if (string_pos("revives with half hp", s_lower) > 0){ effects[ array_length(effects) ] = { type:"revive", params:{ mode:"half" } }; global._item_effects[iid] = effects; continue; }
+        if (string_pos("revives with full hp", s_lower) > 0){ effects[ array_length(effects) ] = { type:"revive", params:{ mode:"full" } }; global._item_effects[iid] = effects; continue; }
+        if (string_pos("revives all fainted", s_lower) > 0 || string_pos("revives all fainted pokémon", s_lower) > 0){ effects[ array_length(effects) ] = { type:"revive_all", params:{} }; global._item_effects[iid] = effects; continue; }
 
         // cure all / full-restore
-        if (string_pos("Cures any status ailment", s) > 0 && string_pos("Restores HP to full", s) > 0){ effects[ array_length(effects) ] = { type:"full_restore", params:{} }; global._item_effects[iid] = effects; continue; }
-        if (string_pos("Cures any status ailment", s) > 0){ effects[ array_length(effects) ] = { type:"cure_all", params:{} }; global._item_effects[iid] = effects; continue; }
+        if (string_pos("cures any status ailment", s_lower) > 0 && string_pos("restores hp to full", s_lower) > 0){ effects[ array_length(effects) ] = { type:"full_restore", params:{} }; global._item_effects[iid] = effects; continue; }
+        if (string_pos("cures any status ailment", s_lower) > 0){ effects[ array_length(effects) ] = { type:"cure_all", params:{} }; global._item_effects[iid] = effects; continue; }
 
         // simple single-status cure (e.g., "Cures poison.")
         var cure_prefix = "Cures ";
@@ -1951,22 +1955,60 @@ function data_load_item_effects_structs(){
             // take first word up to period
             var endp = string_pos(".", after);
             var status_word = (endp > 0) ? string_copy(after, 1, endp-1) : string_trim(after);
-            status_word = string_lower(string_trim(string_replace_all(status_word, " ", "-")));
+            status_word = string_lower(string_trim(status_word));
+            status_word = string_replace_all(status_word, ",", "");
+            status_word = string_replace_all(status_word, ".", "");
+            status_word = string_replace_all(status_word, "!", "");
+            status_word = string_replace_all(status_word, ";", "");
+            if (string_length(status_word) >= 2 && string_copy(status_word, 1, 2) == "a ") status_word = string_delete(status_word, 1, 2);
+            if (string_length(status_word) >= 3 && string_copy(status_word, 1, 3) == "an ") status_word = string_delete(status_word, 1, 3);
+            if (string_length(status_word) >= 4 && string_copy(status_word, 1, 4) == "any ") status_word = string_delete(status_word, 1, 4);
+            status_word = string_trim(status_word);
+            var _suffixes = [" ailment"," ailment status"," problem"," problems"," condition"," conditions"," status"," status ailment"," status problem"];
+            for (var _si = 0; _si < array_length(_suffixes); _si++){
+                var suf = _suffixes[_si];
+                var slen = string_length(suf);
+                if (slen > 0 && string_length(status_word) > slen){
+                    if (string_copy(status_word, string_length(status_word) - slen + 1, slen) == suf){
+                        status_word = string_copy(status_word, 1, string_length(status_word) - slen);
+                        status_word = string_trim(status_word);
+                    }
+                }
+            }
+            status_word = string_replace_all(status_word, "-", " ");
+            status_word = string_replace_all(status_word, "/", " ");
+            while (string_pos("  ", status_word) > 0) status_word = string_replace_all(status_word, "  ", " ");
+            status_word = string_trim(status_word);
+            status_word = string_replace_all(status_word, " ", "-");
             if (string_length(status_word) > 0){ effects[ array_length(effects) ] = { type:"cure_status", params:{ status:status_word } }; global._item_effects[iid] = effects; continue; }
         }
 
         // restore PP numeric or full
-        if (string_pos("Restores", s) > 0 && string_pos("PP", s) > 0){
+        if (string_pos("restores", s_lower) > 0 && string_pos("pp", s_lower) > 0){
             // numeric amount?
             var toks2 = string_split(s, " ");
+            var found_amount = false;
             for (var ti2 = 0; ti2 < array_length(toks2); ti2++){
                 var t2 = string_replace_all(toks2[ti2], ",", "");
                 var okd = true;
                 for (var c2 = 1; c2 <= string_length(t2); c2++){ var ch2 = string_copy(t2, c2, 1); if (ch2 < "0" || ch2 > "9") { okd = false; break; } }
-                if (okd && string_length(t2) > 0){ var n2 = __to_int_safe(t2, 0); if (n2 > 0){ effects[ array_length(effects) ] = { type:"restore_pp", params:{ amount:n2 } }; global._item_effects[iid] = effects; matched = true; break; } }
+                if (okd && string_length(t2) > 0){
+                    var n2 = __to_int_safe(t2, 0);
+                    if (n2 > 0){
+                        effects[ array_length(effects) ] = { type:"restore_pp", params:{ amount:n2, scope:scope_hint_pp } };
+                        global._item_effects[iid] = effects;
+                        matched = true;
+                        found_amount = true;
+                        break;
+                    }
+                }
             }
             if (matched) continue;
-            if (string_pos("Restores PP to full", s) > 0){ effects[ array_length(effects) ] = { type:"restore_pp", params:{ full:true } }; global._item_effects[iid] = effects; continue; }
+            if (!found_amount && string_pos("restores pp to full", s_lower) > 0){
+                effects[ array_length(effects) ] = { type:"restore_pp", params:{ full:true, scope:scope_hint_pp } };
+                global._item_effects[iid] = effects;
+                continue;
+            }
         }
 
         // fallback: store empty array so callers know we've parsed but found no structured effects

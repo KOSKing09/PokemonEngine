@@ -39,6 +39,78 @@ function bag__get_item_placeholder(){ if (!is_undefined(__bag_impl__get_item_pla
 // Return an empty items array for a bag (five pages)
 function bag__empty_items(){ if (!is_undefined(__bag_impl__empty_items)) return __bag_impl__empty_items(); return [[],[],[],[],[]]; }
 
+// Strip simple wiki-style markup like [HP]{mechanic:hp} -> HP
+function bag__strip_markup(_txt){
+    if (!is_string(_txt)) _txt = string(_txt);
+    var out = "";
+    var len = string_length(_txt);
+    var i = 1;
+    while (i <= len){
+        var ch = string_copy(_txt, i, 1);
+        if (ch == "["){
+            var label = "";
+            var j = i + 1;
+            while (j <= len){
+                var cj = string_copy(_txt, j, 1);
+                if (cj == "]") break;
+                label += cj;
+                j++;
+            }
+            if (j <= len && string_copy(_txt, j, 1) == "]"){
+                out += label;
+                j++;
+                if (j <= len && string_copy(_txt, j, 1) == "{"){
+                    j++;
+                    while (j <= len && string_copy(_txt, j, 1) != "}"){ j++; }
+                    if (j <= len && string_copy(_txt, j, 1) == "}") j++;
+                }
+                i = j;
+                continue;
+            }
+        }
+        out += ch;
+        i++;
+    }
+    return out;
+}
+
+// Normalize whitespace and remove control characters from prose before drawing
+function bag__clean_item_text(_txt){
+    if (is_undefined(_txt)) return "";
+    var t = (is_string(_txt) ? _txt : string(_txt));
+    t = string_replace_all(t, "\r\n", "\n");
+    t = string_replace_all(t, "\r", "\n");
+    t = string_replace_all(t, chr(12), " ");
+    t = string_replace_all(t, chr(9), " ");
+    t = string_replace_all(t, "\n", " ");
+    t = bag__strip_markup(t);
+    while (string_pos("  ", t) > 0) t = string_replace_all(t, "  ", " ");
+    return string_trim(t);
+}
+
+// Resolve a readable item description using available data tables
+function bag__resolve_item_desc(_iid){
+    if (!is_real(_iid) || _iid < 0) return "—";
+    var txt = "";
+    if (variable_global_exists("_item_prose") && is_array(global._item_prose) && _iid < array_length(global._item_prose)){
+        var prose = global._item_prose[_iid];
+        if (is_struct(prose)){
+            if (variable_struct_exists(prose, "short_effect") && string_length(string_trim(prose.short_effect)) > 0) txt = prose.short_effect;
+            else if (variable_struct_exists(prose, "effect") && string_length(string_trim(prose.effect)) > 0) txt = prose.effect;
+        }
+    }
+    if (string_length(string_trim(txt)) == 0 && variable_global_exists("_item_text") && is_array(global._item_text) && _iid < array_length(global._item_text)){
+        var itxt = global._item_text[_iid];
+        if (is_struct(itxt)){
+            if (variable_struct_exists(itxt, "short_desc") && string_length(string_trim(itxt.short_desc)) > 0) txt = itxt.short_desc;
+            else if (variable_struct_exists(itxt, "flavor_text") && string_length(string_trim(itxt.flavor_text)) > 0) txt = itxt.flavor_text;
+        }
+    }
+    txt = bag__clean_item_text(txt);
+    if (string_length(txt) == 0) return "—";
+    return txt;
+}
+
 // Map an item to one of the five bag pages: 0=ITEMS,1=POKEBALLS,2=TMHM,3=BERRIES,4=KEY ITEMS
 function bag__item_to_page(_iid, _it){
     // defaults
@@ -196,6 +268,27 @@ function bag__resolve_item_flags(_iid, _it){
     return out;
 }
 
+function bag__item_effect_types(_iid){
+    var types = [];
+    if (!is_real(_iid) || _iid < 0) return types;
+    if (!variable_global_exists("_item_effects") || !is_array(global._item_effects)) return types;
+    if (_iid >= array_length(global._item_effects)) return types;
+    var effs = global._item_effects[_iid];
+    if (!is_array(effs)) return types;
+    for (var i = 0; i < array_length(effs); ++i){
+        var eff = effs[i];
+        var t = undefined;
+        if (is_struct(eff) && variable_struct_exists(eff, "type")) t = eff.type;
+        else if (is_array(eff) && array_length(eff) > 0) t = eff[0];
+        if (!is_string(t)) continue;
+        var tl = string_lower(string(t));
+        var exists = false;
+        for (var j = 0; j < array_length(types); ++j){ if (types[j] == tl){ exists = true; break; } }
+        if (!exists) array_push(types, tl);
+    }
+    return types;
+}
+
 function bag_is_open(_pid) { return (variable_global_exists("BAGS") && is_array(global.BAGS) && array_length(global.BAGS) > _pid && global.BAGS[_pid].open); }
 function bag_open(_pid) { if (is_array(global.BAGS) && array_length(global.BAGS) > _pid) global.BAGS[_pid].open = true; }
 function bag_close(_pid){ if (is_array(global.BAGS) && array_length(global.BAGS) > _pid) global.BAGS[_pid].open = false; }
@@ -266,6 +359,19 @@ function bag__use_item_on_self(_pid, _row){
         else if (variable_struct_exists(it, "name")) ident = string_lower(string(variable_struct_get(it, "name")));
     }
 
+    var effect_types = bag__item_effect_types(iid);
+    var recognized_party_consumable = false;
+    if (is_array(effect_types)){
+        for (var et_i = 0; et_i < array_length(effect_types); ++et_i){
+            var etype = effect_types[et_i];
+            if (!is_string(etype)) continue;
+            if (etype == "heal_flat" || etype == "heal_full" || etype == "full_restore" || etype == "revive" || etype == "revive_half" || etype == "revive_full" || etype == "revive_all" || etype == "cure_status" || etype == "cure_all" || etype == "restore_pp"){
+                recognized_party_consumable = true;
+                break;
+            }
+        }
+    }
+
     var page = bag__item_to_page(iid, it);
     var consumed = false;
     var out_txt = prefix;
@@ -279,7 +385,7 @@ function bag__use_item_on_self(_pid, _row){
 
     // If flag map exists for this item and it explicitly lacks usable-in-battle, block use
     // Exception: if item is marked consumable (e.g., potions) allow it to proceed so party selection can occur.
-    if (is_array(flag_arr) && array_length(flag_arr) > 0 && !usable_in_battle && !is_consumable_flagged){
+    if (is_array(flag_arr) && array_length(flag_arr) > 0 && !usable_in_battle && !is_consumable_flagged && !recognized_party_consumable){
         show_debug_message("[bag][debug] abort: item has flags but not usable_in_battle and not consumable (iid=" + string(iid) + ")");
     out_txt += "\nYou can't use that here.";
     try { dialog2p_show(_pid, out_txt); } catch (e_) {}
@@ -288,7 +394,14 @@ function bag__use_item_on_self(_pid, _row){
 
     // Debug: dump resolved flags and decision values when using an item
     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
-        show_debug_message("[bag][debug] use_item_on_self iid=" + string(iid) + ", flag_arr=" + string(flag_arr) + ", usable_in_battle=" + string(usable_in_battle) + ", is_consumable_flagged=" + string(is_consumable_flagged) + ", ident=" + string(ident));
+        var eff_dbg = "";
+        if (is_array(effect_types)){
+            for (var ed = 0; ed < array_length(effect_types); ++ed){
+                if (ed > 0) eff_dbg += ",";
+                eff_dbg += string(effect_types[ed]);
+            }
+        }
+        show_debug_message("[bag][debug] use_item_on_self iid=" + string(iid) + ", flag_arr=" + string(flag_arr) + ", usable_in_battle=" + string(usable_in_battle) + ", is_consumable_flagged=" + string(is_consumable_flagged) + ", ident=" + string(ident) + ", recognized_party=" + string(recognized_party_consumable) + ", effects=[" + eff_dbg + "]");
     }
 
     // Pokéball behavior — only allowed on wild opponents (battle-only)
@@ -387,10 +500,19 @@ function bag__use_item_on_self(_pid, _row){
         return consumed;
     }
 
-    // Basic healing items: prefer CSV flags to indicate usability; fall back
-    // to name-based heuristic for potions when flag info is absent.
-    // Allow consumable-flagged items to open the party selector as well
-    if ((usable_in_battle || is_consumable_flagged || (!is_array(flag_arr) || array_length(flag_arr) == 0)) && (string_pos("potion", ident) > 0 || string_pos("potion", string_lower(disp)) > 0)){
+    var ident_lower = string_lower(string(ident));
+    var disp_lower = string_lower(string(disp));
+    var should_open_party = recognized_party_consumable;
+    if (!should_open_party){
+        var heur = ident_lower;
+        if (string_length(heur) == 0) heur = disp_lower;
+        if (string_pos("potion", heur) > 0 || string_pos("revive", heur) > 0 || string_pos("heal", heur) > 0 || string_pos("status", heur) > 0 || string_pos("berry", heur) > 0 || string_pos("ether", heur) > 0 || string_pos("elixir", heur) > 0 || string_pos("powder", heur) > 0 || string_pos("herb", heur) > 0){
+            should_open_party = true;
+        }
+    }
+
+    // Basic healing/status/PP items: defer to party selector when recognized
+    if ((usable_in_battle || is_consumable_flagged || (!is_array(flag_arr) || array_length(flag_arr) == 0) || recognized_party_consumable) && should_open_party){
     // Instead of applying immediately to the active battler, open the party
     // selector so the player can choose which Pokémon to use the consumable on.
     var _b = bag_inventory_ensure(_pid);
@@ -513,11 +635,7 @@ function bags_seed_from_items(_pid){
         var page = bag__item_to_page(iid, it);
         page = clamp(page, 0, 4);
 
-        var desc = "—";
-        if (variable_global_exists("_item_text") && is_array(global._item_text) && iid < array_length(global._item_text) && is_struct(global._item_text[iid])){
-            var _d2 = global._item_text[iid].flavor_text;
-            if (is_string(_d2) && string_length(string_trim(_d2)) > 0) desc = _d2;
-        }
+        var desc = bag__resolve_item_desc(iid);
         var icon = bag__get_item_placeholder();
         // prefer identifier for lookups (preserve raw CSV identifier which may contain hyphens)
         var lookup_name = undefined;
@@ -559,7 +677,7 @@ function bags_seed_from_items(_pid){
                 var st = pkicons_get_item_icon_by_name(string(lookup_name2)); if (!is_undefined(st) && sprite_exists(st)) ic = st;
             }
             var realnm2 = (is_struct(itm) && variable_struct_exists(itm, "identifier") && string_length(string_trim(itm.identifier)) > 0) ? string(itm.identifier) : ((is_struct(itm) && variable_struct_exists(itm, "name")) ? string(itm.name) : "");
-            array_push(_b.items[0], { name:bag__clean_display_name(nm), real_name: realnm2, qty:qtp, desc:"—", icon:ic, item_id:iidp });
+            array_push(_b.items[0], { name:bag__clean_display_name(nm), real_name: realnm2, qty:qtp, desc:bag__resolve_item_desc(iidp), icon:ic, item_id:iidp });
         }
     }
 

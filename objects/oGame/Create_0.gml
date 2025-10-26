@@ -133,8 +133,12 @@ global.DEV_FORCE_FLINCH_CHANCE = -1;
 bags_init(1);
 bag_inventory_add_item(0, 4, 10);
 bag_inventory_add_item(0, 1, 10);
-bag_inventory_add_item(0, 17, 5);
-bag_inventory_add_item(0, 18, 5);
+bag_inventory_add_item(0, 17, 25);
+bag_inventory_add_item(0, 26, 25);
+bag_inventory_add_item(0, 25, 25);
+bag_inventory_add_item(0, 24, 25);
+bag_inventory_add_item(0, 23, 25);
+bag_inventory_add_item(0, 18, 25);
 bag_inventory_add_item(0, 182, 10);
 bags_seed_from_items(0); // refresh once
 
