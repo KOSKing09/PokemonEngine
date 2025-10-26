@@ -171,7 +171,10 @@ function battle_open_trainer(_pid, _trainer_data){
         _slide_out_progress: 0,
         _dialog1_shown: false,
         _dialog2_shown: false,
-        skip_intro_slide: true
+        skip_intro_slide: false,
+        entry_duration: 360,
+        _entry_start_ms: undefined,
+        _entry_progress: 0
     };
     try { variable_struct_set(_B, "_trainer_intro", intro_state); } catch (e_intro) {}
 
@@ -224,6 +227,17 @@ function __battle_trainer_intro_update(_pid, _B){
     var now = current_time;
     var state = "dialog1";
     if (variable_struct_exists(intro, "state")) state = string(intro.state);
+
+    var entry_dur = 360;
+    if (variable_struct_exists(intro, "entry_duration") && is_real(intro.entry_duration)) entry_dur = max(120, real(intro.entry_duration));
+    var entry_start = undefined;
+    if (variable_struct_exists(intro, "_entry_start_ms") && is_real(intro._entry_start_ms)) entry_start = intro._entry_start_ms;
+    if (!is_real(entry_start)){
+        entry_start = now;
+        variable_struct_set(intro, "_entry_start_ms", entry_start);
+    }
+    var entry_prog = clamp((now - entry_start) / entry_dur, 0, 1);
+    variable_struct_set(intro, "_entry_progress", entry_prog);
 
     if (state == "cleanup"){
         battle_intro_set_handlers(_pid, undefined, undefined);
@@ -398,8 +412,10 @@ function __battle_trainer_intro_draw(_pid, _B){
     var enemy_anchor_y = enemy_center_y + enemy_shadow_offset;
 
     var slide_start = __bxu(_pid, 280);
-    var slide_prog = 0;
-    if (variable_struct_exists(intro, "_slide_progress")) slide_prog = clamp(real(variable_struct_get(intro, "_slide_progress")), 0, 1);
+    var entry_prog_local = 0;
+    if (variable_struct_exists(intro, "_entry_progress")) entry_prog_local = clamp(real(variable_struct_get(intro, "_entry_progress")), 0, 1);
+    var slide_prog = entry_prog_local;
+    if (variable_struct_exists(intro, "_slide_progress")) slide_prog = max(slide_prog, clamp(real(variable_struct_get(intro, "_slide_progress")), 0, 1));
     var ease_in = 1 - (1 - slide_prog) * (1 - slide_prog);
     var trainer_entry_cx = lerp(slide_start, trainer_target_x, ease_in);
 

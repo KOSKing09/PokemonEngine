@@ -1,5 +1,53 @@
 // Battle draw helpers (extracted from battle_system.gml)
 
+function __battle_draw_platform(_pid, _B, _side, _anchor_x, _anchor_bottom, _ui_scale){
+    if (!is_struct(_B) || !variable_struct_exists(_B, "theme")) return;
+    var theme = _B.theme;
+    var spr = undefined;
+    var idx_val = 0;
+    var scale_val = 1;
+    var offset_val = undefined;
+    if (_side == "enemy"){
+        if (variable_struct_exists(theme, "platform_enemy_sprite")) spr = theme.platform_enemy_sprite;
+        if (variable_struct_exists(theme, "platform_enemy_index")) idx_val = theme.platform_enemy_index;
+        if (variable_struct_exists(theme, "platform_enemy_scale")) scale_val = theme.platform_enemy_scale;
+        if (variable_struct_exists(theme, "platform_enemy_offset")) offset_val = theme.platform_enemy_offset;
+    } else {
+        if (variable_struct_exists(theme, "platform_player_sprite")) spr = theme.platform_player_sprite;
+        if (variable_struct_exists(theme, "platform_player_index")) idx_val = theme.platform_player_index;
+        if (variable_struct_exists(theme, "platform_player_scale")) scale_val = theme.platform_player_scale;
+        if (variable_struct_exists(theme, "platform_player_offset")) offset_val = theme.platform_player_offset;
+    }
+    if (is_undefined(spr) || !sprite_exists(spr)) return;
+
+    var frame_count = sprite_get_number(spr);
+    var subimg = clamp(floor(idx_val), 0, max(0, frame_count - 1));
+    var scale = _ui_scale * (is_real(scale_val) ? max(0.05, real(scale_val)) : 1);
+    var off_x = 0;
+    var off_y = 0;
+    if (is_struct(offset_val)){
+        if (variable_struct_exists(offset_val, "x") && is_real(variable_struct_get(offset_val, "x"))) off_x = real(variable_struct_get(offset_val, "x"));
+        if (variable_struct_exists(offset_val, "y") && is_real(variable_struct_get(offset_val, "y"))) off_y = real(variable_struct_get(offset_val, "y"));
+    } else if (is_array(offset_val) && array_length(offset_val) >= 2){
+        var ox = offset_val[0];
+        var oy = offset_val[1];
+        if (is_real(ox)) off_x = real(ox);
+        if (is_real(oy)) off_y = real(oy);
+    }
+
+    var anchor_x = _anchor_x + off_x * _ui_scale;
+    var anchor_bottom = _anchor_bottom + off_y * _ui_scale;
+
+    var spr_w = sprite_get_width(spr);
+    var spr_h = sprite_get_height(spr);
+    var spr_ox = sprite_get_xoffset(spr);
+    var spr_oy = sprite_get_yoffset(spr);
+    var draw_x = anchor_x + (spr_ox - spr_w * 0.5) * scale;
+    var draw_y = anchor_bottom + (spr_oy - spr_h) * scale;
+
+    draw_sprite_ext(spr, subimg, draw_x, draw_y, scale, scale, 0, c_white, 1);
+}
+
 function __battle_draw_enemy(_pid, _B, fx, fy){
     var scale_foe = 1.0;
     var E = _B.actor[1];
@@ -51,6 +99,8 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
     } catch (e_ui) { ui_s = 1; }
     var drawScaleE = scale_foe * ui_s * __trainer_scale;
     var base_fy = fy;
+    var platform_bottom = base_fy + (h * scale_foe * ui_s) * 0.5;
+    __battle_draw_platform(_pid, _B, "enemy", fx, platform_bottom, ui_s);
     var catchA = (variable_struct_exists(_B, "_catch_anim") ? _B._catch_anim : undefined);
     var fainting = false;
     var faint_prog = 0;
@@ -416,6 +466,8 @@ function __battle_draw_player(_pid, _B, mx, my, tx, ty){
         }
     } catch (e_ui2) { ui_s = 1; }
     var drawScaleP = scale_us * ui_s;
+    var platform_bottom_player = my + (h * drawScaleP) * 0.5;
+    __battle_draw_platform(_pid, _B, "player", mx, platform_bottom_player, ui_s);
     var cry_started_p = (variable_struct_exists(_B, "_cry_play_start_ms_player") && is_real(_B._cry_play_start_ms_player)) ? real(_B._cry_play_start_ms_player) : -1;
     if (cry_started_p > 0){
         var tnow_p = current_time;
