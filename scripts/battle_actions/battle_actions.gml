@@ -68,6 +68,39 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
     }
     _pid = _pid_local;
 
+    var _move_rec = undefined;
+    var _eid = undefined;
+    try {
+        if (variable_global_exists("_moves") && is_array(global._moves) && is_real(_move_id) && _move_id >= 0 && _move_id < array_length(global._moves)){
+            _move_rec = global._moves[_move_id];
+            if (is_struct(_move_rec) && variable_struct_exists(_move_rec, "effect_id") && is_real(variable_struct_get(_move_rec, "effect_id"))){
+                _eid = variable_struct_get(_move_rec, "effect_id");
+            }
+        }
+    } catch (e_eid) { _eid = _eid; }
+    if (!is_real(_eid)){
+        try {
+            if (!is_undefined(__battle_get_move_meta) && is_real(_move_id)){
+                var _mm_e = __battle_get_move_meta(_move_id);
+                if (is_struct(_mm_e) && variable_struct_exists(_mm_e, "effect_id") && is_real(variable_struct_get(_mm_e, "effect_id"))) _eid = variable_struct_get(_mm_e, "effect_id");
+            }
+        } catch (e_eid2) { _eid = _eid; }
+    }
+
+    var _is_dynamax_cannon = (is_real(_eid) && floor(_eid) == 421);
+    var _is_snipe_shot = (is_real(_eid) && floor(_eid) == 422);
+    var _snipe_bypassed_guard = false;
+    if (_is_snipe_shot && is_struct(_D)){
+        var guard_fields = ["_protected", "_quick_guard", "_wide_guard", "_mat_block"];
+        for (var _gf = 0; _gf < array_length(guard_fields); ++_gf){
+            var gkey = guard_fields[_gf];
+            if (variable_struct_exists(_D, gkey) && variable_struct_get(_D, gkey) == true){
+                try { variable_struct_set(_D, gkey, false); } catch (e_gf) {}
+                _snipe_bypassed_guard = true;
+            }
+        }
+    }
+
     // Semi-invulnerable guard: prevent damage unless the attacking move is one of the
     // explicit counters (e.g., Gust vs Fly, Earthquake vs Dig). When the counter move
     // connects, it should deal amplified damage just like the mainline games.
@@ -247,6 +280,18 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
 
     // Special-case move semantics that alter computed damage before application
     try {
+        // Apply move-specific multipliers prior to special fixed-damage overrides
+        if (_is_dynamax_cannon){
+            var _target_is_dmax = false;
+            try {
+                if (!is_undefined(__battle_actor_is_dynamax)) _target_is_dmax = __battle_actor_is_dynamax(_D);
+            } catch (e_dmx) { _target_is_dmax = false; }
+            if (_target_is_dmax && is_real(dmg) && dmg > 0){
+                dmg = max(0, round(dmg * 2));
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][move_special] Dynamax Cannon 2x damage applied");
+            }
+        }
+
         // Sonic Boom: fixed 20 HP damage (classic behavior). Ensure this
         // move deals a flat 20 HP and does not use the normal damage formula.
         if (is_real(_move_id) && _move_id == 49){
@@ -408,6 +453,15 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
     // Apply damage (this will update hp_now). Pass effectiveness multiplier so SFX choice can match.
     __battle_apply_damage(_pid, _target_index, dmg, mult);
     var after = __battle_hp_now(_D);
+
+    if (_snipe_bypassed_guard && is_struct(_D)){
+        try {
+            var _msg_target = "The target";
+            if (!is_undefined(__status_mon_display_name)) _msg_target = __status_mon_display_name(_D);
+            else if (variable_struct_exists(_D, "name")) _msg_target = string(variable_struct_get(_D, "name"));
+            if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_D, string(_msg_target) + " couldn't block the shot!");
+        } catch (e_msg_guard) {}
+    }
 
     // Play an impact sound. The type-effectiveness multiplier `mult` is best-effort
     // but has been unreliable; prefer an observed damage-based heuristic when

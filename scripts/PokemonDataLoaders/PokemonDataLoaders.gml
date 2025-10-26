@@ -759,6 +759,13 @@ function data_map_move_effects_to_meta(){
         if (!changed){
             switch (eff){
                 case 4: changed |= _set_if_missing(mm, "drain", 50); break;
+                case 5:
+                    var burn_chance = -1;
+                    if (variable_struct_exists(m, "effect_chance") && is_real(variable_struct_get(m, "effect_chance"))) burn_chance = clamp(floor(variable_struct_get(m, "effect_chance")), 0, 100);
+                    if (burn_chance <= 0) burn_chance = 100;
+                    changed |= _set_if_missing(mm, "status", "burn");
+                    changed |= _set_if_missing(mm, "chance", burn_chance);
+                    break;
                 case 349: changed |= _set_if_missing(mm, "drain", 75); break;
                 case 30: case 361: case 1044: changed |= _set_if_missing(mm, "min_hits", 2); changed |= _set_if_missing(mm, "max_hits", 5); break;
                 case 45: case 73: case 425: case 78: changed |= _set_if_missing(mm, "min_hits", 2); changed |= _set_if_missing(mm, "max_hits", 2); break;

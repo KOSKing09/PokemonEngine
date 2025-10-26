@@ -18,6 +18,22 @@ function __battle_perform_action_impl(_pid, _step){
         }
     } catch (e_a) { A = undefined; D = undefined; }
 
+    if (is_struct(_step) && variable_struct_exists(_step, "switch_to")){
+        var _switch_idx = variable_struct_get(_step, "switch_to");
+        var _switch_msg = "But it failed!";
+        try {
+            if (!is_undefined(__battle_trainer_perform_switch_action)){
+                _switch_msg = __battle_trainer_perform_switch_action(_pid, _switch_idx, _step);
+            } else if (!is_undefined(battle_switch_to)){
+                var _ok_switch = battle_switch_to(_pid, _switch_idx, { forced: true });
+                _switch_msg = (_ok_switch ? "The opponent sent out a Pokémon!" : "But it failed!");
+            }
+        } catch (e_switch) {
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][debug] switch action failed: " + string(e_switch));
+        }
+        return _switch_msg;
+    }
+
     // Local helper to centralize the 'used' vs 'ohko miss' return message.
     // Also stamps the actor with last_move_dialog id/ts so other paths can de-dup their own messages.
     // Accept explicit parameters to avoid closure/scope issues with the static analyser.

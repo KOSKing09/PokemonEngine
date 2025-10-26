@@ -13,22 +13,27 @@ if (battle_is_open(0)){
 
 if (keyboard_check_pressed(vk_f1)){
 	if (!battle_is_open(0)){
-        /* 
+        
         var trainer_party = [];
         if (!is_undefined(pokemon_factory_create)){
-            var trainer_mon = pokemon_factory_create(25, irandom_range(7, 9), {});
-            if (is_struct(trainer_mon)) trainer_party[array_length(trainer_party)] = trainer_mon;
+            trainer_party = [
+                pokemon_factory_create(133, 5, {}),
+                pokemon_factory_create(10, 5, {}),
+                pokemon_factory_create(252, 5, {})
+            ];
         }
         var trainer_payload = {
             trainer_name: "Bug Catcher Rick",
             sprite: spr_PokemonEmeraldTrainers,
             sprite_index: 12,
-            party: trainer_party
+            party: trainer_party,
+            area_type: "forest"
+            
         };
         battle_open_trainer(0, trainer_payload);
-        */
-        battle_open(0, irandom_range(5,10), choose("dark water", "rocks a", "light", "grassy", "rocks b", 
-        "dirt", "river", "snowy", "grassy snow", "ice", "forest", "ugly grass", "wood bridge", "man made paths"));
+        
+        //battle_open(0, irandom_range(5,10), choose("dark water", "rocks a", "light", "grassy", "rocks b", 
+        //"dirt", "river", "snowy", "grassy snow", "ice", "forest", "ugly grass", "wood bridge", "man made paths"));
 	}else{
 		battle_close(0);
 	}
