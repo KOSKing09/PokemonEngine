@@ -190,7 +190,18 @@ function status_system_apply_status(mon, status_id, opts){
         var pid_block = __status_find_battle_pid(mon);
         if (!is_undefined(pid_block)){
             var _Bterr = __battle_ensure_slot(pid_block);
-            var terr = (is_struct(_Bterr) && variable_struct_exists(_Bterr, "_terrain")) ? string_lower(string(variable_struct_get(_Bterr, "_terrain"))) : "";
+            var terr = "";
+            if (is_struct(_Bterr)){
+                if (variable_struct_exists(_Bterr, "_field")){
+                    var _fld = variable_struct_get(_Bterr, "_field");
+                    if (is_struct(_fld) && variable_struct_exists(_fld, "terrain")){
+                        var _terr_struct2 = variable_struct_get(_fld, "terrain");
+                        if (is_struct(_terr_struct2) && variable_struct_exists(_terr_struct2, "id")) terr = string_lower(string(variable_struct_get(_terr_struct2, "id")));
+                    }
+                } else if (variable_struct_exists(_Bterr, "_terrain")){
+                    terr = string_lower(string(variable_struct_get(_Bterr, "_terrain")));
+                }
+            }
             if (string_length(terr) > 0){
                 // Simple grounded check: not Flying-type and not Levitate ability
                 var tgt = mon;

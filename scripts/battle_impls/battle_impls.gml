@@ -447,6 +447,92 @@ function __battle_calc_damage_impl(_A, _D, _move_id, _power){
     var critMul = crit ? 1.5 : 1.0;
     dmg = floor(dmg * critMul);
 
+    // Weather-based damage adjustments
+    try {
+        var _pid_weather = 0;
+        var _found_pid = false;
+        if (variable_global_exists("sys_battles") && is_array(global.sys_battles)){
+            for (var __pi = 0; __pi < array_length(global.sys_battles); ++__pi){
+                var _slotw = global.sys_battles[__pi];
+                if (!is_struct(_slotw)) continue;
+                if (!variable_struct_exists(_slotw, "actor") || !is_array(variable_struct_get(_slotw, "actor"))) continue;
+                var __acts_w = variable_struct_get(_slotw, "actor");
+                for (var __pj = 0; __pj < array_length(__acts_w); ++__pj){
+                    if (is_struct(__acts_w[__pj]) && __acts_w[__pj] == _A){ _pid_weather = __pi; _found_pid = true; break; }
+                }
+                if (_found_pid) break;
+            }
+        }
+        var _wrec = undefined;
+        if (_found_pid && variable_global_exists("sys_battles") && is_array(global.sys_battles) && _pid_weather >= 0 && _pid_weather < array_length(global.sys_battles)){
+            var _slot_weather = global.sys_battles[_pid_weather];
+            if (is_struct(_slot_weather)){
+                if (variable_struct_exists(_slot_weather, "_field") && is_struct(variable_struct_get(_slot_weather, "_field"))){
+                    var _field_weather = variable_struct_get(_slot_weather, "_field");
+                    if (variable_struct_exists(_field_weather, "weather")) _wrec = variable_struct_get(_field_weather, "weather");
+                } else if (variable_struct_exists(_slot_weather, "_weather")){
+                    _wrec = variable_struct_get(_slot_weather, "_weather");
+                }
+            }
+        }
+        var _normalize_weather_id = function(_wid_raw){
+            var raw = string_lower(string(_wid_raw));
+            switch (raw){
+                case "sun": case "sunny": case "sunny-day": case "sunlight": return "sun";
+                case "harsh-sun": case "harsh sunlight": case "harsh-sunlight": return "harsh-sun";
+                case "rain": case "rain-dance": return "rain";
+                case "sandstorm": case "sand storm": return "sandstorm";
+                case "hail": case "hailstorm": return "hail";
+                case "snow": case "snowscape": return "snow";
+                case "fog": return "fog";
+                default: return raw;
+            }
+        };
+        var _type_id_lookup = function(_name){
+            var key = string_lower(string(_name));
+            if (variable_global_exists("TYPE_ID_BY_NAME")){
+                var _map = variable_global_get("TYPE_ID_BY_NAME");
+                if (ds_exists(_map, ds_type_map)){
+                    var val = ds_map_find_value(_map, key);
+                    if (is_real(val)) return floor(val);
+                }
+            }
+            switch (key){
+                case "fire": return 10;
+                case "water": return 11;
+            }
+            return -1;
+        };
+        var _weather_active = function(_state){
+            if (!is_struct(_state)) return false;
+            if (variable_struct_exists(_state, "active")){
+                if (variable_struct_get(_state, "active") != true) return false;
+            }
+            var wid_chk = _normalize_weather_id(variable_struct_exists(_state, "id") ? variable_struct_get(_state, "id") : "");
+            if (string_length(wid_chk) <= 0) return false;
+            if (variable_struct_exists(_state, "turns_remaining") && is_real(variable_struct_get(_state, "turns_remaining"))){
+                var _rem_chk = variable_struct_get(_state, "turns_remaining");
+                var _inf_chk = (variable_struct_exists(_state, "infinite") && variable_struct_get(_state, "infinite") == true);
+                if (_rem_chk == 0 && !_inf_chk) return false;
+            }
+            return true;
+        };
+        if (_weather_active(_wrec)){
+            var _wid_norm = _normalize_weather_id(variable_struct_exists(_wrec, "id") ? variable_struct_get(_wrec, "id") : "");
+            var _mv_type = -1;
+            if (!is_undefined(scr_move_type_id_by_id) && is_real(_move_id)) _mv_type = scr_move_type_id_by_id(_move_id);
+            var _fire_id = _type_id_lookup("fire");
+            var _water_id = _type_id_lookup("water");
+            if (_wid_norm == "sun" || _wid_norm == "harsh-sun"){
+                if (_mv_type == _fire_id) dmg = floor(dmg * 1.5);
+                else if (_mv_type == _water_id) dmg = floor(max(0, dmg * 0.5));
+            } else if (_wid_norm == "rain"){
+                if (_mv_type == _fire_id) dmg = floor(max(0, dmg * 0.5));
+                else if (_mv_type == _water_id) dmg = floor(dmg * 1.5);
+            }
+        }
+    } catch (e_weather_dmg) {}
+
     // mark crit for message
     var _B = __battle_ensure_slot(0); // any slot; we only read flag in same pid flow
     try { if (is_struct(_B)) variable_struct_set(_B, "_last_crit", crit); } catch (e) {}

@@ -336,8 +336,19 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
         }
         // Terrain effects: adjust damage or cancel based on battlefield terrain
         try {
+            var terr = "";
             var _Bterr = __battle_ensure_slot(_pid);
-            var terr = (is_struct(_Bterr) && variable_struct_exists(_Bterr, "_terrain")) ? string_lower(string(variable_struct_get(_Bterr, "_terrain"))) : "";
+            if (is_struct(_Bterr)){
+                if (variable_struct_exists(_Bterr, "_field")){
+                    var _fld = variable_struct_get(_Bterr, "_field");
+                    if (is_struct(_fld) && variable_struct_exists(_fld, "terrain")){
+                        var _terr_struct = variable_struct_get(_fld, "terrain");
+                        if (is_struct(_terr_struct) && variable_struct_exists(_terr_struct, "id")) terr = string_lower(string(variable_struct_get(_terr_struct, "id")));
+                    }
+                } else if (variable_struct_exists(_Bterr, "_terrain")){
+                    terr = string_lower(string(variable_struct_get(_Bterr, "_terrain")));
+                }
+            }
             if (string_length(terr) > 0){
                 // Helper: grounded checks (reuse __actor_is_grounded if present)
                 var A_grounded = true; var D_grounded = true;

@@ -66,9 +66,16 @@ function battle_open_trainer(_pid, _trainer_data){
         }
     }
 
+    var party_default_level = 5;
+    if (is_struct(_trainer_data)){
+        if (variable_struct_exists(_trainer_data, "enemy_level") && is_real(variable_struct_get(_trainer_data, "enemy_level"))) party_default_level = max(1, floor(variable_struct_get(_trainer_data, "enemy_level")));
+        else if (variable_struct_exists(_trainer_data, "level") && is_real(variable_struct_get(_trainer_data, "level"))) party_default_level = max(1, floor(variable_struct_get(_trainer_data, "level")));
+    }
+
     if (is_array(enemy_party_source)){
         for (var ei = 0; ei < array_length(enemy_party_source); ++ei){
-            enemy_party[array_length(enemy_party)] = enemy_party_source[ei];
+            var __raw_party_entry = enemy_party_source[ei];
+            enemy_party[array_length(enemy_party)] = __battle_normalize_trainer_entry(__raw_party_entry, _trainer_data, party_default_level);
         }
     }
 
