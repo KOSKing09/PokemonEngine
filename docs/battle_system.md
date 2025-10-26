@@ -45,6 +45,9 @@ This document summarizes the battle system architecture, public APIs, phases, st
 - `__battle_hp_now(ent)` — canonical HP lookup.
 - `__battle_apply_entry_hazards(pid, index)` — hazards on entry.
 - `__battle_check_play_cries(pid)` — cry playback triggers.
+- `__battle_trainer_schedule_next_mon(pid, idx)` — enqueue the next trainer Pokémon to send out after a faint.
+- `__battle_trainer_apply_pending_send(pid)` — apply a queued trainer send-out once dialogs clear and hazards resolve.
+- `__battle_trainer_handle_defeat(pid)` — queue defeat dialog pages and trigger the trainer payout via the currency system.
 
 ## Extension points
 - Intro animations: `battle_intro_set_handlers(pid, updateFn(pid,B), drawFn(pid,B))`.

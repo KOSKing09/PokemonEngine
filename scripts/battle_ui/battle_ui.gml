@@ -9,19 +9,43 @@ function __battle_panel_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn){
 }
 
 function __battle_enemy_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_A){
+    if (!is_struct(_A)) return;
+
     var _t  = __battle_ensure_slot(_pid).theme;
     __battle_panel_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn);
     var _bx = __bxu(_pid,_rxIn), _by = __byu(_pid,_ryIn), _bw = __bwu(_pid,_rwIn);
     draw_set_color(_t.col_text);
 
     var nameMax = _bw - __bwu(_pid, 48);
-    var nameTxt = __battle_text_fit_ellipsis(_pid, string(_A.name), nameMax);
+    var _name_raw = "???";
+    if (variable_struct_exists(_A, "name")) _name_raw = string(variable_struct_get(_A, "name"));
+    else if (variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon")) && variable_struct_exists(variable_struct_get(_A, "mon"), "name")){
+        _name_raw = string(variable_struct_get(variable_struct_get(_A, "mon"), "name"));
+    }
+    if (_name_raw == "???"){
+        var _species_probe = undefined;
+        if (variable_struct_exists(_A, "species") && is_real(variable_struct_get(_A, "species"))) _species_probe = variable_struct_get(_A, "species");
+        else if (variable_struct_exists(_A, "species_id") && is_real(variable_struct_get(_A, "species_id"))) _species_probe = variable_struct_get(_A, "species_id");
+        else if (variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon"))){
+            var _mon_ref_name = variable_struct_get(_A, "mon");
+            if (variable_struct_exists(_mon_ref_name, "species") && is_real(variable_struct_get(_mon_ref_name, "species"))) _species_probe = variable_struct_get(_mon_ref_name, "species");
+            else if (variable_struct_exists(_mon_ref_name, "species_id") && is_real(variable_struct_get(_mon_ref_name, "species_id"))) _species_probe = variable_struct_get(_mon_ref_name, "species_id");
+        }
+        if (!is_undefined(_species_probe) && is_real(_species_probe) && !is_undefined(scr_poke_name_by_id)){
+            _name_raw = string(scr_poke_name_by_id(_species_probe));
+        }
+    }
+    var nameTxt = __battle_text_fit_ellipsis(_pid, _name_raw, nameMax);
     draw_text(_bx+__bwu(_pid,8), _by+__bhu(_pid,6), nameTxt);
 
-    draw_text(_bx+_bw-__bwu(_pid,29), _by+__bhu(_pid,6), "Lv"+string(_A.level));
+    var _lvl_disp = 1;
+    if (variable_struct_exists(_A, "level") && is_real(variable_struct_get(_A, "level"))) _lvl_disp = variable_struct_get(_A, "level");
+    else if (variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon")) && variable_struct_exists(variable_struct_get(_A, "mon"), "level") && is_real(variable_struct_get(variable_struct_get(_A, "mon"), "level"))) _lvl_disp = variable_struct_get(variable_struct_get(_A, "mon"), "level");
+    draw_text(_bx+_bw-__bwu(_pid,29), _by+__bhu(_pid,6), "Lv"+string(_lvl_disp));
 
     var _vis_hp = __battle_hp_visual(_A);
-    var _pct = max(0, min(1, _vis_hp / max(1, (variable_struct_exists(_A, "hp_max") ? variable_struct_get(_A, "hp_max") : 1))));
+    var _hp_max = __battle_hp_max(_A);
+    var _pct = max(0, min(1, _vis_hp / max(1, _hp_max)));
     var _barW = _bw-__bwu(_pid,32), _barX=_bx+__bwu(_pid,8), _barY=_by+__bhu(_pid,20), _bh=__bhu(_pid,6);
     draw_set_color(c_black); draw_rectangle(_barX-1,_barY-1,_barX+_barW+1,_barY+_bh+1,false);
     var _hpcol = _t.col_hp_green; if (_pct<0.5) _hpcol=_t.col_hp_yell; if (_pct<0.2) _hpcol=_t.col_hp_red;

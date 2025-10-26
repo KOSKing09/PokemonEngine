@@ -13,7 +13,18 @@ if (battle_is_open(0)){
 
 if (keyboard_check_pressed(vk_f1)){
 	if (!battle_is_open(0)){
-		battle_open(0, irandom_range(5, 10));
+        var trainer_party = [];
+        if (!is_undefined(pokemon_factory_create)){
+            var trainer_mon = pokemon_factory_create(25, irandom_range(7, 9), {});
+            if (is_struct(trainer_mon)) trainer_party[array_length(trainer_party)] = trainer_mon;
+        }
+        var trainer_payload = {
+            trainer_name: "Bug Catcher Rick",
+            sprite: spr_PokemonEmeraldTrainers,
+            sprite_index: 0,
+            party: trainer_party
+        };
+        battle_open_trainer(0, trainer_payload);
 	}else{
 		battle_close(0);
 	}
@@ -34,11 +45,15 @@ if (!is_undefined(dialog2p_is_open) && !dialog2p_is_open(pid)) {
     if (box != noone && point_distance(x, y, box.x, box.y) <= 16) {
             if (controls_pressed(pid,"Interact") && talk_cd <= 0) {
             if (!variable_global_exists("DIALOG_SPEED")) global.DIALOG_SPEED = 2;
+            var box_text = "";
+            if (instance_exists(box) && variable_instance_exists(box, "text")) {
+                box_text = string(variable_instance_get(box, "text"));
+            }
             try {
                 if (!is_undefined(dialog2p_show_now)) {
-                    dialog2p_show_now(pid, box.text);
+                    dialog2p_show_now(pid, box_text);
                 } else if (!is_undefined(dialog2p_enqueue_text)) {
-                    dialog2p_enqueue_text(pid, box.text, box.text, "any");
+                    dialog2p_enqueue_text(pid, box_text, box_text, "any");
                 }
             } catch (e_) {}
             talk_cd = ceil(game_get_speed(gamespeed_fps) * 0.25); // ~0.25s lockout

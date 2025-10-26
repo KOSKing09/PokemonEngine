@@ -196,11 +196,45 @@ function __battle_apply_damage_impl(_pid, _target_index, _dmg, _mult){
     // the player to choose a replacement after dialog closes.
     try {
         if (cur_hp > 0 && newhp <= 0){
-            if (is_struct(T) && variable_struct_exists(T, "_fainted")) variable_struct_set(T, "_fainted", true);
+            var _dbg_trainer = false;
+            try {
+                if (variable_global_exists("DATA_DEBUG_TRAINER")) _dbg_trainer = (global.DATA_DEBUG_TRAINER == true);
+                else if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) _dbg_trainer = true;
+            } catch (e_dbgflag_dmg) { _dbg_trainer = false; }
+            if (_dbg_trainer){
+                try {
+                    var _fname_dbg = "<unknown>";
+                    if (is_struct(T) && variable_struct_exists(T, "name")) _fname_dbg = string(variable_struct_get(T, "name"));
+                    else if (is_struct(T) && variable_struct_exists(T, "mon") && is_struct(variable_struct_get(T, "mon")) && variable_struct_exists(variable_struct_get(T, "mon"), "name")) _fname_dbg = string(variable_struct_get(variable_struct_get(T, "mon"), "name"));
+                    show_debug_message("[battle][trainer][faint] marking actor fainted=" + _fname_dbg + ", hp_before=" + string(cur_hp) + ", hp_after=" + string(newhp));
+                } catch (e_dbg_faint_actor) {}
+            }
+            if (is_struct(T)) variable_struct_set(T, "_fainted", true);
             if (is_struct(T) && variable_struct_exists(T, "mon") && is_struct(variable_struct_get(T, "mon"))){
                 var __mi_f = variable_struct_get(T, "mon");
-                if (variable_struct_exists(__mi_f, "_fainted")) variable_struct_set(__mi_f, "_fainted", true);
+                if (_dbg_trainer){
+                    try { show_debug_message("[battle][trainer][faint] inner mon struct tagged"); } catch (e_dbg_faint_mon) {}
+                }
+                variable_struct_set(__mi_f, "_fainted", true);
             }
+            // Sync trainer party entry (when present) so follow-up alive checks see the fainted state.
+            try {
+                var _B_sync = __battle_ensure_slot(_pid);
+                if (is_struct(_B_sync) && variable_struct_exists(_B_sync, "_trainer_party")){
+                    var _party_sync = variable_struct_get(_B_sync, "_trainer_party");
+                    if (is_array(_party_sync)){
+                        for (var __tsi = 0; __tsi < array_length(_party_sync); ++__tsi){
+                            var __tmon = _party_sync[__tsi];
+                            if (!is_struct(__tmon)) continue;
+                            if (__tmon == T || (variable_struct_exists(T, "mon") && __tmon == variable_struct_get(T, "mon"))){
+                                __battle_set_hp_now(__tmon, newhp);
+                                try { variable_struct_set(__tmon, "_fainted", true); } catch (e_sync_flag) {}
+                                break;
+                            }
+                        }
+                    }
+                }
+            } catch (e_sync_party) {}
             // Schedule pending party open on the battle slot so it's handled in battle_system
             // Only schedule a forced party open when the fainted actor is the player's active Pokémon
             // (actor index 0). This prevents the party UI from opening when an enemy faints.
@@ -225,7 +259,7 @@ function __battle_apply_damage_impl(_pid, _target_index, _dmg, _mult){
                             if (variable_struct_exists(T, "name")) _fnt_name = variable_struct_get(T, "name");
                             else if (variable_struct_exists(T, "mon") && is_struct(variable_struct_get(T, "mon")) && variable_struct_exists(variable_struct_get(T, "mon"), "name")) _fnt_name = variable_struct_get(variable_struct_get(T, "mon"), "name");
                             // Queue as a faint-gated dialog so it shows after other pending messages
-                            try { dialog2p_enqueue(_pid, { text: string(_fnt_name) + " fainted!", key: string(_fnt_name) + " fainted!", gate: "faint" }); } catch (e_qf) {}
+                            if (!is_undefined(__battle_try_enqueue_faint_dialog)) __battle_try_enqueue_faint_dialog(_pid, _B_sch, string(_fnt_name) + " fainted!", string(_fnt_name) + " fainted!");
                         } catch (e_sd_local) {}
                     // Do NOT set _faint_pending here; allow other messages to show before faint.
                     // Store a reference to the fainted actor's inner mon (preferred) so selection

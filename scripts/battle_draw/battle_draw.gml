@@ -5,6 +5,23 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
     var E = _B.actor[1];
     if (!is_struct(E) || !variable_struct_exists(E, "mon")) return;
     if (string(_B.phase) == "transition_in") return;
+    var __trainer_hide = false;
+    var __trainer_scale = 1;
+    var __trainer_skip_slide = false;
+    try {
+        if (is_struct(_B) && variable_struct_exists(_B, "_trainer_intro")){
+            var __ti = variable_struct_get(_B, "_trainer_intro");
+            if (is_struct(__ti)){
+                if (variable_struct_exists(__ti, "hide_enemy_mon") && __ti.hide_enemy_mon) __trainer_hide = true;
+                if (variable_struct_exists(__ti, "enemy_scale_mult")){
+                    var __sc = variable_struct_get(__ti, "enemy_scale_mult");
+                    if (is_real(__sc)) __trainer_scale = clamp(__sc, 0, 4);
+                }
+                if (variable_struct_exists(__ti, "skip_intro_slide") && __ti.skip_intro_slide) __trainer_skip_slide = true;
+            }
+        }
+    } catch (e_hide) {}
+    if (__trainer_hide) return;
     var mE = E.mon;
     // Try to obtain art; if the pkicons loaders aren't ready or the sprite is missing
     // we must NOT abort here — draw a placeholder so intro and ball overlay still run.
@@ -32,7 +49,47 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
             if (is_struct(__ui) && variable_struct_exists(__ui, "s")) ui_s = variable_struct_get(__ui, "s");
         }
     } catch (e_ui) { ui_s = 1; }
-    var drawScaleE = scale_foe * ui_s;
+    var drawScaleE = scale_foe * ui_s * __trainer_scale;
+    var base_fy = fy;
+    var catchA = (variable_struct_exists(_B, "_catch_anim") ? _B._catch_anim : undefined);
+    var fainting = false;
+    var faint_prog = 0;
+    var enemy_alpha = 1;
+    if (!(is_struct(catchA) && catchA.active)){
+        var hp_now_enemy = undefined;
+        if (!is_undefined(__battle_hp_now)){
+            hp_now_enemy = __battle_hp_now(E);
+        } else if (variable_struct_exists(E, "hp_now")){
+            hp_now_enemy = E.hp_now;
+        }
+        if (!is_real(hp_now_enemy)) hp_now_enemy = (variable_struct_exists(E, "hp_now") ? real(E.hp_now) : 1);
+        if (hp_now_enemy <= 0){
+            fainting = true;
+            var faint_start_ms = current_time;
+            if (variable_struct_exists(E, "_faint_draw_start_ms") && is_real(variable_struct_get(E, "_faint_draw_start_ms"))){
+                faint_start_ms = variable_struct_get(E, "_faint_draw_start_ms");
+            } else {
+                variable_struct_set(E, "_faint_draw_start_ms", faint_start_ms);
+            }
+            faint_prog = clamp((current_time - faint_start_ms) / 520, 0, 1);
+            var faint_ease = 1 - power(1 - faint_prog, 3);
+            var faint_scale_mult = max(0, 1 - faint_ease);
+            drawScaleE *= faint_scale_mult;
+            enemy_alpha = max(0, 1 - faint_ease);
+            var faint_drop = __bhu(_pid, 16) * faint_ease;
+            fy += faint_drop;
+            if (enemy_alpha <= 0.001 || faint_scale_mult <= 0.001){
+                enemy_alpha = 0;
+            }
+        } else {
+            if (variable_struct_exists(E, "_faint_draw_start_ms")) variable_struct_set(E, "_faint_draw_start_ms", undefined);
+        }
+    } else {
+        if (variable_struct_exists(E, "_faint_draw_start_ms")) variable_struct_set(E, "_faint_draw_start_ms", undefined);
+    }
+    if (enemy_alpha <= 0.001 && drawScaleE <= 0.001){
+        return;
+    }
     var cry_started_e = (variable_struct_exists(_B, "_cry_play_start_ms_enemy") && is_real(_B._cry_play_start_ms_enemy)) ? real(_B._cry_play_start_ms_enemy) : -1;
     if (cry_started_e > 0){
         var tnow_e = current_time;
@@ -46,7 +103,7 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
         }
     }
     // During enemy intro, start offscreen to the right and slide in based on phase_progress
-    if (string(_B.phase) == "intro_enemy"){
+    if (string(_B.phase) == "intro_enemy" && !__trainer_skip_slide){
         var p_in = (variable_struct_exists(_B, "phase_progress") ? _B.phase_progress : 0);
         var start_cx = __bxu(_pid, 280); // logical 280 -> offscreen right of 240-wide canvas
         var ease = 1 - (1 - p_in) * (1 - p_in);
@@ -55,9 +112,9 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
     var draw_x = fx - (w*drawScaleE)/2;
     var draw_y = fy - (h*drawScaleE)/2;
     // If a catch animation is active, allow it to modify the enemy scale and draw a pokéball
-    var catchA = (variable_struct_exists(_B, "_catch_anim") ? _B._catch_anim : undefined);
+    var anchor_overridden = fainting;
     var ball_to_draw = undefined;
-    if (is_struct(catchA) && catchA.active){
+    if (!fainting && is_struct(catchA) && catchA.active){
         var now = current_time;
         var since = now - (variable_struct_exists(catchA, "start_ms") ? catchA.start_ms : now);
         // Compute phases: throw -> impact -> shake -> resolve -> escape
@@ -99,6 +156,7 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
             // Lerp scale down smoothly
             var target_scale_mult = lerp(1, 0, ease2);
             drawScaleE *= target_scale_mult;
+            enemy_alpha = max(0, 1 - ease2);
             // Lerp the draw center toward the anchor so the sprite appears to be pulled into the ball
             var cur_cx = fx;
             var cur_cy = fy;
@@ -116,6 +174,7 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
                 var bx2 = variable_struct_exists(catchA, "land_x") ? variable_struct_get(catchA, "land_x") : fx;
                 var by2 = variable_struct_exists(catchA, "land_y") ? variable_struct_get(catchA, "land_y") : _enemy_base_bottom;
                 ball_to_draw = {spr: (is_undefined(catchA.ball_sprite) ? undefined : catchA.ball_sprite), x: bx2, y: by2, scale: 0.8};
+            anchor_overridden = true;
         } else if (phase == "shake"){
             // Hopping logic: during shake we run up to hop_total hops. Each hop consists of hop_dur (up/down) + hop_pause.
             var hop_total = (variable_struct_exists(catchA, "hop_total") ? real(catchA.hop_total) : 3);
@@ -139,9 +198,11 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
             var by3 = in_pause ? enemy_base_bottom : (base_y - arc);
             // enemy remains hidden while hops run
             drawScaleE *= 0;
+            enemy_alpha = 0;
             var ballScale = (in_pause ? 0.65 : 0.8);
             var bx3 = base_x;
             ball_to_draw = {spr: (is_undefined(catchA.ball_sprite) ? undefined : catchA.ball_sprite), x: bx3, y: by3, scale: ballScale};
+            anchor_overridden = true;
         } else if (phase == "resolve" || phase == "caught"){
             // ball rests at the bottom of the enemy sprite; enemy remains hidden
             var enemy_base_bottom_res = fy + (h * ui_s) * 0.15;
@@ -158,6 +219,8 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
             fx = anchor_x2;
             fy = anchor_y2;
             ball_to_draw = {spr: (is_undefined(catchA.ball_sprite) ? undefined : catchA.ball_sprite), x: fx, y: enemy_base_bottom_res, scale: 0.65};
+            enemy_alpha = 0;
+            anchor_overridden = true;
         } else if (phase == "escape"){
             var e4 = now - (variable_struct_exists(catchA, "phase_start") ? catchA.phase_start : now);
             var t4 = clamp(e4 / escape_dur, 0, 1);
@@ -170,6 +233,8 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
             var by4 = enemy_base_bottom_e - lerp(0, 24, t4);
             var scaleb = lerp(0.65, 0.45, t4);
             ball_to_draw = {spr: (is_undefined(catchA.ball_sprite) ? undefined : catchA.ball_sprite), x: bx4, y: by4, scale: scaleb, alpha: lerp(1, 0, t4)};
+            enemy_alpha = lerp(0, 1, t4);
+            anchor_overridden = true;
         }
     }
     // Debug: avoid spamming the console every frame. Only log on phase change or first missing sprite.
@@ -189,7 +254,7 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
             }
         }
     }
-    if (string(_B.phase) == "intro_enemy"){
+    if (string(_B.phase) == "intro_enemy" && !__trainer_skip_slide){
         var p = (variable_struct_exists(_B,"phase_progress") ? _B.phase_progress : 0);
         var start_log = 240 + 40;
         var start_px = __bxu(_pid, start_log);
@@ -210,15 +275,25 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
     if (!(string(_B.phase) == "intro_enemy")) draw_x = fx - (w*drawScaleE)/2;
     draw_y = fy - (h*drawScaleE)/2;
 
+    if (!anchor_overridden && is_struct(catchA) && catchA.active){
+        var catch_phase_anchor = string(catchA.phase);
+        if (catch_phase_anchor == "impact" || catch_phase_anchor == "shake" || catch_phase_anchor == "resolve" || catch_phase_anchor == "escape") anchor_overridden = true;
+    }
+    if (!anchor_overridden){
+        var anchor_bottom = base_fy + (h * scale_foe * ui_s) * 0.5;
+        var current_bottom_final = draw_y + (h * drawScaleE);
+        draw_y += (anchor_bottom - current_bottom_final);
+    }
+
     var _breath_amp = 0.03;
     var _breath_period = 2000;
     var _bs_e = 1;
-    if (string(_B.phase) == "command"){
+    if (!fainting && string(_B.phase) == "command"){
         var _tms = current_time;
         _bs_e = 1 + sin((_tms * 2 * pi) / _breath_period) * _breath_amp;
     }
     draw_set_color(make_color_rgb(20,20,20));
-    draw_set_alpha(0.45);
+    draw_set_alpha(0.45 * enemy_alpha);
     var shadow_w_e = floor((w * drawScaleE * _bs_e) * 0.6);
     var shadow_h_e = max(2, floor((w * drawScaleE) * 0.12));
     var shadow_cx_e = floor(draw_x + (w * drawScaleE * _bs_e) * 0.5);
@@ -226,10 +301,10 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
     draw_ellipse(shadow_cx_e - shadow_w_e div 2, shadow_cy_e - shadow_h_e div 2, shadow_cx_e + shadow_w_e div 2, shadow_cy_e + shadow_h_e div 2, false);
     draw_set_alpha(1);
     if (!_spr_missing && sprite_exists(sprE)){
-        draw_sprite_ext(sprE, subE, draw_x, draw_y, drawScaleE * _bs_e, drawScaleE, 0, c_white, 1);
+        draw_sprite_ext(sprE, subE, draw_x, draw_y, drawScaleE * _bs_e, drawScaleE, 0, c_white, enemy_alpha);
     } else {
         // Fallback: draw a simple placeholder so enemy isn't invisible (matches player fallback)
-        draw_set_color(make_color_rgb(20,20,20)); draw_set_alpha(0.45);
+        draw_set_color(make_color_rgb(20,20,20)); draw_set_alpha(0.45 * enemy_alpha);
         var fw = max(8, floor(64 * ui_s * drawScaleE));
         var fh = max(8, floor(64 * ui_s * drawScaleE));
         var cx = draw_x + (w * drawScaleE) * 0.5;
@@ -237,8 +312,10 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
         draw_ellipse(cx - fw/2, cy - fh/2, cx + fw/2, cy + fh/2, false);
         draw_set_alpha(1);
         draw_set_color(c_white);
-        var name_txt = (is_struct(E) && variable_struct_exists(E, "name") ? string(E.name) : (is_struct(mE) && variable_struct_exists(mE, "name") ? string(mE.name) : "Enemy"));
-        draw_text(cx - fw/2, cy - fh/2 - __bhu(_pid,6), name_txt);
+        if (enemy_alpha > 0){
+            var name_txt = (is_struct(E) && variable_struct_exists(E, "name") ? string(E.name) : (is_struct(mE) && variable_struct_exists(mE, "name") ? string(mE.name) : "Enemy"));
+            draw_text(cx - fw/2, cy - fh/2 - __bhu(_pid,6), name_txt);
+        }
     }
 
     // Prepare ball overlay info into the catch animation so it can be drawn later on top of UI

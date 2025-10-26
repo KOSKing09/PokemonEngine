@@ -21,8 +21,53 @@ function __battle_roll_hit(_move_id, _A, _D){
     return (irandom(99) < clamp(floor(acc), 0, 100));
 }
 
+/// Best-effort helper: locate the battle slot for either participant when _pid is missing.
+function __battle_guess_pid_for_entities(_A, _D){
+    var candidates = [];
+    if (is_struct(_A)) array_push(candidates, _A);
+    if (is_struct(_D) && _D != _A) array_push(candidates, _D);
+
+    if (array_length(candidates) == 0) return undefined;
+
+    try {
+        if (!variable_global_exists("sys_battles") || !is_array(global.sys_battles)) return undefined;
+        for (var _pid_iter = 0; _pid_iter < array_length(global.sys_battles); ++_pid_iter){
+            var _slot = global.sys_battles[_pid_iter];
+            if (!is_struct(_slot) || !variable_struct_exists(_slot, "actor")) continue;
+            var _actors = variable_struct_get(_slot, "actor");
+            if (!is_array(_actors)) continue;
+            for (var _ai = 0; _ai < array_length(_actors); ++_ai){
+                var _act = _actors[_ai];
+                if (!is_struct(_act)) continue;
+                for (var _ci = 0; _ci < array_length(candidates); ++_ci){
+                    var _cand = candidates[_ci];
+                    if (_act == _cand) return _pid_iter;
+                    if (variable_struct_exists(_act, "mon") && variable_struct_get(_act, "mon") == _cand) return _pid_iter;
+                }
+            }
+        }
+    } catch (e_gp){ /* ignore and fall back */ }
+
+    return undefined;
+}
+
 // Applies damage and returns [dmg, beforeHP, afterHP]
 function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_power){
+    // Ensure we have a valid battle slot reference before performing slot-dependent work.
+    var _pid_local = _pid;
+    if (!is_real(_pid_local)) _pid_local = __battle_guess_pid_for_entities(_A, _D);
+    if (!is_real(_pid_local)){
+        if (variable_global_exists("sys_battles") && is_array(global.sys_battles) && array_length(global.sys_battles) > 0){
+            _pid_local = 0;
+        } else {
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                show_debug_message("[guard][apply_move_damage] no battle slot resolved for move_id=" + string(_move_id));
+            }
+            return [0, __battle_hp_now(_D), __battle_hp_now(_D)];
+        }
+    }
+    _pid = _pid_local;
+
     // Check for OHKO (one-hit KO) move meta first. This implements Sheer Cold / Fissure / Guillotine/Horn Drill style behavior.
     try {
         var oh = undefined;

@@ -299,6 +299,8 @@ function bag__use_item_on_self(_pid, _row){
             return false;
         }
         var _actor_arr = (variable_struct_exists(_B, "actor") ? variable_struct_get(_B, "actor") : undefined);
+        var battle_mode = "wild";
+        if (variable_struct_exists(_B, "_battle_mode")) battle_mode = string_lower(string(variable_struct_get(_B, "_battle_mode")));
         var A1 = (is_array(_actor_arr) && array_length(_actor_arr) > 1) ? _actor_arr[1] : undefined;
         if (!is_struct(A1)){
             out_txt += "\nBut nothing happened.";
@@ -308,7 +310,7 @@ function bag__use_item_on_self(_pid, _row){
 
         // Determine if the opponent is a wild Pokémon. We consider the foe wild when
         // its canonical `.mon` struct does not contain full party fields like `hp`.
-        var is_wild = true;
+        var is_wild = (battle_mode != "trainer");
         if (variable_struct_exists(A1, "mon") && is_struct(variable_struct_get(A1, "mon")) && variable_struct_exists(variable_struct_get(A1, "mon"), "hp")){
             // If the nested mon has `hp` it's likely a trainer-owned party mon -> not wild
             is_wild = false;
@@ -316,7 +318,7 @@ function bag__use_item_on_self(_pid, _row){
 
         if (!is_wild){
             // Explicit feedback for unusable item in this context
-            out_txt += "\nYou can't use that here.";
+            out_txt += "\nThe opposing Trainer blocked the Ball! Don't be a thief!";
             try { dialog2p_show(_pid, out_txt); } catch (e_) {}
             return false;
         }

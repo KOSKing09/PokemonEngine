@@ -119,25 +119,28 @@ function dialog2p_step(_pid){
     if (dialog2p_is_open(_pid)) return;
     var q = global.DIALOG2P_Q[_pid];
     if (!is_array(q) || array_length(q) == 0) return;
-    // If the head item is a faint message and there exists any non-faint item
-    // in the queue, rotate the faint item to the tail so it will always open last.
+    // Ensure faint messages remain high priority. If any faint item sits behind
+    // the head entry, bring it forward so it can open before non-faint pages.
     var item = q[0];
-    if (is_struct(item)){
-        var _is_faint = (variable_struct_exists(item, "is_faint") && item.is_faint);
-        if (_is_faint){
-            var has_nonfaint = false;
-            for (var k=1; k<array_length(q); ++k){ var it2 = q[k]; if (is_struct(it2) && (!variable_struct_exists(it2, "is_faint") || !it2.is_faint)){ has_nonfaint = true; break; } }
-            if (has_nonfaint){
-                // rotate head to tail
-                var _tail = [];
-                for (var m=1; m<array_length(q); ++m) _tail[array_length(_tail)] = q[m];
-                _tail[array_length(_tail)] = item;
-                global.DIALOG2P_Q[_pid] = _tail;
-                return; // wait until non-faint items drain
+    var item_is_faint = (is_struct(item) && variable_struct_exists(item, "is_faint") && item.is_faint);
+    if (!item_is_faint){
+        var faint_idx = -1;
+        for (var search_i = 0; search_i < array_length(q); ++search_i){
+            var cand = q[search_i];
+            if (is_struct(cand) && variable_struct_exists(cand, "is_faint") && cand.is_faint){ faint_idx = search_i; break; }
+        }
+        if (faint_idx > 0){
+            var prioritized = q[faint_idx];
+            var reordered = [prioritized];
+            for (var copy_i = 0; copy_i < array_length(q); ++copy_i){
+                if (copy_i == faint_idx) continue;
+                reordered[array_length(reordered)] = q[copy_i];
             }
+            global.DIALOG2P_Q[_pid] = reordered;
+            q = reordered;
         }
     }
-    // Peek (possibly new head) and open if allowed by gate
+    // Peek (possibly re-ordered head) and open if allowed by gate
     item = global.DIALOG2P_Q[_pid][0];
     if (!is_struct(item)){
         // Malformed; drop it
@@ -152,6 +155,20 @@ function dialog2p_step(_pid){
         // Open text and record the originating item so callbacks/waiters can run
     dialog2p_open_text_impl(_pid, variable_struct_exists(item, "text") ? item.text : "", item);
     }
+}
+
+function dialog2p_queue_has_faint(_pid){
+    if (!variable_global_exists("DIALOG2P_Q")) return false;
+    if (!is_real(_pid) || _pid < 0) return false;
+    if (!is_array(global.DIALOG2P_Q)) return false;
+    if (array_length(global.DIALOG2P_Q) <= _pid) return false;
+    var q = global.DIALOG2P_Q[_pid];
+    if (!is_array(q)) return false;
+    for (var qi = 0; qi < array_length(q); ++qi){
+        var item = q[qi];
+        if (is_struct(item) && variable_struct_exists(item, "is_faint") && item.is_faint) return true;
+    }
+    return false;
 }
 
 // ---------- Open text (wrap + reset) ---------------------------------------
@@ -339,7 +356,32 @@ function dialog2p_enqueue(_pid, _payload){
     if (variable_struct_exists(payload, "sfx_tick")) item.sfx_tick = variable_struct_get(payload, "sfx_tick");
     if (variable_struct_exists(payload, "on_close")) item.on_close = variable_struct_get(payload, "on_close");
 
-    if (!exists){ array_push(q, item); global.DIALOG2P_Q[_pid] = q; }
+    if (!exists){
+        if (is_faint){
+            // Insert the faint dialog ahead of any non-faint items while
+            // preserving existing faint ordering so simultaneous faints stay stable.
+            var inserted = false;
+            var reordered_q = [];
+            if (is_array(q)){
+                for (var qi = 0; qi < array_length(q); ++qi){
+                    var qitem = q[qi];
+                    if (!inserted){
+                        var qitem_is_faint = (is_struct(qitem) && variable_struct_exists(qitem, "is_faint") && qitem.is_faint);
+                        if (!qitem_is_faint){
+                            reordered_q[array_length(reordered_q)] = item;
+                            inserted = true;
+                        }
+                    }
+                    reordered_q[array_length(reordered_q)] = qitem;
+                }
+            }
+            if (!inserted) reordered_q[array_length(reordered_q)] = item;
+            global.DIALOG2P_Q[_pid] = reordered_q;
+        } else {
+            array_push(q, item);
+            global.DIALOG2P_Q[_pid] = q;
+        }
+    }
     return item;
 }
 
@@ -439,18 +481,33 @@ function dialog2p_update(_pid){
                 // DEVDEBUG: log that dialog is closing and why
                 try { if (variable_global_exists("DIALOG_DEBUG") && global.DIALOG_DEBUG){ show_debug_message("[dialog][update] pid=" + string(_pid) + ", closing page_idx=" + string(d.page_idx) + ", advance=" + string(advance) + ", cancel=" + string(cancel)); } } catch(e){}
                 d.open = false;
-                // Invoke per-item on_close if supplied, and any registered waiters
+                var _cur_item = noone;
                 try {
-                    var _cur = (variable_struct_exists(d, "_current_item") ? variable_struct_get(d, "_current_item") : noone);
-                    if (is_struct(_cur) && variable_struct_exists(_cur, "on_close")){
-                        try { var _cb = variable_struct_get(_cur, "on_close"); if (!is_undefined(_cb) && _cb != noone) { _cb(); } } catch (e_on) {}
-                    }
-                } catch (e_inv) { /* ignore on_close failures */ }
+                    if (variable_struct_exists(d, "_current_item")) _cur_item = variable_struct_get(d, "_current_item");
+                } catch (e_cur) { _cur_item = noone; }
+                var _cur_is_faint = false;
+                if (is_struct(_cur_item) && variable_struct_exists(_cur_item, "is_faint")){
+                    try { _cur_is_faint = (variable_struct_get(_cur_item, "is_faint") == true); } catch (e_isf) { _cur_is_faint = false; }
+                }
+                if (is_struct(_cur_item) && variable_struct_exists(_cur_item, "on_close")){
+                    try {
+                        var _cb = variable_struct_get(_cur_item, "on_close");
+                        if (!is_undefined(_cb) && _cb != noone) { _cb(); }
+                    } catch (e_on) {}
+                }
                 try {
                     var _waiters = (variable_struct_exists(d, "_on_close_callbacks") ? variable_struct_get(d, "_on_close_callbacks") : []);
                     for (var _wi=0; _wi<array_length(_waiters); ++_wi){ try { var _f = _waiters[_wi]; if (!is_undefined(_f) && _f != noone) _f(); } catch(e_w){} }
                     variable_struct_set(d, "_on_close_callbacks", []);
                 } catch (e_w2) {}
+                if (_cur_is_faint){
+                    try {
+                        if (!is_undefined(__battle_ensure_slot)){
+                            var _slot_fd = __battle_ensure_slot(_pid);
+                            if (is_struct(_slot_fd)) variable_struct_set(_slot_fd, "_faint_dialog_active", false);
+                        }
+                    } catch (e_fdnotify) { /* ignore faint close notify failures */ }
+                }
                 try { variable_struct_set(d, "_current_item", noone); } catch (e_cl) {}
             }
         }
