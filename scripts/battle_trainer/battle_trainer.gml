@@ -1,3 +1,10 @@
+/// @description Convenience wrapper for trainer encounters. Builds the correct battle options struct,
+/// seeds the intro cutscene, and calls `battle_open` internally. Provide trainer metadata and
+/// party members in `_trainer_data` (e.g. `{ trainer_name:"Ace", enemy_party:[monA, monB] }`).
+/// Missing fields fall back to sensible defaults: the first healthy mon becomes the opener,
+/// reward values are optional, and sprite indices default to the Emerald trainer sheet.
+/// Example: `battle_open_trainer(0, { trainer_name:"Bug Catcher", enemy_party:[monA, monB], area_type:"rocks a" });`
+/// Include `area_type` (or `theme.area_type`) to force a specific battlefield preset.
 function battle_open_trainer(_pid, _trainer_data){
     var trainer_name = "Trainer";
     var trainer_sprite = sprite_exists(spr_PokemonEmeraldTrainers) ? spr_PokemonEmeraldTrainers : -1;
@@ -13,9 +20,11 @@ function battle_open_trainer(_pid, _trainer_data){
     var enemy_species = undefined;
     var enemy_level = undefined;
     var enemy_party_source = undefined;
+    var enemy_party = [];
     var first_mon = undefined;
     var slide_out_duration = 260;
     var enemy_reveal_duration = 280;
+    var area_type = undefined;
 
     if (is_struct(_trainer_data)){
         if (variable_struct_exists(_trainer_data, "trainer_name")) trainer_name = string(_trainer_data.trainer_name);
@@ -41,6 +50,11 @@ function battle_open_trainer(_pid, _trainer_data){
         if (variable_struct_exists(_trainer_data, "enemy_mon") && is_struct(variable_struct_get(_trainer_data, "enemy_mon"))) first_mon = variable_struct_get(_trainer_data, "enemy_mon");
         if (variable_struct_exists(_trainer_data, "slide_out_duration")) slide_out_duration = max(60, real(variable_struct_get(_trainer_data, "slide_out_duration")));
         if (variable_struct_exists(_trainer_data, "enemy_reveal_duration")) enemy_reveal_duration = max(60, real(variable_struct_get(_trainer_data, "enemy_reveal_duration")));
+        if (variable_struct_exists(_trainer_data, "area_type")) area_type = _trainer_data.area_type;
+        else if (variable_struct_exists(_trainer_data, "theme")){
+            var _theme_info = variable_struct_get(_trainer_data, "theme");
+            if (is_struct(_theme_info) && variable_struct_exists(_theme_info, "area_type")) area_type = _theme_info.area_type;
+        }
 
         var party_fields = ["party", "mons", "team", "enemy_party"];
         for (var pf = 0; pf < array_length(party_fields); ++pf){
@@ -52,7 +66,6 @@ function battle_open_trainer(_pid, _trainer_data){
         }
     }
 
-    var enemy_party = [];
     if (is_array(enemy_party_source)){
         for (var ei = 0; ei < array_length(enemy_party_source); ++ei){
             enemy_party[array_length(enemy_party)] = enemy_party_source[ei];
@@ -103,7 +116,8 @@ function battle_open_trainer(_pid, _trainer_data){
     }
     if (!is_undefined(trainer_reward)) opts.trainer_reward = trainer_reward;
 
-    battle_open(_pid, open_level, opts);
+    if (!is_undefined(area_type)) battle_open(_pid, open_level, area_type, opts);
+    else battle_open(_pid, open_level, opts);
 
     var _B = __battle_ensure_slot(_pid);
     if (!is_struct(_B)) return;
