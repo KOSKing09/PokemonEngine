@@ -84,7 +84,7 @@
 "92","missing",""
 "93","missing",""
 "94","missing",""
-"95","missing",""
+"95","explicit","scripts/battle_impls/battle_impls.gml; scripts/battle_system/battle_system.gml","yes","No Guard / Lock-On / Mind Reader accuracy bypass helpers route through __battle_should_ignore_accuracy and semi-invuln overrides."
 "96","missing",""
 "98","missing",""
  "85","explicit","scripts/status_system/status_system.gml (explicit handling)"

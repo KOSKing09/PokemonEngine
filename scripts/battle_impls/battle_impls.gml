@@ -195,6 +195,171 @@ try {
 try { if (is_undefined("scr_move_meta_ailment_to_name") || is_undefined(scr_move_meta_ailment_to_name)) function scr_move_meta_ailment_to_name(_id) { return undefined; } } catch (e) {}
 
 
+/// ===== Accuracy & targeting helpers =====
+function __battle_actor_index_of(_ent){
+    if (!is_struct(_ent)) return undefined;
+    try {
+        if (variable_struct_exists(_ent, "actor_index") && is_real(variable_struct_get(_ent, "actor_index"))){
+            return floor(variable_struct_get(_ent, "actor_index"));
+        }
+    } catch (e_idx) {}
+    try {
+        if (variable_struct_exists(_ent, "slot") && is_real(variable_struct_get(_ent, "slot"))){
+            return floor(variable_struct_get(_ent, "slot"));
+        }
+    } catch (e_slot) {}
+    try {
+        if (variable_struct_exists(_ent, "index") && is_real(variable_struct_get(_ent, "index"))){
+            return floor(variable_struct_get(_ent, "index"));
+        }
+    } catch (e_index) {}
+    return undefined;
+}
+
+function __battle_struct_matches_actor(_candidate, _target){
+    if (_candidate == _target) return true;
+    if (!is_struct(_candidate) || !is_struct(_target)) return false;
+
+    var _idx_candidate = __battle_actor_index_of(_candidate);
+    var _idx_target    = __battle_actor_index_of(_target);
+    if (is_real(_idx_candidate) && is_real(_idx_target) && _idx_candidate == _idx_target) return true;
+
+    try {
+        if (variable_struct_exists(_candidate, "mon") && variable_struct_exists(_target, "mon")){
+            var _cand_mon = variable_struct_get(_candidate, "mon");
+            var _tgt_mon  = variable_struct_get(_target, "mon");
+            if (is_struct(_cand_mon) && _cand_mon == _tgt_mon) return true;
+        }
+    } catch (e_monmatch) {}
+
+    return false;
+}
+
+function __battle_entity_field_matches_target(_ent, _target, _field){
+    if (!is_struct(_ent) || !is_string(_field)) return false;
+    if (!variable_struct_exists(_ent, _field)) return false;
+
+    var _val = variable_struct_get(_ent, _field);
+    if (is_struct(_val)){
+        if (__battle_struct_matches_actor(_val, _target)) return true;
+        try {
+            if (variable_struct_exists(_val, "target") && __battle_struct_matches_actor(variable_struct_get(_val, "target"), _target)) return true;
+        } catch (e_val_target) {}
+        try {
+            if (variable_struct_exists(_val, "target_actor") && __battle_struct_matches_actor(variable_struct_get(_val, "target_actor"), _target)) return true;
+        } catch (e_val_actor) {}
+        try {
+            if (variable_struct_exists(_val, "entity") && __battle_struct_matches_actor(variable_struct_get(_val, "entity"), _target)) return true;
+        } catch (e_val_entity) {}
+    }
+
+    if (is_array(_val)){
+        for (var _ai = 0; _ai < array_length(_val); ++_ai){
+            var _item = _val[_ai];
+            if (is_struct(_item) && __battle_struct_matches_actor(_item, _target)) return true;
+            if (is_real(_item)){
+                var _idx_target = __battle_actor_index_of(_target);
+                if (is_real(_idx_target) && floor(_item) == _idx_target) return true;
+            }
+        }
+    }
+
+    if (is_real(_val)){
+        var _idx_target_num = __battle_actor_index_of(_target);
+        if (is_real(_idx_target_num) && floor(_val) == _idx_target_num) return true;
+    }
+
+    if (is_string(_val)){
+        var _idx_tgt = __battle_actor_index_of(_target);
+        if (is_real(_idx_tgt)){
+            var _val_lc = string_lower(string(_val));
+            if (_idx_tgt == 0 && (_val_lc == "player" || _val_lc == "ally")) return true;
+            if (_idx_tgt == 1 && (_val_lc == "enemy" || _val_lc == "foe" || _val_lc == "opponent")) return true;
+        }
+    }
+
+    return false;
+}
+
+function __battle_actor_has_ability_named(_ent, _name_lc){
+    if (!is_struct(_ent) || !is_string(_name_lc) || string_length(_name_lc) <= 0) return false;
+    var _needle = string_lower(string(_name_lc));
+
+    var _ability = undefined;
+    if (variable_struct_exists(_ent, "ability")) _ability = variable_struct_get(_ent, "ability");
+
+    if (is_undefined(_ability) && variable_struct_exists(_ent, "mon") && is_struct(variable_struct_get(_ent, "mon"))){
+        var _mon = variable_struct_get(_ent, "mon");
+        if (variable_struct_exists(_mon, "ability")) _ability = variable_struct_get(_mon, "ability");
+    }
+
+    if (is_string(_ability)){
+        if (string_lower(string(_ability)) == _needle) return true;
+    } else if (is_real(_ability)){
+        try {
+            if (!is_undefined(scr_ability_name_by_id)){
+                var _ab_name = scr_ability_name_by_id(_ability);
+                if (is_string(_ab_name) && string_lower(string(_ab_name)) == _needle) return true;
+            }
+        } catch (e_lookup) {}
+
+        var _const_key = "ABILITY_" + string_upper(string_replace_all(_needle, " ", "_"));
+        try {
+            if (variable_global_exists(_const_key)){
+                var _const_val = variable_global_get(_const_key);
+                if (is_real(_const_val) && floor(_const_val) == floor(_ability)) return true;
+            }
+        } catch (e_const) {}
+    }
+
+    return false;
+}
+
+function __battle_has_no_guard_effect(_ent){
+    return __battle_actor_has_ability_named(_ent, "no guard");
+}
+
+function __battle_attack_has_lock_on(_attacker, _defender){
+    if (!is_struct(_attacker) || !is_struct(_defender)) return false;
+
+    var _fields_attacker = ["_lock_on_target", "_lock_on_target_ref", "_lock_on_target_struct", "sys_lock_on_target", "_lock_on_target_actor", "_mind_reader_target", "sys_mind_reader_target"];
+    for (var _fi = 0; _fi < array_length(_fields_attacker); ++_fi){
+        if (__battle_entity_field_matches_target(_attacker, _defender, _fields_attacker[_fi])) return true;
+    }
+
+    var _fields_index = ["_lock_on_target_index", "sys_lock_on_target_index", "_mind_reader_target_index", "sys_mind_reader_target_index"];
+    for (var _fj = 0; _fj < array_length(_fields_index); ++_fj){
+        if (__battle_entity_field_matches_target(_attacker, _defender, _fields_index[_fj])) return true;
+    }
+
+    var _reverse_fields = ["_lock_on_source", "sys_lock_on_source", "_mind_reader_source", "sys_mind_reader_source"];
+    for (var _rk = 0; _rk < array_length(_reverse_fields); ++_rk){
+        if (__battle_entity_field_matches_target(_defender, _attacker, _reverse_fields[_rk])) return true;
+    }
+
+    return false;
+}
+
+function __battle_attack_has_mind_reader(_attacker, _defender){
+    return __battle_attack_has_lock_on(_attacker, _defender);
+}
+
+function __battle_has_perfect_target_lock(_attacker, _defender){
+    if (__battle_has_no_guard_effect(_attacker) || __battle_has_no_guard_effect(_defender)) return true;
+    if (__battle_attack_has_lock_on(_attacker, _defender)) return true;
+    if (__battle_attack_has_mind_reader(_attacker, _defender)) return true;
+    return false;
+}
+
+function __battle_should_ignore_accuracy(_attacker, _defender, _move_id){
+    return __battle_has_perfect_target_lock(_attacker, _defender);
+}
+
+function __battle_should_ignore_invuln_state(_attacker, _defender, _move_id){
+    return __battle_has_perfect_target_lock(_attacker, _defender);
+}
+
+
 function __battle_set_hp_now_impl(_ent, _val){
     var v = (is_real(_val) ? max(0, floor(_val)) : 0);
     try {
@@ -849,7 +1014,8 @@ function __battle_apply_move(_pid, _user, _target, _move){
     try {
         if (is_struct(_target) && variable_struct_exists(_target, "_semi_invuln") && !is_undefined(variable_struct_get(_target, "_semi_invuln"))){
             var _phase = string_lower(string(variable_struct_get(_target, "_semi_invuln")));
-            var _mname = string_lower(__battle_move_name(_move));
+            var _mname = "";
+            try { _mname = string_lower(__battle_move_name(_move)); } catch (e_mn) { _mname = ""; }
             var _allow = false; var _mult = 1.0;
             var _state_msg = "";
             var _target_name_si = (is_struct(_target) && variable_struct_exists(_target, "name") ? string(variable_struct_get(_target, "name")) : "The target");
@@ -863,18 +1029,29 @@ function __battle_apply_move(_pid, _user, _target, _move){
                 if (string_pos("surf", _mname) > 0 || string_pos("whirlpool", _mname) > 0) { _allow = true; _mult = 2.0; }
                 _state_msg = _target_name_si + " is deep underwater!";
             } else if (_phase == "vanish"){
-                // Shadow Force / Phantom Force vanish state: no standard moves can connect.
                 _allow = false;
                 _state_msg = _target_name_si + " vanished instantly!";
             }
+
+            var _bypass_invuln = false;
+            try {
+                if (!is_undefined(__battle_should_ignore_invuln_state)){
+                    _bypass_invuln = __battle_should_ignore_invuln_state(_user, _target, _move);
+                }
+            } catch (e_bypass) { _bypass_invuln = false; }
+            if (_bypass_invuln){
+                _allow = true;
+                _state_msg = "";
+                _mult = max(1.0, _mult);
+            }
+
             if (!_allow){
                 if (is_string(_state_msg) && string_length(_state_msg) > 0) dialog_queue(_state_msg);
-                dialog_queue(_user.name + "'s attack missed!");
+                var _miss_name = (is_struct(_user) && variable_struct_exists(_user, "name") ? string(variable_struct_get(_user, "name")) : "The attacker");
+                dialog_queue(_miss_name + "'s attack missed!");
                 return;
             } else {
-                // Stash multiplier for this strike (consumed below)
                 var _semi_invuln_mult = _mult;
-                // Store on user temp field to carry through to apply call if needed
                 try { variable_struct_set(_user, "__semi_mult_tmp", _semi_invuln_mult); } catch (e_sm) {}
             }
         }

@@ -1,9 +1,8 @@
 ﻿// [Battle] battle_moves_impls — Build v0.2.0 — Updated 2025-10-18
 
-// Minimal, clean move resolver placeholder
-// This file intentionally contains a small, syntactically-correct placeholder implementation
-// for __battle_perform_action_impl so the project can compile while the full move resolver
-// is being refactored. Replace with the full implementation when ready.
+// Primary move resolver implementation.
+// Handles move execution, including meta move reroutes, status gates, and delegates to
+// battle_impl helpers for damage/effect application.
 
 function __battle_perform_action_impl(_pid, _step){
     var _B = __battle_ensure_slot(_pid);
@@ -43,9 +42,6 @@ function __battle_perform_action_impl(_pid, _step){
         } catch (e_stamp) {}
         return string((variable_struct_exists(_A_in,"name")?variable_struct_get(_A_in,"name"):"The user")) + " used " + string(_mv_name_in) + "!";
     }
-
-    // item use shortcut (keeps prior behavior simple)
-    if (is_struct(_step) && variable_struct_exists(_step, "item_use") && _step.item_use == true){
 
     function __battle_record_move_usage(_pid_in, _user_in, _target_in, _move_in, _skip_target_record){
         if (!is_real(_move_in)) return;
@@ -98,6 +94,19 @@ function __battle_perform_action_impl(_pid, _step){
             try { variable_struct_set(_target_in, "_last_moves", _target_hist); } catch (e_setTarget) {}
         }
     }
+
+    function __battle_no_pp_msg(_actor){
+        var _name = "The user";
+        try {
+            if (is_struct(_actor) && variable_struct_exists(_actor, "name")){
+                _name = string(variable_struct_get(_actor, "name"));
+            }
+        } catch (e_np) {}
+        return string(_name) + " has no PP left!";
+    }
+
+    // item use shortcut (keeps prior behavior simple)
+    if (is_struct(_step) && variable_struct_exists(_step, "item_use") && _step.item_use == true){
         var item_id = (variable_struct_exists(_step, "item_id") ? variable_struct_get(_step, "item_id") : undefined);
         variable_struct_set(_B, "_pending_item_use", { item_id: item_id });
         var disp = "item";
@@ -223,6 +232,7 @@ function __battle_perform_action_impl(_pid, _step){
     try {
     // METRONOME (118): select a random non-meta move from the global move list
         if (is_real(move_id) && move_id == 118){
+            if (!__battle_consume_pp(A, move_slot)) return __battle_no_pp_msg(A);
             var candidates = [];
             if (variable_global_exists("_moves") && is_array(global._moves)){
                 for (var mi=0; mi<array_length(global._moves); ++mi){
@@ -245,7 +255,7 @@ function __battle_perform_action_impl(_pid, _step){
                     array_push(candidates, mi);
                 }
             }
-            if (array_length(candidates) == 0) return string((variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"The user")) + " failed to use Metronome!";
+        if (array_length(candidates) == 0) return string((variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"The user")) + " failed to use Metronome!";
             var pick = candidates[irandom(array_length(candidates)-1)];
             // Announce and replay the picked move
             try { variable_struct_set(A, "_suppress_last_move_record", true); } catch (e_sup) {}
@@ -258,6 +268,7 @@ function __battle_perform_action_impl(_pid, _step){
 
         // ASSIST (274): pick a random move known by an ally (other actors in the same slot)
     if (is_real(move_id) && move_id == 274){
+        if (!__battle_consume_pp(A, move_slot)) return __battle_no_pp_msg(A);
             var _Bslot = __battle_ensure_slot(_pid);
             var ally_moves = [];
             try {
@@ -276,7 +287,7 @@ function __battle_perform_action_impl(_pid, _step){
             } catch (e_as) { ally_moves = []; }
             if (array_length(ally_moves) == 0) return __battle_impl_return_used(_pid, A, __battle_move_name(move_id), move_id);
             var pick2 = ally_moves[irandom(array_length(ally_moves)-1)];
-            try { variable_struct_set(A, "_suppress_last_move_record", true); } catch (e_sup3) {}
+        try { variable_struct_set(A, "_suppress_last_move_record", true); } catch (e_sup3) {}
             try { __battle_apply_move(_pid, A, D, pick2); } catch (e_ap) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][assist] apply failed: " + string(e_ap)); }
             try { variable_struct_set(A, "_suppress_last_move_record", false); } catch (e_sup4) {}
             return "";
@@ -284,6 +295,7 @@ function __battle_perform_action_impl(_pid, _step){
 
         // MIMIC (102): copy the last move used by the target (if valid)
     if (is_real(move_id) && move_id == 102){
+        if (!__battle_consume_pp(A, move_slot)) return __battle_no_pp_msg(A);
             var cand = undefined;
             try {
                 if (is_struct(D) && variable_struct_exists(D, "_last_moves") && is_array(variable_struct_get(D, "_last_moves"))){
@@ -300,6 +312,7 @@ function __battle_perform_action_impl(_pid, _step){
 
         // MIRROR-MOVE (119): use the last move that targeted this user (if available)
     if (is_real(move_id) && move_id == 119){
+            if (!__battle_consume_pp(A, move_slot)) return __battle_no_pp_msg(A);
             var cand2 = undefined;
             try {
                 if (is_struct(A) && variable_struct_exists(A, "_last_moves") && is_array(variable_struct_get(A, "_last_moves"))){
@@ -316,6 +329,7 @@ function __battle_perform_action_impl(_pid, _step){
 
         // SKETCH (166): permanently replace the user's selected move slot with the target's last used move
         if (is_real(move_id) && move_id == 166){
+            if (!__battle_consume_pp(A, move_slot)) return __battle_no_pp_msg(A);
             if (!is_struct(A) || !is_real(move_slot)) return __battle_impl_return_used(_pid, A, __battle_move_name(move_id), move_id);
             var sketch_cand = undefined;
             try {
@@ -343,6 +357,7 @@ function __battle_perform_action_impl(_pid, _step){
 
         // TRANSFORM (144): make the user copy the target's form/stats/moves roughly
         if (is_real(move_id) && move_id == 144){
+            if (!__battle_consume_pp(A, move_slot)) return __battle_no_pp_msg(A);
             try {
                 if (!is_struct(A) || !is_struct(D)) return __battle_impl_return_used(_pid, A, __battle_move_name(move_id), move_id);
                 // Shallow copy of D.mon into A._transformed_mon so the renderer/logic can use it
@@ -361,6 +376,7 @@ function __battle_perform_action_impl(_pid, _step){
 
         // ME-FIRST (382): attempt to use the target's move immediately when it is a damaging move
         if (is_real(move_id) && move_id == 382){
+            if (!__battle_consume_pp(A, move_slot)) return __battle_no_pp_msg(A);
             var mf = undefined;
             try {
                 // Prefer to inspect target's _last_moves for their most recent chosen move
@@ -374,6 +390,25 @@ function __battle_perform_action_impl(_pid, _step){
             try { __battle_apply_move(_pid, A, D, mf); } catch (e_mf2) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][me-first] apply failed: " + string(e_mf2)); }
             try { variable_struct_set(A, "_suppress_last_move_record", false); } catch (e_su6) {}
             return __battle_impl_return_used(_pid, A, __battle_move_name(mf), mf);
+        }
+
+        // COPYCAT (383): reuse the most recent move used in battle when available
+        if (is_real(move_id) && move_id == 383){
+            if (!__battle_consume_pp(A, move_slot)) return __battle_no_pp_msg(A);
+            var _copied = undefined;
+            try {
+                if (variable_global_exists("lastMoveUsed_ID") && is_real(global.lastMoveUsed_ID) && global.lastMoveUsed_ID >= 0 && global.lastMoveUsed_ID != move_id){
+                    _copied = global.lastMoveUsed_ID;
+                }
+            } catch (e_cp) { _copied = undefined; }
+            if (!is_real(_copied)){
+                dialog_queue(string((variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"The user")) + " failed to Copycat!");
+                return __battle_impl_return_used(_pid, A, __battle_move_name(move_id), move_id);
+            }
+            try { variable_struct_set(A, "_suppress_last_move_record", true); } catch (e_surp) {}
+            try { __battle_apply_move(_pid, A, D, _copied); } catch (e_cfail) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][copycat] replay failed: " + string(e_cfail)); }
+            try { variable_struct_set(A, "_suppress_last_move_record", false); } catch (e_surp2) {}
+            return "";
         }
     } catch (e_metaAll) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta_moves] handler error: " + string(e_metaAll)); }
 
@@ -494,7 +529,7 @@ function __battle_perform_action_impl(_pid, _step){
         }
     } catch (e_ic) { }
 
-    if (!__battle_consume_pp(A, move_slot)) return string((variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"The user")) + " has no PP left!";
+    if (!__battle_consume_pp(A, move_slot)) return __battle_no_pp_msg(A);
 
     var mv_name = (is_undefined(move_id) ? "the move" : __battle_move_name(move_id));
     var mv_power = 0;
@@ -519,6 +554,49 @@ function __battle_perform_action_impl(_pid, _step){
         }
         return _disable_used_msg;
     }
+
+    // Semi-invulnerable guard: block unless the move explicitly bypasses the phase
+    try {
+        if (is_struct(D) && variable_struct_exists(D, "_semi_invuln") && !is_undefined(variable_struct_get(D, "_semi_invuln"))){
+            var _phase_si = string_lower(string(variable_struct_get(D, "_semi_invuln")));
+            var _mv_name_lower = "";
+            try { _mv_name_lower = string_lower(__battle_move_name(move_id)); } catch (e_mn) { _mv_name_lower = ""; }
+            var _allow_si = false;
+            var _mult_si = 1.0;
+            var _msg_si = "";
+            var _target_name_si = (is_struct(D) && variable_struct_exists(D, "name") ? string(variable_struct_get(D, "name")) : "The target");
+            if (_phase_si == "fly" || _phase_si == "bounce" || _phase_si == "skydrop"){
+                if (string_pos("gust", _mv_name_lower) > 0 || string_pos("twister", _mv_name_lower) > 0){ _allow_si = true; _mult_si = 2.0; }
+                _msg_si = _target_name_si + " is high in the sky!";
+            } else if (_phase_si == "dig"){
+                if (string_pos("earthquake", _mv_name_lower) > 0 || string_pos("magnitude", _mv_name_lower) > 0){ _allow_si = true; _mult_si = 2.0; }
+                _msg_si = _target_name_si + " is underground!";
+            } else if (_phase_si == "dive"){
+                if (string_pos("surf", _mv_name_lower) > 0 || string_pos("whirlpool", _mv_name_lower) > 0){ _allow_si = true; _mult_si = 2.0; }
+                _msg_si = _target_name_si + " is deep underwater!";
+            } else if (_phase_si == "vanish"){
+                _allow_si = false;
+                _msg_si = _target_name_si + " vanished instantly!";
+            }
+
+            var _bypass_si = false;
+            try { if (!is_undefined(__battle_should_ignore_invuln_state)) _bypass_si = __battle_should_ignore_invuln_state(A, D, move_id); } catch (e_bypass) { _bypass_si = false; }
+            if (_bypass_si){
+                _allow_si = true;
+                _msg_si = "";
+                _mult_si = max(1.0, _mult_si);
+            }
+
+            if (!_allow_si){
+                if (is_string(_msg_si) && string_length(_msg_si) > 0) dialog_queue(_msg_si);
+                var _miss_name = (is_struct(A) && variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The attacker");
+                dialog_queue(_miss_name + "'s attack missed!");
+                return "";
+            } else {
+                try { variable_struct_set(A, "__semi_mult_tmp", _mult_si); } catch (e_tmp) {}
+            }
+        }
+    } catch (e_si_guard) {}
 
     // Generic two-turn move handling (charge then strike). This handles common
     // Gen3 two-turn moves like Razor Wind, SolarBeam, Skull Bash, Sky Attack,
