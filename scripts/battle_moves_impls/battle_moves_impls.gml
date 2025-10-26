@@ -555,49 +555,6 @@ function __battle_perform_action_impl(_pid, _step){
         return _disable_used_msg;
     }
 
-    // Semi-invulnerable guard: block unless the move explicitly bypasses the phase
-    try {
-        if (is_struct(D) && variable_struct_exists(D, "_semi_invuln") && !is_undefined(variable_struct_get(D, "_semi_invuln"))){
-            var _phase_si = string_lower(string(variable_struct_get(D, "_semi_invuln")));
-            var _mv_name_lower = "";
-            try { _mv_name_lower = string_lower(__battle_move_name(move_id)); } catch (e_mn) { _mv_name_lower = ""; }
-            var _allow_si = false;
-            var _mult_si = 1.0;
-            var _msg_si = "";
-            var _target_name_si = (is_struct(D) && variable_struct_exists(D, "name") ? string(variable_struct_get(D, "name")) : "The target");
-            if (_phase_si == "fly" || _phase_si == "bounce" || _phase_si == "skydrop"){
-                if (string_pos("gust", _mv_name_lower) > 0 || string_pos("twister", _mv_name_lower) > 0){ _allow_si = true; _mult_si = 2.0; }
-                _msg_si = _target_name_si + " is high in the sky!";
-            } else if (_phase_si == "dig"){
-                if (string_pos("earthquake", _mv_name_lower) > 0 || string_pos("magnitude", _mv_name_lower) > 0){ _allow_si = true; _mult_si = 2.0; }
-                _msg_si = _target_name_si + " is underground!";
-            } else if (_phase_si == "dive"){
-                if (string_pos("surf", _mv_name_lower) > 0 || string_pos("whirlpool", _mv_name_lower) > 0){ _allow_si = true; _mult_si = 2.0; }
-                _msg_si = _target_name_si + " is deep underwater!";
-            } else if (_phase_si == "vanish"){
-                _allow_si = false;
-                _msg_si = _target_name_si + " vanished instantly!";
-            }
-
-            var _bypass_si = false;
-            try { if (!is_undefined(__battle_should_ignore_invuln_state)) _bypass_si = __battle_should_ignore_invuln_state(A, D, move_id); } catch (e_bypass) { _bypass_si = false; }
-            if (_bypass_si){
-                _allow_si = true;
-                _msg_si = "";
-                _mult_si = max(1.0, _mult_si);
-            }
-
-            if (!_allow_si){
-                if (is_string(_msg_si) && string_length(_msg_si) > 0) dialog_queue(_msg_si);
-                var _miss_name = (is_struct(A) && variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The attacker");
-                dialog_queue(_miss_name + "'s attack missed!");
-                return "";
-            } else {
-                try { variable_struct_set(A, "__semi_mult_tmp", _mult_si); } catch (e_tmp) {}
-            }
-        }
-    } catch (e_si_guard) {}
-
     // Generic two-turn move handling (charge then strike). This handles common
     // Gen3 two-turn moves like Razor Wind, SolarBeam, Skull Bash, Sky Attack,
     // Fly, Dig, Dive, Bounce, etc. First use sets a charging flag on the actor
