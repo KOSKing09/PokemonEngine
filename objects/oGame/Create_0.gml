@@ -125,7 +125,7 @@ party_init(); // must be before demo seed (party_ensure uses it)
 // global.DEMO_FORCE_SPECIES = [250, 249]; // optional override
 global.DEMO_FORCE_SPECIES = [188, 268, 471, 559, 17];
 scr_poke_runtime_demo_init_random(6); // seeds PARTY[0] (and [1] if present)
-dev_assign_moves_to_first(0, [580, 564, 69, 101]);
+dev_assign_moves_to_first(0, [19, 91, 340, 507]);
 
 global.DEV_FORCE_FLINCH_CHANCE = -1;
 

@@ -46,6 +46,58 @@ function __battle_perform_action_impl(_pid, _step){
 
     // item use shortcut (keeps prior behavior simple)
     if (is_struct(_step) && variable_struct_exists(_step, "item_use") && _step.item_use == true){
+
+    function __battle_record_move_usage(_pid_in, _user_in, _target_in, _move_in, _skip_target_record){
+        if (!is_real(_move_in)) return;
+        try { global.lastMoveUsed_ID = _move_in; } catch (e_gl) {}
+        var _suppress_target = false;
+        if (is_struct(_user_in)){
+            try {
+                if (variable_struct_exists(_user_in, "_suppress_last_move_record") && variable_struct_get(_user_in, "_suppress_last_move_record") == true){
+                    _suppress_target = true;
+                }
+            } catch (e_sup) {}
+            try { variable_struct_set(_user_in, "sys_last_move_used", _move_in); } catch (e_lm1) {}
+            try { variable_struct_set(_user_in, "sys_last_move_used_ts", current_time); } catch (e_lm2) {}
+            var _user_hist = [];
+            try {
+                if (variable_struct_exists(_user_in, "_last_moves_used") && is_array(variable_struct_get(_user_in, "_last_moves_used"))){
+                    _user_hist = variable_struct_get(_user_in, "_last_moves_used");
+                }
+            } catch (e_hist) {}
+            var _t_idx = undefined;
+            if (is_struct(_target_in)){
+                if (variable_struct_exists(_target_in, "actor_index")) _t_idx = variable_struct_get(_target_in, "actor_index");
+                else if (variable_struct_exists(_target_in, "slot")) _t_idx = variable_struct_get(_target_in, "slot");
+            }
+            array_push(_user_hist, { move: _move_in, target: _target_in, target_index: _t_idx, ts: current_time });
+            if (array_length(_user_hist) > 8){
+                var _trim_hist = [];
+                var _start_hist = array_length(_user_hist) - 8;
+                for (var _hi = _start_hist; _hi < array_length(_user_hist); ++_hi){ array_push(_trim_hist, _user_hist[_hi]); }
+                _user_hist = _trim_hist;
+            }
+            try { variable_struct_set(_user_in, "_last_moves_used", _user_hist); } catch (e_setHist) {}
+        }
+        if (is_bool(_skip_target_record) && _skip_target_record) _suppress_target = true;
+        if (_suppress_target) return;
+        if (is_struct(_target_in)){
+            var _target_hist = [];
+            try {
+                if (variable_struct_exists(_target_in, "_last_moves") && is_array(variable_struct_get(_target_in, "_last_moves"))){
+                    _target_hist = variable_struct_get(_target_in, "_last_moves");
+                }
+            } catch (e_tHist) {}
+            array_push(_target_hist, { move: _move_in, src: _user_in, ts: current_time });
+            if (array_length(_target_hist) > 8){
+                var _trim_target = [];
+                var _start_target = array_length(_target_hist) - 8;
+                for (var _ti = _start_target; _ti < array_length(_target_hist); ++_ti){ array_push(_trim_target, _target_hist[_ti]); }
+                _target_hist = _trim_target;
+            }
+            try { variable_struct_set(_target_in, "_last_moves", _target_hist); } catch (e_setTarget) {}
+        }
+    }
         var item_id = (variable_struct_exists(_step, "item_id") ? variable_struct_get(_step, "item_id") : undefined);
         variable_struct_set(_B, "_pending_item_use", { item_id: item_id });
         var disp = "item";
@@ -58,6 +110,98 @@ function __battle_perform_action_impl(_pid, _step){
 
     var move_slot = (variable_struct_exists(_step, "slot") ? variable_struct_get(_step, "slot") : undefined);
     var move_id   = (variable_struct_exists(_step, "move_id") ? variable_struct_get(_step, "move_id") : undefined);
+
+    var _is_protect_like = (is_real(move_id) && (move_id == 182 || move_id == 197));
+    var _turn_now = 0;
+    try {
+        var _slot_turn = __battle_ensure_slot(_pid);
+        if (is_struct(_slot_turn) && variable_struct_exists(_slot_turn, "turn_i")){
+            _turn_now = max(0, floor(variable_struct_get(_slot_turn, "turn_i")));
+        }
+    } catch (e_turnp) { _turn_now = 0; }
+
+    var _moveEntry = undefined;
+    var _moveIdent = "";
+    try {
+        if (variable_global_exists("_moves") && is_array(global._moves) && is_real(move_id) && move_id >= 0 && move_id < array_length(global._moves)){
+            _moveEntry = global._moves[move_id];
+            if (is_struct(_moveEntry) && variable_struct_exists(_moveEntry, "identifier")){
+                _moveIdent = string_lower(string(variable_struct_get(_moveEntry, "identifier")));
+            }
+        }
+    } catch (e_moveIdent) { _moveEntry = undefined; _moveIdent = ""; }
+
+    if (is_struct(A)){
+        if (!_is_protect_like){
+            try { variable_struct_set(A, "sys_protect_streak", 0); } catch (e_rstreakA) {}
+        }
+        try {
+            var _prot_turn = (variable_struct_exists(A, "sys_protected_turn") ? variable_struct_get(A, "sys_protected_turn") : undefined);
+            if (is_real(_prot_turn) && _turn_now > _prot_turn){
+                variable_struct_set(A, "sys_protected", false);
+                variable_struct_set(A, "_protected", false);
+                variable_struct_set(A, "sys_protected_turn", undefined);
+            }
+        } catch (e_prot_clearA) {}
+
+        var _disableExpireA = undefined;
+        var _disableActiveA = false;
+        var _disableNotifiedA = false;
+        try { if (variable_struct_exists(A, "sys_disabledExpiresTurn")) _disableExpireA = variable_struct_get(A, "sys_disabledExpiresTurn"); } catch (e_expA) {}
+        try { if (variable_struct_exists(A, "sys_disabledActive")) _disableActiveA = (variable_struct_get(A, "sys_disabledActive") == true); } catch (e_actA) { _disableActiveA = false; }
+        try { if (variable_struct_exists(A, "sys_disabled_notified_clear")) _disableNotifiedA = (variable_struct_get(A, "sys_disabled_notified_clear") == true); } catch (e_notA) { _disableNotifiedA = false; }
+        if (is_real(_disableExpireA) && _disableActiveA){
+            if (_turn_now >= _disableExpireA){
+                if (!_disableNotifiedA){
+                    var _aname_clear = (variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The Pokémon");
+                    dialog_queue(_aname_clear + " is no longer disabled!");
+                }
+                __battle_clear_disable(A);
+            } else {
+                var _remainingA = max(0, _disableExpireA - _turn_now);
+                try { variable_struct_set(A, "sys_disabledTurns", _remainingA); } catch (e_remA) {}
+                try { variable_struct_set(A, "sys_disabled_notified_clear", false); } catch (e_notResetA) {}
+            }
+        } else if (!_disableActiveA){
+            __battle_clear_disable(A);
+        }
+    }
+
+    // Sky Drop hold: actors being carried cannot act until the carrier releases them.
+    try {
+        if (is_struct(A) && variable_struct_exists(A, "_sky_drop_held") && variable_struct_get(A, "_sky_drop_held") == true){
+            var _still_held = false;
+            try {
+                if (is_struct(_B) && variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor"))){
+                    var _acts_sd = variable_struct_get(_B, "actor");
+                    for (var _sdi = 0; _sdi < array_length(_acts_sd); ++_sdi){
+                        var _carrier = _acts_sd[_sdi];
+                        if (!is_struct(_carrier) || _carrier == A) continue;
+                        if (!variable_struct_exists(_carrier, "_charging_move")) continue;
+                        var _car_info = variable_struct_get(_carrier, "_charging_move");
+                        if (!is_struct(_car_info)) continue;
+                        if (!variable_struct_exists(_car_info, "sky_drop") || variable_struct_get(_car_info, "sky_drop") != true) continue;
+                        var _tref_sd = undefined;
+                        if (variable_struct_exists(_car_info, "target_actor")) _tref_sd = variable_struct_get(_car_info, "target_actor");
+                        if (is_struct(_tref_sd) && _tref_sd == A){ _still_held = true; break; }
+                        if (!is_struct(_tref_sd) && variable_struct_exists(_car_info, "target_index") && variable_struct_exists(A, "actor_index")){
+                            var _ti_sd = variable_struct_get(_car_info, "target_index");
+                            var _ai_sd = variable_struct_get(A, "actor_index");
+                            if (is_real(_ti_sd) && is_real(_ai_sd) && _ti_sd == _ai_sd){ _still_held = true; break; }
+                        }
+                    }
+                }
+            } catch (e_sdchk) { _still_held = false; }
+            if (!_still_held){
+                try { variable_struct_set(A, "_sky_drop_held", undefined); } catch (e_sdclr1) {}
+                try { if (variable_struct_exists(A, "_semi_invuln")) variable_struct_set(A, "_semi_invuln", undefined); } catch (e_sdclr2) {}
+            } else {
+                var _held_name = (variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The target");
+                dialog_queue(_held_name + " is trapped in the air!");
+                return "";
+            }
+        }
+    } catch (e_sdh) {}
 
     // Helper: simple identifier-based ignore list used by metronome/assist/etc.
     function __is_meta_move_ignored(_mid){
@@ -321,6 +465,15 @@ function __battle_perform_action_impl(_pid, _step){
         }
     } catch (e_fl) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][flinch] check failed: " + string(e_fl)); }
 
+    // Prevent the actor from selecting a move that is currently disabled.
+    var _disabledMoveA = undefined;
+    try { if (is_struct(A) && variable_struct_exists(A, "sys_disabledMove")) _disabledMoveA = variable_struct_get(A, "sys_disabledMove"); } catch (e_dmA) { _disabledMoveA = undefined; }
+    if (is_real(_disabledMoveA) && is_real(move_id) && _disabledMoveA == move_id){
+        var _aname_disable_block = (is_struct(A) && variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user");
+        dialog_queue(_aname_disable_block + " is disabled and can't use that move!");
+        return "";
+    }
+
     // check for Imprison on the target slot: if target slot has an _imprisoned map/list and it contains this move, fail
     try {
         var _slot_check = __battle_ensure_slot(_pid);
@@ -347,6 +500,26 @@ function __battle_perform_action_impl(_pid, _step){
     var mv_power = 0;
     try { mv_power = __battle_move_power(move_id, A, D); } catch (e) { mv_power = 0; }
 
+    if (_is_protect_like){
+        __battle_record_move_usage(_pid, A, D, move_id, false);
+        __battle_apply_status_move(_pid, A, D, move_id);
+        return __battle_impl_return_used(_pid, A, mv_name, move_id);
+    }
+
+    var _is_disable_move = (is_real(move_id) && move_id == 50) || (_moveIdent == "disable");
+    if (_is_disable_move){
+        __battle_record_move_usage(_pid, A, D, move_id, false);
+        var _disable_used_msg = __battle_impl_return_used(_pid, A, mv_name, move_id);
+        var _disabled_success = __battle_apply_disable(_pid, A, D, move_id);
+        if (_disabled_success){
+            var _tname_disable = (is_struct(D) && variable_struct_exists(D, "name") ? string(variable_struct_get(D, "name")) : "The target");
+            dialog_queue(_tname_disable + " was disabled!");
+        } else {
+            dialog_queue("But it failed!");
+        }
+        return _disable_used_msg;
+    }
+
     // Generic two-turn move handling (charge then strike). This handles common
     // Gen3 two-turn moves like Razor Wind, SolarBeam, Skull Bash, Sky Attack,
     // Fly, Dig, Dive, Bounce, etc. First use sets a charging flag on the actor
@@ -354,7 +527,7 @@ function __battle_perform_action_impl(_pid, _step){
     // the flag and proceeds to actually perform the attack.
     try {
         if (is_real(move_id) && is_struct(A)){
-            var two_ids = [13,76,130,143,19,91,291,340]; // razor-wind, solar-beam, skull-bash, sky-attack, fly, dig, dive, bounce
+            var two_ids = [13,19,76,91,130,143,291,340,467,507,566]; // razor-wind, fly, solar-beam, dig, skull-bash, sky-attack, dive, bounce, shadow-force, sky-drop, phantom-force
             var is_two = false;
             for (var _ti=0; _ti<array_length(two_ids); ++_ti) if (two_ids[_ti] == move_id) { is_two = true; break; }
             // Special-case: Thrash / Rage-like behavior (lock for 2-3 turns then confuse)
@@ -372,6 +545,7 @@ function __battle_perform_action_impl(_pid, _step){
                 var charging = (variable_struct_exists(A, "_charging_move") ? variable_struct_get(A, "_charging_move") : undefined);
                 // If actor is already charging this same move, consume the charge and continue
                 if (is_struct(charging) && variable_struct_exists(charging, "move_id") && variable_struct_get(charging, "move_id") == move_id){
+                    var _charge_info = charging;
                     // Use stored target_index from the charging record (defensive: override current target_idx)
                     try {
                         var _stored_tidx = (variable_struct_exists(charging, "target_index") ? variable_struct_get(charging, "target_index") : undefined);
@@ -390,11 +564,37 @@ function __battle_perform_action_impl(_pid, _step){
                     variable_struct_set(A, "_charging_move", undefined);
                     // Clear semi-invulnerable phase now that the strike resolves
                     try { if (variable_struct_exists(A, "_semi_invuln")) variable_struct_set(A, "_semi_invuln", undefined); } catch (e_clrsi) {}
+                    // Release any sky drop-held target so it can act again
+                    try {
+                        if (is_struct(_charge_info) && variable_struct_exists(_charge_info, "sky_drop") && variable_struct_get(_charge_info, "sky_drop") == true){
+                            var _release_tgt = undefined;
+                            if (variable_struct_exists(_charge_info, "target_actor") && is_struct(variable_struct_get(_charge_info, "target_actor"))){
+                                _release_tgt = variable_struct_get(_charge_info, "target_actor");
+                            } else if (variable_struct_exists(_charge_info, "target_index") && is_array(__acts)){
+                                var _release_idx = variable_struct_get(_charge_info, "target_index");
+                                if (is_real(_release_idx) && _release_idx >= 0 && _release_idx < array_length(__acts)){
+                                    _release_tgt = __acts[_release_idx];
+                                }
+                            }
+                            if (!is_struct(_release_tgt) && is_struct(D)) _release_tgt = D;
+                            if (is_struct(_release_tgt)){
+                                try { if (variable_struct_exists(_release_tgt, "_semi_invuln")) variable_struct_set(_release_tgt, "_semi_invuln", undefined); } catch (e_rel1) {}
+                                try { if (variable_struct_exists(_release_tgt, "_sky_drop_held")) variable_struct_set(_release_tgt, "_sky_drop_held", undefined); } catch (e_rel2) {}
+                            }
+                        }
+                    } catch (e_release) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][two-turn] failed to release sky-drop target: " + string(e_release)); }
                     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][two-turn] " + string(variable_struct_get(A, "name")) + " completes charge for move=" + string(move_id) + ", stored_target=" + string(_stored_tidx) + ", resolved_target_idx=" + string(target_idx));
                 } else {
                     // Start charging: store move and intended target index so the second
                     // turn can reference it. PP already consumed earlier.
-                        variable_struct_set(A, "_charging_move", { move_id: move_id, target_index: target_idx });
+                        var _charge_rec = { move_id: move_id, target_index: target_idx };
+                        if (move_id == 507){
+                            try { variable_struct_set(_charge_rec, "sky_drop", true); } catch (e_sdflag) {}
+                        }
+                        if (is_struct(D)){
+                            try { variable_struct_set(_charge_rec, "target_actor", D); } catch (e_tar) {}
+                        }
+                        variable_struct_set(A, "_charging_move", _charge_rec);
                         // If this is a semi-invulnerable two-turn move (fly/dig/dive/bounce/sky-attack),
                         // mark the actor so other move handlers can apply the special rules.
                         try {
@@ -404,9 +604,17 @@ function __battle_perform_action_impl(_pid, _step){
                             else if (move_id == 291) _phase = "dive";    // Dive
                             else if (move_id == 340) _phase = "bounce";  // Bounce
                             else if (move_id == 143) _phase = "fly";     // Sky Attack behaves like fly for interactions
+                            else if (move_id == 467 || move_id == 566) _phase = "vanish"; // Shadow/Phantom Force vanish
+                            else if (move_id == 507) _phase = "skydrop"; // Sky Drop lifts target
                             if (!is_undefined(_phase)){
                                 variable_struct_set(A, "_semi_invuln", _phase);
                                 if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][two-turn] set _semi_invuln=" + string(_phase) + " for " + string(variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "?"));
+                                if (_phase == "skydrop" && is_struct(D)){
+                                    try {
+                                        variable_struct_set(D, "_semi_invuln", "skydrop");
+                                        variable_struct_set(D, "_sky_drop_held", true);
+                                    } catch (e_sdt) {}
+                                }
                             }
                         } catch (e_si) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][two-turn] failed to set _semi_invuln: " + string(e_si)); }
                     // Request a charge animation if available and return the 'used' dialog
@@ -526,6 +734,17 @@ function __battle_perform_action_impl(_pid, _step){
     // If this is Thrash (id 37) mark that the actor executed the locked move
     try { if (is_real(move_id) && move_id == 37 && is_struct(A)) { variable_struct_set(A, "_locked_move_executed", true); } } catch (e_lf) {}
     var resf = __battle_apply_move_damage(_pid, target_idx, A, D, move_id, mv_power);
+        var _semi_blocked = false;
+        try {
+            var _Bsemi_chk = __battle_ensure_slot(_pid);
+            if (is_struct(_Bsemi_chk) && variable_struct_exists(_Bsemi_chk, "__semi_guard_blocked") && variable_struct_get(_Bsemi_chk, "__semi_guard_blocked") == true){
+                _semi_blocked = true;
+                variable_struct_set(_Bsemi_chk, "__semi_guard_blocked", false);
+            }
+        } catch (e_sflag) { _semi_blocked = false; }
+        if (_semi_blocked){
+            return "";
+        }
         var dmgh = (is_array(resf) ? resf[0] : 0);
         try { __battle_apply_move_meta_effects(_pid, _step, A, D, move_id, dmgh, mm_local); } catch (e_meta) {}
 

@@ -68,6 +68,76 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
     }
     _pid = _pid_local;
 
+    // Semi-invulnerable guard: prevent damage unless the attacking move is one of the
+    // explicit counters (e.g., Gust vs Fly, Earthquake vs Dig). When the counter move
+    // connects, it should deal amplified damage just like the mainline games.
+    var _semi_mult = 1.0;
+    try {
+        if (is_struct(_D) && variable_struct_exists(_D, "_semi_invuln") && !is_undefined(variable_struct_get(_D, "_semi_invuln"))){
+            var _phase_raw = variable_struct_get(_D, "_semi_invuln");
+            var _phase = string_lower(string(_phase_raw));
+            var _move_name_lower = "";
+            if (is_real(_move_id)){
+                try {
+                    if (!is_undefined(scr_move_name_by_id)) _move_name_lower = string_lower(string(scr_move_name_by_id(_move_id)));
+                } catch (e_mn) { _move_name_lower = ""; }
+                if (string_length(_move_name_lower) <= 0){
+                    try {
+                        if (variable_global_exists("_moves") && is_array(global._moves) && _move_id >= 0 && _move_id < array_length(global._moves)){
+                            var _mref = global._moves[_move_id];
+                            if (is_struct(_mref) && variable_struct_exists(_mref, "identifier")){
+                                _move_name_lower = string_lower(string(variable_struct_get(_mref, "identifier")));
+                            }
+                        }
+                    } catch (e_mid) { _move_name_lower = ""; }
+                }
+            }
+            var _target_name = (variable_struct_exists(_D, "name") ? string(variable_struct_get(_D, "name")) : "The target");
+            var _attacker_name = (is_struct(_A) && variable_struct_exists(_A, "name") ? string(variable_struct_get(_A, "name")) : "The attacker");
+            var _state_msg = "";
+            var _allow_hit = false;
+
+            if (_phase == "fly" || _phase == "bounce" || _phase == "skydrop"){
+                if (string_pos("gust", _move_name_lower) > 0 || string_pos("twister", _move_name_lower) > 0){
+                    _allow_hit = true;
+                    _semi_mult = 2.0;
+                }
+                _state_msg = _target_name + " is high in the sky!";
+            } else if (_phase == "dig"){
+                if (string_pos("earthquake", _move_name_lower) > 0 || string_pos("magnitude", _move_name_lower) > 0){
+                    _allow_hit = true;
+                    _semi_mult = 2.0;
+                }
+                _state_msg = _target_name + " is underground!";
+            } else if (_phase == "dive"){
+                if (string_pos("surf", _move_name_lower) > 0 || string_pos("whirlpool", _move_name_lower) > 0){
+                    _allow_hit = true;
+                    _semi_mult = 2.0;
+                }
+                _state_msg = _target_name + " is deep underwater!";
+            } else if (_phase == "vanish"){
+                _allow_hit = false;
+                _state_msg = _target_name + " vanished instantly!";
+            }
+
+            if (!_allow_hit){
+                if (string_length(_state_msg) > 0){
+                    if (!is_undefined(dialog_queue)) dialog_queue(_state_msg);
+                    else if (!is_undefined(dialog2p_show_now)) try { dialog2p_show_now(_pid, _state_msg); } catch (e_msg1) {}
+                }
+                var _miss_msg = _attacker_name + "'s attack missed!";
+                if (!is_undefined(dialog_queue)) dialog_queue(_miss_msg);
+                else if (!is_undefined(dialog2p_show_now)) try { dialog2p_show_now(_pid, _miss_msg); } catch (e_msg2) {}
+                try {
+                    var _Bsemi_flag = __battle_ensure_slot(_pid);
+                    if (is_struct(_Bsemi_flag)) variable_struct_set(_Bsemi_flag, "__semi_guard_blocked", true);
+                } catch (e_flag) {}
+                var _hp_guard = __battle_hp_now(_D);
+                return [0, _hp_guard, _hp_guard];
+            }
+        }
+    } catch (e_semi_guard){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][semi] guard apply_damage failed: " + string(e_semi_guard)); }
+
     // Check for OHKO (one-hit KO) move meta first. This implements Sheer Cold / Fissure / Guillotine/Horn Drill style behavior.
     try {
         var oh = undefined;
@@ -319,6 +389,21 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
             return [0, before, before];
         }
     } catch (e_guard) { /* silently continue to apply damage if guard fails */ }
+
+    // Apply any semi-invulnerable hit multiplier after all move-specific overrides.
+    try {
+            var _has_tmp_mult = false;
+            try {
+                if (is_struct(_A) && variable_struct_exists(_A, "__semi_mult_tmp") && !is_undefined(variable_struct_get(_A, "__semi_mult_tmp"))){
+                    _has_tmp_mult = true;
+                }
+            } catch (e_chk) { _has_tmp_mult = false; }
+            if (!_has_tmp_mult){
+                if (is_real(_semi_mult) && _semi_mult > 1.0 && is_real(dmg) && dmg > 0){
+                    dmg = round(dmg * _semi_mult);
+                }
+            }
+    } catch (e_semimul) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][semi] multiplier apply failed: " + string(e_semimul)); }
 
     // Apply damage (this will update hp_now). Pass effectiveness multiplier so SFX choice can match.
     __battle_apply_damage(_pid, _target_index, dmg, mult);

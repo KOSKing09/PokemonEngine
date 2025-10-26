@@ -57,8 +57,141 @@ try { if (!variable_global_exists("MOVE_FLAG_DISABLE")) variable_global_set("MOV
 try { if (!variable_global_exists("MOVE_FLAG_DRAIN")) variable_global_set("MOVE_FLAG_DRAIN", 2); } catch (e) {}
 
 // Safe no-op stubs for optional functions referenced by battle code.
-try { if (is_undefined("__battle_apply_disable") || is_undefined(__battle_apply_disable)) function __battle_apply_disable(_target, _move) { /* noop fallback */ } } catch (e) {}
-try { if (is_undefined("__battle_apply_status_move") || is_undefined(__battle_apply_status_move)) function __battle_apply_status_move(_pid, _user, _target, _move) { /* noop fallback */ } } catch (e) {}
+try {
+    if (is_undefined("__battle_clear_disable") || is_undefined(__battle_clear_disable))
+    function __battle_clear_disable(_actor){
+        if (!is_struct(_actor)) return;
+        try { variable_struct_set(_actor, "sys_disabledMove", undefined); } catch (e_cl1) {}
+        try { variable_struct_set(_actor, "sys_disabledTurns", 0); } catch (e_cl2) {}
+        try { variable_struct_set(_actor, "sys_disabledExpiresTurn", undefined); } catch (e_cl3) {}
+        try { variable_struct_set(_actor, "sys_disabledSource", undefined); } catch (e_cl4) {}
+        try { variable_struct_set(_actor, "sys_disabledAppliedTurn", undefined); } catch (e_cl5) {}
+        try { variable_struct_set(_actor, "sys_disabledActive", false); } catch (e_cl6) {}
+        try { variable_struct_set(_actor, "sys_disabled_notified_clear", true); } catch (e_cl7) {}
+    }
+} catch (e_cd) {}
+
+try {
+    if (is_undefined("__battle_apply_disable") || is_undefined(__battle_apply_disable))
+    function __battle_apply_disable(_pid, _user, _target, _move){
+        if (!is_struct(_target)) return false;
+
+        // If the target already has an active Disable effect, fail to extend it.
+        try {
+            if (variable_struct_exists(_target, "sys_disabledActive") && variable_struct_get(_target, "sys_disabledActive") == true){
+                return false;
+            }
+        } catch (e_chk_active) {}
+
+        // Locate the most recent move the target executed; Disable fails without a reference.
+        var _last_move = undefined;
+        try {
+            if (variable_struct_exists(_target, "_last_moves") && is_array(variable_struct_get(_target, "_last_moves"))){
+                var _hist = variable_struct_get(_target, "_last_moves");
+                for (var _di = array_length(_hist) - 1; _di >= 0; --_di){
+                    var _rec = _hist[_di];
+                    if (!is_struct(_rec) || !variable_struct_exists(_rec, "move")) continue;
+                    var _mv = variable_struct_get(_rec, "move");
+                    if (is_real(_mv)){ _last_move = _mv; break; }
+                }
+            }
+        } catch (e_hist) { _last_move = undefined; }
+        if (!is_real(_last_move)) return false;
+
+        // Determine the active battle turn so we can set an expiry.
+        var _turn_now = 0;
+        try {
+            var _Bslot = __battle_ensure_slot(_pid);
+            if (is_struct(_Bslot) && variable_struct_exists(_Bslot, "turn_i")){
+                _turn_now = max(0, floor(variable_struct_get(_Bslot, "turn_i")));
+            }
+        } catch (e_turn) { _turn_now = 0; }
+
+        // Duration in Gen3: 4-7 turns inclusive. Ensure minimum duration of 4 turns.
+        var _duration = irandom_range(4, 7);
+        if (_duration < 4) _duration = 4;
+        var _expire_turn = _turn_now + _duration;
+
+        // Clear any stale disable data before applying a fresh one.
+        __battle_clear_disable(_target);
+
+        try { variable_struct_set(_target, "sys_disabledMove", _last_move); } catch (e_dm1) {}
+        try { variable_struct_set(_target, "sys_disabledTurns", _duration); } catch (e_dm2) {}
+        try { variable_struct_set(_target, "sys_disabledExpiresTurn", _expire_turn); } catch (e_dm3) {}
+        try { variable_struct_set(_target, "sys_disabledSource", _move); } catch (e_dm4) {}
+        try { variable_struct_set(_target, "sys_disabledAppliedTurn", _turn_now); } catch (e_dm5) {}
+        try { variable_struct_set(_target, "sys_disabledActive", true); } catch (e_dm6) {}
+        try { variable_struct_set(_target, "sys_disabled_notified_clear", false); } catch (e_dm7) {}
+        return true;
+    }
+} catch (e) {}
+
+try {
+    if (is_undefined("__battle_apply_status_move") || is_undefined(__battle_apply_status_move))
+    function __battle_apply_status_move(_pid, _user, _target, _move){
+        if (!is_real(_move)) return false;
+
+        // Resolve current turn counter for streak/expiry tracking.
+        var _turn_now = 0;
+        try {
+            var _Bslot = __battle_ensure_slot(_pid);
+            if (is_struct(_Bslot) && variable_struct_exists(_Bslot, "turn_i")){
+                _turn_now = max(0, floor(variable_struct_get(_Bslot, "turn_i")));
+            }
+        } catch (e_turn) { _turn_now = 0; }
+
+        switch (_move){
+            case 182: // Protect
+            case 197: // Detect shares Protect rules
+                if (!is_struct(_user)) return false;
+
+                var _last_turn = (variable_struct_exists(_user, "sys_protect_last_turn") ? variable_struct_get(_user, "sys_protect_last_turn") : -999);
+                var _streak_prev = (variable_struct_exists(_user, "sys_protect_streak") ? max(0, real(variable_struct_get(_user, "sys_protect_streak"))) : 0);
+                var _consecutive = 1;
+                if (is_real(_last_turn) && _turn_now - _last_turn <= 1 && _streak_prev > 0){
+                    _consecutive = max(1, _streak_prev + 1);
+                }
+
+                // Base success 100%, subsequent consecutive uses succeed at 1/3, 1/9, ...
+                var _success = true;
+                if (_consecutive > 1){
+                    var _chance = power(1.0/3.0, _consecutive - 1);
+                    if (random(1) >= _chance) _success = false;
+                }
+
+                try { variable_struct_set(_user, "sys_protect_last_turn", _turn_now); } catch (e_lp) {}
+
+                if (!_success){
+                    var _fail_name = (variable_struct_exists(_user, "name") ? string(variable_struct_get(_user, "name")) : "The user");
+                    var _fail_move = "Protect";
+                    try { _fail_move = __battle_move_name_impl(_move); } catch (e_fn) {}
+                    dialog_queue(_fail_name + "'s " + string(_fail_move) + " failed!");
+                    try { variable_struct_set(_user, "sys_protect_streak", 0); } catch (e_rstreak) {}
+                    try { variable_struct_set(_user, "sys_protected", false); } catch (e_pf) {}
+                    try { variable_struct_set(_user, "_protected", false); } catch (e_pf2) {}
+                    try { variable_struct_set(_user, "sys_protected_turn", undefined); } catch (e_pf3) {}
+                    try { variable_struct_set(_user, "sys_protected_source_move", undefined); } catch (e_pf4) {}
+                    return false;
+                }
+
+                try { variable_struct_set(_user, "sys_protect_streak", _consecutive); } catch (e_sp) {}
+                try { variable_struct_set(_user, "sys_protected", true); } catch (e_p1) {}
+                try { variable_struct_set(_user, "_protected", true); } catch (e_p2) {}
+                try { variable_struct_set(_user, "_protected_announce_shown", false); } catch (e_p3) {}
+                try { variable_struct_set(_user, "sys_protected_turn", _turn_now); } catch (e_p4) {}
+                try { variable_struct_set(_user, "sys_protected_source_move", _move); } catch (e_p5) {}
+                return true;
+
+            default:
+                break;
+        }
+
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+            show_debug_message("[battle][status_move] no handler for move=" + string(_move));
+        }
+        return false;
+    }
+} catch (e) {}
 try { if (is_undefined("scr_move_meta_ailment_to_name") || is_undefined(scr_move_meta_ailment_to_name)) function scr_move_meta_ailment_to_name(_id) { return undefined; } } catch (e) {}
 
 
@@ -520,6 +653,67 @@ function __battle_apply_move(_pid, _user, _target, _move){
     var FLAG_DISABLE = (variable_global_exists("MOVE_FLAG_DISABLE") ? variable_global_get("MOVE_FLAG_DISABLE") : 1);
     var FLAG_DRAIN = (variable_global_exists("MOVE_FLAG_DRAIN") ? variable_global_get("MOVE_FLAG_DRAIN") : 2);
 
+    var _moveEntry = undefined;
+    try {
+        if (variable_global_exists("_moves") && is_array(global._moves) && is_real(_move) && _move >= 0 && _move < array_length(global._moves)){
+            _moveEntry = global._moves[_move];
+        }
+    } catch (e_me) { _moveEntry = undefined; }
+    var _moveIdent = "";
+    try { if (is_struct(_moveEntry) && variable_struct_exists(_moveEntry, "identifier")) _moveIdent = string_lower(string(variable_struct_get(_moveEntry, "identifier"))); } catch (e_ident) { _moveIdent = ""; }
+
+    var _is_disable_move = (is_real(_move) && _move == 50) || (_moveIdent == "disable");
+    var _is_protect_like = (is_real(_move) && (_move == 182 || _move == 197));
+
+    var _turn_now = 0;
+    try {
+        var _slot_turn = __battle_ensure_slot(_pid);
+        if (is_struct(_slot_turn) && variable_struct_exists(_slot_turn, "turn_i")){
+            _turn_now = max(0, floor(variable_struct_get(_slot_turn, "turn_i")));
+        }
+    } catch (e_turn_lookup) { _turn_now = 0; }
+
+    // Clear expired Protect/Disable state on the acting user before processing their new move.
+    if (is_struct(_user)){
+        // Protect persistence only lasts through the turn it was applied.
+        try {
+            var _prot_turn = (variable_struct_exists(_user, "sys_protected_turn") ? variable_struct_get(_user, "sys_protected_turn") : undefined);
+            if (is_real(_prot_turn) && _turn_now > _prot_turn){
+                variable_struct_set(_user, "sys_protected", false);
+                variable_struct_set(_user, "_protected", false);
+            }
+        } catch (e_clear_prot) {}
+
+        if (!_is_protect_like){
+            try { variable_struct_set(_user, "sys_protect_streak", 0); } catch (e_rstreak) {}
+        }
+
+        // Maintain Disable countdown/expiry on the acting user.
+        var _disableExpire = undefined;
+        var _disableActive = false;
+        try { if (variable_struct_exists(_user, "sys_disabledExpiresTurn")) _disableExpire = variable_struct_get(_user, "sys_disabledExpiresTurn"); } catch (e_de) {}
+        try { if (variable_struct_exists(_user, "sys_disabledActive")) _disableActive = (variable_struct_get(_user, "sys_disabledActive") == true); } catch (e_da) { _disableActive = false; }
+        if (is_real(_disableExpire) && _disableActive){
+            var _disableNotified = false;
+            try { if (variable_struct_exists(_user, "sys_disabled_notified_clear")) _disableNotified = (variable_struct_get(_user, "sys_disabled_notified_clear") == true); } catch (e_notf) { _disableNotified = false; }
+            if (_turn_now >= _disableExpire){
+                if (!_disableNotified){
+                    var _uname_clear = (variable_struct_exists(_user, "name") ? string(variable_struct_get(_user, "name")) : "The Pokémon");
+                    dialog_queue(_uname_clear + " is no longer disabled!");
+                }
+                __battle_clear_disable(_user);
+            } else {
+                var _remaining = max(0, _disableExpire - _turn_now);
+                try { variable_struct_set(_user, "sys_disabledTurns", _remaining); } catch (e_rem) {}
+                try { variable_struct_set(_user, "sys_disabled_notified_clear", false); } catch (e_not_reset) {}
+            }
+        } else if (!is_real(_disableExpire) || !_disableActive){
+            __battle_clear_disable(_user);
+        }
+    }
+
+    if (_is_disable_move) _flags |= FLAG_DISABLE;
+
     // === DISABLED MOVE ===
     var _disabledMove = undefined;
     try { if (is_struct(_user) && variable_struct_exists(_user, "sys_disabledMove")) _disabledMove = variable_struct_get(_user, "sys_disabledMove"); } catch (e_dm) { _disabledMove = undefined; }
@@ -532,8 +726,6 @@ function __battle_apply_move(_pid, _user, _target, _move){
     
 
     // === COPYCAT: improved, per-target lookup (delegated to helper) ===
-    var _moveEntry = undefined;
-    try { if (variable_global_exists("_moves") && is_array(global._moves) && is_real(_move) && _move >= 0 && _move < array_length(global._moves)) _moveEntry = global._moves[_move]; } catch (e_me) { _moveEntry = undefined; }
     var _isCopycatMove = false;
     try { if (is_struct(_moveEntry) && variable_struct_exists(_moveEntry, "identifier") && string_lower(variable_struct_get(_moveEntry, "identifier")) == "copycat") _isCopycatMove = true; } catch (e_ic) { _isCopycatMove = false; }
     if (_isCopycatMove){
@@ -571,6 +763,32 @@ function __battle_apply_move(_pid, _user, _target, _move){
         try {
             var _suppress = (variable_struct_exists(_user, "_suppress_last_move_record") && variable_struct_get(_user, "_suppress_last_move_record") == true);
         } catch (e_sup2){ var _suppress = false; }
+
+        // Record per-user history so Encore/Disable/copy effects can inspect last actions.
+        try {
+            if (is_struct(_user) && is_real(_move)){
+                variable_struct_set(_user, "sys_last_move_used", _move);
+                variable_struct_set(_user, "sys_last_move_used_ts", current_time);
+                var _hist_user = [];
+                if (variable_struct_exists(_user, "_last_moves_used") && is_array(variable_struct_get(_user, "_last_moves_used"))){
+                    _hist_user = variable_struct_get(_user, "_last_moves_used");
+                }
+                var _t_idx_record = undefined;
+                if (is_struct(_target)){
+                    if (variable_struct_exists(_target, "actor_index")) _t_idx_record = variable_struct_get(_target, "actor_index");
+                    else if (variable_struct_exists(_target, "slot")) _t_idx_record = variable_struct_get(_target, "slot");
+                }
+                array_push(_hist_user, { move: _move, target: _target, target_index: _t_idx_record, ts: current_time });
+                if (array_length(_hist_user) > 8){
+                    var _start_used = array_length(_hist_user) - 8;
+                    var _trim_used = [];
+                    for (var _ui = _start_used; _ui < array_length(_hist_user); ++_ui){ array_push(_trim_used, _hist_user[_ui]); }
+                    _hist_user = _trim_used;
+                }
+                variable_struct_set(_user, "_last_moves_used", _hist_user);
+            }
+        } catch (e_user_hist){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][record_last_move][user] error=" + string(e_user_hist)); }
+
         if (!(_suppress)){
             try {
                 if (is_struct(_target)){
@@ -587,10 +805,20 @@ function __battle_apply_move(_pid, _user, _target, _move){
         }
     }
 
+    if (_is_protect_like){
+        __battle_apply_status_move(_pid, _user, _target, _move);
+        return;
+    }
+
     // === DISABLE FLAG ===
-    if (_flags & FLAG_DISABLE){
-        __battle_apply_disable(_target, _move);
-        dialog_queue(_target.name + " was disabled!");
+    if ((_flags & FLAG_DISABLE) != 0){
+        var _disabled_ok = __battle_apply_disable(_pid, _user, _target, _move);
+        if (_disabled_ok){
+            var _tname_disable = (is_struct(_target) && variable_struct_exists(_target, "name") ? string(variable_struct_get(_target, "name")) : "The target");
+            dialog_queue(_tname_disable + " was disabled!");
+        } else {
+            dialog_queue("But it failed!");
+        }
         return;
     }
 
@@ -598,8 +826,21 @@ function __battle_apply_move(_pid, _user, _target, _move){
     var _t_protected = false;
     try { if (is_struct(_target) && variable_struct_exists(_target, "sys_protected") && variable_struct_get(_target, "sys_protected") == true) _t_protected = true; } catch (e_tp) { _t_protected = false; }
     if (_t_protected){
+        try {
+            if (is_real(_move) && (_move == 467 || _move == 566)){
+                _t_protected = false;
+                try { variable_struct_set(_target, "sys_protected", false); } catch (e_bp) {}
+            }
+        } catch (e_pf) {}
+    }
+    if (_t_protected){
         var _tname = (is_struct(_target) && variable_struct_exists(_target, "name") ? variable_struct_get(_target, "name") : "The target");
-        dialog_queue(_tname + " protected itself!");
+        var _mv_blocked_name = (is_struct(_moveEntry) && variable_struct_exists(_moveEntry, "name") ? string(variable_struct_get(_moveEntry, "name")) : move_get_name(_move));
+        if (!is_string(_mv_blocked_name) || string_length(_mv_blocked_name) <= 0) _mv_blocked_name = "The move";
+        dialog_queue(_mv_blocked_name + " had no effect!");
+        try { variable_struct_set(_target, "sys_protected", false); } catch (e_cpflag) {}
+        try { variable_struct_set(_target, "_protected", false); } catch (e_cpflag2) {}
+        try { variable_struct_set(_target, "sys_protected_turn", undefined); } catch (e_cpflag3) {}
         return;
     }
 
@@ -610,16 +851,24 @@ function __battle_apply_move(_pid, _user, _target, _move){
             var _phase = string_lower(string(variable_struct_get(_target, "_semi_invuln")));
             var _mname = string_lower(__battle_move_name(_move));
             var _allow = false; var _mult = 1.0;
-            if (_phase == "fly"){
+            var _state_msg = "";
+            var _target_name_si = (is_struct(_target) && variable_struct_exists(_target, "name") ? string(variable_struct_get(_target, "name")) : "The target");
+            if (_phase == "fly" || _phase == "bounce" || _phase == "skydrop"){
                 if (string_pos("gust", _mname) > 0 || string_pos("twister", _mname) > 0) { _allow = true; _mult = 2.0; }
+                _state_msg = _target_name_si + " is high in the sky!";
             } else if (_phase == "dig"){
                 if (string_pos("earthquake", _mname) > 0 || string_pos("magnitude", _mname) > 0) { _allow = true; _mult = 2.0; }
+                _state_msg = _target_name_si + " is underground!";
             } else if (_phase == "dive"){
                 if (string_pos("surf", _mname) > 0 || string_pos("whirlpool", _mname) > 0) { _allow = true; _mult = 2.0; }
-            } else if (_phase == "bounce"){
-                if (string_pos("gust", _mname) > 0 || string_pos("twister", _mname) > 0) { _allow = true; _mult = 2.0; }
+                _state_msg = _target_name_si + " is deep underwater!";
+            } else if (_phase == "vanish"){
+                // Shadow Force / Phantom Force vanish state: no standard moves can connect.
+                _allow = false;
+                _state_msg = _target_name_si + " vanished instantly!";
             }
             if (!_allow){
+                if (is_string(_state_msg) && string_length(_state_msg) > 0) dialog_queue(_state_msg);
                 dialog_queue(_user.name + "'s attack missed!");
                 return;
             } else {

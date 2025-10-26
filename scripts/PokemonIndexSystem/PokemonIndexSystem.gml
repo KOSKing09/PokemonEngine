@@ -499,5 +499,10 @@ function scr_move_priority_by_id(_mid) {
     if (is_struct(mv) && variable_struct_exists(mv, "priority") && is_real(mv.priority)) {
         return real(mv.priority);
     }
+    switch (_mid) {
+        case 182: // Protect
+        case 197: // Detect
+            return 4;
+    }
     return 0;
 }
