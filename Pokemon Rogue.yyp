@@ -261,6 +261,7 @@
     {"id":{"name":"battle_system","path":"scripts/battle_system/battle_system.yy",},},
     {"id":{"name":"battle_trainer","path":"scripts/battle_trainer/battle_trainer.yy",},},
     {"id":{"name":"battle_ui","path":"scripts/battle_ui/battle_ui.yy",},},
+    {"id":{"name":"battle_weather_helpers","path":"scripts/battle_weather_helpers/battle_weather_helpers.yy",},},
     {"id":{"name":"camera_system","path":"scripts/camera_system/camera_system.yy",},},
     {"id":{"name":"collision_system","path":"scripts/collision_system/collision_system.yy",},},
     {"id":{"name":"currency_system","path":"scripts/currency_system/currency_system.yy",},},
