@@ -246,6 +246,8 @@ function __battle_anim_queue_default_duration(_type){
         case "stat_change":
         case "stat_change_group":
             return 720;
+        case "stat_overlay":
+            return 520;
         case "set_terrain":
         case "clear_terrain":
         case "pledge_combo":
@@ -352,6 +354,16 @@ function __battle_anim_queue_normalize(_slot, _spec){
             if (is_real(_from) && is_real(_to)) _out.direction = sign(_to - _from);
             _out.stat = (variable_struct_exists(_spec, "stat") ? string(variable_struct_get(_spec, "stat")) : "");
             break;
+        case "stat_overlay":
+            _out.channel = "overlay";
+            _out.target_index = __battle_anim_queue_resolve_target_index(_slot, _spec);
+            var _frame_in = (variable_struct_exists(_spec, "frame") && is_real(variable_struct_get(_spec, "frame"))) ? floor(variable_struct_get(_spec, "frame")) : 0;
+            if (!is_real(_frame_in) || _frame_in < 0) _frame_in = 0;
+            _out.frame = _frame_in;
+            _out.darken = (variable_struct_exists(_spec, "darken") && variable_struct_get(_spec, "darken"));
+            if (variable_struct_exists(_spec, "stat_keys")) _out.keys = variable_struct_get(_spec, "stat_keys");
+            if (variable_struct_exists(_spec, "stat_deltas")) _out.deltas = variable_struct_get(_spec, "stat_deltas");
+            break;
         case "stat_change_group":
         case "heal":
         case "recoil":
@@ -420,7 +432,7 @@ function battle_anim_queue_enqueue(_pid_or_slot, _spec){
     if (!is_real(_pid)) _pid = 0;
     _norm.pid = _pid;
     var _channel = string(_norm.channel);
-    if (_channel == "field" || _channel == "weather"){
+    if (_channel == "field" || _channel == "weather" || _channel == "overlay"){
         var _entry = {
             type: _norm.type,
             channel: _channel,
@@ -437,7 +449,11 @@ function battle_anim_queue_enqueue(_pid_or_slot, _spec){
             effect: (variable_struct_exists(_norm, "effect") ? _norm.effect : undefined),
             color: (variable_struct_exists(_norm, "color") ? _norm.color : undefined),
             side: (variable_struct_exists(_norm, "side") ? _norm.side : "full"),
-            weather: (variable_struct_exists(_norm, "weather") ? _norm.weather : undefined)
+            weather: (variable_struct_exists(_norm, "weather") ? _norm.weather : undefined),
+            frame: (variable_struct_exists(_norm, "frame") ? _norm.frame : undefined),
+            darken: (variable_struct_exists(_norm, "darken") ? _norm.darken : undefined),
+            stat_keys: (variable_struct_exists(_norm, "keys") ? _norm.keys : undefined),
+            stat_deltas: (variable_struct_exists(_norm, "deltas") ? _norm.deltas : undefined)
         };
         array_push(_aq.overlays, _entry);
     } else {
@@ -530,6 +546,12 @@ function __battle_anim_queue_build_draw_state(_pid, _slot, _entry){
     if (!is_struct(_entry)) return undefined;
     var _type = string(_entry.type);
     var _prog = clamp((variable_struct_exists(_entry, "progress") ? _entry.progress : 0), 0, 1);
+    if (_type == "stat_overlay"){
+        var _idx_so = (variable_struct_exists(_entry, "target_index") && is_real(_entry.target_index)) ? clamp(_entry.target_index, 0, 1) : 0;
+        var _frame_so = (variable_struct_exists(_entry, "frame") && is_real(_entry.frame)) ? clamp(floor(_entry.frame), 0, 7) : 0;
+        var _darken_so = (variable_struct_exists(_entry, "darken") && _entry.darken);
+        return { kind: "stat_overlay", target_index: _idx_so, frame: _frame_so, darken: _darken_so, progress: _prog };
+    }
     if (_type == "stat_change"){
         var _idx = (variable_struct_exists(_entry, "target_index") && is_real(_entry.target_index)) ? clamp(_entry.target_index, 0, 1) : 0;
         var _dir = (variable_struct_exists(_entry, "direction") && is_real(_entry.direction)) ? _entry.direction : 0;
@@ -601,7 +623,26 @@ function __battle_anim_queue_draw_states(_pid, _states){
         var _st = _states[_si];
         if (!is_struct(_st)) continue;
         var _kind = (variable_struct_exists(_st, "kind") ? string(_st.kind) : "");
-        if (_kind == "actor_glow"){
+        if (_kind == "stat_overlay"){
+            if (!sprite_exists(spr_stateffects)) continue;
+            var _idx_so = (variable_struct_exists(_st, "target_index") && is_real(_st.target_index)) ? clamp(_st.target_index, 0, 1) : 0;
+            var _cx_so = (_idx_so == 1 ? _enemy_cx : _player_cx);
+            var _cy_so = (_idx_so == 1 ? _enemy_cy : _player_cy);
+            var _frame_so = (variable_struct_exists(_st, "frame") && is_real(_st.frame)) ? clamp(floor(_st.frame), 0, max(0, sprite_get_number(spr_stateffects) - 1)) : 0;
+            var _darken_so = (variable_struct_exists(_st, "darken") && _st.darken);
+            var _prog_so = clamp((variable_struct_exists(_st, "progress") ? _st.progress : 0), 0, 1);
+            var _alpha_so = clamp(1 - _prog_so, 0, 1);
+            var _yoff_so = -__battle_anim_queue_hu(_pid, 16, 16) * _prog_so;
+            var _scale_so = 1;
+            var _spr_w_so = sprite_get_width(spr_stateffects);
+            if (_spr_w_so > 0) _scale_so = __battle_anim_queue_wu(_pid, 32, 32) / _spr_w_so;
+            var _color_so = (_darken_so ? make_color_rgb(96, 96, 96) : c_white);
+            gpu_set_blendmode(bm_add);
+            draw_sprite_ext(spr_stateffects, _frame_so, _cx_so, _cy_so + _yoff_so, _scale_so, _scale_so, 0, _color_so, _alpha_so);
+            gpu_set_blendmode(bm_normal);
+            draw_set_alpha(1);
+            draw_set_color(c_white);
+        } else if (_kind == "actor_glow"){
             var _idx = (variable_struct_exists(_st, "target_index") && is_real(_st.target_index)) ? clamp(_st.target_index, 0, 1) : 0;
             var _cx = (_idx == 1 ? _enemy_cx : _player_cx);
             var _cy = (_idx == 1 ? _enemy_cy : _player_cy);

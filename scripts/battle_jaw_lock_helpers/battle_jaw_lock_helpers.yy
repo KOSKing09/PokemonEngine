@@ -1,0 +1,13 @@
+{
+  "$GMScript":"v1",
+  "%Name":"battle_jaw_lock_helpers",
+  "isCompatibility":false,
+  "isDnD":false,
+  "name":"battle_jaw_lock_helpers",
+  "parent":{
+    "name":"Battle System",
+    "path":"folders/Scripts/Game/Battle System.yy",
+  },
+  "resourceType":"GMScript",
+  "resourceVersion":"2.0",
+}
