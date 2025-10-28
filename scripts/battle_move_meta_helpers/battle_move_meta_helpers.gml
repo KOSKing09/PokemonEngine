@@ -871,6 +871,8 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                 }
             } catch (e_multi) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] multi-target stat apply failed: " + string(e_multi)); }
 
+
+            // Fallback: apply stat_changes to the user (_A) for self-boosting moves like Harden
             try {
                 if (variable_struct_exists(_mm, "stat_changes") && is_array(variable_struct_get(_mm, "stat_changes"))){
                     var scs = variable_struct_get(_mm, "stat_changes");
@@ -880,31 +882,25 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                         var sid = (variable_struct_exists(rec, "stat_id") ? variable_struct_get(rec, "stat_id") : undefined);
                         var change = (variable_struct_exists(rec, "change") ? variable_struct_get(rec, "change") : undefined);
                         if (!is_real(sid) || !is_real(change)) continue;
-                        // Map stat_id to internal stage key: 1=hp,2=atk,3=def,4=spa,5=spd,6=spe, 8=??(special cases)
                         function __stat_key_by_id(_id){ switch(floor(_id)){ case 1: return "hp"; case 2: return "atk"; case 3: return "def"; case 4: return "spa"; case 5: return "spd"; case 6: return "spe"; case 7: return "accuracy"; case 8: return "evasion"; } return undefined; }
                         var sk = __stat_key_by_id(sid);
                         if (is_undefined(sk)) continue;
-                        // Target stages stored on defender (_D)
-                        if (!variable_struct_exists(_D, "_stages") || !is_struct(variable_struct_get(_D, "_stages"))) variable_struct_set(_D, "_stages", {});
-                        var stobj = variable_struct_get(_D, "_stages");
+                        // Target stages stored on user (_A)
+                        if (!variable_struct_exists(_A, "_stages") || !is_struct(variable_struct_get(_A, "_stages"))) variable_struct_set(_A, "_stages", {});
+                        var stobj = variable_struct_get(_A, "_stages");
                         var prev = (variable_struct_exists(stobj, sk) && is_real(variable_struct_get(stobj, sk))) ? variable_struct_get(stobj, sk) : 0;
                         var next = clamp(prev + floor(change), -6, 6);
                         variable_struct_set(stobj, sk, next);
-                        // Write back
-                        variable_struct_set(_D, "_stages", stobj);
-                        // Request stat-change animation for defender
-                        try { __battle_request_animation_safe(_pid, { type: "stat_change", target_index: variable_struct_exists(_D, "actor_index") ? variable_struct_get(_D, "actor_index") : (variable_struct_exists(_D, "slot") ? variable_struct_get(_D, "slot") : undefined), stat: sk, from: prev, to: next }); } catch (e_req) {}
-                        // NOTE: stat SFX playback is handled at dialog-time to ensure a
-                        // single one-shot sound when the stat-change message appears.
-                        // This avoids duplicate playback from multiple code paths.
-                        // Enqueue concise stat message
+                        variable_struct_set(_A, "_stages", stobj);
+                        // Request stat-change animation for user
+                        try { __battle_request_animation_safe(_pid, { type: "stat_change", target_index: variable_struct_exists(_A, "actor_index") ? variable_struct_get(_A, "actor_index") : (variable_struct_exists(_A, "slot") ? variable_struct_get(_A, "slot") : undefined), stat: sk, from: prev, to: next }); } catch (e_req) {}
                         try {
-                            var aname = (variable_struct_exists(_D, "name") ? variable_struct_get(_D, "name") : "The Pokémon");
+                            var aname = (variable_struct_exists(_A, "name") ? variable_struct_get(_A, "name") : "The Pokémon");
                             var applied_amt = next - prev; var sign_amt = (applied_amt > 0) ? ("+" + string(applied_amt)) : string(applied_amt);
                             var sc_msg = "";
-                            if (applied_amt == 0) sc_msg = string(aname) + "'s " + string_upper(string(sk)) + " won't go any lower!";
+                            if (applied_amt == 0) sc_msg = string(aname) + "'s " + string_upper(string(sk)) + " won't go any higher!";
                             else sc_msg = string(aname) + " " + string_upper(string(sk)) + " " + string(sign_amt);
-                            var _target_mon_ref = _D; if (is_struct(_D) && variable_struct_exists(_D, "mon") && is_struct(variable_struct_get(_D, "mon"))) _target_mon_ref = variable_struct_get(_D, "mon");
+                            var _target_mon_ref = _A; if (is_struct(_A) && variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon"))) _target_mon_ref = variable_struct_get(_A, "mon");
                             if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_target_mon_ref, sc_msg);
                         } catch (e_msg) {}
                         try { var _B2 = __battle_ensure_slot(_pid); if (is_struct(_B2)) variable_struct_set(_B2, "_meta_effect_applied", true); } catch (e_b2) {}
