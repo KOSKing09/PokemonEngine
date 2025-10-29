@@ -28,6 +28,9 @@ if (!variable_global_exists("__battle_trigger_stat_overlay")){
     if (_scr_stat_overlay != -1) script_execute(_scr_stat_overlay);
 }
 
+// Stat overlay trigger is provided by `battle_state_overlay` script when available.
+// If that script isn't present, no fallback is registered by default.
+
 // -----------------------------------------------------------------------------
 // CALLS you�ll use in objects:
 //   battle_open(pid, wild_level[, area_type_or_opts[, opts]]);
@@ -1979,6 +1982,34 @@ function battle_update(_pid){
                                     try { __battle_play_one_shot(_psnd); } catch (e_pst) {}
                                 }
                             }
+                            // Also, if there are any pending stat overlays queued at apply-time,
+                            // consume and trigger them now so the tiled overlay animates together
+                            // with the dialog being shown.
+                            try {
+                                var _B_now = __battle_ensure_slot(_pid);
+                                if (is_struct(_B_now) && variable_struct_exists(_B_now, "_pending_stat_overlays") && is_array(variable_struct_get(_B_now, "_pending_stat_overlays"))){
+                                    var _po_arr = variable_struct_get(_B_now, "_pending_stat_overlays");
+                                    var _to_consume = (is_struct(pack) && variable_struct_exists(pack, "consumed") && is_real(variable_struct_get(pack, "consumed"))) ? max(1, floor(variable_struct_get(pack, "consumed"))) : 1;
+                                    // Debug: report how many pending overlays exist and how many we will consume
+                                    try { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][stat_overlay] pending count=" + string(array_length(_po_arr)) + ", consuming=" + string(_to_consume)); } catch (e_dbg2) {}
+                                    // Consume up to _to_consume entries, trigger overlay for each in order
+                                    var _new_po = [];
+                                    for (var _pi = 0; _pi < array_length(_po_arr); ++_pi){
+                                        if (_pi < _to_consume){
+                                            var _ent = _po_arr[_pi];
+                                            try {
+                                                if (!is_undefined(__battle_trigger_stat_overlay)){
+                                                    try { __battle_trigger_stat_overlay(_pid, _ent.actor, _ent.overlay_changes, _ent.actor_idx); } catch (e_tr) {}
+                                                    try { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][stat_overlay] triggered for pid=" + string(_pid) + ", actor_idx=" + string(_ent.actor_idx) + ", changes=" + string(_ent.overlay_changes)); } catch(e_dbg3) {}
+                                                }
+                                            } catch (e_tr_outer) {}
+                                        } else {
+                                            _new_po[array_length(_new_po)] = _po_arr[_pi];
+                                        }
+                                    }
+                                    variable_struct_set(_B_now, "_pending_stat_overlays", _new_po);
+                                }
+                            } catch (e_po_cons) {}
                         } catch (e_pp) {}
                         dialog2p_show_now(_pid, _text_to_show);
                     } catch (e_p) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][pending_status] failed to show: " + string(e_p)); }
@@ -2274,6 +2305,14 @@ function battle_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     draw_rectangle(__bxu(_pid,0), __byu(_pid,0), __bxu(_pid,240), __byu(_pid,160), false);
 
     __battle_draw_battlers(_pid, _B);
+    // Draw queued animation states (overlays, field/weather effects) produced by the
+    // battle animation queue. This ensures stat_overlay entries are rendered.
+    if (!is_undefined(battle_anim_queue_get_states) && !is_undefined(__battle_anim_queue_draw_states)){
+        try {
+            var __aq_states = battle_anim_queue_get_states(_pid);
+            __battle_anim_queue_draw_states(_pid, __aq_states);
+        } catch (e_drawaq) {}
+    }
     // Optional intro sprite animations hook: draw during intro phases
     if (!is_undefined(__battle_intro_draw)){
         var _phname = (variable_struct_exists(_B, "phase") ? string(_B.phase) : "");

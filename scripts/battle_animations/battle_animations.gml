@@ -129,7 +129,8 @@ function battle_cam_pan_to_offset(_pid, _offset_x, _offset_y, _duration){
     var _cam = battle_cam_ensure(_slot);
     if (!is_struct(_cam)) return false;
     var _pan = _cam.pan_state;
-    if (!is_struct(_pan)) _pan = { active: false, start_ms: 0, duration: 0, from_x: _cam.hold_x, from_y: _cam.hold_y, to_x: _cam.hold_x, to_y: _cam.hold_y };
+        var _pan = _cam.pan_state;
+        if (!is_struct(_pan)) _pan = { active: false, start_ms: 0, duration: 0, from_x: _cam.hold_x, from_y: _cam.hold_y, to_x: _cam.hold_x, to_y: _cam.hold_y };
     _pan.active = true;
     _pan.start_ms = current_time;
     _pan.duration = max(1, is_real(_duration) ? floor(_duration) : 280);
@@ -361,6 +362,10 @@ function __battle_anim_queue_normalize(_slot, _spec){
             if (!is_real(_frame_in) || _frame_in < 0) _frame_in = 0;
             _out.frame = _frame_in;
             _out.darken = (variable_struct_exists(_spec, "darken") && variable_struct_get(_spec, "darken"));
+            // propagate optional visual flags from the spec so the draw-state can honor them
+            _out.bg = (variable_struct_exists(_spec, "bg") && variable_struct_get(_spec, "bg"));
+            if (variable_struct_exists(_spec, "direction")) _out.direction = variable_struct_get(_spec, "direction");
+            if (variable_struct_exists(_spec, "bg_loops") && is_real(variable_struct_get(_spec, "bg_loops"))) _out.bg_loops = floor(variable_struct_get(_spec, "bg_loops"));
             if (variable_struct_exists(_spec, "stat_keys")) _out.keys = variable_struct_get(_spec, "stat_keys");
             if (variable_struct_exists(_spec, "stat_deltas")) _out.deltas = variable_struct_get(_spec, "stat_deltas");
             break;
@@ -452,6 +457,8 @@ function battle_anim_queue_enqueue(_pid_or_slot, _spec){
             weather: (variable_struct_exists(_norm, "weather") ? _norm.weather : undefined),
             frame: (variable_struct_exists(_norm, "frame") ? _norm.frame : undefined),
             darken: (variable_struct_exists(_norm, "darken") ? _norm.darken : undefined),
+            bg: (variable_struct_exists(_norm, "bg") ? _norm.bg : undefined),
+            bg_loops: (variable_struct_exists(_norm, "bg_loops") ? _norm.bg_loops : undefined),
             stat_keys: (variable_struct_exists(_norm, "keys") ? _norm.keys : undefined),
             stat_deltas: (variable_struct_exists(_norm, "deltas") ? _norm.deltas : undefined)
         };
@@ -550,7 +557,13 @@ function __battle_anim_queue_build_draw_state(_pid, _slot, _entry){
         var _idx_so = (variable_struct_exists(_entry, "target_index") && is_real(_entry.target_index)) ? clamp(_entry.target_index, 0, 1) : 0;
         var _frame_so = (variable_struct_exists(_entry, "frame") && is_real(_entry.frame)) ? clamp(floor(_entry.frame), 0, 7) : 0;
         var _darken_so = (variable_struct_exists(_entry, "darken") && _entry.darken);
-        return { kind: "stat_overlay", target_index: _idx_so, frame: _frame_so, darken: _darken_so, progress: _prog };
+        // Include optional fields so draw code can access bg mode, direction and loop count
+        var _bg_so = (variable_struct_exists(_entry, "bg") && _entry.bg);
+        var _dir_so = (variable_struct_exists(_entry, "direction") && is_real(_entry.direction)) ? _entry.direction : 0;
+        var _stat_keys_so = (variable_struct_exists(_entry, "stat_keys") ? _entry.stat_keys : undefined);
+        var _stat_deltas_so = (variable_struct_exists(_entry, "stat_deltas") ? _entry.stat_deltas : undefined);
+        var _bg_loops_so = (variable_struct_exists(_entry, "bg_loops") && is_real(_entry.bg_loops)) ? max(0, floor(_entry.bg_loops)) : undefined;
+        return { kind: "stat_overlay", target_index: _idx_so, frame: _frame_so, darken: _darken_so, progress: _prog, bg: _bg_so, direction: _dir_so, stat_keys: _stat_keys_so, stat_deltas: _stat_deltas_so, bg_loops: _bg_loops_so };
     }
     if (_type == "stat_change"){
         var _idx = (variable_struct_exists(_entry, "target_index") && is_real(_entry.target_index)) ? clamp(_entry.target_index, 0, 1) : 0;
@@ -559,19 +572,19 @@ function __battle_anim_queue_build_draw_state(_pid, _slot, _entry){
         var _col_down = make_color_rgb(255, 168, 84);
         var _col_neutral = make_color_rgb(220, 220, 220);
         var _col_sc = (_dir > 0 ? _col_up : (_dir < 0 ? _col_down : _col_neutral));
-    return { kind: "actor_glow", target_index: _idx, color: _col_sc, alpha: 0.65 * (1 - _prog * 0.65), radius: __battle_anim_queue_wu(_pid, 44), progress: _prog };
+    return { kind: "actor_glow", target_index: _idx, color: _col_sc, alpha: 0.45 * (1 - _prog * 0.65), radius: __battle_anim_queue_wu(_pid, 44), progress: _prog };
     }
     if (_type == "stat_change_group"){
         var _idxg = (variable_struct_exists(_entry, "target_index") && is_real(_entry.target_index)) ? clamp(_entry.target_index, 0, 1) : 0;
-    return { kind: "actor_glow", target_index: _idxg, color: make_color_rgb(248, 220, 120), alpha: 0.55 * (1 - _prog * 0.7), radius: __battle_anim_queue_wu(_pid, 48), progress: _prog };
+    return { kind: "actor_glow", target_index: _idxg, color: make_color_rgb(248, 220, 120), alpha: 0.4 * (1 - _prog * 0.7), radius: __battle_anim_queue_wu(_pid, 48), progress: _prog };
     }
     if (_type == "heal"){
         var _idxh = (variable_struct_exists(_entry, "target_index") && is_real(_entry.target_index)) ? clamp(_entry.target_index, 0, 1) : 0;
-    return { kind: "actor_glow", target_index: _idxh, color: make_color_rgb(120, 230, 150), alpha: 0.6 * (1 - _prog * 0.8), radius: __battle_anim_queue_wu(_pid, 42), progress: _prog };
+    return { kind: "actor_glow", target_index: _idxh, color: make_color_rgb(120, 230, 150), alpha: 0.4 * (1 - _prog * 0.8), radius: __battle_anim_queue_wu(_pid, 42), progress: _prog };
     }
     if (_type == "recoil"){
         var _idxr = (variable_struct_exists(_entry, "target_index") && is_real(_entry.target_index)) ? clamp(_entry.target_index, 0, 1) : 0;
-    return { kind: "actor_glow", target_index: _idxr, color: make_color_rgb(255, 120, 120), alpha: 0.7 * (1 - _prog * 0.7), radius: __battle_anim_queue_wu(_pid, 40), progress: _prog };
+    return { kind: "actor_glow", target_index: _idxr, color: make_color_rgb(255, 120, 120), alpha: 0.45 * (1 - _prog * 0.7), radius: __battle_anim_queue_wu(_pid, 40), progress: _prog };
     }
     if (_type == "guard_split" || _type == "imprison" || _type == "cure_party"){
         var _idxs = (variable_struct_exists(_entry, "target_index") && is_real(_entry.target_index)) ? clamp(_entry.target_index, 0, 1) : 0;
@@ -631,15 +644,62 @@ function __battle_anim_queue_draw_states(_pid, _states){
             var _frame_so = (variable_struct_exists(_st, "frame") && is_real(_st.frame)) ? clamp(floor(_st.frame), 0, max(0, sprite_get_number(spr_stateffects) - 1)) : 0;
             var _darken_so = (variable_struct_exists(_st, "darken") && _st.darken);
             var _prog_so = clamp((variable_struct_exists(_st, "progress") ? _st.progress : 0), 0, 1);
-            var _alpha_so = clamp(1 - _prog_so, 0, 1);
+            // Soften tiled background alpha so it isn't overwhelmingly bright
+            var _alpha_so = clamp(0.6 * (1 - _prog_so), 0, 1);
             var _yoff_so = -__battle_anim_queue_hu(_pid, 16, 16) * _prog_so;
             var _scale_so = 1;
             var _spr_w_so = sprite_get_width(spr_stateffects);
             if (_spr_w_so > 0) _scale_so = __battle_anim_queue_wu(_pid, 32, 32) / _spr_w_so;
             var _color_so = (_darken_so ? make_color_rgb(96, 96, 96) : c_white);
-            gpu_set_blendmode(bm_add);
-            draw_sprite_ext(spr_stateffects, _frame_so, _cx_so, _cy_so + _yoff_so, _scale_so, _scale_so, 0, _color_so, _alpha_so);
-            gpu_set_blendmode(bm_normal);
+            // If requested, draw a full-field tiled background using the same sprite frame.
+            var _bg_flag = (variable_struct_exists(_st, "bg") && _st.bg);
+            if (_bg_flag){
+                // Tile size: use same logical 32×32 tile sizing as the small overlay.
+                var _tile_w = __battle_anim_queue_wu(_pid, 32, 32);
+                var _tile_h = __battle_anim_queue_hu(_pid, 32, 32);
+                var _spr_w = _spr_w_so;
+                var _scale_tile = (_spr_w > 0) ? (_tile_w / _spr_w) : _scale_so;
+                // Directional scroll: positive direction => raise (move up), negative => lower (move down)
+                var _dir = (variable_struct_exists(_st, "direction") && is_real(_st.direction)) ? floor(_st.direction) : 0;
+                // Continuous looping scroll: run several loops across the overlay duration
+                var _loops = (variable_struct_exists(_st, "bg_loops") && is_real(_st.bg_loops)) ? max(0, floor(_st.bg_loops)) : 3; // how many tile-heights to scroll during full duration
+                var _frac = 0;
+                if (_loops > 0) {
+                    var _lp = _prog_so * _loops;
+                    _frac = _lp - floor(_lp); // fractional position within current loop (0..1)
+                }
+                var _scroll = 0;
+                if (_dir > 0) _scroll = -(_frac * _tile_h); else if (_dir < 0) _scroll = (_frac * _tile_h);
+                // Draw tiled across the full battlefield rectangle
+                // Use normal blending for the tiled background to avoid additive brightness
+                gpu_set_blendmode(bm_normal);
+                // Force full logical canvas (0..240 x 0..160) to guarantee full-screen coverage
+                var _lx = __battle_anim_queue_xu(_pid, 0);
+                var _ty0 = __battle_anim_queue_yu(_pid, 0);
+                var _rx = __battle_anim_queue_xu(_pid, 240);
+                var _by = __battle_anim_queue_yu(_pid, 160);
+                // Start one tile earlier to ensure full coverage at the left/top edges.
+                // Use floor-based alignment so floating GUI coords don't skip the first column.
+                var _start_y = _ty0 + _scroll - _tile_h;
+                var _start_x = floor(_lx / max(1, _tile_w)) * _tile_w - _tile_w;
+                // Inclusive bounds (+tile) to avoid missing the right/bottom edge due to rounding
+                var _end_x = _rx + _tile_w;
+                var _end_y = _by + _tile_h;
+                for (var _tx = _start_x; _tx <= _end_x; _tx += _tile_w){
+                    for (var _ty = _start_y; _ty <= _end_y; _ty += _tile_h){
+                        draw_sprite_ext(spr_stateffects, _frame_so, _tx + _tile_w * 0.5, _ty + _tile_h * 0.5, _scale_tile, _scale_tile, 0, _color_so, _alpha_so);
+                    }
+                }
+                gpu_set_blendmode(bm_normal);
+                draw_set_alpha(1);
+                draw_set_color(c_white);
+            } else {
+                gpu_set_blendmode(bm_normal);
+                draw_sprite_ext(spr_stateffects, _frame_so, _cx_so, _cy_so + _yoff_so, _scale_so, _scale_so, 0, _color_so, _alpha_so);
+                gpu_set_blendmode(bm_normal);
+                draw_set_alpha(1);
+                draw_set_color(c_white);
+            }
             draw_set_alpha(1);
             draw_set_color(c_white);
         } else if (_kind == "actor_glow"){
@@ -647,16 +707,19 @@ function __battle_anim_queue_draw_states(_pid, _states){
             var _cx = (_idx == 1 ? _enemy_cx : _player_cx);
             var _cy = (_idx == 1 ? _enemy_cy : _player_cy);
             var _color = (variable_struct_exists(_st, "color") ? _st.color : c_white);
-            var _alpha = clamp((variable_struct_exists(_st, "alpha") ? _st.alpha : 0.5), 0, 1);
+            var _alpha = clamp((variable_struct_exists(_st, "alpha") ? _st.alpha : 0.4), 0, 1);
             var _prog = clamp((variable_struct_exists(_st, "progress") ? _st.progress : 0), 0, 1);
-            var _radius_base = (variable_struct_exists(_st, "radius") && is_real(_st.radius)) ? _st.radius : __battle_anim_queue_wu(_pid, 40);
+            var _radius_base_w = (variable_struct_exists(_st, "radius") && is_real(_st.radius)) ? _st.radius : __battle_anim_queue_wu(_pid, 40);
+            var _radius_base_h = __battle_anim_queue_hu(_pid, 40);
             var _ease = sin(_prog * pi);
-            var _radius = _radius_base * (0.65 + 0.35 * _ease);
+            var _radius_w = _radius_base_w * (0.65 + 0.35 * _ease);
+            var _radius_h = _radius_base_h * (0.65 + 0.35 * _ease);
+            // Draw ellipses (correct aspect for non-square UI scaling)
             draw_set_alpha(_alpha);
             draw_set_color(_color);
-            draw_circle(_cx, _cy, _radius, false);
+            draw_ellipse(_cx - _radius_w, _cy - _radius_h, _cx + _radius_w, _cy + _radius_h, false);
             draw_set_alpha(_alpha * 0.45);
-            draw_circle(_cx, _cy, _radius * 0.55, false);
+            draw_ellipse(_cx - _radius_w * 0.55, _cy - _radius_h * 0.55, _cx + _radius_w * 0.55, _cy + _radius_h * 0.55, false);
             draw_set_alpha(1);
             draw_set_color(c_white);
         } else if (_kind == "field_overlay"){
@@ -664,11 +727,23 @@ function __battle_anim_queue_draw_states(_pid, _states){
             var _rect = (_side == "player" ? _field_player : (_side == "enemy" ? _field_enemy : _field_full));
             var _colorf = (variable_struct_exists(_st, "color") ? _st.color : make_color_rgb(210, 210, 210));
             var _alphaf = clamp((variable_struct_exists(_st, "alpha") ? _st.alpha : 0.45), 0, 1);
-            draw_set_alpha(_alphaf * 0.6);
+            // Tile the area using 32x32 logical tiles so edges align with the rest of the tiled overlays.
+            var _tile_w = __battle_anim_queue_wu(_pid, 32, 32);
+            var _tile_h = __battle_anim_queue_hu(_pid, 32, 32);
+            var _start_x = floor(_rect[0] / max(1, _tile_w)) * _tile_w;
+            var _start_y = floor(_rect[1] / max(1, _tile_h)) * _tile_h;
+            var _end_x = _rect[2]; var _end_y = _rect[3];
             draw_set_color(_colorf);
-            draw_rectangle(_rect[0], _rect[1], _rect[2], _rect[3], false);
+            // Fill tiles (lighter fill)
             draw_set_alpha(_alphaf * 0.35);
-            draw_rectangle(_rect[0], _rect[1], _rect[2], _rect[3], true);
+            for (var _tx = _start_x; _tx <= _end_x; _tx += _tile_w){
+                for (var _ty = _start_y; _ty <= _end_y; _ty += _tile_h){
+                    draw_rectangle(_tx, _ty, _tx + _tile_w, _ty + _tile_h, true);
+                }
+            }
+            // Draw border over tiles
+            draw_set_alpha(_alphaf * 0.6);
+            draw_rectangle(_rect[0], _rect[1], _rect[2], _rect[3], false);
             draw_set_alpha(1);
             draw_set_color(c_white);
         } else if (_kind == "hazard_overlay"){
@@ -676,9 +751,19 @@ function __battle_anim_queue_draw_states(_pid, _states){
             var _recth = (_sideh == "player" ? _field_player : (_sideh == "enemy" ? _field_enemy : _field_full));
             var _colorh = (variable_struct_exists(_st, "color") ? _st.color : make_color_rgb(205, 205, 205));
             var _alphah = clamp((variable_struct_exists(_st, "alpha") ? _st.alpha : 0.55), 0, 1);
-            draw_set_alpha(_alphah * 0.65);
+            // Tile the hazard area using 32x32 tiles
+            var _tile_w_h = __battle_anim_queue_wu(_pid, 32, 32);
+            var _tile_h_h = __battle_anim_queue_hu(_pid, 32, 32);
+            var _s_x = floor(_recth[0] / max(1, _tile_w_h)) * _tile_w_h;
+            var _s_y = floor(_recth[1] / max(1, _tile_h_h)) * _tile_h_h;
             draw_set_color(_colorh);
-            draw_rectangle(_recth[0], _recth[1], _recth[2], _recth[3], false);
+            draw_set_alpha(_alphah * 0.5);
+            for (var _txh = _s_x; _txh <= _recth[2]; _txh += _tile_w_h){
+                for (var _tyh = _s_y; _tyh <= _recth[3]; _tyh += _tile_h_h){
+                    draw_rectangle(_txh, _tyh, _txh + _tile_w_h, _tyh + _tile_h_h, true);
+                }
+            }
+            // Draw hazard diagonal stripes over tiled base
             draw_set_alpha(_alphah);
             var _stripe_step = __battle_anim_queue_wu(_pid, 20);
             var _maxw = max(1, (_recth[2] - _recth[0]));
@@ -693,19 +778,26 @@ function __battle_anim_queue_draw_states(_pid, _states){
         } else if (_kind == "weather_overlay"){
             var _colorw = (variable_struct_exists(_st, "color") ? _st.color : make_color_rgb(200, 200, 200));
             var _alphaw = clamp((variable_struct_exists(_st, "alpha") ? _st.alpha : 0.4), 0, 1);
+            // Pad full-field weather rect to avoid seams
+            var _pad_xw = max(1, floor(__battle_anim_queue_wu(_pid, 1)));
+            var _pad_yw = max(1, floor(__battle_anim_queue_hu(_pid, 1)));
+            var _wf0 = _field_full[0] - _pad_xw; var _wf1 = _field_full[1] - _pad_yw; var _wf2 = _field_full[2] + _pad_xw; var _wf3 = _field_full[3] + _pad_yw;
             draw_set_alpha(_alphaw * 0.7);
             draw_set_color(_colorw);
-            draw_rectangle(_field_full[0], _field_full[1], _field_full[2], _field_full[3], false);
+            draw_rectangle(_wf0, _wf1, _wf2, _wf3, false);
             draw_set_alpha(_alphaw * 0.35);
-            draw_rectangle(_field_full[0], _field_full[1], _field_full[2], _field_full[3], true);
+            draw_rectangle(_wf0, _wf1, _wf2, _wf3, true);
             draw_set_alpha(1);
             draw_set_color(c_white);
         } else if (_kind == "screen_flash"){
             var _colors = (variable_struct_exists(_st, "color") ? _st.color : c_white);
             var _alphas = clamp((variable_struct_exists(_st, "alpha") ? _st.alpha : 0.3), 0, 1);
+            var _pad_xs = max(1, floor(__battle_anim_queue_wu(_pid, 1)));
+            var _pad_ys = max(1, floor(__battle_anim_queue_hu(_pid, 1)));
+            var _sf0 = _field_full[0] - _pad_xs; var _sf1 = _field_full[1] - _pad_ys; var _sf2 = _field_full[2] + _pad_xs; var _sf3 = _field_full[3] + _pad_ys;
             draw_set_alpha(_alphas);
             draw_set_color(_colors);
-            draw_rectangle(_field_full[0], _field_full[1], _field_full[2], _field_full[3], false);
+            draw_rectangle(_sf0, _sf1, _sf2, _sf3, false);
             draw_set_alpha(1);
             draw_set_color(c_white);
         }
@@ -890,11 +982,13 @@ function __battle_anim_draw(_pid){
         if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE){
             try { show_debug_message("[battle][anim] generic spec=" + string(spec)); } catch (e) {}
         }
-        var alpha2 = 0.6 * (1 - frac_v);
-        draw_set_alpha(alpha2);
-        draw_set_color(c_white);
-        draw_circle(tx, ty, 3, true);
-        draw_set_alpha(1);
+    var alpha2 = 0.6 * (1 - frac_v);
+    draw_set_alpha(alpha2);
+    draw_set_color(c_white);
+    var _rx = __battle_anim_queue_wu(_pid, 3);
+    var _ry = __battle_anim_queue_hu(_pid, 3);
+    draw_ellipse(tx - _rx, ty - _ry, tx + _rx, ty + _ry, true);
+    draw_set_alpha(1);
     }
 }
 

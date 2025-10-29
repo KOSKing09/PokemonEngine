@@ -385,8 +385,20 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                         } catch (e_msgg) {}
                         try { var _B3 = __battle_ensure_slot(_pid_local); if (is_struct(_B3)) variable_struct_set(_B3, "_meta_effect_applied", true); } catch (e_b3) {}
                     }
-                    if (_overlay_any && !is_undefined(__battle_trigger_stat_overlay)){
-                        try { __battle_trigger_stat_overlay(_pid_local, _actor, _overlay_changes, _actor_idx); } catch (e_overlay) {}
+                    // If there are overlay changes, enqueue them onto the battle slot so
+                    // they can be triggered when the dialog for those stat changes is shown.
+                    if (_overlay_any){
+                        try {
+                            var _B3 = __battle_ensure_slot(_pid_local);
+                            if (is_struct(_B3)){
+                                if (!variable_struct_exists(_B3, "_pending_stat_overlays") || !is_array(variable_struct_get(_B3, "_pending_stat_overlays"))) variable_struct_set(_B3, "_pending_stat_overlays", []);
+                                var _po = variable_struct_get(_B3, "_pending_stat_overlays");
+                                array_push(_po, { actor: _actor, actor_idx: _actor_idx, overlay_changes: _overlay_changes });
+                                // Debug: log overlay enqueue
+                                try { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][stat_overlay] enqueued pid=" + string(_pid_local) + ", actor_idx=" + string(_actor_idx) + ", changes=" + string(_overlay_changes)); } catch (e_dbg) {}
+                                variable_struct_set(_B3, "_pending_stat_overlays", _po);
+                            }
+                        } catch (e_po) {}
                     }
                 }
 
@@ -877,6 +889,10 @@ if (is_undefined(__battle_apply_move_meta_effects)){
             try {
                 if (variable_struct_exists(_mm, "stat_changes") && is_array(variable_struct_get(_mm, "stat_changes"))){
                     var scs = variable_struct_get(_mm, "stat_changes");
+                    // Accumulate overlay changes so self-boosting moves (like Harden)
+                    // also enqueue the stat overlay to be shown when the dialog appears.
+                    var _fb_overlay_changes = {};
+                    var _fb_overlay_any = false;
                     for (var si = 0; si < array_length(scs); ++si){
                         var rec = scs[si];
                         if (!is_struct(rec)) continue;
@@ -893,12 +909,17 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                         var next = clamp(prev + floor(change), -6, 6);
                         variable_struct_set(stobj, sk, next);
                         variable_struct_set(_A, "_stages", stobj);
+                        // compute applied amount and record overlay change for later consumption at dialog-show time
+                        var applied_amt = next - prev;
+                        if (applied_amt != 0){
+                            try { variable_struct_set(_fb_overlay_changes, sk, applied_amt); _fb_overlay_any = true; } catch (e_fb) {}
+                        }
                         // Request stat-change animation for user
                         try { __battle_request_animation_safe(_pid, { type: "stat_change", target_index: variable_struct_exists(_A, "actor_index") ? variable_struct_get(_A, "actor_index") : (variable_struct_exists(_A, "slot") ? variable_struct_get(_A, "slot") : undefined), stat: sk, from: prev, to: next }); } catch (e_req) {}
                         // Note: SFX for stat changes is played when the dialog is shown; do not play here.
                         try {
                             var aname = (variable_struct_exists(_A, "name") ? variable_struct_get(_A, "name") : "The Pokémon");
-                            var applied_amt = next - prev; var sign_amt = (applied_amt > 0) ? ("+" + string(applied_amt)) : string(applied_amt);
+                            var sign_amt = (applied_amt > 0) ? ("+" + string(applied_amt)) : string(applied_amt);
                             var sc_msg = "";
                             if (applied_amt == 0) sc_msg = string(aname) + "'s " + string_upper(string(sk)) + " won't go any higher!";
                             else sc_msg = string(aname) + " " + string_upper(string(sk)) + " " + string(sign_amt);
@@ -907,6 +928,20 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                         } catch (e_msg) {}
                         try { var _B2 = __battle_ensure_slot(_pid); if (is_struct(_B2)) variable_struct_set(_B2, "_meta_effect_applied", true); } catch (e_b2) {}
                     }
+                    // If we recorded overlay changes, enqueue them onto the battle slot
+                    if (_fb_overlay_any){
+                        try {
+                            var _Bslot = __battle_ensure_slot(_pid);
+                            if (is_struct(_Bslot)){
+                                if (!variable_struct_exists(_Bslot, "_pending_stat_overlays") || !is_array(variable_struct_get(_Bslot, "_pending_stat_overlays"))) variable_struct_set(_Bslot, "_pending_stat_overlays", []);
+                                var _po2 = variable_struct_get(_Bslot, "_pending_stat_overlays");
+                                array_push(_po2, { actor: _A, actor_idx: (variable_struct_exists(_A, "actor_index") ? variable_struct_get(_A, "actor_index") : undefined), overlay_changes: _fb_overlay_changes });
+                                try { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][stat_overlay] enqueued (fallback) pid=" + string(_pid) + ", actor_idx=" + string((variable_struct_exists(_A, "actor_index") ? variable_struct_get(_A, "actor_index") : -1)) + ", changes=" + string(_fb_overlay_changes)); } catch (e_dbgf) {}
+                                variable_struct_set(_Bslot, "_pending_stat_overlays", _po2);
+                            }
+                        } catch (e_pof) {}
+                    }
+                    // end fallback handling
                 }
             } catch (e_scl) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] stat_changes apply failed: " + string(e_scl)); }
 
