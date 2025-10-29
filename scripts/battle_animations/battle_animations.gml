@@ -568,9 +568,10 @@ function __battle_anim_queue_build_draw_state(_pid, _slot, _entry){
     if (_type == "stat_change"){
         var _idx = (variable_struct_exists(_entry, "target_index") && is_real(_entry.target_index)) ? clamp(_entry.target_index, 0, 1) : 0;
         var _dir = (variable_struct_exists(_entry, "direction") && is_real(_entry.direction)) ? _entry.direction : 0;
-        var _col_up = make_color_rgb(116, 196, 255);
-        var _col_down = make_color_rgb(255, 168, 84);
-        var _col_neutral = make_color_rgb(220, 220, 220);
+    // Use green for stat increases (was a light blue previously). Keep down as orange.
+    var _col_up = make_color_rgb(120, 230, 150); // green (stat raise)
+    var _col_down = make_color_rgb(255, 168, 84); // orange (stat lower)
+    var _col_neutral = make_color_rgb(220, 220, 220);
         var _col_sc = (_dir > 0 ? _col_up : (_dir < 0 ? _col_down : _col_neutral));
     return { kind: "actor_glow", target_index: _idx, color: _col_sc, alpha: 0.45 * (1 - _prog * 0.65), radius: __battle_anim_queue_wu(_pid, 44), progress: _prog };
     }
@@ -730,9 +731,10 @@ function __battle_anim_queue_draw_states(_pid, _states){
             // Tile the area using 32x32 logical tiles so edges align with the rest of the tiled overlays.
             var _tile_w = __battle_anim_queue_wu(_pid, 32, 32);
             var _tile_h = __battle_anim_queue_hu(_pid, 32, 32);
-            var _start_x = floor(_rect[0] / max(1, _tile_w)) * _tile_w;
-            var _start_y = floor(_rect[1] / max(1, _tile_h)) * _tile_h;
-            var _end_x = _rect[2]; var _end_y = _rect[3];
+            // Start one tile earlier and extend the end by one tile to guarantee full coverage
+            var _start_x = floor(_rect[0] / max(1, _tile_w)) * _tile_w - _tile_w;
+            var _start_y = floor(_rect[1] / max(1, _tile_h)) * _tile_h - _tile_h;
+            var _end_x = _rect[2] + _tile_w; var _end_y = _rect[3] + _tile_h;
             draw_set_color(_colorf);
             // Fill tiles (lighter fill)
             draw_set_alpha(_alphaf * 0.35);
@@ -754,12 +756,15 @@ function __battle_anim_queue_draw_states(_pid, _states){
             // Tile the hazard area using 32x32 tiles
             var _tile_w_h = __battle_anim_queue_wu(_pid, 32, 32);
             var _tile_h_h = __battle_anim_queue_hu(_pid, 32, 32);
-            var _s_x = floor(_recth[0] / max(1, _tile_w_h)) * _tile_w_h;
-            var _s_y = floor(_recth[1] / max(1, _tile_h_h)) * _tile_h_h;
+            // Start one tile before the rect and extend past the end to avoid seams at edges
+            var _s_x = floor(_recth[0] / max(1, _tile_w_h)) * _tile_w_h - _tile_w_h;
+            var _s_y = floor(_recth[1] / max(1, _tile_h_h)) * _tile_h_h - _tile_h_h;
+            var _end_x_h = _recth[2] + _tile_w_h;
+            var _end_y_h = _recth[3] + _tile_h_h;
             draw_set_color(_colorh);
             draw_set_alpha(_alphah * 0.5);
-            for (var _txh = _s_x; _txh <= _recth[2]; _txh += _tile_w_h){
-                for (var _tyh = _s_y; _tyh <= _recth[3]; _tyh += _tile_h_h){
+            for (var _txh = _s_x; _txh <= _end_x_h; _txh += _tile_w_h){
+                for (var _tyh = _s_y; _tyh <= _end_y_h; _tyh += _tile_h_h){
                     draw_rectangle(_txh, _tyh, _txh + _tile_w_h, _tyh + _tile_h_h, true);
                 }
             }
