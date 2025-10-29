@@ -252,6 +252,7 @@ if (is_undefined(__battle_apply_entry_hazards)){
                             var next_s = clamp(prev_s + delta, -6, 6);
                             variable_struct_set(st_obj, "spe", next_s);
                             __battle_request_animation_safe(_pid, { type: "stat_change", target_index: _actor_index, stat: "spe", from: prev_s, to: next_s });
+                            // Note: SFX for stat changes is played when the dialog is shown; do not play here.
                             var aname_sw2 = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokemon");
                             var applied_amt = next_s - prev_s;
                             var sign_amt = (applied_amt > 0) ? ("+" + string(applied_amt)) : string(applied_amt);

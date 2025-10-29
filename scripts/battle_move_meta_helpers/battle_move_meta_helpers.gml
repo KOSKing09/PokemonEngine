@@ -374,6 +374,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                         }
                         // Request animation and enqueue dialog for this actor (use pid param)
                         try { __battle_request_animation_safe(_pid_local, { type: "stat_change", target_index: _actor_idx, stat: _sk2, from: _prev, to: _next }); } catch (e_reqg) {}
+                        // Note: SFX for stat changes is played when the dialog is shown; do not play here.
                         try {
                             var _an = (variable_struct_exists(_actor, "name") ? variable_struct_get(_actor, "name") : "The Pokémon");
                             var _ap = _delta_stage; var _sign = (_ap > 0) ? ("+" + string(_ap)) : string(_ap);
@@ -894,6 +895,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                         variable_struct_set(_A, "_stages", stobj);
                         // Request stat-change animation for user
                         try { __battle_request_animation_safe(_pid, { type: "stat_change", target_index: variable_struct_exists(_A, "actor_index") ? variable_struct_get(_A, "actor_index") : (variable_struct_exists(_A, "slot") ? variable_struct_get(_A, "slot") : undefined), stat: sk, from: prev, to: next }); } catch (e_req) {}
+                        // Note: SFX for stat changes is played when the dialog is shown; do not play here.
                         try {
                             var aname = (variable_struct_exists(_A, "name") ? variable_struct_get(_A, "name") : "The Pokémon");
                             var applied_amt = next - prev; var sign_amt = (applied_amt > 0) ? ("+" + string(applied_amt)) : string(applied_amt);

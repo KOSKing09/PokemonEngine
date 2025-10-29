@@ -1966,7 +1966,22 @@ function battle_update(_pid){
                     var _new = [];
                     for (var _ii = _consume_n; _ii < array_length(_ps); ++_ii) _new[array_length(_new)] = _ps[_ii];
                     variable_struct_set(_B, "_pending_status_msgs", _new);
-                    try { dialog2p_show_now(_pid, _text_to_show); } catch (e_p) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][pending_status] failed to show: " + string(e_p)); }
+                    try {
+                        // If this is a stat-change dialog, play the appropriate SFX when the dialog shows.
+                        try {
+                            var _tmp_text_play = string(_text_to_show);
+                            if (!is_undefined(__battle_is_stat_status_line) && __battle_is_stat_status_line(_tmp_text_play)){
+                                // Prefer raise if any '+' appears; otherwise if '-' appears play lower.
+                                var _psnd = undefined;
+                                if (string_pos("+", _tmp_text_play) > 0) _psnd = snd_Stat_Raise;
+                                else if (string_pos("-", _tmp_text_play) > 0) _psnd = snd_Stat_Lower;
+                                if (!is_undefined(_psnd) && !is_undefined(__battle_play_one_shot)){
+                                    try { __battle_play_one_shot(_psnd); } catch (e_pst) {}
+                                }
+                            }
+                        } catch (e_pp) {}
+                        dialog2p_show_now(_pid, _text_to_show);
+                    } catch (e_p) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][pending_status] failed to show: " + string(e_p)); }
                     return;
                 }
             }
@@ -2932,6 +2947,7 @@ function __battle_step_turn_if_ready(_pid){
                                     variable_struct_set(st, "spe", target);
                                     variable_struct_set(act2, "_stages", st);
                                     try { __battle_request_animation_safe(_pid, { type: "pledge_grass_apply", target_index: _ai2 }); } catch (e_pa) {}
+                                    // Note: SFX for stat changes is played when the dialog is shown; do not play here.
                                     // queue a revert entry that restores this actor's prior speed stage
                                     array_push(new_reverts, { id: "pledge_grass_slow", turns: pturns, side: targetSide, target_actor_index: _ai2, prev_spe: prevs });
                                 }
