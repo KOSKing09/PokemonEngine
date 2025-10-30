@@ -161,6 +161,24 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
     }
     var draw_x = fx - (w*drawScaleE)/2;
     var draw_y = fy - (h*drawScaleE)/2;
+    // Read temporary nudge offsets (attacker/defender may be moved by effects).
+    // We compute the offset here but apply it later after scaling/anchor recompute so it isn't overwritten.
+    var _nudge_px_e = 0;
+    var _nudge_finished_e = false;
+    try {
+        if (is_struct(E) && variable_struct_exists(E, "_nudge_active") && variable_struct_get(E, "_nudge_active") == true){
+            var _ns = variable_struct_get(E, "_nudge_start_ms");
+            var _nd = variable_struct_get(E, "_nudge_dur");
+            var _nm = variable_struct_get(E, "_nudge_mag");
+            var _ndir = variable_struct_get(E, "_nudge_dir");
+            var _now_n = current_time;
+            var _p_n = clamp((_now_n - _ns) / max(1, _nd), 0, 1);
+            // ease out then return: symmetric curve
+            var _frac_n = (_p_n <= 0.5) ? (1 - power(1 - (_p_n / 0.5), 2)) : (1 - power(((_p_n - 0.5) / 0.5), 2));
+            _nudge_px_e = __battle_anim_queue_wu(_pid, _nm) * _ndir * _frac_n;
+            if (_p_n >= 1) _nudge_finished_e = true;
+        }
+    } catch (e_nudge_e) {}
     // If a catch animation is active, allow it to modify the enemy scale and draw a pokéball
     var anchor_overridden = fainting;
     var ball_to_draw = undefined;
@@ -325,6 +343,14 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
     if (!(string(_B.phase) == "intro_enemy")) draw_x = fx - (w*drawScaleE)/2;
     draw_y = fy - (h*drawScaleE)/2;
 
+    // Apply nudge offset after recomputing draw_x so it isn't stomped by later recalcs.
+    try {
+        if (_nudge_px_e != 0){
+            draw_x += _nudge_px_e;
+            if (_nudge_finished_e && is_struct(E)) variable_struct_set(E, "_nudge_active", false);
+        }
+    } catch (e_apply_nudge_e) {}
+
     if (!anchor_overridden && is_struct(catchA) && catchA.active){
         var catch_phase_anchor = string(catchA.phase);
         if (catch_phase_anchor == "impact" || catch_phase_anchor == "shake" || catch_phase_anchor == "resolve" || catch_phase_anchor == "escape") anchor_overridden = true;
@@ -483,6 +509,22 @@ function __battle_draw_player(_pid, _B, mx, my, tx, ty){
 
     var draw_x = mx - (w*drawScaleP)/2;
     var draw_y = my - (h*drawScaleP)/2;
+
+    // Apply temporary nudge offsets (attacker/defender may be moved by effects)
+    try {
+        if (is_struct(P) && variable_struct_exists(P, "_nudge_active") && variable_struct_get(P, "_nudge_active") == true){
+            var _ns_p = variable_struct_get(P, "_nudge_start_ms");
+            var _nd_p = variable_struct_get(P, "_nudge_dur");
+            var _nm_p = variable_struct_get(P, "_nudge_mag");
+            var _ndir_p = variable_struct_get(P, "_nudge_dir");
+            var _now_p = current_time;
+            var _p_n_p = clamp((_now_p - _ns_p) / max(1, _nd_p), 0, 1);
+            var _frac_n_p = (_p_n_p <= 0.5) ? (1 - power(1 - (_p_n_p / 0.5), 2)) : (1 - power(((_p_n_p - 0.5) / 0.5), 2));
+            var _offset_px_p = __battle_anim_queue_wu(_pid, _nm_p) * (_ndir_p) * _frac_n_p;
+            draw_x += _offset_px_p;
+            if (_p_n_p >= 1){ variable_struct_set(P, "_nudge_active", false); }
+        }
+    } catch (e_nudge_p) {}
 
     if (string(_B.phase) == "intro_call"){
         var p2 = (variable_struct_exists(_B,"phase_progress") ? _B.phase_progress : 0);

@@ -336,6 +336,7 @@
     {"id":{"name":"spr_font_pokemon_new_1","path":"sprites/spr_font_pokemon_new_1/spr_font_pokemon_new_1.yy",},},
     {"id":{"name":"spr_font_pokemon_new","path":"sprites/spr_font_pokemon_new/spr_font_pokemon_new.yy",},},
     {"id":{"name":"spr_font_pokemon","path":"sprites/spr_font_pokemon/spr_font_pokemon.yy",},},
+    {"id":{"name":"spr_hiteffect","path":"sprites/spr_hiteffect/spr_hiteffect.yy",},},
     {"id":{"name":"spr_item_placeholder","path":"sprites/spr_item_placeholder/spr_item_placeholder.yy",},},
     {"id":{"name":"spr_mon_icon_placeholder","path":"sprites/spr_mon_icon_placeholder/spr_mon_icon_placeholder.yy",},},
     {"id":{"name":"spr_mon_placeholder","path":"sprites/spr_mon_placeholder/spr_mon_placeholder.yy",},},

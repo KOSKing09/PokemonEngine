@@ -262,6 +262,8 @@ function __battle_anim_queue_default_duration(_type){
         case "weather_end":
         case "weather_start":
             return 880;
+        case "hit_effect":
+            return 320;
         default:
             return 640;
     }
@@ -368,6 +370,25 @@ function __battle_anim_queue_normalize(_slot, _spec){
             if (variable_struct_exists(_spec, "bg_loops") && is_real(variable_struct_get(_spec, "bg_loops"))) _out.bg_loops = floor(variable_struct_get(_spec, "bg_loops"));
             if (variable_struct_exists(_spec, "stat_keys")) _out.keys = variable_struct_get(_spec, "stat_keys");
             if (variable_struct_exists(_spec, "stat_deltas")) _out.deltas = variable_struct_get(_spec, "stat_deltas");
+            break;
+        case "hit_effect":
+            // Small targetted hit effect drawn over an actor (uses spr_hiteffect by default)
+            _out.channel = "overlay";
+            _out.target_index = __battle_anim_queue_resolve_target_index(_slot, _spec);
+            _out.sprite = (variable_struct_exists(_spec, "sprite") ? variable_struct_get(_spec, "sprite") : (variable_global_exists("spr_hiteffect") ? spr_hiteffect : undefined));
+            _out.scale = (variable_struct_exists(_spec, "scale") && is_real(variable_struct_get(_spec, "scale"))) ? real(variable_struct_get(_spec, "scale")) : 1;
+            // Stable random offset within the target to vary hit placement
+            var _rx = irandom_range(-12, 12);
+            var _ry = irandom_range(-8, 8);
+            _out.offset_x = _rx; _out.offset_y = _ry;
+            // Slide direction: away from attacker -> target_index - actor_index sign
+            var _act_idx = undefined;
+            if (variable_struct_exists(_spec, "actor") && is_struct(variable_struct_get(_spec, "actor"))){ try { if (variable_struct_exists(variable_struct_get(_spec, "actor"), "actor_index")) _act_idx = variable_struct_get(variable_struct_get(_spec, "actor"), "actor_index"); } catch (e_ai) { _act_idx = undefined; } }
+            var _tidx = _out.target_index;
+            var _sdir = 0;
+            if (is_real(_act_idx) && is_real(_tidx)) _sdir = sign(_tidx - _act_idx);
+            _out.slide_dir = _sdir;
+            _out.slide_mag = (variable_struct_exists(_spec, "slide_mag") && is_real(variable_struct_get(_spec, "slide_mag"))) ? variable_struct_get(_spec, "slide_mag") : 8; // logical pixels
             break;
         case "stat_change_group":
         case "heal":
@@ -564,6 +585,20 @@ function __battle_anim_queue_build_draw_state(_pid, _slot, _entry){
         var _stat_deltas_so = (variable_struct_exists(_entry, "stat_deltas") ? _entry.stat_deltas : undefined);
         var _bg_loops_so = (variable_struct_exists(_entry, "bg_loops") && is_real(_entry.bg_loops)) ? max(0, floor(_entry.bg_loops)) : undefined;
         return { kind: "stat_overlay", target_index: _idx_so, frame: _frame_so, darken: _darken_so, progress: _prog, bg: _bg_so, direction: _dir_so, stat_keys: _stat_keys_so, stat_deltas: _stat_deltas_so, bg_loops: _bg_loops_so };
+    }
+    if (_type == "hit_effect"){
+        var _idx_he = (variable_struct_exists(_entry, "target_index") && is_real(_entry.target_index)) ? clamp(_entry.target_index, 0, 1) : 0;
+        var _sprite_he = (variable_struct_exists(_entry, "sprite") && !is_undefined(_entry.sprite)) ? _entry.sprite : spr_hiteffect;
+        var _spr_count_he = 1;
+        try { if (is_undefined(_sprite_he) == false && sprite_exists(_sprite_he)) _spr_count_he = max(1, sprite_get_number(_sprite_he)); } catch (e_sp) { _spr_count_he = 1; }
+        var _frame_he = clamp(floor(_prog * _spr_count_he), 0, max(0, _spr_count_he - 1));
+        var _scale_he = (variable_struct_exists(_entry, "scale") && is_real(_entry.scale)) ? _entry.scale : 1;
+        var _alpha_he = 1 - _prog;
+        var _offx_he = (variable_struct_exists(_entry, "offset_x") && is_real(_entry.offset_x)) ? _entry.offset_x : 0;
+        var _offy_he = (variable_struct_exists(_entry, "offset_y") && is_real(_entry.offset_y)) ? _entry.offset_y : 0;
+        var _sdir_he = (variable_struct_exists(_entry, "slide_dir") && is_real(_entry.slide_dir)) ? clamp(_entry.slide_dir, -1, 1) : 0;
+        var _smag_he = (variable_struct_exists(_entry, "slide_mag") && is_real(_entry.slide_mag)) ? _entry.slide_mag : 8;
+        return { kind: "sprite_overlay", target_index: _idx_he, sprite: _sprite_he, frame: _frame_he, scale: _scale_he, alpha: _alpha_he, progress: _prog, offset_x: _offx_he, offset_y: _offy_he, slide_dir: _sdir_he, slide_mag: _smag_he };
     }
     if (_type == "stat_change"){
         var _idx = (variable_struct_exists(_entry, "target_index") && is_real(_entry.target_index)) ? clamp(_entry.target_index, 0, 1) : 0;
@@ -805,6 +840,43 @@ function __battle_anim_queue_draw_states(_pid, _states){
             draw_rectangle(_sf0, _sf1, _sf2, _sf3, false);
             draw_set_alpha(1);
             draw_set_color(c_white);
+        }
+        else if (_kind == "sprite_overlay"){
+            // Draw an arbitrary single-frame/animated sprite centered on the target actor
+            var _idxs = (variable_struct_exists(_st, "target_index") && is_real(_st.target_index)) ? clamp(_st.target_index, 0, 1) : 0;
+            var _cxs = (_idxs == 1 ? _enemy_cx : _player_cx);
+            var _cys = (_idxs == 1 ? _enemy_cy : _player_cy);
+            var _sprs = (variable_struct_exists(_st, "sprite") ? _st.sprite : undefined);
+            var _frs = (variable_struct_exists(_st, "frame") && is_real(_st.frame)) ? floor(_st.frame) : 0;
+            var _scs = (variable_struct_exists(_st, "scale") && is_real(_st.scale)) ? _st.scale : 1;
+            var _als = clamp((variable_struct_exists(_st, "alpha") ? _st.alpha : 1), 0, 1);
+            var _offx = (variable_struct_exists(_st, "offset_x") && is_real(_st.offset_x)) ? _st.offset_x : 0;
+            var _offy = (variable_struct_exists(_st, "offset_y") && is_real(_st.offset_y)) ? _st.offset_y : 0;
+            var _sdir = (variable_struct_exists(_st, "slide_dir") && is_real(_st.slide_dir)) ? clamp(_st.slide_dir, -1, 1) : 0;
+            var _smag = (variable_struct_exists(_st, "slide_mag") && is_real(_st.slide_mag)) ? _st.slide_mag : 8;
+            // Compute slide progress: quick outward then return (0..1 -> 0 out, 1 back to origin)
+            var _p = clamp((variable_struct_exists(_st, "progress") ? _st.progress : 0), 0, 1);
+            var _slide_frac = 0;
+            if (_p <= 0.25) {
+                var t = (_p / 0.25);
+                _slide_frac = 1 - power(1 - t, 2); // ease-out
+            } else {
+                var t2 = ((_p - 0.25) / 0.75);
+                _slide_frac = 1 - (1 - (1 - power(1 - t2, 2))); // go back to 0
+                // simpler: shrink back linearly eased
+                _slide_frac = 1 - power(t2, 2);
+            }
+            var _slide_px = __battle_anim_queue_wu(_pid, _smag);
+            var _apply_slide_x = _sdir * _slide_px * _slide_frac;
+            var _draw_x = _cxs + _offx + _apply_slide_x;
+            var _draw_y = _cys + _offy;
+            if (!is_undefined(_sprs) && sprite_exists(_sprs)){
+                gpu_set_blendmode(bm_normal);
+                draw_sprite_ext(_sprs, _frs, _draw_x, _draw_y, _scs, _scs, 0, c_white, _als);
+                gpu_set_blendmode(bm_normal);
+                draw_set_alpha(1);
+                draw_set_color(c_white);
+            }
         }
     }
 }

@@ -438,6 +438,147 @@ if (is_undefined(__battle_apply_move_meta_effects)){
 
                 // If we have an effect_id that should target multiple actors, handle it here
                 if (is_real(_eid)){
+                    // Quick: effect_id 1 -> basic hit visual (draw spr_hiteffect over defender)
+                    if (_eid == 1){
+                        try {
+                            var _tgt_idx_he = undefined;
+                            try { if (is_struct(_D) && variable_struct_exists(_D, "actor_index")) _tgt_idx_he = variable_struct_get(_D, "actor_index"); } catch (e_ti) { _tgt_idx_he = undefined; }
+                            // Enqueue visual overlay hit effect
+                            try { __battle_request_animation_safe(_pid, { type: "hit_effect", target_index: _tgt_idx_he, actor: _A, target: _D, sprite: spr_hiteffect, scale: 1.0 }); } catch (e_reqh) {}
+                            // Compute damage-based nudge for attacker: proportion of target HP
+                            try {
+                                var _dval = 0;
+                                if (is_real(_dmg)) _dval = real(_dmg);
+                                else if (is_array(_dmg) && array_length(_dmg) > 0) _dval = real(_dmg[0]);
+                                else if (is_struct(_dmg) && is_struct(_D)){
+                                    try {
+                                        var _aid = (variable_struct_exists(_D, "actor_index") ? string(variable_struct_get(_D, "actor_index")) : "0");
+                                        if (variable_struct_exists(_dmg, _aid)) _dval = real(variable_struct_get(_dmg, _aid));
+                                    } catch (e_dmap){}
+                                }
+                                // Resolve target max HP
+                                var _tgt_max = 1;
+                                try { if (variable_struct_exists(_D, "hp_max")) _tgt_max = max(1, real(variable_struct_get(_D, "hp_max"))); else if (variable_struct_exists(_D, "mon") && is_struct(variable_struct_get(_D, "mon")) && variable_struct_exists(variable_struct_get(_D, "mon"), "hp_max")) _tgt_max = max(1, real(variable_struct_get(variable_struct_get(_D, "mon"), "hp_max"))); } catch (e_tmh) { _tgt_max = 1; }
+                                var _prop = clamp((_tgt_max > 0 ? (_dval / _tgt_max) : 0), 0, 1);
+                                // map proportion to nudge magnitude (logical pixels): small->2, big->18
+                                var _nudge_mag = lerp(2, 18, _prop);
+                                // determine slide direction: attacker should move toward target
+                                var _act_idx_local = (variable_struct_exists(_A, "actor_index") ? variable_struct_get(_A, "actor_index") : undefined);
+                                var _tidx_local = _tgt_idx_he;
+                                var _ndir = 0;
+                                if (is_real(_act_idx_local) && is_real(_tidx_local)) _ndir = sign(_tidx_local - _act_idx_local);
+                                // Set nudge fields on attacker actor for battle_draw to pick up
+                                try {
+                                    if (is_struct(_A)){
+                                        variable_struct_set(_A, "_nudge_active", true);
+                                        variable_struct_set(_A, "_nudge_start_ms", current_time);
+                                        variable_struct_set(_A, "_nudge_dur", 320);
+                                        variable_struct_set(_A, "_nudge_mag", _nudge_mag);
+                                        variable_struct_set(_A, "_nudge_dir", _ndir);
+                                    }
+                                } catch (e_ns) {}
+
+                                // Debug: report attacker nudge fields when enabled
+                                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                                    try {
+                                        var _dbgA = "(no attacker)";
+                                        if (is_struct(_A)){
+                                            var _a_idx_dbg = (variable_struct_exists(_A, "actor_index") ? variable_struct_get(_A, "actor_index") : -1);
+                                            var _a_mag_dbg = (variable_struct_exists(_A, "_nudge_mag") ? string(variable_struct_get(_A, "_nudge_mag")) : "nil");
+                                            var _a_dir_dbg = (variable_struct_exists(_A, "_nudge_dir") ? string(variable_struct_get(_A, "_nudge_dir")) : "nil");
+                                            _dbgA = "[A idx=" + string(_a_idx_dbg) + " mag=" + _a_mag_dbg + " dir=" + _a_dir_dbg + "]";
+                                        }
+                                        show_debug_message("[battle][meta] hit_effect nudge attacker: " + _dbgA);
+                                    } catch (e_dbgA) {}
+                                }
+
+                                // Also nudge the defender slightly *away* from the attacker so it appears to recoil.
+                                // Set it on both the provided _D struct and the active actor in the battle slot (if available),
+                                // because _D may sometimes be an inner mon struct rather than the actor struct used by drawing.
+                                try {
+                                    var _d_nudge_mag = max(1, _nudge_mag * 0.75);
+                                    if (is_struct(_D)){
+                                        variable_struct_set(_D, "_nudge_active", true);
+                                        variable_struct_set(_D, "_nudge_start_ms", current_time);
+                                        // shorter duration so defender snaps back sooner
+                                        variable_struct_set(_D, "_nudge_dur", 240);
+                                        variable_struct_set(_D, "_nudge_mag", _d_nudge_mag);
+                                        variable_struct_set(_D, "_nudge_dir", -_ndir);
+                                    }
+                                    // Try to write the same fields onto the battle slot actor array entry (defender) so draw will pick it up
+                                    try {
+                                        var _Bslot_tmp = __battle_ensure_slot(_pid);
+                                        if (is_struct(_Bslot_tmp) && variable_struct_exists(_Bslot_tmp, "actor") && is_array(variable_struct_get(_Bslot_tmp, "actor"))){
+                                            var _actors_tmp = variable_struct_get(_Bslot_tmp, "actor");
+                                            // Determine an effective target index to write into the actor array.
+                                            var _target_idx_eff = undefined;
+                                            if (is_real(_tgt_idx_he) && _tgt_idx_he >= 0 && _tgt_idx_he < array_length(_actors_tmp)){
+                                                _target_idx_eff = _tgt_idx_he;
+                                            } else {
+                                                // If attacker index exists, pick the other slot in common two-mon battles
+                                                if (is_real(_act_idx_local) && array_length(_actors_tmp) >= 2){
+                                                    if (_act_idx_local == 0) _target_idx_eff = 1; else if (_act_idx_local == 1) _target_idx_eff = 0; else _target_idx_eff = 1;
+                                                } else {
+                                                    // Fallback: try to match by inner mon identity (name/species) if available
+                                                    if (is_struct(_D) && variable_struct_exists(_D, "mon")){
+                                                        var _dmon = variable_struct_get(_D, "mon");
+                                                        for (var _ai_tmp = 0; _ai_tmp < array_length(_actors_tmp); ++_ai_tmp){
+                                                            var _cand = _actors_tmp[_ai_tmp];
+                                                            if (!is_struct(_cand)) continue;
+                                                            if (variable_struct_exists(_cand, "mon") && is_struct(variable_struct_get(_cand, "mon"))){
+                                                                var _candm = variable_struct_get(_cand, "mon");
+                                                                // compare by name if available
+                                                                if (variable_struct_exists(_candm, "name") && variable_struct_exists(_dmon, "name") && string(variable_struct_get(_candm, "name")) == string(variable_struct_get(_dmon, "name"))){ _target_idx_eff = _ai_tmp; break; }
+                                                                // compare by species id if available
+                                                                if (variable_struct_exists(_candm, "species_id") && variable_struct_exists(_dmon, "species_id") && real(variable_struct_get(_candm, "species_id")) == real(variable_struct_get(_dmon, "species_id"))){ _target_idx_eff = _ai_tmp; break; }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            if (is_real(_target_idx_eff) && _target_idx_eff >= 0 && _target_idx_eff < array_length(_actors_tmp)){
+                                                var _def_actor = _actors_tmp[_target_idx_eff];
+                                                if (is_struct(_def_actor)){
+                                                    variable_struct_set(_def_actor, "_nudge_active", true);
+                                                    variable_struct_set(_def_actor, "_nudge_start_ms", current_time);
+                                                    variable_struct_set(_def_actor, "_nudge_dur", 240);
+                                                    variable_struct_set(_def_actor, "_nudge_mag", _d_nudge_mag);
+                                                    variable_struct_set(_def_actor, "_nudge_dir", -_ndir);
+                                                }
+                                            }
+                                        }
+                                    } catch (e_setslot) {}
+                                } catch (e_nd2) {}
+
+                                // Debug: report defender nudge fields (try both passed _D and actor[] slot)
+                                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                                    try {
+                                        var _dbgD = "(no defender)";
+                                        // attempt to read the actor slot using the target index
+                                        try {
+                                            var _Bslot_dbg = __battle_ensure_slot(_pid);
+                                            if (is_struct(_Bslot_dbg) && variable_struct_exists(_Bslot_dbg, "actor") && is_array(variable_struct_get(_Bslot_dbg, "actor"))){
+                                                var _actors_dbg = variable_struct_get(_Bslot_dbg, "actor");
+                                                if (is_real(_tgt_idx_he) && _tgt_idx_he >= 0 && _tgt_idx_he < array_length(_actors_dbg)){
+                                                    var _slot_def = _actors_dbg[_tgt_idx_he];
+                                                    if (is_struct(_slot_def) && variable_struct_exists(_slot_def, "_nudge_mag")){
+                                                        _dbgD = "[actor_slot idx=" + string(_tgt_idx_he) + " mag=" + string(variable_struct_get(_slot_def, "_nudge_mag")) + " dir=" + string(variable_struct_get(_slot_def, "_nudge_dir")) + "]";
+                                                    }
+                                                }
+                                            }
+                                        } catch (e_dbgslot) {}
+                                        // fallback to the passed _D struct
+                                        if (_dbgD == "(no defender)" && is_struct(_D) && variable_struct_exists(_D, "_nudge_mag")){
+                                            _dbgD = "[passed _D mag=" + string(variable_struct_get(_D, "_nudge_mag")) + " dir=" + string(variable_struct_get(_D, "_nudge_dir")) + "]";
+                                        }
+                                        show_debug_message("[battle][meta] hit_effect nudge defender: " + _dbgD);
+                                    } catch (e_dbgD) {}
+                                }
+                            } catch (e_nd) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] hit_effect nudge compute failed: " + string(e_nd)); }
+                            try { var _Btmp = __battle_ensure_slot(_pid); if (is_struct(_Btmp)) variable_struct_set(_Btmp, "_meta_effect_applied", true); } catch (e_btmp) {}
+                        } catch (e_he) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] hit_effect (eid=1) failed: " + string(e_he)); }
+                        return undefined;
+                    }
                     // Retrieve stat_changes array from meta if present (otherwise nothing to apply)
                     var _scarr = (variable_struct_exists(_mm, "stat_changes") && is_array(variable_struct_get(_mm, "stat_changes"))) ? variable_struct_get(_mm, "stat_changes") : undefined;
                     if (is_array(_scarr)){
