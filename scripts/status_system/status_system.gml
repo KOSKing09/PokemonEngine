@@ -932,7 +932,7 @@ if (variable_global_exists("STATUS_SYS") && variable_struct_exists(global.STATUS
                 var _offy_p = -18 + irandom_range(-6, 6);
                 var _sdir_p = (irandom(1) == 0) ? -1 : 1;
                 var _smag_p = irandom_range(4, 10);
-                try { __battle_request_animation_safe(mon, { type: "sleep_effect", sprite: spr_sleep, scale: 1.0, frame: _si, offset_x: _offx_p, offset_y: _offy_p, rise: 26, duration: 1100, slide_dir: _sdir_p, slide_mag: _smag_p }); } catch (e_req) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sleep][on_tick] enqueue failed: " + string(e_req)); }
+                try { __battle_request_animation_safe(mon, { type: "sleep_effect", target: mon, sprite: spr_sleep, scale: 1.0, frame: _si, offset_x: _offx_p, offset_y: _offy_p, rise: 26, duration: 1100, slide_dir: _sdir_p, slide_mag: _smag_p }); } catch (e_req) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sleep][on_tick] enqueue failed: " + string(e_req)); }
             }
         } catch (e_tk) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sleep][on_tick] failed: " + string(e_tk)); }
     });

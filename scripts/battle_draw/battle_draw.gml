@@ -51,7 +51,22 @@ function __battle_draw_platform(_pid, _B, _side, _anchor_x, _anchor_bottom, _ui_
 function __battle_draw_enemy(_pid, _B, fx, fy){
     var scale_foe = 1.0;
     var E = _B.actor[1];
-    if (!is_struct(E) || !variable_struct_exists(E, "mon")) return;
+    // If the enemy actor or its mon data is missing, still draw the
+    // battlefield platform so the scene doesn't lose its ground.
+    if (!is_struct(E) || !variable_struct_exists(E, "mon")){
+        try {
+            var ui_s_tmp = 1;
+            var __Bsl_tmp = __battle_ensure_slot(_pid);
+            if (is_struct(__Bsl_tmp) && variable_struct_exists(__Bsl_tmp, "_ui")){
+                var __ui_tmp = variable_struct_get(__Bsl_tmp, "_ui");
+                if (is_struct(__ui_tmp) && variable_struct_exists(__ui_tmp, "s")) ui_s_tmp = variable_struct_get(__ui_tmp, "s");
+            }
+            var _w_tmp = 64; var _h_tmp = 64;
+            var platform_bottom_tmp = fy + (_h_tmp * scale_foe * ui_s_tmp) * 0.5;
+            __battle_draw_platform(_pid, _B, "enemy", fx, platform_bottom_tmp, ui_s_tmp);
+        } catch (e_pl) {}
+        return;
+    }
     if (string(_B.phase) == "transition_in") return;
     var __trainer_hide = false;
     var __trainer_scale = 1;
@@ -98,9 +113,29 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
         }
     } catch (e_ui) { ui_s = 1; }
     var drawScaleE = scale_foe * ui_s * __trainer_scale;
+    // Preserve the original fx for platform drawing. We may override `fx`
+    // below to hide the sprite early in the intro, but the platform should
+    // still draw at the intended anchor.
+    var __orig_fx = fx;
+    // If this is a wild enemy intro and we're at the very start, force
+    // the sprite origin offscreen so nothing is drawn at the usual center.
+    // We place this early so the platform/placeholder code doesn't briefly
+    // draw the foe at the screen origin before the intro slide begins.
+    try {
+        var __is_trainer_intro_early = (variable_struct_exists(_B, "_trainer_intro") && is_struct(variable_struct_get(_B, "_trainer_intro")));
+        if (string(_B.phase) == "intro_enemy" && !__trainer_skip_slide && !__is_trainer_intro_early){
+            var __p_intro_early = (variable_struct_exists(_B, "phase_progress") ? real(_B.phase_progress) : 0);
+            if (__p_intro_early <= 0.2){
+                // move the drawing origin to offscreen right so any early draw is out of view
+                fx = __bxu(_pid, 280);
+            }
+        }
+    } catch (e_early_hide) {}
     var base_fy = fy;
     var platform_bottom = base_fy + (h * scale_foe * ui_s) * 0.5;
-    __battle_draw_platform(_pid, _B, "enemy", fx, platform_bottom, ui_s);
+    // Use the preserved origin for platform drawing so the platform stays
+    // anchored even when we temporarily move `fx` offscreen for the sprite.
+    __battle_draw_platform(_pid, _B, "enemy", __orig_fx, platform_bottom, ui_s);
     var catchA = (variable_struct_exists(_B, "_catch_anim") ? _B._catch_anim : undefined);
     var fainting = false;
     var faint_prog = 0;
@@ -140,6 +175,21 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
     if (enemy_alpha <= 0.001 && drawScaleE <= 0.001){
         return;
     }
+    // Hide the enemy sprite at the very start of the enemy intro for wild battles.
+    // Some startup/cutscene timing can briefly draw the foe at its final center
+    // before the intro logic moves it offscreen; for wild battles we keep it
+    // invisible until the intro progress has moved slightly to avoid a flicker.
+    try {
+        var __is_trainer_intro = (variable_struct_exists(_B, "_trainer_intro") && is_struct(variable_struct_get(_B, "_trainer_intro")));
+        if (string(_B.phase) == "intro_enemy" && !__trainer_skip_slide && !__is_trainer_intro){
+            var __p_intro = (variable_struct_exists(_B, "phase_progress") ? real(_B.phase_progress) : 0);
+            // keep hidden until progress advances beyond a modest threshold
+            if (__p_intro <= 0.2){
+                enemy_alpha = 0;
+                drawScaleE = 0;
+            }
+        }
+    } catch (e_intro_hide) {}
     var cry_started_e = (variable_struct_exists(_B, "_cry_play_start_ms_enemy") && is_real(_B._cry_play_start_ms_enemy)) ? real(_B._cry_play_start_ms_enemy) : -1;
     if (cry_started_e > 0){
         var tnow_e = current_time;
@@ -376,21 +426,35 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
     var shadow_cy_e = floor(draw_y + (h * drawScaleE) * 0.5 + shadow_h_e * 0.8 + floor(15 * ui_s));
     draw_ellipse(shadow_cx_e - shadow_w_e div 2, shadow_cy_e - shadow_h_e div 2, shadow_cx_e + shadow_w_e div 2, shadow_cy_e + shadow_h_e div 2, false);
     draw_set_alpha(1);
-    if (!_spr_missing && sprite_exists(sprE)){
-        draw_sprite_ext(sprE, subE, draw_x, draw_y, drawScaleE * _bs_e, drawScaleE, 0, c_white, enemy_alpha);
-    } else {
-        // Fallback: draw a simple placeholder so enemy isn't invisible (matches player fallback)
-        draw_set_color(make_color_rgb(20,20,20)); draw_set_alpha(0.45 * enemy_alpha);
-        var fw = max(8, floor(64 * ui_s * drawScaleE));
-        var fh = max(8, floor(64 * ui_s * drawScaleE));
-        var cx = draw_x + (w * drawScaleE) * 0.5;
-        var cy = draw_y + (h * drawScaleE) * 0.5;
-        draw_ellipse(cx - fw/2, cy - fh/2, cx + fw/2, cy + fh/2, false);
-        draw_set_alpha(1);
-        draw_set_color(c_white);
-        if (enemy_alpha > 0){
-            var name_txt = (is_struct(E) && variable_struct_exists(E, "name") ? string(E.name) : (is_struct(mE) && variable_struct_exists(mE, "name") ? string(mE.name) : "Enemy"));
-            draw_text(cx - fw/2, cy - fh/2 - __bhu(_pid,6), name_txt);
+    // Determine if we should hide the enemy sprite for the initial part of a
+    // wild intro. Keep the platform visible but prevent drawing the foe sprite
+    // or fallback placeholder for a short threshold to avoid a single-frame flash.
+    var __hide_sprite_intro_now = false;
+    try {
+        var __is_trainer_intro_now = (variable_struct_exists(_B, "_trainer_intro") && is_struct(variable_struct_get(_B, "_trainer_intro")));
+        if (string(_B.phase) == "intro_enemy" && !__trainer_skip_slide && !__is_trainer_intro_now){
+            var __p_now = (variable_struct_exists(_B, "phase_progress") ? real(_B.phase_progress) : 0);
+            if (__p_now <= 0.2) __hide_sprite_intro_now = true;
+        }
+    } catch (e_hide_now) {}
+
+    if (!__hide_sprite_intro_now){
+        if (!_spr_missing && sprite_exists(sprE)){
+            draw_sprite_ext(sprE, subE, draw_x, draw_y, drawScaleE * _bs_e, drawScaleE, 0, c_white, enemy_alpha);
+        } else {
+            // Fallback: draw a simple placeholder so enemy isn't invisible (matches player fallback)
+            draw_set_color(make_color_rgb(20,20,20)); draw_set_alpha(0.45 * enemy_alpha);
+            var fw = max(8, floor(64 * ui_s * drawScaleE));
+            var fh = max(8, floor(64 * ui_s * drawScaleE));
+            var cx = draw_x + (w * drawScaleE) * 0.5;
+            var cy = draw_y + (h * drawScaleE) * 0.5;
+            draw_ellipse(cx - fw/2, cy - fh/2, cx + fw/2, cy + fh/2, false);
+            draw_set_alpha(1);
+            draw_set_color(c_white);
+            if (enemy_alpha > 0){
+                var name_txt = (is_struct(E) && variable_struct_exists(E, "name") ? string(E.name) : (is_struct(mE) && variable_struct_exists(mE, "name") ? string(mE.name) : "Enemy"));
+                draw_text(cx - fw/2, cy - fh/2 - __bhu(_pid,6), name_txt);
+            }
         }
     }
 

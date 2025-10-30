@@ -1327,6 +1327,26 @@ function battle_close(_pid){
         }
     } catch (e_clear) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][close] failed clearing stages: " + string(e_clear)); }
 
+    // Clear transient per-actor draw state so positions/temporary timers do not bleed into
+    // subsequent battles or repeated cutscenes (fixes sprites appearing in wrong places).
+    try {
+        if (is_array(_B.actor)){
+            for (var _ai2 = 0; _ai2 < array_length(_B.actor); ++_ai2){
+                var _act2 = _B.actor[_ai2];
+                if (!is_struct(_act2)) continue;
+                // Common transient draw/timer fields used across draw/update code
+                var _transient_keys = ["_faint_draw_start_ms","_nudge_active","_nudge_start_ms","_nudge_dur","_nudge_mag","_nudge_dir","_intro_draw_x","_intro_draw_y","_intro_anchor_x"];
+                for (var _k = 0; _k < array_length(_transient_keys); ++_k){
+                    var _key = _transient_keys[_k];
+                    if (variable_struct_exists(_act2, _key)) variable_struct_set(_act2, _key, undefined);
+                }
+            }
+        }
+    } catch (e_act_clear) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][close] failed clearing actor transient fields: " + string(e_act_clear)); }
+
+    // Clear any trainer intro state so repeated cutscenes don't reuse previous intro anchors
+    try { if (variable_struct_exists(_B, "_trainer_intro")) variable_struct_set(_B, "_trainer_intro", undefined); } catch (e_ti) {}
+
     // Clear any temporary per-battle weather state
     try { if (variable_struct_exists(_B, "_weather")) variable_struct_set(_B, "_weather", undefined); } catch (e_w) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][close] failed clearing weather: " + string(e_w)); }
 

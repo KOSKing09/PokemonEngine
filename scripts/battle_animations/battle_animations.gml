@@ -738,9 +738,17 @@ function __battle_anim_queue_draw_states(_pid, _states){
         var _kind = (variable_struct_exists(_st, "kind") ? string(_st.kind) : "");
         if (_kind == "stat_overlay"){
             if (!sprite_exists(spr_stateffects)) continue;
-            var _idx_so = (variable_struct_exists(_st, "target_index") && is_real(_st.target_index)) ? clamp(_st.target_index, 0, 1) : 0;
-            var _cx_so = (_idx_so == 1 ? _enemy_cx : _player_cx);
-            var _cy_so = (_idx_so == 1 ? _enemy_cy : _player_cy);
+            // Center status flashes over the camera view so they remain visible
+            // and correctly positioned when the battle camera pans.
+            var _cam_cx = floor((_full_x1 + _full_x2) * 0.5);
+            var _cam_cy = floor((_full_y1 + _full_y2) * 0.5);
+            var _idx_so = (variable_struct_exists(_st, "target_index") && is_real(variable_struct_get(_st, "target_index"))) ? clamp(variable_struct_get(_st, "target_index"), 0, 1) : 0;
+            // Preserve per-actor centering for specific actor-targeted overlays, but
+            // default to the camera center for general status flashes so they don't
+            // drift off-screen when the camera pans.
+            var _has_target = (variable_struct_exists(_st, "target_index") && is_real(variable_struct_get(_st, "target_index")));
+            var _cx_so = (_has_target ? (_idx_so == 1 ? _enemy_cx : _player_cx) : _cam_cx);
+            var _cy_so = (_has_target ? (_idx_so == 1 ? _enemy_cy : _player_cy) : _cam_cy);
             var _frame_so = (variable_struct_exists(_st, "frame") && is_real(_st.frame)) ? clamp(floor(_st.frame), 0, max(0, sprite_get_number(spr_stateffects) - 1)) : 0;
             var _darken_so = (variable_struct_exists(_st, "darken") && _st.darken);
             var _prog_so = clamp((variable_struct_exists(_st, "progress") ? _st.progress : 0), 0, 1);
@@ -935,17 +943,7 @@ function __battle_anim_queue_draw_states(_pid, _states){
             var _draw_x = _cxs + _offx + _apply_slide_x;
             var _draw_y = _cys + _offy;
             if (!is_undefined(_sprs) && sprite_exists(_sprs)){
-                // Debug: log when multihit sprite is being drawn so we can trace missing draws
-                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
-                    try {
-                        if (!is_undefined(spr_multihit) && _sprs == spr_multihit){
-                            var _dbg_name = "spr_multihit";
-                            var _dbg_tidx = string(_idxs);
-                            var _dbg_msg = "[battle][anim][draw] multihit draw sprite=" + _dbg_name + ", frame=" + string(_frs) + ", target_index=" + _dbg_tidx + ", coords=(" + string(_draw_x) + "," + string(_draw_y) + ")";
-                            show_debug_message(_dbg_msg);
-                        }
-                    } catch (e_dbg) {}
-                }
+                // (multihit debug messages removed)
                 gpu_set_blendmode(bm_normal);
                 draw_sprite_ext(_sprs, _frs, _draw_x, _draw_y, _scs, _scs, 0, c_white, _als);
                 gpu_set_blendmode(bm_normal);
