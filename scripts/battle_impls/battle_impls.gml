@@ -78,7 +78,7 @@ try {
 
         // If the target already has an active Disable effect, fail to extend it.
         try {
-            if (variable_struct_exists(_target, "sys_disabledActive") && variable_struct_get(_target, "sys_disabledActive") == true){
+            if (variable_struct_exists(_target, "sys_disabledActive") && variable_struct_get(_target, "sys_disabledActive") == true) {
                 return false;
             }
         } catch (e_chk_active) {}
@@ -1186,6 +1186,105 @@ function __battle_apply_move(_pid, _user, _target, _move){
             try { _mm = global._move_meta[_move]; } catch (e_gm2) { _mm = undefined; }
         }
         if (is_struct(_mm)){
+            // Multi-hit visual feedback: if this move's effect_id indicates multi-hit (2 or 3),
+            // play a small multihit overlay per hit and apply per-hit recoil nudges.
+            try {
+                var _effid_local = (variable_struct_exists(_mm, "effect_id") ? variable_struct_get(_mm, "effect_id") : undefined);
+                if (is_real(_effid_local) && (_effid_local == 2 || _effid_local == 3)){
+                    // Determine hits: prefer explicit min_hits/max_hits from move meta
+                    var _min_hits = (variable_struct_exists(_mm, "min_hits") && is_real(variable_struct_get(_mm, "min_hits"))) ? floor(variable_struct_get(_mm, "min_hits")) : 1;
+                    var _max_hits = (variable_struct_exists(_mm, "max_hits") && is_real(variable_struct_get(_mm, "max_hits"))) ? floor(variable_struct_get(_mm, "max_hits")) : _min_hits;
+                    if (_max_hits < _min_hits) _max_hits = _min_hits;
+                    var _hits_count = (_min_hits == _max_hits) ? _min_hits : irandom_range(_min_hits, _max_hits);
+                    if (!is_real(_hits_count) || _hits_count < 1) _hits_count = 1;
+
+                    // Choose frame mapping by move identifier (hardcoded mapping)
+                    var _frame_map = 0;
+                    try {
+                        switch(string_lower(string(_moveIdent))){
+                            case "cometpunch": case "armthrust": _frame_map = 0; break;
+                            case "fury_swipes": case "furycutter": case "bite": _frame_map = 2; break;
+                            case "double_kick": case "peck": _frame_map = 3; break;
+                            case "karate_chop": case "cross_chop": _frame_map = 4; break;
+                            default: _frame_map = 0; break;
+                        }
+                    } catch (e_fm) { _frame_map = 0; }
+
+                    // Determine per-hit damage proportion if total damage is numeric
+                    var _per_hit_dmg = 0;
+                    if (is_real(_dmg) && _hits_count > 0) _per_hit_dmg = real(_dmg) / _hits_count;
+
+                    // Resolve target max HP for proportion mapping
+                    var _tgt_max_hp = 1;
+                    try { if (variable_struct_exists(_target, "hp_max")) _tgt_max_hp = max(1, real(variable_struct_get(_target, "hp_max"))); else if (variable_struct_exists(_target, "mon") && is_struct(variable_struct_get(_target, "mon")) && variable_struct_exists(variable_struct_get(_target, "mon"), "hp_max")) _tgt_max_hp = max(1, real(variable_struct_get(variable_struct_get(_target, "mon"), "hp_max"))); } catch (e_thp) { _tgt_max_hp = 1; }
+
+                    // Play overlays and apply nudges per hit
+                    for (var _hi = 0; _hi < _hits_count; ++_hi){
+                        // Small random offset for overlay placement
+                        var _offx = irandom_range(-8, 8);
+                        var _offy = irandom_range(-6, 6);
+                        // Request the multihit overlay (short duration)
+                        // Pass the sprite resource directly so the normalizer receives the intended sprite
+                        try {
+                            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                                try {
+                                    var _spr_ok = (is_undefined(spr_multihit) == false && sprite_exists(spr_multihit));
+                                    show_debug_message("[battle][multi-hit][enqueue] pid=" + string(_pid) + ", target_index=" + string(_tidx) + ", frame=" + string(_frame_map) + ", off=(" + string(_offx) + "," + string(_offy) + ")" + ", spr_ok=" + string(_spr_ok));
+                                } catch (e_dbgmh) {}
+                            }
+                            __battle_request_animation_safe(_pid, { type: "hit_effect", target_index: _tidx, actor: _user, target: _target, sprite: spr_multihit, scale: 1.0, frame: _frame_map, offset_x: _offx, offset_y: _offy, slide_mag: 6, duration: 140 });
+                        } catch (e_reqmh) {}
+                        // Camera shake/brief feedback between hits
+                        try { if (!is_undefined(battle_cam_shake)) battle_cam_shake(_pid, 4, 120, 12, 0.92); } catch (e_cam) {}
+
+                        // Compute per-hit nudge magnitude and set attacker/defender nudge fields (smaller per-hit)
+                        try {
+                            var _prop_hit = clamp((_tgt_max_hp > 0 ? (_per_hit_dmg / _tgt_max_hp) : 0), 0, 1);
+                            var _nudge_mag_hit = lerp(2, 18, _prop_hit);
+                            var _ndir_hit = 0;
+                            var _act_idx_local2 = (variable_struct_exists(_user, "actor_index") ? variable_struct_get(_user, "actor_index") : undefined);
+                            if (is_real(_act_idx_local2) && is_real(_tidx)) _ndir_hit = sign(_tidx - _act_idx_local2);
+                            // Attacker nudge
+                            try {
+                                if (is_struct(_user)){
+                                    variable_struct_set(_user, "_nudge_active", true);
+                                    variable_struct_set(_user, "_nudge_start_ms", current_time);
+                                    variable_struct_set(_user, "_nudge_dur", 240);
+                                    variable_struct_set(_user, "_nudge_mag", _nudge_mag_hit);
+                                    variable_struct_set(_user, "_nudge_dir", _ndir_hit);
+                                }
+                            } catch (e_an) {}
+                            // Defender recoil (write both passed target and actor slot entry)
+                            try {
+                                var _d_nudge_m = max(1, _nudge_mag_hit * 0.75);
+                                if (is_struct(_target)){
+                                    variable_struct_set(_target, "_nudge_active", true);
+                                    variable_struct_set(_target, "_nudge_start_ms", current_time);
+                                    variable_struct_set(_target, "_nudge_dur", 200);
+                                    variable_struct_set(_target, "_nudge_mag", _d_nudge_m);
+                                    variable_struct_set(_target, "_nudge_dir", -_ndir_hit);
+                                }
+                                try {
+                                    var _Btmp_mh = __battle_ensure_slot(_pid);
+                                    if (is_struct(_Btmp_mh) && variable_struct_exists(_Btmp_mh, "actor") && is_array(variable_struct_get(_Btmp_mh, "actor"))){
+                                        var _actors_mh = variable_struct_get(_Btmp_mh, "actor");
+                                        if (is_real(_tidx) && _tidx >= 0 && _tidx < array_length(_actors_mh)){
+                                            var _def_act_mh = _actors_mh[_tidx];
+                                            if (is_struct(_def_act_mh)){
+                                                variable_struct_set(_def_act_mh, "_nudge_active", true);
+                                                variable_struct_set(_def_act_mh, "_nudge_start_ms", current_time);
+                                                variable_struct_set(_def_act_mh, "_nudge_dur", 200);
+                                                variable_struct_set(_def_act_mh, "_nudge_mag", _d_nudge_m);
+                                                variable_struct_set(_def_act_mh, "_nudge_dir", -_ndir_hit);
+                                            }
+                                        }
+                                    }
+                                } catch (e_setslotmh) {}
+                            } catch (e_dn) {}
+                        } catch (e_hitloop) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][multi-hit] per-hit visual failed: " + string(e_hitloop)); }
+                    }
+                }
+            } catch (e_mh_all) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][multi-hit] failed: " + string(e_mh_all)); }
             // Ailment application
             try {
                 var ail_id = (variable_struct_exists(_mm, "meta_ailment_id") ? variable_struct_get(_mm, "meta_ailment_id") : undefined);

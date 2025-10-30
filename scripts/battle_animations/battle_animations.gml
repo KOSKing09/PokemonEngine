@@ -377,6 +377,9 @@ function __battle_anim_queue_normalize(_slot, _spec){
             _out.target_index = __battle_anim_queue_resolve_target_index(_slot, _spec);
             _out.sprite = (variable_struct_exists(_spec, "sprite") ? variable_struct_get(_spec, "sprite") : (variable_global_exists("spr_hiteffect") ? spr_hiteffect : undefined));
             _out.scale = (variable_struct_exists(_spec, "scale") && is_real(variable_struct_get(_spec, "scale"))) ? real(variable_struct_get(_spec, "scale")) : 1;
+            // Allow caller to request a specific frame (for multihit icons) and override duration
+            if (variable_struct_exists(_spec, "frame") && is_real(variable_struct_get(_spec, "frame"))) _out.frame = floor(variable_struct_get(_spec, "frame"));
+            if (variable_struct_exists(_spec, "duration") && is_real(variable_struct_get(_spec, "duration"))) _out.duration = max(1, floor(variable_struct_get(_spec, "duration")));
             // Stable random offset within the target to vary hit placement
             var _rx = irandom_range(-12, 12);
             var _ry = irandom_range(-8, 8);
@@ -483,6 +486,16 @@ function battle_anim_queue_enqueue(_pid_or_slot, _spec){
             stat_keys: (variable_struct_exists(_norm, "keys") ? _norm.keys : undefined),
             stat_deltas: (variable_struct_exists(_norm, "deltas") ? _norm.deltas : undefined)
         };
+
+        // Preserve optional visual fields from the normalized spec so overlays
+        // like hit_effect can carry custom sprite/scale/offset values.
+        if (variable_struct_exists(_norm, "sprite")) _entry.sprite = _norm.sprite;
+        if (variable_struct_exists(_norm, "scale")) _entry.scale = _norm.scale;
+        if (variable_struct_exists(_norm, "offset_x")) _entry.offset_x = _norm.offset_x;
+        if (variable_struct_exists(_norm, "offset_y")) _entry.offset_y = _norm.offset_y;
+        if (variable_struct_exists(_norm, "slide_dir")) _entry.slide_dir = _norm.slide_dir;
+        if (variable_struct_exists(_norm, "slide_mag")) _entry.slide_mag = _norm.slide_mag;
+    // (alpha is computed by the draw-state for most overlays; no explicit copy needed)
         array_push(_aq.overlays, _entry);
     } else {
         array_push(_aq.pending, _norm);
@@ -586,16 +599,26 @@ function __battle_anim_queue_build_draw_state(_pid, _slot, _entry){
         var _bg_loops_so = (variable_struct_exists(_entry, "bg_loops") && is_real(_entry.bg_loops)) ? max(0, floor(_entry.bg_loops)) : undefined;
         return { kind: "stat_overlay", target_index: _idx_so, frame: _frame_so, darken: _darken_so, progress: _prog, bg: _bg_so, direction: _dir_so, stat_keys: _stat_keys_so, stat_deltas: _stat_deltas_so, bg_loops: _bg_loops_so };
     }
-    if (_type == "hit_effect"){
+        if (_type == "hit_effect"){
         var _idx_he = (variable_struct_exists(_entry, "target_index") && is_real(_entry.target_index)) ? clamp(_entry.target_index, 0, 1) : 0;
         var _sprite_he = (variable_struct_exists(_entry, "sprite") && !is_undefined(_entry.sprite)) ? _entry.sprite : spr_hiteffect;
         var _spr_count_he = 1;
         try { if (is_undefined(_sprite_he) == false && sprite_exists(_sprite_he)) _spr_count_he = max(1, sprite_get_number(_sprite_he)); } catch (e_sp) { _spr_count_he = 1; }
-        var _frame_he = clamp(floor(_prog * _spr_count_he), 0, max(0, _spr_count_he - 1));
+        var _frame_he = 0;
+        if (variable_struct_exists(_entry, "frame") && is_real(_entry.frame)){
+            _frame_he = clamp(floor(_entry.frame), 0, max(0, _spr_count_he - 1));
+        } else {
+            _frame_he = clamp(floor(_prog * _spr_count_he), 0, max(0, _spr_count_he - 1));
+        }
         var _scale_he = (variable_struct_exists(_entry, "scale") && is_real(_entry.scale)) ? _entry.scale : 1;
         var _alpha_he = 1 - _prog;
-        var _offx_he = (variable_struct_exists(_entry, "offset_x") && is_real(_entry.offset_x)) ? _entry.offset_x : 0;
-        var _offy_he = (variable_struct_exists(_entry, "offset_y") && is_real(_entry.offset_y)) ? _entry.offset_y : 0;
+    // Offsets in the normalized spec are provided in logical pixels; convert
+    // to UI pixels here so overlays are positioned relative to the actor
+    // center correctly under different UI scales.
+    var _offx_he = 0;
+    var _offy_he = 0;
+    if (variable_struct_exists(_entry, "offset_x") && is_real(_entry.offset_x)) _offx_he = __battle_anim_queue_wu(_pid, _entry.offset_x, _entry.offset_x);
+    if (variable_struct_exists(_entry, "offset_y") && is_real(_entry.offset_y)) _offy_he = __battle_anim_queue_hu(_pid, _entry.offset_y, _entry.offset_y);
         var _sdir_he = (variable_struct_exists(_entry, "slide_dir") && is_real(_entry.slide_dir)) ? clamp(_entry.slide_dir, -1, 1) : 0;
         var _smag_he = (variable_struct_exists(_entry, "slide_mag") && is_real(_entry.slide_mag)) ? _entry.slide_mag : 8;
         return { kind: "sprite_overlay", target_index: _idx_he, sprite: _sprite_he, frame: _frame_he, scale: _scale_he, alpha: _alpha_he, progress: _prog, offset_x: _offx_he, offset_y: _offy_he, slide_dir: _sdir_he, slide_mag: _smag_he };
@@ -871,6 +894,17 @@ function __battle_anim_queue_draw_states(_pid, _states){
             var _draw_x = _cxs + _offx + _apply_slide_x;
             var _draw_y = _cys + _offy;
             if (!is_undefined(_sprs) && sprite_exists(_sprs)){
+                // Debug: log when multihit sprite is being drawn so we can trace missing draws
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                    try {
+                        if (!is_undefined(spr_multihit) && _sprs == spr_multihit){
+                            var _dbg_name = "spr_multihit";
+                            var _dbg_tidx = string(_idxs);
+                            var _dbg_msg = "[battle][anim][draw] multihit draw sprite=" + _dbg_name + ", frame=" + string(_frs) + ", target_index=" + _dbg_tidx + ", coords=(" + string(_draw_x) + "," + string(_draw_y) + ")";
+                            show_debug_message(_dbg_msg);
+                        }
+                    } catch (e_dbg) {}
+                }
                 gpu_set_blendmode(bm_normal);
                 draw_sprite_ext(_sprs, _frs, _draw_x, _draw_y, _scs, _scs, 0, c_white, _als);
                 gpu_set_blendmode(bm_normal);

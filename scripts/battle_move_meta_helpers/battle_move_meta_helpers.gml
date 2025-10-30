@@ -324,6 +324,74 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                         } catch (e_terr_e) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] terrain apply (early) failed: " + string(e_terr_e)); }
                         return undefined;
                     }
+                        // Multi-hit style moves (some datasets use effect_id 30 for Comet Punch / multi-hit)
+                        if (_eid == 30){
+                            try {
+                                var _tgt_idx_mh = undefined;
+                                try { if (is_struct(_D) && variable_struct_exists(_D, "actor_index")) _tgt_idx_mh = variable_struct_get(_D, "actor_index"); } catch (e_tim) { _tgt_idx_mh = undefined; }
+                                // Determine hits: prefer explicit min_hits/max_hits from move meta
+                                var _min_hits_m = (variable_struct_exists(_mm, "min_hits") && is_real(variable_struct_get(_mm, "min_hits"))) ? floor(variable_struct_get(_mm, "min_hits")) : 2;
+                                var _max_hits_m = (variable_struct_exists(_mm, "max_hits") && is_real(variable_struct_get(_mm, "max_hits"))) ? floor(variable_struct_get(_mm, "max_hits")) : 5;
+                                if (_max_hits_m < _min_hits_m) _max_hits_m = _min_hits_m;
+                                var _hits_count_m = (_min_hits_m == _max_hits_m) ? _min_hits_m : irandom_range(_min_hits_m, _max_hits_m);
+                                if (!is_real(_hits_count_m) || _hits_count_m < 1) _hits_count_m = 2;
+
+                                // Frame mapping for common multi-hit moves (comet-punch uses frame 0)
+                                var _frame_map_m = 0;
+                                try { if (is_struct(_move_rec) && variable_struct_exists(_move_rec, "identifier")){
+                                    var _ident_m = string_lower(string(variable_struct_get(_move_rec, "identifier")));
+                                    switch(_ident_m){
+                                        // Frame 0: Comet Punch, Arm Thrust
+                                        case "comet-punch": case "comet_punch": case "arm-thrust": case "arm_thrust": case "armthrust":
+                                            _frame_map_m = 0; break;
+                                        // Frame 2: Fury Swipes, Fury Cutter, Bite
+                                        case "fury-swipes": case "fury_swipes": case "fury-cutter": case "fury_cutter": case "bite":
+                                            _frame_map_m = 2; break;
+                                        // Frame 3: Double Kick, Peck
+                                        case "double-kick": case "double_kick": case "doublekick": case "peck":
+                                            _frame_map_m = 3; break;
+                                        // Frame 4: Karate Chop, Cross Chop
+                                        case "karate-chop": case "karate_chop": case "karatechop": case "cross-chop": case "cross_chop": case "crosschop":
+                                            _frame_map_m = 4; break;
+                                        default: _frame_map_m = 0; break;
+                                    }
+                                }} catch (e_fm_m) { _frame_map_m = 0; }
+
+                                // Per-hit damage estimate
+                                var _per_hit_dmg_m = 0;
+                                if (is_real(_dmg) && _hits_count_m > 0) _per_hit_dmg_m = real(_dmg) / _hits_count_m;
+
+                                for (var _hi_m = 0; _hi_m < _hits_count_m; ++_hi_m){
+                                    var _offx_m = irandom_range(-8, 8);
+                                    var _offy_m = irandom_range(-6, 6);
+                                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                                        try { show_debug_message("[battle][multi-hit][meta-enqueue] pid=" + string(_pid) + ", tgt=" + string(_tgt_idx_mh) + ", frame=" + string(_frame_map_m) + ", off=(" + string(_offx_m) + "," + string(_offy_m) + ")"); } catch (e_dbgmh2) {}
+                                    }
+                                    try { __battle_request_animation_safe(_pid, { type: "hit_effect", target_index: _tgt_idx_mh, actor: _A, target: _D, sprite: spr_multihit, scale: 1.0, frame: _frame_map_m, offset_x: _offx_m, offset_y: _offy_m, slide_mag: 6, duration: 140 }); } catch (e_reqm2) {}
+                                    try { if (!is_undefined(battle_cam_shake)) battle_cam_shake(_pid, 3, 100, 10, 0.9); } catch (e_cam2) {}
+
+                                    // small per-hit nudge
+                                    try {
+                                        var _tgt_max_h = 1;
+                                        try { if (variable_struct_exists(_D, "hp_max")) _tgt_max_h = max(1, real(variable_struct_get(_D, "hp_max"))); else if (variable_struct_exists(_D, "mon") && is_struct(variable_struct_get(_D, "mon")) && variable_struct_exists(variable_struct_get(_D, "mon"), "hp_max")) _tgt_max_h = max(1, real(variable_struct_get(variable_struct_get(_D, "mon"), "hp_max"))); } catch (e_tmp) { _tgt_max_h = 1; }
+                                        var _prop_m = clamp((_tgt_max_h > 0 ? (_per_hit_dmg_m / _tgt_max_h) : 0), 0, 1);
+                                        var _nudge_mag_m = lerp(2, 18, _prop_m);
+                                        var _ndir_m = 0; var _act_idx_m = (variable_struct_exists(_A, "actor_index") ? variable_struct_get(_A, "actor_index") : undefined);
+                                        if (is_real(_act_idx_m) && is_real(_tgt_idx_mh)) _ndir_m = sign(_tgt_idx_mh - _act_idx_m);
+                                        // Attacker nudge
+                                        try { if (is_struct(_A)){ variable_struct_set(_A, "_nudge_active", true); variable_struct_set(_A, "_nudge_start_ms", current_time); variable_struct_set(_A, "_nudge_dur", 220); variable_struct_set(_A, "_nudge_mag", _nudge_mag_m); variable_struct_set(_A, "_nudge_dir", _ndir_m); } } catch (e_an2) {}
+                                        // Defender nudge
+                                        try {
+                                            var _dmag_m = max(1, _nudge_mag_m * 0.7);
+                                            if (is_struct(_D)){ variable_struct_set(_D, "_nudge_active", true); variable_struct_set(_D, "_nudge_start_ms", current_time); variable_struct_set(_D, "_nudge_dur", 180); variable_struct_set(_D, "_nudge_mag", _dmag_m); variable_struct_set(_D, "_nudge_dir", -_ndir_m); }
+                                            try { var _Btmp_m = __battle_ensure_slot(_pid); if (is_struct(_Btmp_m) && variable_struct_exists(_Btmp_m, "actor") && is_array(variable_struct_get(_Btmp_m, "actor"))){ var _acts_m = variable_struct_get(_Btmp_m, "actor"); if (is_real(_tgt_idx_mh) && _tgt_idx_mh >= 0 && _tgt_idx_mh < array_length(_acts_m)){ var _def_m = _acts_m[_tgt_idx_mh]; if (is_struct(_def_m)){ variable_struct_set(_def_m, "_nudge_active", true); variable_struct_set(_def_m, "_nudge_start_ms", current_time); variable_struct_set(_def_m, "_nudge_dur", 180); variable_struct_set(_def_m, "_nudge_mag", _dmag_m); variable_struct_set(_def_m, "_nudge_dir", -_ndir_m); } } } } catch (e_setsm) {}
+                                        } catch (e_dn2) {}
+                                    } catch (e_phn) {}
+                                }
+                                try { var _Btmp_m2 = __battle_ensure_slot(_pid); if (is_struct(_Btmp_m2)) variable_struct_set(_Btmp_m2, "_meta_effect_applied", true); } catch (e_btmpm) {}
+                            } catch (e_mh_all) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][multi-hit][meta] failed: " + string(e_mh_all)); }
+                            return undefined;
+                        }
                     // Psychic Terrain
                     if (_eid == 395){
                         try {
