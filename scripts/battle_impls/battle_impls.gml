@@ -1370,7 +1370,11 @@ function __battle_check_can_act(_user){
             if (status_system_has_status(_user, "sleep")){
                 var inst_s = status_system_get(_user, "sleep");
                 var turns = (is_struct(inst_s) && variable_struct_exists(inst_s, "turns") && is_real(variable_struct_get(inst_s, "turns"))) ? variable_struct_get(inst_s, "turns") : undefined;
-                if (is_real(turns) && turns > 0){ dialog_queue((variable_struct_exists(_user, "name") ? variable_struct_get(_user, "name") : "The user") + " is fast asleep..."); if (is_struct(inst_s) && is_real(inst_s.turns)) inst_s.turns = max(0, inst_s.turns - 1); return false; }
+                if (is_real(turns) && turns > 0){
+                    // Decrement remaining turns; status_system.on_tick will handle dialog
+                    if (is_struct(inst_s) && is_real(inst_s.turns)) inst_s.turns = max(0, inst_s.turns - 1);
+                    return false;
+                }
                 // no turns left -> wake up
                 dialog_queue((variable_struct_exists(_user, "name") ? variable_struct_get(_user, "name") : "The user") + " woke up!"); status_system_clear_status(_user, "sleep"); return true;
             }

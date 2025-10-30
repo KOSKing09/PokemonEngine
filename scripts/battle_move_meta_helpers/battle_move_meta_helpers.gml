@@ -136,6 +136,17 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                         try { if (string(stid) == "trap") variable_struct_set(opts, "skip_first_tick", true); } catch (e_sft) {}
                                         var ok2 = status_system_apply_status(_D, stid, opts);
                                         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] status_system_apply_status returned=" + string(ok2));
+                                            // If the status applied and it is sleep, spawn floating Z overlay
+                                            try {
+                                                if (ok2 && string(stid) == "sleep"){
+                                                    var _tgt_idx_sleep = undefined;
+                                                    try { if (is_struct(_D) && variable_struct_exists(_D, "actor_index")) _tgt_idx_sleep = variable_struct_get(_D, "actor_index"); } catch (e_ti) { _tgt_idx_sleep = undefined; }
+                                                    var _offx_s = irandom_range(-6, 6);
+                                                    var _offy_s = -18 + irandom_range(-4, 4);
+                                                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){ try { show_debug_message("[battle][sleep][meta-enqueue] pid=" + string(_pid) + ", tgt=" + string(_tgt_idx_sleep) + ", off=(" + string(_offx_s) + "," + string(_offy_s) + ")"); } catch (e_dbgs) {} }
+                                                    try { __battle_request_animation_safe(_pid, { type: "sleep_effect", target_index: _tgt_idx_sleep, actor: _A, target: _D, sprite: spr_sleep, scale: 1.0, offset_x: _offx_s, offset_y: _offy_s, rise: 26, duration: 1200 }); } catch (e_req_sleep) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][sleep] enqueue failed: " + string(e_req_sleep)); }
+                                                }
+                                            } catch (e_sleep_all) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][sleep] enqueue outer failed: " + string(e_sleep_all)); }
                                     }
                                 } catch (e_stat) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] status apply failed: " + string(e_stat)); }
                         }

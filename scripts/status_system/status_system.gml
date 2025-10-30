@@ -895,7 +895,17 @@ if (variable_global_exists("STATUS_SYS") && variable_struct_exists(global.STATUS
     // sleep
     if (variable_struct_exists(_reg, "sleep")){
         var _sl = variable_struct_get(_reg, "sleep");
-    variable_struct_set(_sl, "on_apply", function(mon, s, opts){ var dur = irandom_range(2,5); if (is_struct(s)) s.turns = dur; __battle_request_animation_safe(mon, { type: "status_apply", status: "sleep" }); });
+    variable_struct_set(_sl, "on_apply", function(mon, s, opts){
+        try {
+            var dur = irandom_range(2,5);
+            if (is_struct(s)){
+                s.turns = dur;
+                // Prevent the first status tick from immediately firing (avoid duplicate 'still sleeping' message)
+                variable_struct_set(s, "_skip_first_tick", true);
+            }
+            __battle_request_animation_safe(mon, { type: "status_apply", status: "sleep" });
+        } catch (e) {}
+    });
     // When sleep is cleared (turns expire or cured), show a wake-up animation and dialog
     variable_struct_set(_sl, "on_clear", function(mon, s){
         try {
@@ -905,6 +915,26 @@ if (variable_global_exists("STATUS_SYS") && variable_struct_exists(global.STATUS
             var _nm = __status_mon_display_name(mon);
             __status_request_dialog_for_mon(mon, string(_nm) + " woke up!");
         } catch (e_dlg) {}
+    });
+    // While asleep, on_tick should show a short dialog and spawn floating Z particles
+    variable_struct_set(_sl, "on_tick", function(mon, s, dt){
+        try {
+            // Respect skip_first_tick set at apply time to avoid immediate 'still sleeping' messages
+            if (is_struct(s) && variable_struct_exists(s, "_skip_first_tick") && s._skip_first_tick == true){
+                variable_struct_set(s, "_skip_first_tick", false);
+                return;
+            }
+            // One-line in-battle dialog indicating the mon is still sleeping
+            __status_request_dialog_for_mon(mon, string(__status_mon_display_name(mon)) + " is still sleeping!");
+            // Spawn two sleep particles with random horizontal motion
+            for (var _si = 0; _si < 2; ++_si){
+                var _offx_p = irandom_range(-10, 10);
+                var _offy_p = -18 + irandom_range(-6, 6);
+                var _sdir_p = (irandom(1) == 0) ? -1 : 1;
+                var _smag_p = irandom_range(4, 10);
+                try { __battle_request_animation_safe(mon, { type: "sleep_effect", sprite: spr_sleep, scale: 1.0, frame: _si, offset_x: _offx_p, offset_y: _offy_p, rise: 26, duration: 1100, slide_dir: _sdir_p, slide_mag: _smag_p }); } catch (e_req) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sleep][on_tick] enqueue failed: " + string(e_req)); }
+            }
+        } catch (e_tk) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sleep][on_tick] failed: " + string(e_tk)); }
     });
         variable_struct_set(_reg, "sleep", _sl);
     }

@@ -393,6 +393,22 @@ function __battle_anim_queue_normalize(_slot, _spec){
             _out.slide_dir = _sdir;
             _out.slide_mag = (variable_struct_exists(_spec, "slide_mag") && is_real(variable_struct_get(_spec, "slide_mag"))) ? variable_struct_get(_spec, "slide_mag") : 8; // logical pixels
             break;
+        case "sleep_effect":
+            // Floating "Z"s that rise and fade above the target while asleep
+            _out.channel = "overlay";
+            _out.target_index = __battle_anim_queue_resolve_target_index(_slot, _spec);
+            _out.sprite = (variable_struct_exists(_spec, "sprite") ? variable_struct_get(_spec, "sprite") : (variable_global_exists("spr_sleep") ? spr_sleep : undefined));
+            _out.scale = (variable_struct_exists(_spec, "scale") && is_real(variable_struct_get(_spec, "scale"))) ? real(variable_struct_get(_spec, "scale")) : 1;
+            // allow caller to override duration
+            if (variable_struct_exists(_spec, "duration") && is_real(variable_struct_get(_spec, "duration"))) _out.duration = max(1, floor(variable_struct_get(_spec, "duration")));
+            // initial offsets in logical pixels (start near head)
+            var _sx = irandom_range(-6, 6);
+            var _sy = irandom_range(-12, -6);
+            _out.offset_x = (variable_struct_exists(_spec, "offset_x") && is_real(variable_struct_get(_spec, "offset_x"))) ? variable_struct_get(_spec, "offset_x") : _sx;
+            _out.offset_y = (variable_struct_exists(_spec, "offset_y") && is_real(variable_struct_get(_spec, "offset_y"))) ? variable_struct_get(_spec, "offset_y") : _sy;
+            // how many logical pixels the Z will rise over the duration
+            _out.rise = (variable_struct_exists(_spec, "rise") && is_real(variable_struct_get(_spec, "rise"))) ? variable_struct_get(_spec, "rise") : 22;
+            break;
         case "stat_change_group":
         case "heal":
         case "recoil":
@@ -622,6 +638,31 @@ function __battle_anim_queue_build_draw_state(_pid, _slot, _entry){
         var _sdir_he = (variable_struct_exists(_entry, "slide_dir") && is_real(_entry.slide_dir)) ? clamp(_entry.slide_dir, -1, 1) : 0;
         var _smag_he = (variable_struct_exists(_entry, "slide_mag") && is_real(_entry.slide_mag)) ? _entry.slide_mag : 8;
         return { kind: "sprite_overlay", target_index: _idx_he, sprite: _sprite_he, frame: _frame_he, scale: _scale_he, alpha: _alpha_he, progress: _prog, offset_x: _offx_he, offset_y: _offy_he, slide_dir: _sdir_he, slide_mag: _smag_he };
+    }
+    if (_type == "sleep_effect"){
+        var _idx_s = (variable_struct_exists(_entry, "target_index") && is_real(_entry.target_index)) ? clamp(_entry.target_index, 0, 1) : 0;
+        var _sprite_s = (variable_struct_exists(_entry, "sprite") && !is_undefined(_entry.sprite)) ? _entry.sprite : spr_sleep;
+        var _spr_count_s = 1;
+        try { if (is_undefined(_sprite_s) == false && sprite_exists(_sprite_s)) _spr_count_s = max(1, sprite_get_number(_sprite_s)); } catch (e_sp2) { _spr_count_s = 1; }
+        var _frame_s = 0;
+        if (variable_struct_exists(_entry, "frame") && is_real(_entry.frame)){
+            _frame_s = clamp(floor(_entry.frame), 0, max(0, _spr_count_s - 1));
+        }
+        var _scale_s = (variable_struct_exists(_entry, "scale") && is_real(_entry.scale)) ? _entry.scale : 1;
+        // alpha fades out over progress
+        var _alpha_s = 1 - _prog;
+        // Offsets: normalized offsets are logical pixels; convert to UI pixels
+        var _offx_s = 0;
+        var _offy_s = 0;
+        if (variable_struct_exists(_entry, "offset_x") && is_real(_entry.offset_x)) _offx_s = __battle_anim_queue_wu(_pid, _entry.offset_x, _entry.offset_x);
+        if (variable_struct_exists(_entry, "offset_y") && is_real(_entry.offset_y)) _offy_s = __battle_anim_queue_hu(_pid, _entry.offset_y, _entry.offset_y);
+        // rise distance (logical pixels) converted to UI pixels
+        var _rise_s = (variable_struct_exists(_entry, "rise") && is_real(_entry.rise)) ? __battle_anim_queue_hu(_pid, _entry.rise, _entry.rise) : __battle_anim_queue_hu(_pid, 22, 22);
+        // Move upward as progress increases
+        var _offy_apply = _offy_s - floor(_rise_s * _prog);
+        var _sdir_s = (variable_struct_exists(_entry, "slide_dir") && is_real(_entry.slide_dir)) ? clamp(_entry.slide_dir, -1, 1) : 0;
+        var _smag_s = (variable_struct_exists(_entry, "slide_mag") && is_real(_entry.slide_mag)) ? _entry.slide_mag : 6;
+        return { kind: "sprite_overlay", target_index: _idx_s, sprite: _sprite_s, frame: _frame_s, scale: _scale_s, alpha: _alpha_s, progress: _prog, offset_x: _offx_s, offset_y: _offy_apply, slide_dir: _sdir_s, slide_mag: _smag_s };
     }
     if (_type == "stat_change"){
         var _idx = (variable_struct_exists(_entry, "target_index") && is_real(_entry.target_index)) ? clamp(_entry.target_index, 0, 1) : 0;
