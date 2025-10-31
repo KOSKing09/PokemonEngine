@@ -1,3 +1,4 @@
+// [System]: battle_system — Build v0.1.35 — Updated 2025-10-31
 // [Battle] PokemonBattleSystem � Build v0.1.35 (rewards & flow)
 // Updated 2025-10-11
 // - NEW: Rewards � EXP on victory (b * L / 7), simple level-up (stubbed stat bumps)
@@ -6299,5 +6300,3 @@ function __battle_update_animations(_pid){
         }
     }
 }
-
-
