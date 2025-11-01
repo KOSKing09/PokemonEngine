@@ -65,6 +65,50 @@ function __status_mon_display_name(_mon){
     return "Pokémon";
 }
 
+function __status_dev_override_chance(status_name, base_chance){
+    var _base = base_chance;
+    if (!is_real(_base)) _base = 0;
+    if (!is_string(status_name) || string_length(status_name) == 0) return _base;
+    var sid = string_lower(string(status_name));
+    var override_val = undefined;
+    switch (sid){
+        case "sleep":
+            if (variable_global_exists("DEV_FORCE_SLEEP_CHANCE")) override_val = variable_global_get("DEV_FORCE_SLEEP_CHANCE");
+            break;
+        case "poison":
+            if (variable_global_exists("DEV_FORCE_POISON_CHANCE")) override_val = variable_global_get("DEV_FORCE_POISON_CHANCE");
+            break;
+        case "toxic":
+            if (variable_global_exists("DEV_FORCE_TOXIC_CHANCE")) override_val = variable_global_get("DEV_FORCE_TOXIC_CHANCE");
+            else if (variable_global_exists("DEV_FORCE_POISON_CHANCE")) override_val = variable_global_get("DEV_FORCE_POISON_CHANCE");
+            break;
+        case "burn":
+            if (variable_global_exists("DEV_FORCE_BURN_CHANCE")) override_val = variable_global_get("DEV_FORCE_BURN_CHANCE");
+            break;
+        case "freeze":
+            if (variable_global_exists("DEV_FORCE_FREEZE_CHANCE")) override_val = variable_global_get("DEV_FORCE_FREEZE_CHANCE");
+            break;
+        case "paralysis":
+        case "paralyze":
+            if (variable_global_exists("DEV_FORCE_PARALYSIS_CHANCE")) override_val = variable_global_get("DEV_FORCE_PARALYSIS_CHANCE");
+            break;
+        case "confusion":
+            if (variable_global_exists("DEV_FORCE_CONFUSION_CHANCE")) override_val = variable_global_get("DEV_FORCE_CONFUSION_CHANCE");
+            break;
+        case "trap":
+            if (variable_global_exists("DEV_FORCE_TRAP_CHANCE")) override_val = variable_global_get("DEV_FORCE_TRAP_CHANCE");
+            break;
+        default:
+            break;
+    }
+    if (is_real(override_val) && floor(override_val) != -1){
+        var forced = clamp(floor(override_val), 0, 100);
+        show_debug_message("[status_system][override] forcing " + sid + " chance to " + string(forced));
+        return forced;
+    }
+    return _base;
+}
+
 // Remove a status key from a mon's `statuses` struct in a safe way.
 // GameMaker doesn't have a direct 'delete field' operation on structs, so
 // we rebuild a new struct copying only valid entries. We use the known
@@ -245,6 +289,13 @@ function status_system_apply_status(mon, status_id, opts){
         return false;
     }
     variable_struct_set(ss, status_id, inst);
+    if (is_struct(mon) && mon != _target_mon){
+        if (!variable_struct_exists(mon, "statuses") || !is_struct(variable_struct_get(mon, "statuses"))){
+            variable_struct_set(mon, "statuses", {});
+        }
+        var _actor_ss = variable_struct_get(mon, "statuses");
+        if (is_struct(_actor_ss)) variable_struct_set(_actor_ss, status_id, inst);
+    }
     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
         var _nm_target = __status_mon_display_name(_target_mon);
         show_debug_message("[status_system] applied status='" + string(status_id) + "' to mon='" + string(_nm_target) + "', inst=" + string(inst));
@@ -280,7 +331,7 @@ function status_system_apply_status(mon, status_id, opts){
         // an immediate dialog; however the message should still be queued so the
         // battle engine can show it after the current dialog/action completes.
         if (!is_undefined(_apply_msg) && string_length(string(_apply_msg)) > 0) {
-            __status_request_dialog_for_mon(mon, _apply_msg);
+            __status_request_dialog_for_mon(mon, _apply_msg, false);
             // Also mark that a meta effect was applied for the battle slot (if present)
             try {
                 var _pid_flag = __status_find_battle_pid(mon);
@@ -301,16 +352,17 @@ function status_system_apply_status(mon, status_id, opts){
 
 function status_system_has_status(mon, status_id){
     if (!is_struct(mon)) return false;
-    // Prefer canonical inner mon storage if caller passed an actor wrapper
     var _target = mon;
     if (is_struct(mon) && variable_struct_exists(mon, "mon") && is_struct(variable_struct_get(mon, "mon"))) _target = variable_struct_get(mon, "mon");
-    if (!variable_struct_exists(_target, "statuses")) return false;
-    var ss = variable_struct_get(_target, "statuses");
-    if (!is_struct(ss)){
-        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status_system] has_status found non-struct 'statuses' on target; returning false (val="+string(ss)+")");
-        return false;
+    if (variable_struct_exists(_target, "statuses")){
+        var ss = variable_struct_get(_target, "statuses");
+        if (is_struct(ss) && variable_struct_exists(ss, status_id)) return true;
     }
-    return variable_struct_exists(ss, status_id);
+    if (mon != _target && variable_struct_exists(mon, "statuses")){
+        var _actor_ss = variable_struct_get(mon, "statuses");
+        if (is_struct(_actor_ss) && variable_struct_exists(_actor_ss, status_id)) return true;
+    }
+    return false;
 }
 
 // Return the status instance struct for a given mon and status_id, or undefined.
@@ -318,8 +370,9 @@ function status_system_get(mon, status_id){
     if (!is_struct(mon)) return undefined;
     var _target = mon;
     if (is_struct(mon) && variable_struct_exists(mon, "mon") && is_struct(variable_struct_get(mon, "mon"))) _target = variable_struct_get(mon, "mon");
-    if (!variable_struct_exists(_target, "statuses")) return undefined;
-    var ss = variable_struct_get(_target, "statuses");
+    var ss = undefined;
+    if (variable_struct_exists(_target, "statuses")) ss = variable_struct_get(_target, "statuses");
+    if (!is_struct(ss) && mon != _target && variable_struct_exists(mon, "statuses")) ss = variable_struct_get(mon, "statuses");
     if (!is_struct(ss)) return undefined;
     if (!variable_struct_exists(ss, status_id)) return undefined;
     var inst = variable_struct_get(ss, status_id);
@@ -581,7 +634,7 @@ function __status_apply_percent_damage(mon, pct, sid){
         var dmg_msg = " is hurt by its status!";
         if (string_length(stname) > 0) dmg_msg = " is hurt by " + string_upper(string(stname)) + "!";
     var _dlg_txt = string(__status_mon_display_name(mon)) + " " + string(dmg_msg) + " (-" + string(dmg) + ")";
-    __status_request_dialog_for_mon(mon, _dlg_txt);
+    __status_request_dialog_for_mon(mon, _dlg_txt, false);
     // Play tick sound for the status if available (e.g., poison/leech)
     try { __status_play_effect_sound(stname, "tick", mon); } catch (e_snd) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] tick hook failed: " + string(e_snd)); }
     } catch (e_dialog) { /* ignore */ }
@@ -622,7 +675,8 @@ function __status_apply_message_for(id, mon){
 }
 
 // Show an in-battle dialog for a given mon (if dialog system available), fallback to debug log.
-function __status_request_dialog_for_mon(mon, text){
+function __status_request_dialog_for_mon(mon, text, priority_front){
+    if (is_undefined(priority_front)) priority_front = false;
     // Reject invalid targets or missing text early. Avoid treating `undefined`
     // as the literal string "undefined" which would enqueue a bogus dialog.
     if (!is_struct(mon)) return false;
@@ -640,6 +694,8 @@ function __status_request_dialog_for_mon(mon, text){
                 // Split incoming text by newlines so each line becomes its own dialog entry
                 var rest = _txt;
                 var added_any = false;
+                var _priority = (priority_front == true);
+                var _lines = [];
                 while (string_length(string_trim(rest)) > 0){
                     var nl = string_pos("\n", rest);
                     var line = "";
@@ -649,7 +705,20 @@ function __status_request_dialog_for_mon(mon, text){
                     // avoid duplicates in pending
                     var _skip_line = false;
                     for (var _i2=0; _i2<array_length(pending); ++_i2) if (pending[_i2] == line) { _skip_line = true; break; }
-                    if (!_skip_line){ pending[array_length(pending)] = line; added_any = true; }
+                    if (!_skip_line){
+                        _lines[array_length(_lines)] = line;
+                        added_any = true;
+                    }
+                }
+                if (added_any){
+                    if (_priority){
+                        var _new_pending = [];
+                        for (var _pi = 0; _pi < array_length(_lines); ++_pi) _new_pending[array_length(_new_pending)] = _lines[_pi];
+                        for (var _pj = 0; _pj < array_length(pending); ++_pj) _new_pending[array_length(_new_pending)] = pending[_pj];
+                        pending = _new_pending;
+                    } else {
+                        for (var _pk = 0; _pk < array_length(_lines); ++_pk) pending[array_length(pending)] = _lines[_pk];
+                    }
                 }
                 if (added_any) variable_struct_set(_B, "_pending_status_msgs", pending);
                 return added_any;
@@ -913,7 +982,7 @@ if (variable_global_exists("STATUS_SYS") && variable_struct_exists(global.STATUS
         } catch (e_anim) {}
         try {
             var _nm = __status_mon_display_name(mon);
-            __status_request_dialog_for_mon(mon, string(_nm) + " woke up!");
+            __status_request_dialog_for_mon(mon, string(_nm) + " woke up!", false);
         } catch (e_dlg) {}
     });
     // While asleep, on_tick should show a short dialog and spawn floating Z particles
@@ -925,7 +994,7 @@ if (variable_global_exists("STATUS_SYS") && variable_struct_exists(global.STATUS
                 return;
             }
             // One-line in-battle dialog indicating the mon is still sleeping
-            __status_request_dialog_for_mon(mon, string(__status_mon_display_name(mon)) + " is still sleeping!");
+            __status_request_dialog_for_mon(mon, string(__status_mon_display_name(mon)) + " is still sleeping!", false);
             // Spawn two sleep particles with random horizontal motion
             for (var _si = 0; _si < 2; ++_si){
                 var _offx_p = irandom_range(-10, 10);
@@ -964,7 +1033,37 @@ if (variable_global_exists("STATUS_SYS") && variable_struct_exists(global.STATUS
     // freeze
     if (variable_struct_exists(_reg, "freeze")){
         var _fr = variable_struct_get(_reg, "freeze");
-    variable_struct_set(_fr, "on_tick", function(mon, s, dt){ var r2 = irandom(99); if (r2 < 20){ status_system_clear_status(mon, "freeze"); __battle_request_animation_safe(mon, { type: "status_cured", status: "freeze" }); } });
+        variable_struct_set(_fr, "on_apply", function(mon, s, opts){
+            if (is_struct(s)){
+                variable_struct_set(s, "_freeze_skip_thaw_roll", true);
+                variable_struct_set(s, "_skip_first_tick", true);
+            }
+            try { __battle_request_animation_safe(mon, { type: "status_apply", status: "freeze" }); } catch (e_freeze_apply) {}
+        });
+        variable_struct_set(_fr, "on_tick", function(mon, s, dt){
+            if (is_struct(s) && variable_struct_exists(s, "_skip_first_tick") && variable_struct_get(s, "_skip_first_tick") == true){
+                variable_struct_set(s, "_skip_first_tick", false);
+                return;
+            }
+            var r2 = irandom(99);
+            if (r2 < 20){
+                status_system_clear_status(mon, "freeze");
+            }
+        });
+        variable_struct_set(_fr, "on_clear", function(mon, s){
+            var _nm = "Pokémon";
+            try {
+                _nm = string(__status_mon_display_name(mon));
+            } catch (e_freeze_name) {
+                if (is_struct(mon) && variable_struct_exists(mon, "name")) _nm = string(variable_struct_get(mon, "name"));
+            }
+            try { __battle_request_animation_safe(mon, { type: "status_cured", status: "freeze" }); } catch (e_freeze_anim) {}
+            var _msg = _nm + " just unthawed!";
+            var _shown = false;
+            try { _shown = __status_request_dialog_for_mon(mon, _msg, true); }
+            catch (e_freeze_msg) { _shown = false; }
+            if (!_shown && !is_undefined(dialog_queue)) dialog_queue(_msg);
+        });
         variable_struct_set(_reg, "freeze", _fr);
     }
     // save back registry (global.STATUS_SYS.registry)

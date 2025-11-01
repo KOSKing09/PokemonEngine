@@ -11,6 +11,7 @@
 try {
     if (is_undefined(dialog_queue)){
         function dialog_queue(_txt){
+            // Status effects enqueue dialog via _pending_status_msgs; this fallback only routes text when the battle dispatcher is unavailable.
             // Prefer the new dialog dispatcher if available
             try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(0, _txt); else show_debug_message(_txt); } catch (e) { try { show_debug_message(_txt); } catch (e2) {} }
         }
@@ -1289,54 +1290,72 @@ function __battle_apply_move(_pid, _user, _target, _move){
             try {
                 var ail_id = (variable_struct_exists(_mm, "meta_ailment_id") ? variable_struct_get(_mm, "meta_ailment_id") : undefined);
                 var ach = (variable_struct_exists(_mm, "ailment_chance") && is_real(variable_struct_get(_mm, "ailment_chance"))) ? floor(variable_struct_get(_mm, "ailment_chance")) : 0;
-                if (is_real(ail_id) && ail_id > 0 && ach > 0 && !is_undefined(status_system_apply_status)){
+                if (is_real(ail_id) && ail_id > 0 && !is_undefined(status_system_apply_status)){
                     // Attempt to resolve ailment name for clearer debug output
                     var sname_dbg = undefined;
                     try { if (!is_undefined(scr_move_meta_ailment_to_name)) sname_dbg = scr_move_meta_ailment_to_name(ail_id); } catch (e_sdbg) { sname_dbg = undefined; }
                     if (is_undefined(sname_dbg) && variable_global_exists("_move_meta_ailments") && is_array(global._move_meta_ailments) && ail_id < array_length(global._move_meta_ailments)){
                         try { var _amn_dbg = global._move_meta_ailments[ail_id]; if (is_struct(_amn_dbg) && variable_struct_exists(_amn_dbg, "name")) sname_dbg = variable_struct_get(_amn_dbg, "name"); } catch (e_amdbg) { sname_dbg = undefined; }
                     }
-                    // If Water Pledge double-effect is active for user's side, double the chance
-                    try {
-                        var _Bslot_local = __battle_ensure_slot(_pid);
-                        if (is_struct(_Bslot_local) && variable_struct_exists(_Bslot_local, "_pledge_flags") && is_struct(variable_struct_get(_Bslot_local, "_pledge_flags"))){
-                            var pf_local = variable_struct_get(_Bslot_local, "_pledge_flags");
-                            var user_side = (variable_struct_exists(_user, "actor_index") && variable_struct_get(_user, "actor_index") == 0) ? 0 : 1;
-                            var wk = "water_pledge_double_effect_side_" + string(user_side);
-                            if (variable_struct_exists(pf_local, wk) && is_real(variable_struct_get(pf_local, wk)) && variable_struct_get(pf_local, wk) > 0){
-                                ach = min(100, floor(ach * 2));
-                            }
+                    var __status_override_name = undefined;
+                    if (!is_undefined(sname_dbg) && is_string(sname_dbg) && string_length(string(sname_dbg)) > 0) __status_override_name = string_lower(string(sname_dbg));
+                    if (is_undefined(__status_override_name)){
+                        switch (floor(ail_id)){
+                            case 1: __status_override_name = "sleep"; break;
+                            case 2: __status_override_name = "poison"; break;
+                            case 3: __status_override_name = "burn"; break;
+                            case 4: __status_override_name = "freeze"; break;
+                            case 5: __status_override_name = "paralysis"; break;
+                            case 6: __status_override_name = "confusion"; break;
+                            case 8: __status_override_name = "trap"; break;
                         }
-                    } catch (e_pfd) {}
-                    var roll = irandom(99);
-                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] ailment attempt for move=" + string(_move) + ", id=" + string(ail_id) + ", name=" + string(sname_dbg) + ", chance=" + string(ach) + ", roll=" + string(roll));
-                    if (roll < ach){
-                        // Map ailment id to status name if helper exists
-                        var sname = undefined;
-                        try { if (!is_undefined(scr_move_meta_ailment_to_name)) sname = scr_move_meta_ailment_to_name(ail_id); } catch (e_sm) { sname = undefined; }
-                        // Fallback: try global._move_meta_ailments mapping
-                        if (is_undefined(sname) && variable_global_exists("_move_meta_ailments") && is_array(global._move_meta_ailments) && ail_id < array_length(global._move_meta_ailments)){
-                            try { var _amn = global._move_meta_ailments[ail_id]; if (is_struct(_amn) && variable_struct_exists(_amn, "name")) sname = variable_struct_get(_amn, "name"); } catch (e_am) { sname = undefined; }
-                        }
-                        if (!is_undefined(sname) && is_string(sname) && string_length(sname) > 0){
-                            try { status_system_apply_status(_target, string_lower(sname), { source: _user }); } catch (e_ss) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] status apply failed: " + string(e_ss)); }
-                        } else {
-                            // If we couldn't map name, attempt to apply common named statuses by id heuristics
-                            try {
-                                // common ailment ids: 1=sleep,2=poison,3=burn,4=freeze,5=paralysis,6=confuse,8=trap
-                                var cand = undefined;
-                                if (is_real(ail_id)){
-                                    switch(floor(ail_id)){
-                                        case 1: cand = "sleep"; break;
-                                        case 2: cand = "poison"; break;
-                                        case 3: cand = "burn"; break;
-                                        case 4: cand = "freeze"; break;
-                                        case 5: cand = "paralyze"; break;
-                                        case 6: cand = "confusion"; break;
-                                    }
+                    }
+                    if (!is_undefined(__status_override_name) && !is_undefined(__status_dev_override_chance)){
+                        ach = __status_dev_override_chance(__status_override_name, ach);
+                    }
+                    if (ach > 0){
+                        // If Water Pledge double-effect is active for user's side, double the chance
+                        try {
+                            var _Bslot_local = __battle_ensure_slot(_pid);
+                            if (is_struct(_Bslot_local) && variable_struct_exists(_Bslot_local, "_pledge_flags") && is_struct(variable_struct_get(_Bslot_local, "_pledge_flags"))){
+                                var pf_local = variable_struct_get(_Bslot_local, "_pledge_flags");
+                                var user_side = (variable_struct_exists(_user, "actor_index") && variable_struct_get(_user, "actor_index") == 0) ? 0 : 1;
+                                var wk = "water_pledge_double_effect_side_" + string(user_side);
+                                if (variable_struct_exists(pf_local, wk) && is_real(variable_struct_get(pf_local, wk)) && variable_struct_get(pf_local, wk) > 0){
+                                    ach = min(100, floor(ach * 2));
                                 }
-                                if (!is_undefined(cand)) try { status_system_apply_status(_target, cand, { source: _user }); } catch (e_ss2) {}
-                            } catch (e_apply) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] ailment apply heuristics failed: " + string(e_apply)); }
+                            }
+                        } catch (e_pfd) {}
+                        var roll = irandom(99);
+                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] ailment attempt for move=" + string(_move) + ", id=" + string(ail_id) + ", name=" + string(sname_dbg) + ", chance=" + string(ach) + ", roll=" + string(roll));
+                        if (roll < ach){
+                            // Map ailment id to status name if helper exists
+                            var sname = undefined;
+                            try { if (!is_undefined(scr_move_meta_ailment_to_name)) sname = scr_move_meta_ailment_to_name(ail_id); } catch (e_sm) { sname = undefined; }
+                            // Fallback: try global._move_meta_ailments mapping
+                            if (is_undefined(sname) && variable_global_exists("_move_meta_ailments") && is_array(global._move_meta_ailments) && ail_id < array_length(global._move_meta_ailments)){
+                                try { var _amn = global._move_meta_ailments[ail_id]; if (is_struct(_amn) && variable_struct_exists(_amn, "name")) sname = variable_struct_get(_amn, "name"); } catch (e_am) { sname = undefined; }
+                            }
+                            if (!is_undefined(sname) && is_string(sname) && string_length(sname) > 0){
+                                try { status_system_apply_status(_target, string_lower(sname), { source: _user }); } catch (e_ss) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] status apply failed: " + string(e_ss)); }
+                            } else {
+                                // If we couldn't map name, attempt to apply common named statuses by id heuristics
+                                try {
+                                    // common ailment ids: 1=sleep,2=poison,3=burn,4=freeze,5=paralysis,6=confuse,8=trap
+                                    var cand = undefined;
+                                    if (is_real(ail_id)){
+                                        switch(floor(ail_id)){
+                                            case 1: cand = "sleep"; break;
+                                            case 2: cand = "poison"; break;
+                                            case 3: cand = "burn"; break;
+                                            case 4: cand = "freeze"; break;
+                                            case 5: cand = "paralyze"; break;
+                                            case 6: cand = "confusion"; break;
+                                        }
+                                    }
+                                    if (!is_undefined(cand)) try { status_system_apply_status(_target, cand, { source: _user }); } catch (e_ss2) {}
+                                } catch (e_apply) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] ailment apply heuristics failed: " + string(e_apply)); }
+                            }
                         }
                     }
                 }
@@ -1356,15 +1375,77 @@ function __battle_apply_move(_pid, _user, _target, _move){
 
 
 function __battle_check_can_act(_user){
+    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+        var _dbg_name = "actor";
+        var _dbg_has_freeze = "?";
+        var _dbg_has_sleep = "?";
+        var _dbg_has_para = "?";
+        try {
+            _dbg_name = string(__status_mon_display_name(_user));
+        } catch (e_dbg_name) {}
+        if (!is_undefined(status_system_has_status)){
+            try { _dbg_has_freeze = string(status_system_has_status(_user, "freeze")); } catch (e_dbg_freeze) { _dbg_has_freeze = "err"; }
+            try { _dbg_has_sleep = string(status_system_has_status(_user, "sleep")); } catch (e_dbg_sleep) { _dbg_has_sleep = "err"; }
+            try {
+                if (status_system_has_status(_user, "paralysis")) _dbg_has_para = "true";
+                else if (status_system_has_status(_user, "paralyze")) _dbg_has_para = "true";
+                else _dbg_has_para = "false";
+            } catch (e_dbg_para) { _dbg_has_para = "err"; }
+        }
+        show_debug_message("[battle][status][check] actor=" + _dbg_name + " freeze=" + _dbg_has_freeze + " sleep=" + _dbg_has_sleep + " paralysis=" + _dbg_has_para);
+    }
     // Use the centralized status system when available. Fall back to legacy
     // sys_status fields if the status system isn't present.
     try {
         if (!is_undefined(status_system_has_status) && !is_undefined(status_system_get)){
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                try {
+                    var _freeze_probe = status_system_has_status(_user, "freeze");
+                    if (_freeze_probe){
+                        show_debug_message("[battle][status][freeze] check=" + string(__status_mon_display_name(_user)) + " :: has_freeze=1");
+                    }
+                } catch (e_probe) {}
+            }
             // Freeze handling: 75% chance to remain frozen each attempt; thaw on success
             if (status_system_has_status(_user, "freeze")){
+                var _freeze_inst = undefined;
+                try { _freeze_inst = status_system_get(_user, "freeze"); } catch (e_freeze_inst) { _freeze_inst = undefined; }
+                var _freeze_name = "The Pokémon";
+                try {
+                    _freeze_name = string(__status_mon_display_name(_user));
+                } catch (e_freeze_name) {
+                    if (variable_struct_exists(_user, "name")) _freeze_name = string(variable_struct_get(_user, "name"));
+                }
+                var _freeze_msg = _freeze_name + " is still frozen!";
+                var _skip_thaw_roll = false;
+                if (is_struct(_freeze_inst) && variable_struct_exists(_freeze_inst, "_freeze_skip_thaw_roll") && variable_struct_get(_freeze_inst, "_freeze_skip_thaw_roll") == true){
+                    _skip_thaw_roll = true;
+                    try { variable_struct_set(_freeze_inst, "_freeze_skip_thaw_roll", false); } catch (e_clear_flag) {}
+                }
+                if (_skip_thaw_roll){
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][status][freeze] skip thaw roll for " + _freeze_name);
+                    var _queued_skip = false;
+                    try { _queued_skip = __status_request_dialog_for_mon(_user, _freeze_msg, false); } catch (e_freeze_skip) { _queued_skip = false; }
+                    if (!_queued_skip){
+                        try { if (!is_undefined(dialog_queue)) dialog_queue(_freeze_msg); } catch (e_fallback_skip) {}
+                    }
+                    return false;
+                }
                 var r2 = irandom(99);
-                if (r2 < 75){ dialog_queue((variable_struct_exists(_user, "name") ? variable_struct_get(_user, "name") : "The user") + " is frozen solid!"); return false; }
-                else { dialog_queue((variable_struct_exists(_user, "name") ? variable_struct_get(_user, "name") : "The user") + " thawed out!"); status_system_clear_status(_user, "freeze"); return true; }
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][status][freeze] thaw roll=" + string(r2) + " for " + _freeze_name);
+                if (r2 < 75){
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][status][freeze] remains frozen");
+                    var _queued = false;
+                    try { _queued = __status_request_dialog_for_mon(_user, _freeze_msg, false); } catch (e_freeze_msg) { _queued = false; }
+                    if (!_queued){
+                        try { if (!is_undefined(dialog_queue)) dialog_queue(_freeze_msg); } catch (e_fallback) {}
+                    }
+                    return false;
+                } else {
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][status][freeze] thawed -> clearing status");
+                    status_system_clear_status(_user, "freeze");
+                    return true;
+                }
             }
             // Sleep handling: use turns on the status instance if available
             if (status_system_has_status(_user, "sleep")){

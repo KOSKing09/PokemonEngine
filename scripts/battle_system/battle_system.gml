@@ -245,7 +245,7 @@ if (is_undefined(__battle_request_animation_safe)){
                 if (is_real(_pid_guess)){
                     if (!is_undefined(battle_anim_queue_enqueue)) battle_anim_queue_enqueue(_pid_guess, _payload);
                 }
-                try { if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_pid_or_mon, (is_struct(_payload) && variable_struct_exists(_payload, "msg") ? variable_struct_get(_payload, "msg") : undefined)); } catch (e_msg) {}
+                try { if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_pid_or_mon, (is_struct(_payload) && variable_struct_exists(_payload, "msg") ? variable_struct_get(_payload, "msg") : undefined), false); } catch (e_msg) {}
             }
         } catch (e_any) {}
     }
@@ -3090,7 +3090,7 @@ function __battle_step_turn_if_ready(_pid){
                                     variable_struct_set(a3, "_stages", st3);
                                     try {
                                         var nm = (variable_struct_exists(a3, "name") ? variable_struct_get(a3, "name") : (variable_struct_exists(a3, "mon") && variable_struct_exists(variable_struct_get(a3, "mon"), "name") ? variable_struct_get(variable_struct_get(a3, "mon"), "name") : "The Pok�mon"));
-                                        __status_request_dialog_for_mon(a3, string(nm) + "'s Speed returned to normal as Pledge effect faded.");
+                                        __status_request_dialog_for_mon(a3, string(nm) + "'s Speed returned to normal as Pledge effect faded.", false);
                                     } catch (e_rmsg) {}
                                 }
                                 break;
@@ -4249,7 +4249,7 @@ function battle_switch_to(_pid, _party_idx, _opts){
                     } else if (is_struct(_active_actor) && variable_struct_exists(_active_actor, "name")){
                         _nm_jl = variable_struct_get(_active_actor, "name");
                     }
-                    try { __status_request_dialog_for_mon(_dialog_target, string(_nm_jl) + " is locked in Jaw Lock and can't be switched out!"); } catch (e_jdlg) {}
+                    try { __status_request_dialog_for_mon(_dialog_target, string(_nm_jl) + " is locked in Jaw Lock and can't be switched out!", false); } catch (e_jdlg) {}
                 }
                 return false;
             }

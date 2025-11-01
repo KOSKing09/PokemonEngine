@@ -120,6 +120,9 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                             if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] overriding zero chance to 100 for status=" + stid);
                             stchance = 100;
                         }
+                        if (!is_undefined(__status_dev_override_chance)){
+                            stchance = __status_dev_override_chance(string_lower(string(stid)), stchance);
+                        }
                         var roll = irandom(99);
                         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] status apply attempt status=" + stid + ", chance=" + string(stchance) + ", roll=" + string(roll));
                         if (roll < stchance){
@@ -330,7 +333,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                 else if (terr_name_early == "grassy") disp_e = "Grassy Terrain";
                                 else if (terr_name_early == "misty") disp_e = "Misty Terrain";
                                 else disp_e = string_upper(terr_name_early) + " Terrain";
-                                if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, "The ground became " + disp_e + "!");
+                                if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, "The ground became " + disp_e + "!", false);
                             } catch (e_msgt_e) {}
                         } catch (e_terr_e) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] terrain apply (early) failed: " + string(e_terr_e)); }
                         return undefined;
@@ -431,7 +434,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                             __battle_field_set_terrain(_pid, "psychic", _terr_opts_psy);
                             if (has_ext_p && variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][terrain] Terrain Extender detected: duration set to 8 turns for psychic");
                             try { __battle_request_animation_safe(_pid, { type: "set_terrain", terrain: "psychic", actor: _A, target: _D }); } catch (e_pt_e) {}
-                            try { if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, "The ground became Psychic Terrain!"); } catch (e_msgp_e) {}
+                            try { if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, "The ground became Psychic Terrain!", false); } catch (e_msgp_e) {}
                         } catch (e_psy_e) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] psychic terrain apply (early) failed: " + string(e_psy_e)); }
                         return undefined;
                     }
@@ -460,7 +463,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                             var _scm = "";
                             if (_ap == 0) _scm = string(_an) + "'s " + string_upper(string(_sk2)) + " won't go any higher!"; else _scm = string(_an) + " " + string_upper(string(_sk2)) + " " + string(_sign);
                             var _tref = _actor; if (is_struct(_actor) && variable_struct_exists(_actor, "mon") && is_struct(variable_struct_get(_actor, "mon"))) _tref = variable_struct_get(_actor, "mon");
-                            if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_tref, _scm);
+                            if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_tref, _scm, false);
                         } catch (e_msgg) {}
                         try { var _B3 = __battle_ensure_slot(_pid_local); if (is_struct(_B3)) variable_struct_set(_B3, "_meta_effect_applied", true); } catch (e_b3) {}
                     }
@@ -686,7 +689,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                 __battle_field_set_hazard(_pid, _target_side_sw, "sticky_web", true);
                                 // Request animation and dialog
                                 try { __battle_request_animation_safe(_pid, { type: "set_sticky_web", actor: _A, target: _D }); } catch (e_sw) {}
-                                try { var nm = (variable_struct_exists(_A, "name") ? variable_struct_get(_A, "name") : "The Pokémon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, string(nm) + " set up Sticky Web!"); } catch (e_msg) {}
+                                try { var nm = (variable_struct_exists(_A, "name") ? variable_struct_get(_A, "name") : "The Pokémon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, string(nm) + " set up Sticky Web!", false); } catch (e_msg) {}
                                 try { var _B3 = __battle_ensure_slot(_pid); if (is_struct(_B3)) variable_struct_set(_B3, "_meta_effect_applied", true); } catch (e_b3) {}
                             } catch (e_stw) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] sticky-web apply failed: " + string(e_stw)); }
                             return undefined;
@@ -699,7 +702,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                 var _target_side_sp = __battle_field_side_index_for_opponent(_att_idx_sp);
                                 __battle_field_increment_hazard(_pid, _target_side_sp, "spikes", 1);
                                 try { __battle_request_animation_safe(_pid, { type: "set_spikes", actor: _A, target: _D }); } catch (e_spa) {}
-                                try { var nm2 = (variable_struct_exists(_A, "name") ? variable_struct_get(_A, "name") : "The Pokémon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, string(nm2) + " set up Spikes!"); } catch (e_msg2) {}
+                                try { var nm2 = (variable_struct_exists(_A, "name") ? variable_struct_get(_A, "name") : "The Pokémon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, string(nm2) + " set up Spikes!", false); } catch (e_msg2) {}
                                 try { var _B4 = __battle_ensure_slot(_pid); if (is_struct(_B4)) variable_struct_set(_B4, "_meta_effect_applied", true); } catch (e_b4) {}
                             } catch (e_sp) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] spikes apply failed: " + string(e_sp)); }
                             return undefined;
@@ -712,7 +715,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                 var _target_side_ts = __battle_field_side_index_for_opponent(_att_idx_ts);
                                 __battle_field_increment_hazard(_pid, _target_side_ts, "toxic_spikes", 1);
                                 try { __battle_request_animation_safe(_pid, { type: "set_toxic_spikes", actor: _A, target: _D }); } catch (e_ts) {}
-                                try { var nm3 = (variable_struct_exists(_A, "name") ? variable_struct_get(_A, "name") : "The Pokémon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, string(nm3) + " set up Toxic Spikes!"); } catch (e_msg3) {}
+                                try { var nm3 = (variable_struct_exists(_A, "name") ? variable_struct_get(_A, "name") : "The Pokémon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, string(nm3) + " set up Toxic Spikes!", false); } catch (e_msg3) {}
                                 try { var _B5 = __battle_ensure_slot(_pid); if (is_struct(_B5)) variable_struct_set(_B5, "_meta_effect_applied", true); } catch (e_b5) {}
                             } catch (e_ts2) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] toxic-spikes apply failed: " + string(e_ts2)); }
                             return undefined;
@@ -725,7 +728,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                 var _target_side_sr = __battle_field_side_index_for_opponent(_att_idx_sr);
                                 __battle_field_set_hazard(_pid, _target_side_sr, "stealth_rock", true);
                                 try { __battle_request_animation_safe(_pid, { type: "set_stealth_rock", actor: _A, target: _D }); } catch (e_sr) {}
-                                try { var nm4 = (variable_struct_exists(_A, "name") ? variable_struct_get(_A, "name") : "The Pokémon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, string(nm4) + " set up Stealth Rock!"); } catch (e_msg4) {}
+                                try { var nm4 = (variable_struct_exists(_A, "name") ? variable_struct_get(_A, "name") : "The Pokémon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, string(nm4) + " set up Stealth Rock!", false); } catch (e_msg4) {}
                                 try { var _B6 = __battle_ensure_slot(_pid); if (is_struct(_B6)) variable_struct_set(_B6, "_meta_effect_applied", true); } catch (e_b6) {}
                             } catch (e_sr2) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] stealth-rock apply failed: " + string(e_sr2)); }
                             return undefined;
@@ -774,7 +777,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
 
                                 // Request a small animation and dialog
                                 try { __battle_request_animation_safe(_pid, { type: "guard_split", actor: _A, target: _D }); } catch (e_a) {}
-                                try { var nmA = (variable_struct_exists(_A, "name") ? variable_struct_get(_A, "name") : (variable_struct_exists(_A, "mon") && variable_struct_exists(variable_struct_get(_A, "mon"), "name") ? variable_struct_get(variable_struct_get(_A, "mon"), "name") : "The Pokémon")); var nmD = (variable_struct_exists(_D, "name") ? variable_struct_get(_D, "name") : (variable_struct_exists(_D, "mon") && variable_struct_exists(variable_struct_get(_D, "mon"), "name") ? variable_struct_get(variable_struct_get(_D, "mon"), "name") : "The Pokémon")); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, string(nmA) + " and " + string(nmD) + " had their Defense and Sp. Def averaged!"); } catch (e_m) {}
+                                try { var nmA = (variable_struct_exists(_A, "name") ? variable_struct_get(_A, "name") : (variable_struct_exists(_A, "mon") && variable_struct_exists(variable_struct_get(_A, "mon"), "name") ? variable_struct_get(variable_struct_get(_A, "mon"), "name") : "The Pokémon")); var nmD = (variable_struct_exists(_D, "name") ? variable_struct_get(_D, "name") : (variable_struct_exists(_D, "mon") && variable_struct_exists(variable_struct_get(_D, "mon"), "name") ? variable_struct_get(variable_struct_get(_D, "mon"), "name") : "The Pokémon")); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, string(nmA) + " and " + string(nmD) + " had their Defense and Sp. Def averaged!", false); } catch (e_m) {}
                                 try { var _B3 = __battle_ensure_slot(_pid); if (is_struct(_B3)) variable_struct_set(_B3, "_meta_effect_applied", true); } catch (e_b3) {}
                             } catch (e_guard) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] guard-split apply failed: " + string(e_guard)); }
                             return undefined;
@@ -811,7 +814,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                             variable_struct_set(_Bslot_pled, "_pledge_combo_effects", ce);
                                             // Enqueue dialog/animation describing combo
                                             try { __battle_request_animation_safe(_pid, { type: "pledge_combo", actor: _A, target: _D, effect: combo_effect.id }); } catch (e_pc) {}
-                                            try { var nmPled = (variable_struct_exists(_A, "name") ? variable_struct_get(_A, "name") : "The Pokémon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, string(nmPled) + " triggered a Pledge combo: " + string_upper(combo_effect.id) + "!"); } catch (e_msgp) {}
+                                            try { var nmPled = (variable_struct_exists(_A, "name") ? variable_struct_get(_A, "name") : "The Pokémon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, string(nmPled) + " triggered a Pledge combo: " + string_upper(combo_effect.id) + "!", false); } catch (e_msgp) {}
                                         }
                                     }
                                 }
@@ -867,7 +870,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                     else if (terr_name == "grassy") disp = "Grassy Terrain";
                                     else if (terr_name == "misty") disp = "Misty Terrain";
                                     else disp = string_upper(terr_name) + " Terrain";
-                                    if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, "The ground became " + disp + "!");
+                                    if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, "The ground became " + disp + "!", false);
                                 } catch (e_msgt) {}
                                 try { var _B7 = __battle_ensure_slot(_pid); if (is_struct(_B7)) variable_struct_set(_B7, "_meta_effect_applied", true); } catch (e_b7) {}
                             } catch (e_terr) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] terrain apply failed: " + string(e_terr)); }
@@ -901,7 +904,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                 __battle_field_set_terrain(_pid, "psychic", { source: _A, turns: psy_turns });
                                 if (has_ext && variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][terrain] Terrain Extender detected: duration set to 8 turns for psychic");
                                 try { __battle_request_animation_safe(_pid, { type: "set_terrain", terrain: "psychic", actor: _A, target: _D }); } catch (e_pt) {}
-                                try { if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, "The ground became Psychic Terrain!"); } catch (e_msgp) {}
+                                try { if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, "The ground became Psychic Terrain!", false); } catch (e_msgp) {}
                                 try { var _B8 = __battle_ensure_slot(_pid); if (is_struct(_B8)) variable_struct_set(_B8, "_meta_effect_applied", true); } catch (e_b8) {}
                             } catch (e_psy) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] psychic terrain apply failed: " + string(e_psy)); }
                             return undefined;
@@ -944,7 +947,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                     __battle_field_set_terrain(_pid, "psychic", { source: _A, turns: psy_turns2 });
                                     if (has_ext3 && variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][terrain] Terrain Extender detected: duration set to 8 turns for psychic (effect 415)");
                                     try { __battle_request_animation_safe(_pid, { type: "set_terrain", terrain: "psychic", actor: _A, target: _D }); } catch (e_r415) {}
-                                    try { if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, "The ground became Psychic Terrain!"); } catch (e_msg415) {}
+                                    try { if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, "The ground became Psychic Terrain!", false); } catch (e_msg415) {}
                                     try { var _B8 = __battle_ensure_slot(_pid); if (is_struct(_B8)) variable_struct_set(_B8, "_meta_effect_applied", true); } catch (e_b8415) {}
                                 } catch (e_all) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] effect_415 failed: " + string(e_all)); }
                             }
@@ -966,7 +969,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                 try {
                                     __battle_field_clear_terrain(_pid);
                                     try { __battle_request_animation_safe(_pid, { type: "clear_terrain", actor: _A, target: _D }); } catch (e_r418) {}
-                                    try { if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, "The terrain returned to normal!"); } catch (e_msg418) {}
+                                    try { if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, "The terrain returned to normal!", false); } catch (e_msg418) {}
                                     try { var _B9 = __battle_ensure_slot(_pid); if (is_struct(_B9)) variable_struct_set(_B9, "_meta_effect_applied", true); } catch (e_b9418) {}
                                 } catch (e_all2) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] effect_418 failed: " + string(e_all2)); }
                             }
@@ -1001,7 +1004,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                         try {
                                             var _an_jaw = (variable_struct_exists(_A, "name") ? variable_struct_get(_A, "name") : "The attacker");
                                             var _dn_jaw = (variable_struct_exists(_D, "name") ? variable_struct_get(_D, "name") : "the target");
-                                            if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, string(_an_jaw) + " and " + string(_dn_jaw) + " can't escape now!");
+                                            if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, string(_an_jaw) + " and " + string(_dn_jaw) + " can't escape now!", false);
                                         } catch (e_msgjaw) {}
                                         try { var _Bls = __battle_ensure_slot(_pid); if (is_struct(_Bls)) variable_struct_set(_Bls, "_meta_effect_applied", true); } catch (e_m3) {}
                                     }
@@ -1037,7 +1040,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                         }
                                     } catch (e_partyc) {}
                                     try { __battle_request_animation_safe(_pid, { type: "cure_party", actor: _A }); } catch (e_cure) {}
-                                    try { var nmC2 = (variable_struct_exists(_A, "name") ? variable_struct_get(_A, "name") : "The Pokémon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, string(nmC2) + " cured their party!"); } catch (e_msgc) {}
+                                    try { var nmC2 = (variable_struct_exists(_A, "name") ? variable_struct_get(_A, "name") : "The Pokémon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, string(nmC2) + " cured their party!", false); } catch (e_msgc) {}
                                     try { var _Bclr = __battle_ensure_slot(_pid); if (is_struct(_Bclr)) variable_struct_set(_Bclr, "_meta_effect_applied", true); } catch (e_m4) {}
                                 } catch (e_all6) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] effect_424 failed: " + string(e_all6)); }
                             }
@@ -1144,7 +1147,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                             if (applied_amt == 0) sc_msg = string(aname) + "'s " + string_upper(string(sk)) + " won't go any higher!";
                             else sc_msg = string(aname) + " " + string_upper(string(sk)) + " " + string(sign_amt);
                             var _target_mon_ref = _A; if (is_struct(_A) && variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon"))) _target_mon_ref = variable_struct_get(_A, "mon");
-                            if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_target_mon_ref, sc_msg);
+                            if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_target_mon_ref, sc_msg, false);
                         } catch (e_msg) {}
                         try { var _B2 = __battle_ensure_slot(_pid); if (is_struct(_B2)) variable_struct_set(_B2, "_meta_effect_applied", true); } catch (e_b2) {}
                     }

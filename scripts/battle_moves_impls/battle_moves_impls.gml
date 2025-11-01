@@ -136,6 +136,23 @@ function __battle_perform_action_impl(_pid, _step){
     var move_slot = (variable_struct_exists(_step, "slot") ? variable_struct_get(_step, "slot") : undefined);
     var move_id   = (variable_struct_exists(_step, "move_id") ? variable_struct_get(_step, "move_id") : undefined);
 
+    // Status gate: prevent acting when frozen/asleep/etc. before consuming PP or applying meta moves.
+    if (is_struct(A) && !is_undefined(__battle_check_can_act)){
+        var _can_act = true;
+        try { _can_act = __battle_check_can_act(A); } catch (e_can_act) {
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][status][gate] exception while checking actability: " + string(e_can_act));
+            _can_act = true;
+        }
+        if (!_can_act){
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                var _act_name = "actor";
+                try { _act_name = string(__status_mon_display_name(A)); } catch (e_nm_gate) {}
+                show_debug_message("[battle][status][gate] prevented action for " + _act_name + " (move_id=" + string(move_id) + ")");
+            }
+            return ""; // Message already queued by status system (freeze/sleep/etc.)
+        }
+    }
+
     var _is_protect_like = (is_real(move_id) && (move_id == 182 || move_id == 197));
     var _turn_now = 0;
     try {
@@ -815,7 +832,7 @@ function __battle_perform_action_impl(_pid, _step){
                             variable_struct_set(_Bslot_rrr, "_side_sticky_web", false);
                             // Request a clear-hazards animation and dialog
                             try { __battle_request_animation_safe(_pid, { type: "clear_hazards", actor: A, target: D }); } catch (e_anim) {}
-                            try { var nmC = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokémon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, string(nmC) + " removed entry hazards!"); } catch (e_msgc) {}
+                            try { var nmC = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokémon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, string(nmC) + " removed entry hazards!", false); } catch (e_msgc) {}
                         } catch (e_clr) {}
                     } else if (move_id == 432){
                         // Defog: clears hazards on the target's side. Attempt to determine
@@ -827,7 +844,7 @@ function __battle_perform_action_impl(_pid, _step){
                             variable_struct_set(_Bslot_rrr, "_side_sticky_web", false);
                             // Request a clear-hazards animation and dialog
                             try { __battle_request_animation_safe(_pid, { type: "clear_hazards", actor: A, target: D }); } catch (e_anim2) {}
-                            try { var nmD = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokémon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, string(nmD) + " cleared the field!"); } catch (e_msgd) {}
+                            try { var nmD = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokémon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, string(nmD) + " cleared the field!", false); } catch (e_msgd) {}
                         } catch (e_defc) {}
                     }
                     // Mark that a meta-effect change occurred so UI updates can run

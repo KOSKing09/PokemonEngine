@@ -133,7 +133,7 @@ if (is_undefined(__battle_apply_entry_hazards)){
                         __battle_trigger_hit_effect(_pid, A, before_sp, after_sp, 1.0);
                         try {
                             var aname_sp = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokemon");
-                            if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, string(aname_sp) + " was hurt by the spikes!");
+                            if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, string(aname_sp) + " was hurt by the spikes!", false);
                         } catch (e_sp_msg) {}
                         try { variable_struct_set(_B, "_meta_effect_applied", true); } catch (e_sp_meta) {}
                     }
@@ -149,7 +149,7 @@ if (is_undefined(__battle_apply_entry_hazards)){
                             __battle_field_clear_hazard(_pid, hazard_side, "toxic_spikes");
                             try {
                                 var aname_abs = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokemon");
-                                if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, string(aname_abs) + " absorbed the Toxic Spikes!");
+                                if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, string(aname_abs) + " absorbed the Toxic Spikes!", false);
                             } catch (e_msgabs) {}
                         } else if (!is_steel_type){
                             try {
@@ -218,7 +218,7 @@ if (is_undefined(__battle_apply_entry_hazards)){
                             __battle_trigger_hit_effect(_pid, A, before_sr, after_sr, mult);
                             try {
                                 var aname_sr = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokemon");
-                                if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, string(aname_sr) + " was hurt by the stealth rock!");
+                                if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, string(aname_sr) + " was hurt by the stealth rock!", false);
                             } catch (e_msg_sr) {}
                             try { variable_struct_set(_B, "_meta_effect_applied", true); } catch (e_sr_meta) {}
                         }
@@ -241,9 +241,9 @@ if (is_undefined(__battle_apply_entry_hazards)){
                             }
                         } catch (e_ab) {}
                         if (block_drop){
-                            try { var aname_sw0 = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokemon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, string(aname_sw0) + " wasn't affected by the sticky web!"); } catch (e_msg0) {}
+                            try { var aname_sw0 = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokemon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, string(aname_sw0) + " wasn't affected by the sticky web!", false); } catch (e_msg0) {}
                         } else {
-                            try { var aname_sw = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokemon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, string(aname_sw) + " was caught in the sticky web!"); } catch (e_msg_sw) {}
+                            try { var aname_sw = (variable_struct_exists(A, "name") ? variable_struct_get(A, "name") : "The Pokemon"); if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(A, string(aname_sw) + " was caught in the sticky web!", false); } catch (e_msg_sw) {}
 
                             if (!variable_struct_exists(A, "_stages") || !is_struct(variable_struct_get(A, "_stages"))) variable_struct_set(A, "_stages", {});
                             var st_obj = variable_struct_get(A, "_stages");
@@ -259,7 +259,7 @@ if (is_undefined(__battle_apply_entry_hazards)){
                             var sc_msg_sw = (applied_amt == 0) ? (string(aname_sw2) + "'s SPD won't go any lower!") : (string(aname_sw2) + " SPD " + sign_amt);
                             var target_mon_ref_sw = A;
                             if (is_struct(A) && variable_struct_exists(A, "mon") && is_struct(variable_struct_get(A, "mon"))) target_mon_ref_sw = variable_struct_get(A, "mon");
-                            if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(target_mon_ref_sw, sc_msg_sw);
+                            if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(target_mon_ref_sw, sc_msg_sw, false);
                             try { variable_struct_set(_B, "_meta_effect_applied", true); } catch (e_sw_meta) {}
                         }
                     }

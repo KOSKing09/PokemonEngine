@@ -470,7 +470,7 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
             var _msg_target = "The target";
             if (!is_undefined(__status_mon_display_name)) _msg_target = __status_mon_display_name(_D);
             else if (variable_struct_exists(_D, "name")) _msg_target = string(variable_struct_get(_D, "name"));
-            if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_D, string(_msg_target) + " couldn't block the shot!");
+            if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_D, string(_msg_target) + " couldn't block the shot!", false);
         } catch (e_msg_guard) {}
     }
 

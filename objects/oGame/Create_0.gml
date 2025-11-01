@@ -128,6 +128,14 @@ scr_poke_runtime_demo_init_random(6); // seeds PARTY[0] (and [1] if present)
 dev_assign_moves_to_first(0, [240, 4, 79, 507]);
 
 global.DEV_FORCE_FLINCH_CHANCE = -1;
+global.DEV_FORCE_SLEEP_CHANCE = -1;
+global.DEV_FORCE_POISON_CHANCE = -1;
+global.DEV_FORCE_TOXIC_CHANCE = -1;
+global.DEV_FORCE_BURN_CHANCE = -1;
+global.DEV_FORCE_FREEZE_CHANCE = 100;
+global.DEV_FORCE_PARALYSIS_CHANCE = -1;
+global.DEV_FORCE_CONFUSION_CHANCE = -1;
+global.DEV_FORCE_TRAP_CHANCE = -1;
 
 // Initialize bags (seed with some items for demo/dev)
 bags_init(1);
