@@ -1058,6 +1058,8 @@ if (variable_global_exists("STATUS_SYS") && variable_struct_exists(global.STATUS
                 if (is_struct(mon) && variable_struct_exists(mon, "name")) _nm = string(variable_struct_get(mon, "name"));
             }
             try { __battle_request_animation_safe(mon, { type: "status_cured", status: "freeze" }); } catch (e_freeze_anim) {}
+            // mark the mon so render code can play an unthaw shrink animation
+            try { variable_struct_set(mon, "_freeze_just_cured_ms", current_time); } catch (e_mark) {}
             var _msg = _nm + " just unthawed!";
             var _shown = false;
             try { _shown = __status_request_dialog_for_mon(mon, _msg, true); }
