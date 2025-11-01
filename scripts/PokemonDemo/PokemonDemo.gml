@@ -217,6 +217,9 @@ function scr_party_debug_seed_random(_pid, _count)
             _mon.ability_id = _abilityId;
             _mon.ability    = scr_ability_name_by_id(_abilityId);
 
+            // Recompute grounded status now that ability is known
+            try { if (!is_undefined(scr_compute_grounded_flag)) _mon.grounded = scr_compute_grounded_flag(_mon); } catch (e_gr) {}
+
             var _moveIds = scr_poke_moves_upto_level(_speciesId, _level);
             if (array_length(_moveIds) > 4) {
                 var _start = array_length(_moveIds) - 4;
@@ -235,6 +238,9 @@ function scr_party_debug_seed_random(_pid, _count)
             _mon.moves_named = _named;
 
             _mon.describe = scr_poke_describe(_speciesId, _level);
+
+            // Persist a final grounded snapshot after enrichment
+            try { if (!is_undefined(scr_compute_grounded_flag)) _mon.grounded = scr_compute_grounded_flag(_mon); } catch (e_gr2) {}
 
             // Ensure names again after enrichment (in case external loaders touched fields)
             _mon = demo_mon_ensure_name(_mon);

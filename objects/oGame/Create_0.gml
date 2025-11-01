@@ -31,9 +31,25 @@ global.DEBUG = true;
 globalvar DATA_DEBUG;
 global.DATA_DEBUG = true;
 
+global.CUTSCENE_DEBUG = true;
+global.DATA_DEBUG_TRAINER = false;
+
 // Very verbose data debug (opt-in). Default OFF.
 globalvar DATA_DEBUG_VERBOSE;
 global.DATA_DEBUG_VERBOSE = false;
+
+// MOVES_DEBUG is noisy; default to false. Set to true when actively debugging moves.
+global.MOVES_DEBUG = true;
+// Developer-only move-report runner (disabled by default). Enable to run
+// `dev_moves_impl_report()` at boot for a one-time diagnostics print.
+global.DEV_REPORT_MOVES = true;
+
+// run once (debug boot or in a quick test script)
+if (variable_global_exists("_battle_impls") && is_struct(global._battle_impls)){
+    show_debug_message("[reg] __battle_perform_action_impl present? " + string(variable_struct_exists(global._battle_impls, "__battle_perform_action_impl")));
+} else show_debug_message("[reg] _battle_impls missing");
+
+
 
 // --- DATA: ensure globals exist BEFORE loading ----------------------------
 // Ensure `global._pokemon` exists (alias older `global.pokemon` if present).
@@ -107,15 +123,30 @@ global._REGIONMUSIC = snd_Littleroot_Town;
 // --- PARTY / BAGS / PLAYERS -----------------------------------------------
 party_init(); // must be before demo seed (party_ensure uses it)
 // global.DEMO_FORCE_SPECIES = [250, 249]; // optional override
-global.DEMO_FORCE_SPECIES = [188, 268, 471, 559];
+global.DEMO_FORCE_SPECIES = [188, 268, 471, 559, 17];
 scr_poke_runtime_demo_init_random(6); // seeds PARTY[0] (and [1] if present)
+dev_assign_moves_to_first(0, [240, 4, 79, 507]);
+
+global.DEV_FORCE_FLINCH_CHANCE = -1;
+global.DEV_FORCE_SLEEP_CHANCE = -1;
+global.DEV_FORCE_POISON_CHANCE = -1;
+global.DEV_FORCE_TOXIC_CHANCE = -1;
+global.DEV_FORCE_BURN_CHANCE = -1;
+global.DEV_FORCE_FREEZE_CHANCE = -1;
+global.DEV_FORCE_PARALYSIS_CHANCE = -1;
+global.DEV_FORCE_CONFUSION_CHANCE = -1;
+global.DEV_FORCE_TRAP_CHANCE = -1;
 
 // Initialize bags (seed with some items for demo/dev)
 bags_init(1);
 bag_inventory_add_item(0, 4, 10);
 bag_inventory_add_item(0, 1, 10);
-bag_inventory_add_item(0, 17, 5);
-bag_inventory_add_item(0, 18, 5);
+bag_inventory_add_item(0, 17, 25);
+bag_inventory_add_item(0, 26, 25);
+bag_inventory_add_item(0, 25, 25);
+bag_inventory_add_item(0, 24, 25);
+bag_inventory_add_item(0, 23, 25);
+bag_inventory_add_item(0, 18, 25);
 bag_inventory_add_item(0, 182, 10);
 bags_seed_from_items(0); // refresh once
 
@@ -145,4 +176,4 @@ wc_reset();
 wc_bind_layers(["WALL", "BLOCKS"]);
 wc_set_solids([noone]); // add object ids here if you have solid instances
 
-show_debug_message(global._move_meta[79])
+show_debug_message(global._move_meta[79]);

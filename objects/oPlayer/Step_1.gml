@@ -1,8 +1,9 @@
 
-
+// Drain any queued dialog first (opens next item if allowed), then advance if open
+if (!is_undefined(dialog2p_step)) dialog2p_step(pid);
 // Advance this player's dialog if open
-if (dialog2p_is_open(pid)) {
-    dialog2p_update(pid);
+if (!is_undefined(dialog2p_is_open) && dialog2p_is_open(pid)) {
+    if (!is_undefined(dialog2p_update)) dialog2p_update(pid);
 }
 
 // battle system
@@ -12,7 +13,27 @@ if (battle_is_open(0)){
 
 if (keyboard_check_pressed(vk_f1)){
 	if (!battle_is_open(0)){
-		battle_open(0, irandom_range(5, 5));
+        /* 
+        var trainer_party = [];
+        if (!is_undefined(pokemon_factory_create)){
+            trainer_party = [
+                pokemon_factory_create(133, 5, {}),
+                pokemon_factory_create(10, 5, {}),
+                pokemon_factory_create(252, 5, {})
+            ];
+        }
+        var trainer_payload = {
+            trainer_name: "Bug Catcher Rick",
+            sprite: spr_PokemonEmeraldTrainers,
+            sprite_index: 12,
+            party: trainer_party,
+            area_type: "forest"
+            
+        };
+        battle_open_trainer(0, trainer_payload);
+        */
+        battle_open(0, irandom_range(5,10), choose("dark water", "rocks a", "light", "grassy", "rocks b", 
+        "dirt", "river", "snowy", "grassy snow", "ice", "forest", "ugly grass", "wood bridge", "man made paths"));
 	}else{
 		battle_close(0);
 	}
@@ -28,12 +49,22 @@ if (talk_cd > 0) talk_cd--;
 
 // open when close to a box, but respect cooldown
 
-if (!dialog2p_is_open(pid)) {
+if (!is_undefined(dialog2p_is_open) && !dialog2p_is_open(pid)) {
     var box = instance_nearest(x, y, oDialogBox);
     if (box != noone && point_distance(x, y, box.x, box.y) <= 16) {
-        if (controls_pressed(pid,"Interact") && talk_cd <= 0) {
+            if (controls_pressed(pid,"Interact") && talk_cd <= 0) {
             if (!variable_global_exists("DIALOG_SPEED")) global.DIALOG_SPEED = 2;
-            dialog2p_open_text(pid, box.text);
+            var box_text = "";
+            if (instance_exists(box) && variable_instance_exists(box, "text")) {
+                box_text = string(variable_instance_get(box, "text"));
+            }
+            try {
+                if (!is_undefined(dialog2p_show_now)) {
+                    dialog2p_show_now(pid, box_text);
+                } else if (!is_undefined(dialog2p_enqueue_text)) {
+                    dialog2p_enqueue_text(pid, box_text, box_text, "any");
+                }
+            } catch (e_) {}
             talk_cd = ceil(game_get_speed(gamespeed_fps) * 0.25); // ~0.25s lockout
         }
     }

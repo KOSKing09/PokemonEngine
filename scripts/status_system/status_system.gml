@@ -39,6 +39,76 @@ function status_system_ensure_mon(mon){
     return true;
 }
 
+// Resolve a readable display name for a mon or actor wrapper.
+// Prefers nickname/name when present; otherwise falls back to species name.
+function __status_mon_display_name(_mon){
+    if (!is_struct(_mon)) return "Pokémon";
+    var base = _mon;
+    // Prefer inner mon if an actor wrapper was passed
+    if (variable_struct_exists(_mon, "mon") && is_struct(variable_struct_get(_mon, "mon"))) base = variable_struct_get(_mon, "mon");
+    // Use party name helpers when available
+    try {
+        if (!is_undefined(mon_display_name)){
+            var n = mon_display_name(base);
+            if (is_string(n) && string_length(n) > 0) return n;
+        }
+    } catch (e) { /* fall through */ }
+    // Manual fallback: nickname -> name -> species lookup -> generic label
+    if (variable_struct_exists(base, "nickname") && is_string(base.nickname) && string_length(base.nickname) > 0) return base.nickname;
+    if (variable_struct_exists(base, "name") && is_string(base.name) && string_length(base.name) > 0) return base.name;
+    var __sid = -1;
+    if (variable_struct_exists(base, "species_id") && is_real(base.species_id)) __sid = base.species_id;
+    else if (variable_struct_exists(base, "id") && is_real(base.id)) __sid = base.id;
+    if (__sid > 0){
+        try { var sname = scr_poke_name_by_id(__sid); if (is_string(sname) && string_length(sname) > 0) return sname; } catch (e2) {}
+    }
+    return "Pokémon";
+}
+
+function __status_dev_override_chance(status_name, base_chance){
+    var _base = base_chance;
+    if (!is_real(_base)) _base = 0;
+    if (!is_string(status_name) || string_length(status_name) == 0) return _base;
+    var sid = string_lower(string(status_name));
+    var override_val = undefined;
+    switch (sid){
+        case "sleep":
+            if (variable_global_exists("DEV_FORCE_SLEEP_CHANCE")) override_val = variable_global_get("DEV_FORCE_SLEEP_CHANCE");
+            break;
+        case "poison":
+            if (variable_global_exists("DEV_FORCE_POISON_CHANCE")) override_val = variable_global_get("DEV_FORCE_POISON_CHANCE");
+            break;
+        case "toxic":
+            if (variable_global_exists("DEV_FORCE_TOXIC_CHANCE")) override_val = variable_global_get("DEV_FORCE_TOXIC_CHANCE");
+            else if (variable_global_exists("DEV_FORCE_POISON_CHANCE")) override_val = variable_global_get("DEV_FORCE_POISON_CHANCE");
+            break;
+        case "burn":
+            if (variable_global_exists("DEV_FORCE_BURN_CHANCE")) override_val = variable_global_get("DEV_FORCE_BURN_CHANCE");
+            break;
+        case "freeze":
+            if (variable_global_exists("DEV_FORCE_FREEZE_CHANCE")) override_val = variable_global_get("DEV_FORCE_FREEZE_CHANCE");
+            break;
+        case "paralysis":
+        case "paralyze":
+            if (variable_global_exists("DEV_FORCE_PARALYSIS_CHANCE")) override_val = variable_global_get("DEV_FORCE_PARALYSIS_CHANCE");
+            break;
+        case "confusion":
+            if (variable_global_exists("DEV_FORCE_CONFUSION_CHANCE")) override_val = variable_global_get("DEV_FORCE_CONFUSION_CHANCE");
+            break;
+        case "trap":
+            if (variable_global_exists("DEV_FORCE_TRAP_CHANCE")) override_val = variable_global_get("DEV_FORCE_TRAP_CHANCE");
+            break;
+        default:
+            break;
+    }
+    if (is_real(override_val) && floor(override_val) != -1){
+        var forced = clamp(floor(override_val), 0, 100);
+        show_debug_message("[status_system][override] forcing " + sid + " chance to " + string(forced));
+        return forced;
+    }
+    return _base;
+}
+
 // Remove a status key from a mon's `statuses` struct in a safe way.
 // GameMaker doesn't have a direct 'delete field' operation on structs, so
 // we rebuild a new struct copying only valid entries. We use the known
@@ -110,7 +180,10 @@ function status_system_apply_status(mon, status_id, opts){
         if (variable_struct_exists(opts, "source") && !is_undefined(variable_struct_get(opts, "source"))) {
             var _src = variable_struct_get(opts, "source");
             if (is_struct(_src)){
-                // create a lightweight summary to avoid recursive dumps
+                // Keep a live reference to the source struct so runtime hooks
+                // (like leech-seed/trap on_tick) can access hp fields and other
+                // dynamic values. Also build a lightweight summary for
+                // diagnostics/serialization if needed.
                 var _src_min = {};
                 if (variable_struct_exists(_src, "species_id")) variable_struct_set(_src_min, "species_id", variable_struct_get(_src, "species_id"));
                 else if (variable_struct_exists(_src, "species")) variable_struct_set(_src_min, "species_id", variable_struct_get(_src, "species"));
@@ -118,7 +191,11 @@ function status_system_apply_status(mon, status_id, opts){
                 else if (variable_struct_exists(_src, "nickname")) variable_struct_set(_src_min, "name", variable_struct_get(_src, "nickname"));
                 if (variable_struct_exists(_src, "pid")) variable_struct_set(_src_min, "pid", variable_struct_get(_src, "pid"));
                 if (variable_struct_exists(_src, "actor_idx")) variable_struct_set(_src_min, "actor_idx", variable_struct_get(_src, "actor_idx"));
-                inst.source = _src_min;
+                // Primary runtime reference (full struct)
+                inst.source = _src;
+                // Lightweight summary kept separately to avoid deep dumps while
+                // still providing quick metadata when useful.
+                variable_struct_set(inst, "_source_min", _src_min);
             } else {
                 inst.source = _src;
             }
@@ -152,13 +229,75 @@ function status_system_apply_status(mon, status_id, opts){
     if (!already_present && is_struct(mon) && variable_struct_exists(mon, "statuses")){
         var ss_actor = variable_struct_get(mon, "statuses"); if (variable_struct_exists(ss_actor, status_id)) already_present = true;
     }
+    // Terrain-based status blocks (Electric: blocks sleep for grounded; Misty: blocks major statuses for grounded)
+    try {
+        var pid_block = __status_find_battle_pid(mon);
+        if (!is_undefined(pid_block)){
+            var _Bterr = __battle_ensure_slot(pid_block);
+            var terr = "";
+            if (is_struct(_Bterr)){
+                if (variable_struct_exists(_Bterr, "_field")){
+                    var _fld = variable_struct_get(_Bterr, "_field");
+                    if (is_struct(_fld) && variable_struct_exists(_fld, "terrain")){
+                        var _terr_struct2 = variable_struct_get(_fld, "terrain");
+                        if (is_struct(_terr_struct2) && variable_struct_exists(_terr_struct2, "id")) terr = string_lower(string(variable_struct_get(_terr_struct2, "id")));
+                    }
+                } else if (variable_struct_exists(_Bterr, "_terrain")){
+                    terr = string_lower(string(variable_struct_get(_Bterr, "_terrain")));
+                }
+            }
+            if (string_length(terr) > 0){
+                // Simple grounded check: not Flying-type and not Levitate ability
+                var tgt = mon;
+                // Prefer actor wrapper for type/ability when available
+                try { if (is_struct(mon) && variable_struct_exists(mon, "mon") && is_struct(variable_struct_get(mon, "mon"))) tgt = mon; else tgt = _target_mon; } catch (e_sel) {}
+                var grounded_ok = true;
+                try {
+                    if (!is_undefined(__actor_is_grounded)) grounded_ok = __actor_is_grounded(tgt);
+                    else {
+                        var flying_id_local = undefined;
+                        if (variable_global_exists("TYPE_ID_BY_NAME")){
+                            var _tmap = variable_global_get("TYPE_ID_BY_NAME"); if (ds_exists(_tmap, ds_type_map)) flying_id_local = ds_map_find_value(_tmap, "flying");
+                        }
+                        // read types
+                        var has_flying = false;
+                        if (is_struct(tgt)){
+                            try {
+                                if (variable_struct_exists(tgt, "types") && is_array(variable_struct_get(tgt, "types"))){ var _ta = variable_struct_get(tgt, "types"); for (var _ti=0; _ti<array_length(_ta); ++_ti){ if (is_real(_ta[_ti]) && _ta[_ti] == flying_id_local) { has_flying = true; break; } } }
+                                if (!has_flying && variable_struct_exists(tgt, "type1") && is_real(variable_struct_get(tgt, "type1")) && variable_struct_get(tgt, "type1") == flying_id_local) has_flying = true;
+                                if (!has_flying && variable_struct_exists(tgt, "type2") && is_real(variable_struct_get(tgt, "type2")) && variable_struct_get(tgt, "type2") == flying_id_local) has_flying = true;
+                            } catch (e_t) {}
+                            var abv = (variable_struct_exists(tgt, "ability") ? string_lower(string(variable_struct_get(tgt, "ability"))) : "");
+                            if (abv == "levitate") grounded_ok = false; else grounded_ok = !has_flying;
+                        }
+                    }
+                } catch (e_gr) { grounded_ok = true; }
+
+                // Electric Terrain blocks sleep
+                if (terr == "electric" && grounded_ok && string_lower(status_id) == "sleep"){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][terrain] blocked sleep due to Electric Terrain"); return false; }
+                // Misty Terrain blocks major status conditions for grounded targets
+                if (terr == "misty" && grounded_ok){
+                    var sid = string_lower(status_id);
+                    if (sid == "sleep" || sid == "burn" || sid == "poison" || sid == "toxic" || sid == "paralysis" || sid == "freeze"){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][terrain] blocked '" + sid + "' due to Misty Terrain"); return false; }
+                }
+            }
+        }
+    } catch (e_terr) { /* ignore and continue */ }
+
     if (already_present){
-        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status_system] already has status='" + string(status_id) + "' on mon='" + string((variable_struct_exists(_target_mon, "name")?variable_struct_get(_target_mon,"name"):"<no-name>" ) ) + "' — skipping apply");
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status_system] already has status='" + string(status_id) + "' on mon='" + string(__status_mon_display_name(_target_mon)) + "' — skipping apply");
         return false;
     }
     variable_struct_set(ss, status_id, inst);
+    if (is_struct(mon) && mon != _target_mon){
+        if (!variable_struct_exists(mon, "statuses") || !is_struct(variable_struct_get(mon, "statuses"))){
+            variable_struct_set(mon, "statuses", {});
+        }
+        var _actor_ss = variable_struct_get(mon, "statuses");
+        if (is_struct(_actor_ss)) variable_struct_set(_actor_ss, status_id, inst);
+    }
     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
-        var _nm_target = (variable_struct_exists(_target_mon, "name") ? variable_struct_get(_target_mon, "name") : "<no-name>");
+        var _nm_target = __status_mon_display_name(_target_mon);
         show_debug_message("[status_system] applied status='" + string(status_id) + "' to mon='" + string(_nm_target) + "', inst=" + string(inst));
     }
     // Extra debug: verify lookups on both actor wrapper and inner mon (if available)
@@ -192,7 +331,7 @@ function status_system_apply_status(mon, status_id, opts){
         // an immediate dialog; however the message should still be queued so the
         // battle engine can show it after the current dialog/action completes.
         if (!is_undefined(_apply_msg) && string_length(string(_apply_msg)) > 0) {
-            __status_request_dialog_for_mon(mon, _apply_msg);
+            __status_request_dialog_for_mon(mon, _apply_msg, false);
             // Also mark that a meta effect was applied for the battle slot (if present)
             try {
                 var _pid_flag = __status_find_battle_pid(mon);
@@ -203,6 +342,8 @@ function status_system_apply_status(mon, status_id, opts){
             } catch (e_flag) { /* ignore */ }
         }
     } catch (e_msg) { /* ignore */ }
+    // Play a status-applied sound if available
+    try { __status_play_effect_sound(status_id, "apply", mon); } catch (e_snd) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] apply hook failed: " + string(e_snd)); }
     if (is_struct(meta) && variable_struct_exists(meta, "on_apply") && !is_undefined(variable_struct_get(meta, "on_apply"))){
         try { variable_struct_get(meta, "on_apply")(mon, inst, opts); } catch (e) {}
     }
@@ -211,16 +352,17 @@ function status_system_apply_status(mon, status_id, opts){
 
 function status_system_has_status(mon, status_id){
     if (!is_struct(mon)) return false;
-    // Prefer canonical inner mon storage if caller passed an actor wrapper
     var _target = mon;
     if (is_struct(mon) && variable_struct_exists(mon, "mon") && is_struct(variable_struct_get(mon, "mon"))) _target = variable_struct_get(mon, "mon");
-    if (!variable_struct_exists(_target, "statuses")) return false;
-    var ss = variable_struct_get(_target, "statuses");
-    if (!is_struct(ss)){
-        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status_system] has_status found non-struct 'statuses' on target; returning false (val="+string(ss)+")");
-        return false;
+    if (variable_struct_exists(_target, "statuses")){
+        var ss = variable_struct_get(_target, "statuses");
+        if (is_struct(ss) && variable_struct_exists(ss, status_id)) return true;
     }
-    return variable_struct_exists(ss, status_id);
+    if (mon != _target && variable_struct_exists(mon, "statuses")){
+        var _actor_ss = variable_struct_get(mon, "statuses");
+        if (is_struct(_actor_ss) && variable_struct_exists(_actor_ss, status_id)) return true;
+    }
+    return false;
 }
 
 // Return the status instance struct for a given mon and status_id, or undefined.
@@ -228,8 +370,9 @@ function status_system_get(mon, status_id){
     if (!is_struct(mon)) return undefined;
     var _target = mon;
     if (is_struct(mon) && variable_struct_exists(mon, "mon") && is_struct(variable_struct_get(mon, "mon"))) _target = variable_struct_get(mon, "mon");
-    if (!variable_struct_exists(_target, "statuses")) return undefined;
-    var ss = variable_struct_get(_target, "statuses");
+    var ss = undefined;
+    if (variable_struct_exists(_target, "statuses")) ss = variable_struct_get(_target, "statuses");
+    if (!is_struct(ss) && mon != _target && variable_struct_exists(mon, "statuses")) ss = variable_struct_get(mon, "statuses");
     if (!is_struct(ss)) return undefined;
     if (!variable_struct_exists(ss, status_id)) return undefined;
     var inst = variable_struct_get(ss, status_id);
@@ -257,8 +400,10 @@ function status_system_clear_status(mon, status_id){
     if (is_struct(meta) && variable_struct_exists(meta, "on_clear") && !is_undefined(variable_struct_get(meta, "on_clear"))){
         try { variable_struct_get(meta, "on_clear")(mon, inst); } catch (e) {}
     }
+    // Play a status-cleared sound if available
+    try { __status_play_effect_sound(status_id, "clear", mon); } catch (e_sndc) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] clear hook failed: " + string(e_sndc)); }
     // Clear the canonical entry
-    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status_system][clear] clearing status='" + string(status_id) + "' from target='" + string((variable_struct_exists(_target,"name")?variable_struct_get(_target,"name"):"<no-name>")) + "' (before exists=" + string(variable_struct_exists(ss, status_id)) + ")");
+    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status_system][clear] clearing status='" + string(status_id) + "' from target='" + string(__status_mon_display_name(_target)) + "' (before exists=" + string(variable_struct_exists(ss, status_id)) + ")");
     // Use safe removal so we don't leave an `undefined` placeholder in the struct
     __status_remove_key_from_statuses_struct(_target, status_id);
     // Also defensively clear any duplicate entry on an actor wrapper that may reference this inner mon
@@ -284,7 +429,7 @@ function status_system_clear_status(mon, status_id){
                                 // If the statuses map itself is corrupt, reset it. Otherwise
                                 // if the specific entry is non-struct, remove it.
                                 if (!is_struct(_ss_a)){
-                                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status_system][clear] actor wrapper '" + string((variable_struct_exists(_act,"name")?variable_struct_get(_act,"name"):"<no-name>")) + "' had non-struct statuses; resetting (val="+string(_ss_a)+")");
+                                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status_system][clear] actor wrapper '" + string(__status_mon_display_name(_act)) + "' had non-struct statuses; resetting (val="+string(_ss_a)+")");
                                     variable_struct_set(_act, "statuses", {});
                                 } else if (variable_struct_exists(_ss_a, status_id)){
                                     var _inst_a = variable_struct_get(_ss_a, status_id);
@@ -292,7 +437,7 @@ function status_system_clear_status(mon, status_id){
                                         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status_system][clear] removing corrupt non-struct instance for '"+string(status_id)+"' on actor wrapper");
                                         __status_remove_key_from_statuses_struct(_act, status_id);
                                     } else {
-                                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status_system][clear] also clearing status on actor wrapper '" + string((variable_struct_exists(_act,"name")?variable_struct_get(_act,"name"):"<no-name>")) + "'");
+                                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status_system][clear] also clearing status on actor wrapper '" + string(__status_mon_display_name(_act)) + "'");
                                         __status_remove_key_from_statuses_struct(_act, status_id);
                                     }
                                 }
@@ -316,16 +461,16 @@ function status_system_clear_status(mon, status_id){
                             if (variable_struct_exists(_m, "statuses")){
                                 var _ss_m = variable_struct_get(_m, "statuses");
                                 if (!is_struct(_ss_m)){
-                                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status_system][clear] party entry for mon='" + string((variable_struct_exists(_m,"name")?variable_struct_get(_m,"name"):"<no-name>")) + "' has non-struct statuses; resetting (val="+string(_ss_m)+")");
+                                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status_system][clear] party entry for mon='" + string(__status_mon_display_name(_m)) + "' has non-struct statuses; resetting (val="+string(_ss_m)+")");
                                     variable_struct_set(_m, "statuses", {});
                                 } else if (variable_struct_exists(_ss_m, status_id)){
                                     var _inst_m = variable_struct_get(_ss_m, status_id);
                                     if (!is_struct(_inst_m)){
-                                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status_system][clear] removing corrupt non-struct instance for '"+string(status_id)+"' on party mon '"+string((variable_struct_exists(_m,"name")?variable_struct_get(_m,"name"):"<no-name>"))+"'");
+                                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status_system][clear] removing corrupt non-struct instance for '"+string(status_id)+"' on party mon '"+string(__status_mon_display_name(_m))+"'");
                                         __status_remove_key_from_statuses_struct(_m, status_id);
                                     } else {
                                         __status_remove_key_from_statuses_struct(_m, status_id);
-                                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status_system][clear] cleared status on party entry for mon='" + string((variable_struct_exists(_m,"name")?variable_struct_get(_m,"name"):"<no-name>")) + "'");
+                                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status_system][clear] cleared status on party entry for mon='" + string(__status_mon_display_name(_m)) + "'");
                                     }
                                 }
                             }
@@ -488,8 +633,10 @@ function __status_apply_percent_damage(mon, pct, sid){
         }
         var dmg_msg = " is hurt by its status!";
         if (string_length(stname) > 0) dmg_msg = " is hurt by " + string_upper(string(stname)) + "!";
-    var _dlg_txt = (variable_struct_exists(mon, "name") ? string(variable_struct_get(mon, "name")) : "Pokémon") + " " + string(dmg_msg) + " (-" + string(dmg) + ")";
-    __status_request_dialog_for_mon(mon, _dlg_txt);
+    var _dlg_txt = string(__status_mon_display_name(mon)) + " " + string(dmg_msg) + " (-" + string(dmg) + ")";
+    __status_request_dialog_for_mon(mon, _dlg_txt, false);
+    // Play tick sound for the status if available (e.g., poison/leech)
+    try { __status_play_effect_sound(stname, "tick", mon); } catch (e_snd) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] tick hook failed: " + string(e_snd)); }
     } catch (e_dialog) { /* ignore */ }
     return true;
 }
@@ -512,13 +659,14 @@ function __status_find_battle_pid(mon){
 
 // Map status id to a short Emerald-style apply message (returns string or undefined)
 function __status_apply_message_for(id, mon){
-    var name = (is_struct(mon) && variable_struct_exists(mon, "name") ? string(variable_struct_get(mon, "name")) : "Pokémon");
+    var name = string(__status_mon_display_name(mon));
     switch (string(id)){
         case "sleep": return string(name) + " fell asleep!";
         case "paralysis": return string(name) + " is paralyzed!";
         case "freeze": return string(name) + " was frozen solid!";
         case "burn": return string(name) + " was burned!";
-        case "poison": return string(name) + " was poisoned!";
+    case "poison": return string(name) + " was poisoned!";
+    case "toxic": return string(name) + " was badly poisoned!";
         case "confusion": return string(name) + " became confused!";
         case "trap": return string(name) + " became trapped!";
         case "leech-seed": return string(name) + " was seeded!";
@@ -527,7 +675,8 @@ function __status_apply_message_for(id, mon){
 }
 
 // Show an in-battle dialog for a given mon (if dialog system available), fallback to debug log.
-function __status_request_dialog_for_mon(mon, text){
+function __status_request_dialog_for_mon(mon, text, priority_front){
+    if (is_undefined(priority_front)) priority_front = false;
     // Reject invalid targets or missing text early. Avoid treating `undefined`
     // as the literal string "undefined" which would enqueue a bogus dialog.
     if (!is_struct(mon)) return false;
@@ -545,6 +694,8 @@ function __status_request_dialog_for_mon(mon, text){
                 // Split incoming text by newlines so each line becomes its own dialog entry
                 var rest = _txt;
                 var added_any = false;
+                var _priority = (priority_front == true);
+                var _lines = [];
                 while (string_length(string_trim(rest)) > 0){
                     var nl = string_pos("\n", rest);
                     var line = "";
@@ -554,7 +705,20 @@ function __status_request_dialog_for_mon(mon, text){
                     // avoid duplicates in pending
                     var _skip_line = false;
                     for (var _i2=0; _i2<array_length(pending); ++_i2) if (pending[_i2] == line) { _skip_line = true; break; }
-                    if (!_skip_line){ pending[array_length(pending)] = line; added_any = true; }
+                    if (!_skip_line){
+                        _lines[array_length(_lines)] = line;
+                        added_any = true;
+                    }
+                }
+                if (added_any){
+                    if (_priority){
+                        var _new_pending = [];
+                        for (var _pi = 0; _pi < array_length(_lines); ++_pi) _new_pending[array_length(_new_pending)] = _lines[_pi];
+                        for (var _pj = 0; _pj < array_length(pending); ++_pj) _new_pending[array_length(_new_pending)] = pending[_pj];
+                        pending = _new_pending;
+                    } else {
+                        for (var _pk = 0; _pk < array_length(_lines); ++_pk) pending[array_length(pending)] = _lines[_pk];
+                    }
                 }
                 if (added_any) variable_struct_set(_B, "_pending_status_msgs", pending);
                 return added_any;
@@ -566,9 +730,110 @@ function __status_request_dialog_for_mon(mon, text){
     return false;
 }
 
+// Play a status-related sound for apply/clear/tick events. Uses the
+// battle-safe audio helper when available, falls back to audio_play_sound.
+function __status_play_effect_sound(status_id, event, mon){
+    // event: "apply" | "clear" | "tick"
+    if (is_undefined(status_id) || string_length(string(status_id)) == 0) return false;
+    var sid = string(status_id);
+    var res = undefined;
+    var res_name = undefined;
+    switch (sid){
+        case "sleep":
+            res_name = (event == "apply") ? "snd_Asleep" : undefined;
+            break;
+        case "paralysis":
+            res_name = (event == "apply") ? "snd_Paralyzed" : undefined;
+            break;
+        case "freeze":
+            res_name = (event == "apply") ? "snd_Frozen" : undefined;
+            break;
+        case "burn":
+            // play burned sound on apply and on periodic tick
+            if (event == "apply" || event == "tick") res_name = "snd_Burned";
+            break;
+        case "poison":
+            res_name = (event == "apply" || event == "tick") ? "snd_Poisoned" : undefined;
+            break;
+        case "toxic":
+            res_name = (event == "apply" || event == "tick") ? "snd_Poisoned" : undefined;
+            break;
+        case "confusion":
+            if (event == "apply") res_name = "snd_Confused";
+            else if (event == "tick") res_name = "snd_Poisoned";
+            break;
+        case "infatuation":
+        case "infatuated":
+            res_name = (event == "apply") ? "snd_Infatuated" : undefined;
+            break;
+        case "leech-seed":
+            if (event == "tick") res_name = "snd_Poisoned";
+            break;
+        case "trap":
+            // no dedicated sound, reuse poisoned for ticks
+            if (event == "tick") res_name = "snd_Poisoned";
+            break;
+        case "yawn":
+            // Use the stat-raise SFX for yawning (as requested)
+            if (event == "apply") res_name = "snd_Stat_Raise";
+            break;
+        default:
+            // Do not default to heal SFX here; play heal only on explicit heal actions
+            break;
+    }
+    // Resolve resource id from name using asset_get_index when available; otherwise
+    // attempt to reference the identifier constant directly (wrapped in try).
+    if (!is_undefined(res_name) && string_length(string(res_name)) > 0){
+        try {
+            if (!is_undefined(asset_get_index)){
+                var _idx = asset_get_index(res_name);
+                if (!is_undefined(_idx) && _idx != -1) res = _idx;
+            }
+        } catch (e_ag) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] asset_get_index failed for '"+string(res_name)+"': " + string(e_ag)); }
+        if (is_undefined(res) || res == undefined || res == -1){
+            // fallback: try identifier constant directly
+            try { switch(res_name){
+                case "snd_Asleep": res = snd_Asleep; break;
+                case "snd_Paralyzed": res = snd_Paralyzed; break;
+                case "snd_Frozen": res = snd_Frozen; break;
+                case "snd_Burned": res = snd_Burned; break;
+                case "snd_Poisoned": res = snd_Poisoned; break;
+                case "snd_Confused": res = snd_Confused; break;
+                case "snd_Infatuated": res = snd_Infatuated; break;
+                case "snd_Heal": res = snd_Heal; break;
+                case "snd_Stat_Raise": res = snd_Stat_Raise; break;
+                case "snd_Stat_Lower": res = snd_Stat_Lower; break;
+                default: res = undefined; break;
+            } } catch (e_id) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] direct identifier lookup failed for '"+string(res_name)+"': " + string(e_id)); }
+        }
+    }
+    if (is_undefined(res) || res == undefined) {
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] no resource mapped for status='"+string(sid)+"' event='"+string(event)+"'");
+        return false;
+    }
+    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] attempting to play status='"+string(sid)+"' event='"+string(event)+"' res="+string(res));
+    try {
+        // Play audio directly using audio_play_sound (preferred, fast path)
+        if (!is_undefined(audio_play_sound)) {
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] audio_play_sound available, calling...");
+            try { audio_play_sound(res, 1, false); if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] audio_play_sound invoked for res="+string(res)); return true; } catch (e_ap) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] audio_play_sound failed: " + string(e_ap)); }
+        } else {
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] audio_play_sound is undefined in this runtime");
+        }
+        // Fallback to battle-safe wrapper if direct playback isn't available
+        if (!is_undefined(__battle_sound_play_safe)) {
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] calling __battle_sound_play_safe(res="+string(res)+")");
+            try { __battle_sound_play_safe(res); if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] __battle_sound_play_safe invoked for res="+string(res)); return true; } catch (e_bs) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] __battle_sound_play_safe failed: " + string(e_bs)); }
+        } else {
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] __battle_sound_play_safe is undefined");
+        }
+    } catch (e_s) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] play failed: " + string(e_s)); }
+    return false;
+}
+
 function __reg_basic(id, name){ var meta = { id:id, name:name, persist:false, max_stacks:1 }; status_system_register(id, meta); }
 
-var _basic = ["paralysis","sleep","freeze","burn","poison","confusion","infatuation","trap","nightmare","torment","disable","yawn","heal-block","no-type-immunity","leech-seed","embargo","perish-song","ingrain","silence","tar-shot"];
+var _basic = ["paralysis","sleep","freeze","burn","poison","toxic","confusion","infatuation","trap","nightmare","torment","disable","yawn","heal-block","no-type-immunity","leech-seed","embargo","perish-song","ingrain","silence","tar-shot"];
 for (var j = 0; j < array_length(_basic); ++j) __reg_basic(_basic[j], _basic[j]);
 
 if (variable_global_exists("STATUS_SYS") && variable_struct_exists(global.STATUS_SYS, "registry")){
@@ -584,6 +849,33 @@ if (variable_global_exists("STATUS_SYS") && variable_struct_exists(global.STATUS
         var _poison = variable_struct_get(_reg, "poison");
     variable_struct_set(_poison, "on_tick", function(mon, s, dt){ __status_apply_percent_damage(mon, 1.0/8.0, "poison"); });
         variable_struct_set(_reg, "poison", _poison);
+    }
+    // toxic (badly poisoned) - progressive damage: 1/16, 2/16, 3/16 ... per tick
+    if (variable_struct_exists(_reg, "toxic")){
+        var _toxic = variable_struct_get(_reg, "toxic");
+        // on_apply: initialize a counter on the instance to 1 (represents 1/16)
+        variable_struct_set(_toxic, "on_apply", function(mon, s, opts){
+            try {
+                if (is_struct(s)) s._toxic_counter = 1;
+                __battle_request_animation_safe(mon, { type: "status_apply", status: "toxic" });
+            } catch (e) {}
+        });
+        // on_tick: apply (counter)/16 percent damage, then increment counter up to a reasonable cap (15)
+        variable_struct_set(_toxic, "on_tick", function(mon, s, dt){
+            try {
+                if (!is_struct(s)) return;
+                // Respect skip_first_tick like other statuses
+                if (variable_struct_exists(s, "_skip_first_tick") && s._skip_first_tick == true){ variable_struct_set(s, "_skip_first_tick", false); return; }
+                var counter = (variable_struct_exists(s, "_toxic_counter") && is_real(variable_struct_get(s, "_toxic_counter"))) ? variable_struct_get(s, "_toxic_counter") : 1;
+                var pct = max(1.0/64.0, real(counter) / 16.0); // ensure at least 1/64 if weird
+                // Use __status_apply_percent_damage with computed pct
+                var did = __status_apply_percent_damage(mon, pct, "toxic");
+                // increment counter for next tick, cap at 15
+                counter = min(15, counter + 1);
+                variable_struct_set(s, "_toxic_counter", counter);
+            } catch (e_tox) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][toxic] on_tick failed: " + string(e_tox)); }
+        });
+        variable_struct_set(_reg, "toxic", _toxic);
     }
     // leech-seed
     if (variable_struct_exists(_reg, "leech-seed")){
@@ -602,6 +894,8 @@ if (variable_global_exists("STATUS_SYS") && variable_struct_exists(global.STATUS
                     var cap = (variable_struct_exists(src, "hp_max") ? variable_struct_get(src, "hp_max") : cur);
                     __battle_set_hp_now(src, min(cap, cur + heal));
                     if (!is_undefined(__battle_clear_fainted_if_healed)) __battle_clear_fainted_if_healed(src);
+                        // Play heal SFX for leech-source healing (one-shot)
+                        try { __battle_play_heal_once(snd_Heal); } catch (e_hs) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] leech heal SFX failed: " + string(e_hs)); }
                     // mark meta flag on the battle slot
                     try { var _pid_s = __status_find_battle_pid(src); if (!is_undefined(_pid_s)){ var __Bf2 = __battle_ensure_slot(_pid_s); if (is_struct(__Bf2)) variable_struct_set(__Bf2, "_meta_effect_applied", true); } } catch(e_pf){}
                 } else {
@@ -650,6 +944,8 @@ if (variable_global_exists("STATUS_SYS") && variable_struct_exists(global.STATUS
                             var cap = (variable_struct_exists(src, "hp_max") ? variable_struct_get(src, "hp_max") : cur);
                             __battle_set_hp_now(src, min(cap, cur + dmg));
                             if (!is_undefined(__battle_clear_fainted_if_healed)) __battle_clear_fainted_if_healed(src);
+                                // Play heal SFX for trap-source healing (one-shot)
+                                try { __battle_play_heal_once(snd_Heal); } catch (e_hs2) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] trap heal SFX failed: " + string(e_hs2)); }
                             // mark meta flag on the battle slot
                             try { var _pid_s = __status_find_battle_pid(src); if (!is_undefined(_pid_s)){ var __Bf2 = __battle_ensure_slot(_pid_s); if (is_struct(__Bf2)) variable_struct_set(__Bf2, "_meta_effect_applied", true); } } catch(e_pf){}
                         } else {
@@ -668,16 +964,46 @@ if (variable_global_exists("STATUS_SYS") && variable_struct_exists(global.STATUS
     // sleep
     if (variable_struct_exists(_reg, "sleep")){
         var _sl = variable_struct_get(_reg, "sleep");
-    variable_struct_set(_sl, "on_apply", function(mon, s, opts){ var dur = irandom_range(2,5); if (is_struct(s)) s.turns = dur; __battle_request_animation_safe(mon, { type: "status_apply", status: "sleep" }); });
+    variable_struct_set(_sl, "on_apply", function(mon, s, opts){
+        try {
+            var dur = irandom_range(2,5);
+            if (is_struct(s)){
+                s.turns = dur;
+                // Prevent the first status tick from immediately firing (avoid duplicate 'still sleeping' message)
+                variable_struct_set(s, "_skip_first_tick", true);
+            }
+            __battle_request_animation_safe(mon, { type: "status_apply", status: "sleep" });
+        } catch (e) {}
+    });
     // When sleep is cleared (turns expire or cured), show a wake-up animation and dialog
     variable_struct_set(_sl, "on_clear", function(mon, s){
         try {
             __battle_request_animation_safe(mon, { type: "status_cured", status: "sleep" });
         } catch (e_anim) {}
         try {
-            var _nm = (is_struct(mon) && variable_struct_exists(mon, "name") ? variable_struct_get(mon, "name") : "Pokémon");
-            __status_request_dialog_for_mon(mon, string(_nm) + " woke up!");
+            var _nm = __status_mon_display_name(mon);
+            __status_request_dialog_for_mon(mon, string(_nm) + " woke up!", false);
         } catch (e_dlg) {}
+    });
+    // While asleep, on_tick should show a short dialog and spawn floating Z particles
+    variable_struct_set(_sl, "on_tick", function(mon, s, dt){
+        try {
+            // Respect skip_first_tick set at apply time to avoid immediate 'still sleeping' messages
+            if (is_struct(s) && variable_struct_exists(s, "_skip_first_tick") && s._skip_first_tick == true){
+                variable_struct_set(s, "_skip_first_tick", false);
+                return;
+            }
+            // One-line in-battle dialog indicating the mon is still sleeping
+            __status_request_dialog_for_mon(mon, string(__status_mon_display_name(mon)) + " is still sleeping!", false);
+            // Spawn two sleep particles with random horizontal motion
+            for (var _si = 0; _si < 2; ++_si){
+                var _offx_p = irandom_range(-10, 10);
+                var _offy_p = -18 + irandom_range(-6, 6);
+                var _sdir_p = (irandom(1) == 0) ? -1 : 1;
+                var _smag_p = irandom_range(4, 10);
+                try { __battle_request_animation_safe(mon, { type: "sleep_effect", target: mon, sprite: spr_sleep, scale: 1.0, frame: _si, offset_x: _offx_p, offset_y: _offy_p, rise: 26, duration: 1100, slide_dir: _sdir_p, slide_mag: _smag_p }); } catch (e_req) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sleep][on_tick] enqueue failed: " + string(e_req)); }
+            }
+        } catch (e_tk) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sleep][on_tick] failed: " + string(e_tk)); }
     });
         variable_struct_set(_reg, "sleep", _sl);
     }
@@ -688,10 +1014,58 @@ if (variable_global_exists("STATUS_SYS") && variable_struct_exists(global.STATUS
     variable_struct_set(_cf, "on_tick", function(mon, s, dt){ var r = irandom(99); if (r < 50){ if (!is_undefined(__battle_apply_move_damage)){ try { __battle_apply_move_damage(undefined, 0, mon, mon, -1, 40); } catch (e) {} } __battle_request_animation_safe(mon, { type: "confusion_hit" }); } });
         variable_struct_set(_reg, "confusion", _cf);
     }
+    // paralysis
+    if (variable_struct_exists(_reg, "paralysis")){
+        var _par = variable_struct_get(_reg, "paralysis");
+        // on_apply: mark instance and play apply animation/sfx
+        variable_struct_set(_par, "on_apply", function(mon, s, opts){
+            try {
+                if (is_struct(s)) s._paralysis_applied = true;
+                __battle_request_animation_safe(mon, { type: "status_apply", status: "paralysis" });
+            } catch (e) {}
+        });
+        // on_clear: play cured animation
+        variable_struct_set(_par, "on_clear", function(mon, s){
+            try { __battle_request_animation_safe(mon, { type: "status_cured", status: "paralysis" }); } catch (e) {}
+        });
+        variable_struct_set(_reg, "paralysis", _par);
+    }
     // freeze
     if (variable_struct_exists(_reg, "freeze")){
         var _fr = variable_struct_get(_reg, "freeze");
-    variable_struct_set(_fr, "on_tick", function(mon, s, dt){ var r2 = irandom(99); if (r2 < 20){ status_system_clear_status(mon, "freeze"); __battle_request_animation_safe(mon, { type: "status_cured", status: "freeze" }); } });
+        variable_struct_set(_fr, "on_apply", function(mon, s, opts){
+            if (is_struct(s)){
+                variable_struct_set(s, "_freeze_skip_thaw_roll", true);
+                variable_struct_set(s, "_skip_first_tick", true);
+            }
+            try { __battle_request_animation_safe(mon, { type: "status_apply", status: "freeze" }); } catch (e_freeze_apply) {}
+        });
+        variable_struct_set(_fr, "on_tick", function(mon, s, dt){
+            if (is_struct(s) && variable_struct_exists(s, "_skip_first_tick") && variable_struct_get(s, "_skip_first_tick") == true){
+                variable_struct_set(s, "_skip_first_tick", false);
+                return;
+            }
+            var r2 = irandom(99);
+            if (r2 < 20){
+                status_system_clear_status(mon, "freeze");
+            }
+        });
+        variable_struct_set(_fr, "on_clear", function(mon, s){
+            var _nm = "Pokémon";
+            try {
+                _nm = string(__status_mon_display_name(mon));
+            } catch (e_freeze_name) {
+                if (is_struct(mon) && variable_struct_exists(mon, "name")) _nm = string(variable_struct_get(mon, "name"));
+            }
+            try { __battle_request_animation_safe(mon, { type: "status_cured", status: "freeze" }); } catch (e_freeze_anim) {}
+            // mark the mon so render code can play an unthaw shrink animation
+            try { variable_struct_set(mon, "_freeze_just_cured_ms", current_time); } catch (e_mark) {}
+            var _msg = _nm + " just unthawed!";
+            var _shown = false;
+            try { _shown = __status_request_dialog_for_mon(mon, _msg, true); }
+            catch (e_freeze_msg) { _shown = false; }
+            if (!_shown && !is_undefined(dialog_queue)) dialog_queue(_msg);
+        });
         variable_struct_set(_reg, "freeze", _fr);
     }
     // save back registry (global.STATUS_SYS.registry)

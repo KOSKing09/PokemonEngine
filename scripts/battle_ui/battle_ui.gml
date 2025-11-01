@@ -9,19 +9,43 @@ function __battle_panel_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn){
 }
 
 function __battle_enemy_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_A){
+    if (!is_struct(_A)) return;
+
     var _t  = __battle_ensure_slot(_pid).theme;
     __battle_panel_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn);
     var _bx = __bxu(_pid,_rxIn), _by = __byu(_pid,_ryIn), _bw = __bwu(_pid,_rwIn);
     draw_set_color(_t.col_text);
 
     var nameMax = _bw - __bwu(_pid, 48);
-    var nameTxt = __battle_text_fit_ellipsis(_pid, string(_A.name), nameMax);
+    var _name_raw = "???";
+    if (variable_struct_exists(_A, "name")) _name_raw = string(variable_struct_get(_A, "name"));
+    else if (variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon")) && variable_struct_exists(variable_struct_get(_A, "mon"), "name")){
+        _name_raw = string(variable_struct_get(variable_struct_get(_A, "mon"), "name"));
+    }
+    if (_name_raw == "???"){
+        var _species_probe = undefined;
+        if (variable_struct_exists(_A, "species") && is_real(variable_struct_get(_A, "species"))) _species_probe = variable_struct_get(_A, "species");
+        else if (variable_struct_exists(_A, "species_id") && is_real(variable_struct_get(_A, "species_id"))) _species_probe = variable_struct_get(_A, "species_id");
+        else if (variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon"))){
+            var _mon_ref_name = variable_struct_get(_A, "mon");
+            if (variable_struct_exists(_mon_ref_name, "species") && is_real(variable_struct_get(_mon_ref_name, "species"))) _species_probe = variable_struct_get(_mon_ref_name, "species");
+            else if (variable_struct_exists(_mon_ref_name, "species_id") && is_real(variable_struct_get(_mon_ref_name, "species_id"))) _species_probe = variable_struct_get(_mon_ref_name, "species_id");
+        }
+        if (!is_undefined(_species_probe) && is_real(_species_probe) && !is_undefined(scr_poke_name_by_id)){
+            _name_raw = string(scr_poke_name_by_id(_species_probe));
+        }
+    }
+    var nameTxt = __battle_text_fit_ellipsis(_pid, _name_raw, nameMax);
     draw_text(_bx+__bwu(_pid,8), _by+__bhu(_pid,6), nameTxt);
 
-    draw_text(_bx+_bw-__bwu(_pid,29), _by+__bhu(_pid,6), "Lv"+string(_A.level));
+    var _lvl_disp = 1;
+    if (variable_struct_exists(_A, "level") && is_real(variable_struct_get(_A, "level"))) _lvl_disp = variable_struct_get(_A, "level");
+    else if (variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon")) && variable_struct_exists(variable_struct_get(_A, "mon"), "level") && is_real(variable_struct_get(variable_struct_get(_A, "mon"), "level"))) _lvl_disp = variable_struct_get(variable_struct_get(_A, "mon"), "level");
+    draw_text(_bx+_bw-__bwu(_pid,29), _by+__bhu(_pid,6), "Lv"+string(_lvl_disp));
 
     var _vis_hp = __battle_hp_visual(_A);
-    var _pct = max(0, min(1, _vis_hp / max(1, (variable_struct_exists(_A, "hp_max") ? variable_struct_get(_A, "hp_max") : 1))));
+    var _hp_max = __battle_hp_max(_A);
+    var _pct = max(0, min(1, _vis_hp / max(1, _hp_max)));
     var _barW = _bw-__bwu(_pid,32), _barX=_bx+__bwu(_pid,8), _barY=_by+__bhu(_pid,20), _bh=__bhu(_pid,6);
     draw_set_color(c_black); draw_rectangle(_barX-1,_barY-1,_barX+_barW+1,_barY+_bh+1,false);
     var _hpcol = _t.col_hp_green; if (_pct<0.5) _hpcol=_t.col_hp_yell; if (_pct<0.2) _hpcol=_t.col_hp_red;
@@ -56,6 +80,9 @@ function __battle_player_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_A){
     var _expBarH = __bhu(_pid,3); // slightly thinner
     var _expPct = 0;
     var _B = __battle_ensure_slot(_pid);
+    // Note: command/menu suppression (dialog/cutscene/animations) should not
+    // hide the player panel's EXP bar. Those guards belong in the command box
+    // draw path, not here.
     if (is_struct(_B) && variable_struct_exists(_B, "_exp_anim")){
         var _ea = variable_struct_get(_B, "_exp_anim");
         if (is_struct(_ea) && variable_struct_exists(_ea, "active") && _ea.active && variable_struct_exists(_ea, "cur")){
@@ -137,6 +164,33 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
     }
 
     var _B = __battle_ensure_slot(_pid);
+    // Do not show the command/root menus during intro phases or while the
+    // intro has not been marked completed. This prevents the brief flash of
+    // the command UI between the "Go" dialog and the Pokémon cry/intro.
+    try {
+        if (variable_struct_exists(_B, "_intro_completed") && !variable_struct_get(_B, "_intro_completed")) return;
+        var _ph = (variable_struct_exists(_B, "phase") ? string(variable_struct_get(_B, "phase")) : "");
+        if (_ph == "transition_in" || _ph == "intro_enemy" || _ph == "intro_call" || _ph == "intro_player") return;
+        // If update code requested to wait until dialog fully closes before showing the
+        // UI, hide the command box here as well to cover the exact frame of closure.
+        if (variable_struct_exists(_B, "_suppress_wait_for_dialog_close") && variable_struct_get(_B, "_suppress_wait_for_dialog_close")) return;
+    } catch (e_introguard) {}
+    // If a closing fade is active, hide command UI entirely
+    try { if (variable_struct_exists(_B, "_closing") && variable_struct_get(_B, "_closing")) return; } catch (e_closeguard) {}
+
+    // If a switch animation is active (switch_in phase), hide the command/root menus
+    // so the command window stays blank while the Pokémon is switching. This mirrors
+    // the existing behavior used for catch animations.
+    // Respect explicit suppression timer set by battle_system during switch animations
+    if (variable_struct_exists(_B, "phase") && string(_B.phase) == "switch_in"){
+        return;
+    }
+    if (variable_struct_exists(_B, "_suppress_sys_ui_until")){
+        var _su = variable_struct_get(_B, "_suppress_sys_ui_until");
+        if (is_real(_su) && current_time < _su) return;
+        // clean up expired suppression
+        if (is_real(_su) && current_time >= _su) variable_struct_set(_B, "_suppress_sys_ui_until", undefined);
+    }
 
     // If a catch animation is active (throw/impact/shake/resolve), hide the command/root menus
     // so the UI doesn't reappear after the "used item" dialog.
@@ -168,9 +222,30 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
             var ty = _by + __bhu(_pid,6)  + (row * (_bh * 0.5));
             var hilite = (_selX == col) && (_selY == row);
 
-            var mv = A.moves[i];
-            var pp = A.pps[i];
-            var nm = __battle_move_name(mv);
+                // Safely read move id and PP for this slot. Actor or its arrays may be
+                // missing or shorter than 4; defensively fall back to placeholders.
+                var mv = -1;
+                var pp = 0;
+                try {
+                    if (is_struct(A)){
+                        if (variable_struct_exists(A, "moves") && is_array(variable_struct_get(A, "moves")) && i >= 0 && i < array_length(variable_struct_get(A, "moves"))) mv = variable_struct_get(A, "moves")[i];
+                        if (variable_struct_exists(A, "pps") && is_array(variable_struct_get(A, "pps")) && i >= 0 && i < array_length(variable_struct_get(A, "pps"))) pp = variable_struct_get(A, "pps")[i];
+                    }
+                } catch (e_read) { mv = -1; pp = 0; }
+                // If this slot is Copycat, attempt to show the candidate move name in the UI.
+                // Important: __battle_move_name expects a numeric move id, not a string.
+                var nm = "";
+                var is_copycat_slot = false;
+                try {
+                    if (is_string(mv) && mv == "copycat") is_copycat_slot = true;
+                    else if (is_real(mv) && variable_global_exists("_moves") && is_array(global._moves) == false && is_struct(global._moves[mv]) && variable_struct_exists(global._moves[mv], "identifier") && string_lower(variable_struct_get(global._moves[mv], "identifier")) == "copycat") is_copycat_slot = true;
+                    else if (is_real(mv) && variable_global_exists("_moves") && is_array(global._moves) && is_struct(global._moves[mv]) && variable_struct_exists(global._moves[mv], "identifier") && string_lower(variable_struct_get(global._moves[mv], "identifier")) == "copycat") is_copycat_slot = true;
+                } catch (e_ic) { is_copycat_slot = false; }
+            // Always display the slot's own move name (e.g. "Copycat").
+            // The preview of the last move is intentionally disabled here to
+            // avoid confusing the player; if you want a preview, show it only
+            // on highlight or via a tooltip elsewhere.
+            nm = __battle_move_name(mv);
             var label = nm + "  " + (is_real(pp) ? string(pp) : "0") + " PP";
             label = __battle_text_fit_ellipsis(_pid, label, cellW);
 

@@ -71,6 +71,7 @@ Keep guidance short and focused: this is a GameMaker project made of script file
 - Input will appear broken unless `controls_update()` is called each Step and `scr_controls()` run at boot.
 - Instance creation uses `instance_create_layer(..., "Instances", ...)` in some places — layer names are project-specific; verify that layer exists in rooms.
 - Audio: pkicons plays cries via streaming APIs (audio_create_stream / audio_play_sound) which can fail on runtimes that lack the API — use pkicons_inspect_ogg to check.
+- Never gate sprite resources with `is_real()`. Always rely on `sprite_exists()` (or compare against `-1`) when validating sprites so resource lookups stay cross-platform safe.
 
 ## Minimal examples (explicit, copyable)
 - Run a basic battle UI in the game's loop (Step + Draw GUI):

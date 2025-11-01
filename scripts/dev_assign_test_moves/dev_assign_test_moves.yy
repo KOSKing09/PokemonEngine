@@ -1,0 +1,13 @@
+{
+  "$GMScript":"v1",
+  "%Name":"dev_assign_test_moves",
+  "isCompatibility":false,
+  "isDnD":false,
+  "name":"dev_assign_test_moves",
+  "parent":{
+    "name":"Tests",
+    "path":"folders/Scripts/Game/Tests.yy",
+  },
+  "resourceType":"GMScript",
+  "resourceVersion":"2.0",
+}
