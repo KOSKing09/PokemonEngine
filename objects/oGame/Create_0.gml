@@ -86,10 +86,10 @@ pkicons_init();
     }
 
 // Configure external asset bases (adjust paths as needed on your machine)
-pkicons_set_art96_base("C:/Users/King2/Documents/Pokemon Engine/sprites/pokemon/");
-pkicons_set_icon32_base("C:/Users/King2/Documents/Pokemon Engine/sprites/Overworld/Normal/");
-pkicons_set_cries_base("C:/Users/King2/Documents/Pokemon Engine/cries/");
-pkicons_set_item_icon_base("C:/Users/King2/Documents/Pokemon Engine/sprites/items/");
+pkicons_set_art96_base("C:/Users/trane/Documents/Pokemon Engine/sprites/pokemon/");
+pkicons_set_icon32_base("C:/Users/trane/Documents/Pokemon Engine/sprites/Overworld/Normal/");
+pkicons_set_cries_base("C:/Users/trane/Documents/Pokemon Engine/cries/");
+pkicons_set_item_icon_base("C:/Users/trane/Documents/Pokemon Engine/sprites/items/");
 
 // Ensure per-module debug keys exist (quiet by default)
 if (variable_global_exists("PKICONS")){
