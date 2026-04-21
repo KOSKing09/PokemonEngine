@@ -629,6 +629,9 @@ function __battle_apply_damage_impl(_pid, _target_index, _dmg, _mult){
                     // Only open party UI for player's side (target_index == 0)
                     if (is_real(_target_index) && _target_index == 0){
                         variable_struct_set(_B_sch, "_pending_open_party", true);
+                        try {
+                            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_impls] scheduled _pending_open_party for pid=" + string(_pid));
+                        } catch (e_dbg_po) {}
                     }
                     // Ensure the faint dialog has at least one frame to render before
                     // the party UI may open: set a short delay marker the battle
@@ -637,7 +640,9 @@ function __battle_apply_damage_impl(_pid, _target_index, _dmg, _mult){
                     // the party UI opens. Increase from 120ms to 300ms to reduce
                     // chances the party menu occludes the faint message on slow
                     // machines or when multiple UI updates occur in the same frame.
-                    try { variable_struct_set(_B_sch, "_pending_open_party_delay_until", current_time + 300); } catch (e_pd) {}
+                    try { variable_struct_set(_B_sch, "_pending_open_party_delay_until", current_time + 300);
+                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_impls] set _pending_open_party_delay_until=" + string(current_time + 300) + " pid=" + string(_pid));
+                    } catch (e_pd) {}
                     // Queue faint text to show last; do not open immediately.
                         try {
                             var _fnt_name = "(Unknown)";
@@ -652,6 +657,7 @@ function __battle_apply_damage_impl(_pid, _target_index, _dmg, _mult){
                     var _refm = T;
                     if (variable_struct_exists(T, "mon") && is_struct(variable_struct_get(T, "mon"))) _refm = variable_struct_get(T, "mon");
                     variable_struct_set(_B_sch, "_pending_open_party_next_mon_ref", _refm);
+                    try { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){ var _nmref = "<unknown>"; try { if (is_struct(_refm) && variable_struct_exists(_refm, "name")) _nmref = string(variable_struct_get(_refm, "name")); } catch(e_){} show_debug_message("[battle_impls] _pending_open_party_next_mon_ref set for pid=" + string(_pid) + ", ref_preview=" + _nmref); } } catch(e_dbgref) {}
                     // Preserve current UI menu/selection so we can restore it after forced swap
                     try {
                         if (variable_struct_exists(_B_sch, "sys_ui") && is_struct(variable_struct_get(_B_sch, "sys_ui"))){

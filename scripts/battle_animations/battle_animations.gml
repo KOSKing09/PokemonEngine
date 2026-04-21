@@ -392,6 +392,10 @@ function __battle_anim_queue_normalize(_slot, _spec){
             if (is_real(_act_idx) && is_real(_tidx)) _sdir = sign(_tidx - _act_idx);
             _out.slide_dir = _sdir;
             _out.slide_mag = (variable_struct_exists(_spec, "slide_mag") && is_real(variable_struct_get(_spec, "slide_mag"))) ? variable_struct_get(_spec, "slide_mag") : 8; // logical pixels
+            // Propagate optional actor anchor and use_actor_sprite flag so draw-state can
+            // optionally resolve the actor's current art and follow its nudge offsets.
+            if (variable_struct_exists(_spec, "actor")) _out.actor = variable_struct_get(_spec, "actor");
+            if (variable_struct_exists(_spec, "use_actor_sprite")) _out.use_actor_sprite = variable_struct_get(_spec, "use_actor_sprite");
             break;
         case "sleep_effect":
             // Floating "Z"s that rise and fade above the target while asleep
@@ -511,6 +515,10 @@ function battle_anim_queue_enqueue(_pid_or_slot, _spec){
         if (variable_struct_exists(_norm, "offset_y")) _entry.offset_y = _norm.offset_y;
         if (variable_struct_exists(_norm, "slide_dir")) _entry.slide_dir = _norm.slide_dir;
         if (variable_struct_exists(_norm, "slide_mag")) _entry.slide_mag = _norm.slide_mag;
+        if (variable_struct_exists(_norm, "actor")) _entry.actor = _norm.actor;
+        if (variable_struct_exists(_norm, "use_actor_sprite")) _entry.use_actor_sprite = _norm.use_actor_sprite;
+        // Allow callers to provide a base alpha for overlays so we can fade them independently
+        if (variable_struct_exists(_norm, "alpha")) _entry.alpha = _norm.alpha;
     // (alpha is computed by the draw-state for most overlays; no explicit copy needed)
         array_push(_aq.overlays, _entry);
     } else {
@@ -626,8 +634,28 @@ function __battle_anim_queue_build_draw_state(_pid, _slot, _entry){
         } else {
             _frame_he = clamp(floor(_prog * _spr_count_he), 0, max(0, _spr_count_he - 1));
         }
+        // If requested, resolve the actor's current art sprite/subimage at draw time
+        try {
+            if (variable_struct_exists(_entry, "use_actor_sprite") && variable_struct_get(_entry, "use_actor_sprite") == true && variable_struct_exists(_entry, "actor") && is_struct(variable_struct_get(_entry, "actor"))){
+                var _actor_spec = variable_struct_get(_entry, "actor");
+                var _mon_for_sprite = undefined;
+                try { if (variable_struct_exists(_actor_spec, "mon")) _mon_for_sprite = variable_struct_get(_actor_spec, "mon"); else _mon_for_sprite = _actor_spec; } catch (e_mfs) { _mon_for_sprite = undefined; }
+                if (!is_undefined(_mon_for_sprite) && !is_undefined(pkicons_get_art96_by_mon) && !is_undefined(pkicons_get_art96_subimg_by_mon)){
+                    try {
+                        var _spr_res = pkicons_get_art96_by_mon(_mon_for_sprite);
+                        if (!is_undefined(_spr_res) && sprite_exists(_spr_res)){
+                            _sprite_he = _spr_res;
+                            var _is_player_actor = (variable_struct_exists(_actor_spec, "actor_index") && is_real(variable_struct_get(_actor_spec, "actor_index")) && variable_struct_get(_actor_spec, "actor_index") == 0);
+                            try { _frame_he = pkicons_get_art96_subimg_by_mon(_mon_for_sprite, _is_player_actor); } catch (e_rsf) { _frame_he = 0; }
+                        }
+                    } catch (e_resact) {}
+                }
+            }
+        } catch (e_usea) {}
         var _scale_he = (variable_struct_exists(_entry, "scale") && is_real(_entry.scale)) ? _entry.scale : 1;
-        var _alpha_he = 1 - _prog;
+        // Compute alpha using an optional base alpha and an eased fade so afterimages fade faster
+        var _alpha_base = (variable_struct_exists(_entry, "alpha") && is_real(_entry.alpha)) ? clamp(_entry.alpha, 0, 1) : 1;
+        var _alpha_he = _alpha_base * (1 - power(_prog, 1.8));
     // Offsets in the normalized spec are provided in logical pixels; convert
     // to UI pixels here so overlays are positioned relative to the actor
     // center correctly under different UI scales.
@@ -635,6 +663,24 @@ function __battle_anim_queue_build_draw_state(_pid, _slot, _entry){
     var _offy_he = 0;
     if (variable_struct_exists(_entry, "offset_x") && is_real(_entry.offset_x)) _offx_he = __battle_anim_queue_wu(_pid, _entry.offset_x, _entry.offset_x);
     if (variable_struct_exists(_entry, "offset_y") && is_real(_entry.offset_y)) _offy_he = __battle_anim_queue_hu(_pid, _entry.offset_y, _entry.offset_y);
+    // If the spec provided an `actor` struct with nudge data, add that actor's current nudge
+    // so overlays anchored to the actor follow its movement.
+    try {
+        if (variable_struct_exists(_entry, "actor") && is_struct(variable_struct_get(_entry, "actor"))){
+            var _actor_obj = variable_struct_get(_entry, "actor");
+            if (is_struct(_actor_obj) && variable_struct_exists(_actor_obj, "_nudge_active") && variable_struct_get(_actor_obj, "_nudge_active") == true){
+                var _ns_a = (variable_struct_exists(_actor_obj, "_nudge_start_ms") ? variable_struct_get(_actor_obj, "_nudge_start_ms") : 0);
+                var _nd_a = (variable_struct_exists(_actor_obj, "_nudge_dur") ? variable_struct_get(_actor_obj, "_nudge_dur") : 0);
+                var _nm_a = (variable_struct_exists(_actor_obj, "_nudge_mag") ? variable_struct_get(_actor_obj, "_nudge_mag") : 0);
+                var _ndir_a = (variable_struct_exists(_actor_obj, "_nudge_dir") ? variable_struct_get(_actor_obj, "_nudge_dir") : 0);
+                var _now_n_a = current_time;
+                var _p_n_a = (_nd_a > 0) ? clamp((_now_n_a - _ns_a) / max(1, _nd_a), 0, 1) : 0;
+                var _frac_n_a = (_p_n_a <= 0.5) ? (1 - power(1 - (_p_n_a / 0.5), 2)) : (1 - power(((_p_n_a - 0.5) / 0.5), 2));
+                var _nudge_px_a = __battle_anim_queue_wu(_pid, _nm_a) * (_ndir_a) * _frac_n_a;
+                _offx_he += _nudge_px_a;
+            }
+        }
+    } catch (e_offn) {}
         var _sdir_he = (variable_struct_exists(_entry, "slide_dir") && is_real(_entry.slide_dir)) ? clamp(_entry.slide_dir, -1, 1) : 0;
         var _smag_he = (variable_struct_exists(_entry, "slide_mag") && is_real(_entry.slide_mag)) ? _entry.slide_mag : 8;
         return { kind: "sprite_overlay", target_index: _idx_he, sprite: _sprite_he, frame: _frame_he, scale: _scale_he, alpha: _alpha_he, progress: _prog, offset_x: _offx_he, offset_y: _offy_he, slide_dir: _sdir_he, slide_mag: _smag_he };
@@ -940,10 +986,15 @@ function __battle_anim_queue_draw_states(_pid, _states){
             }
             var _slide_px = __battle_anim_queue_wu(_pid, _smag);
             var _apply_slide_x = _sdir * _slide_px * _slide_frac;
+            // Compute draw position so the overlay is centered on the actor center
             var _draw_x = _cxs + _offx + _apply_slide_x;
             var _draw_y = _cys + _offy;
             if (!is_undefined(_sprs) && sprite_exists(_sprs)){
-                // (multihit debug messages removed)
+                var _sw = sprite_get_width(_sprs);
+                var _sh = sprite_get_height(_sprs);
+                // Adjust so sprite is centered at (_cxs, _cys) (matching battler centering logic)
+                _draw_x = _draw_x - (_sw * _scs) / 2;
+                _draw_y = _draw_y - (_sh * _scs) / 2;
                 gpu_set_blendmode(bm_normal);
                 draw_sprite_ext(_sprs, _frs, _draw_x, _draw_y, _scs, _scs, 0, c_white, _als);
                 gpu_set_blendmode(bm_normal);

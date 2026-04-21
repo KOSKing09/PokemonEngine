@@ -661,6 +661,107 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                         } catch (e_he) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] hit_effect (eid=1) failed: " + string(e_he)); }
                         return undefined;
                     }
+
+                        // Quick-style visual: effect id 104 -> attacker afterimages (replicate attacker sprite)
+                        if (_eid == 104){
+                            try {
+                                var _tgt_idx_qa = undefined;
+                                try { if (is_struct(_D) && variable_struct_exists(_D, "actor_index")) _tgt_idx_qa = variable_struct_get(_D, "actor_index"); } catch (e_tiqa) { _tgt_idx_qa = undefined; }
+                                // Small random offset for placement
+                                var _offx_qa = irandom_range(-6, 6);
+                                var _offy_qa = irandom_range(-6, 6);
+                                // Attempt to resolve attacker's visible art sprite and subimage
+                                var _spr_att = undefined;
+                                var _frame_att = 0;
+                                try {
+                                    var _att_mon = undefined;
+                                    if (is_struct(_A) && variable_struct_exists(_A, "mon")) _att_mon = variable_struct_get(_A, "mon"); else _att_mon = _A;
+                                    if (!is_undefined(pkicons_get_art96_by_mon) && !is_undefined(pkicons_get_art96_subimg_by_mon) && is_struct(_att_mon)){
+                                        _spr_att = pkicons_get_art96_by_mon(_att_mon);
+                                        // prefer back-facing image for player-side actors
+                                        var _att_is_player = (is_struct(_A) && variable_struct_exists(_A, "actor_index") && variable_struct_get(_A, "actor_index") == 0);
+                                        try { _frame_att = pkicons_get_art96_subimg_by_mon(_att_mon, _att_is_player); } catch (e_fa) { _frame_att = 0; }
+                                    }
+                                } catch (e_res) { _spr_att = undefined; _frame_att = 0; }
+                                // Fallback to generic multihit sprite if art unavailable
+                                if (is_undefined(_spr_att) || !sprite_exists(_spr_att)){
+                                    if (!is_undefined(spr_multihit) && sprite_exists(spr_multihit)) _spr_att = spr_multihit;
+                                    else _spr_att = (variable_global_exists("spr_hiteffect") ? spr_hiteffect : undefined);
+                                }
+                                // Enqueue visual overlays anchored to the attacker to create a trailing afterimage
+                                try {
+                                    var _act_idx_qa = (is_struct(_A) && variable_struct_exists(_A, "actor_index") ? variable_struct_get(_A, "actor_index") : undefined);
+                                    // spawn several quick overlays with slight offsets to simulate a motion trail
+                                    for (var _qi = 0; _qi < 3; ++_qi){
+                                        var _stagger_off = (_qi * 8);
+                                        var _offx_i = _offx_qa - (_stagger_off * (is_real(_act_idx_qa) && is_real(_tgt_idx_qa) ? sign(_tgt_idx_qa - _act_idx_qa) : 1));
+                                        var _offy_i = _offy_qa + irandom_range(-2, 2);
+                                        var _dur_i = 100 + (_qi * 40);
+                                        // fade the afterimages progressively
+                                        var _alpha_i = clamp(0.9 - (_qi * 0.25), 0.15, 0.9);
+                                        try { __battle_request_animation_safe(_pid, { type: "hit_effect", target_index: _act_idx_qa, actor: _A, use_actor_sprite: true, sprite: _spr_att, scale: 1.0, frame: _frame_att, offset_x: _offx_i, offset_y: _offy_i, slide_mag: 10, duration: _dur_i, alpha: _alpha_i }); } catch (e_reqqa_i) {}
+                                    }
+                                } catch (e_reqqa) {}
+
+                                // Tackle-style nudge: make attacker lunge forward briefly and defender react
+                                try {
+                                    var _tgt_max = 1;
+                                    try {
+                                        if (variable_struct_exists(_D, "hp_max")) _tgt_max = max(1, real(variable_struct_get(_D, "hp_max")));
+                                        else if (variable_struct_exists(_D, "mon") && is_struct(variable_struct_get(_D, "mon")) && variable_struct_exists(variable_struct_get(_D, "mon"), "hp_max")) _tgt_max = max(1, real(variable_struct_get(variable_struct_get(_D, "mon"), "hp_max")));
+                                    } catch (e_tmp2) { _tgt_max = 1; }
+                                    var _dval_q = (is_real(_dmg) ? real(_dmg) : 0);
+                                    var _prop_q = clamp((_tgt_max > 0 ? (_dval_q / _tgt_max) : 0), 0, 1);
+                                    // Slightly more punchy nudge for Quick Attack (fast, snappy)
+                                    var _nudge_mag_q = lerp(6, 32, _prop_q);
+                                    var _ndir_q = 0; var _act_idx_q = (variable_struct_exists(_A, "actor_index") ? variable_struct_get(_A, "actor_index") : undefined);
+                                    if (is_real(_act_idx_q) && is_real(_tgt_idx_qa)) _ndir_q = sign(_tgt_idx_qa - _act_idx_q);
+
+                                    // Attacker nudge (fast lunge)
+                                    try {
+                                        if (is_struct(_A)){
+                                                variable_struct_set(_A, "_nudge_active", true);
+                                                variable_struct_set(_A, "_nudge_start_ms", current_time);
+                                                variable_struct_set(_A, "_nudge_dur", 260);
+                                                variable_struct_set(_A, "_nudge_mag", _nudge_mag_q);
+                                                variable_struct_set(_A, "_nudge_dir", _ndir_q);
+                                            }
+                                    } catch (e_an_q) {}
+
+                                    // Defender nudge (shorter, recoil)
+                                    try {
+                                        var _dmag_q = max(1, _nudge_mag_q * 0.7);
+                                        // schedule defender recoil to occur after the attacker's lunge (delay by ~180ms)
+                                        if (is_struct(_D)){
+                                            variable_struct_set(_D, "_nudge_active", true);
+                                            variable_struct_set(_D, "_nudge_start_ms", current_time + 220);
+                                            variable_struct_set(_D, "_nudge_dur", 160);
+                                            variable_struct_set(_D, "_nudge_mag", _dmag_q);
+                                            variable_struct_set(_D, "_nudge_dir", -_ndir_q);
+                                        }
+                                        try {
+                                            var _Btmp_q = __battle_ensure_slot(_pid);
+                                            if (is_struct(_Btmp_q) && variable_struct_exists(_Btmp_q, "actor") && is_array(variable_struct_get(_Btmp_q, "actor"))){
+                                                var _acts_q = variable_struct_get(_Btmp_q, "actor");
+                                                if (is_real(_tgt_idx_qa) && _tgt_idx_qa >= 0 && _tgt_idx_qa < array_length(_acts_q)){
+                                                    var _def_q = _acts_q[_tgt_idx_qa];
+                                                    if (is_struct(_def_q)){
+                                                        variable_struct_set(_def_q, "_nudge_active", true);
+                                                        variable_struct_set(_def_q, "_nudge_start_ms", current_time);
+                                                        variable_struct_set(_def_q, "_nudge_dur", 120);
+                                                        variable_struct_set(_def_q, "_nudge_mag", _dmag_q);
+                                                        variable_struct_set(_def_q, "_nudge_dir", -_ndir_q);
+                                                    }
+                                                }
+                                            }
+                                        } catch (e_set_q) {}
+                                    } catch (e_dn_q) {}
+                                } catch (e_phn_q) {}
+
+                                try { var _Btmp2 = __battle_ensure_slot(_pid); if (is_struct(_Btmp2)) variable_struct_set(_Btmp2, "_meta_effect_applied", true); } catch (e_btmp2) {}
+                            } catch (e_qa_all) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] quick-attack visual (eid=104) failed: " + string(e_qa_all)); }
+                            return undefined;
+                        }
                     // Retrieve stat_changes array from meta if present (otherwise nothing to apply)
                     var _scarr = (variable_struct_exists(_mm, "stat_changes") && is_array(variable_struct_get(_mm, "stat_changes"))) ? variable_struct_get(_mm, "stat_changes") : undefined;
                     if (is_array(_scarr)){

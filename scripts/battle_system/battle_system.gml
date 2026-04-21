@@ -1681,7 +1681,8 @@ function battle_update(_pid){
         // prevents the party UI from opening before the faint message is
         // visually presented.
         try {
-            if (variable_struct_exists(_B, "_pending_open_party") && variable_struct_get(_B, "_pending_open_party")){
+                if (variable_struct_exists(_B, "_pending_open_party") && variable_struct_get(_B, "_pending_open_party")){
+                    try { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_system] pending_open_party detected pid=" + string(_pid)); } catch (e_dbgp) {}
                 // Check delay marker
                 var _delay_ok = true;
                 try {
@@ -1690,10 +1691,12 @@ function battle_update(_pid){
                         if (is_real(_du) && current_time < _du) _delay_ok = false;
                     }
                 } catch (e_do) { _delay_ok = true; }
+                    try { if (! _delay_ok && variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_system] pending_open_party delay not yet expired pid=" + string(_pid) + ", until=" + string(variable_struct_get(_B, "_pending_open_party_delay_until"))); } catch(e_dbgd) {}
                 // If the dialog system still reports open, wait (it will call
                 // this handler again when it closes). Otherwise, and if the
                 // delay has expired, open the party UI now.
                 var _dlg_open_now = (is_undefined(dialog2p_is_open) ? false : dialog2p_is_open(_pid));
+                    try { if (_dlg_open_now && variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_system] pending_open_party waiting for dialog to close pid=" + string(_pid)); } catch(e_dbgg) {}
                 if (_delay_ok && !_dlg_open_now){
                     // Guard: if battle is already marked as a loss OR there is no usable Pok�mon,
                     // do NOT open the party UI. Clear the pending flag and exit this branch.
@@ -1705,6 +1708,7 @@ function battle_update(_pid){
                         try { variable_struct_set(_B, "_pending_open_party", false); } catch (e_clx) {}
                         try { variable_struct_set(_B, "_pending_open_party_next_mon_ref", undefined); } catch (e_clx2) {}
                     } else {
+                        try { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_system] pending_open_party aborted (loss or no alive) pid=" + string(_pid)); } catch(e_dbgx) {}
                         if (!is_undefined(party_open) && !is_undefined(party_ensure)){
                             party_open(_pid);
                             var _Ptmp2 = party_ensure(_pid);
@@ -1749,6 +1753,7 @@ function battle_update(_pid){
                             if (!is_undefined(__battle_try_enqueue_faint_dialog)) __battle_try_enqueue_faint_dialog(_pid, _B, "(Unknown) fainted!\n(TODO) Switch to another Pok\u00e9mon.", "(Unknown) fainted!");
                         }
                         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][faint] executing scheduled party_open for pid=" + string(_pid));
+                        try { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_system] party_open called pid=" + string(_pid)); } catch(e_dbgop) {}
                         try { variable_struct_set(_B, "_pending_open_party", false); } catch (e_cl) {}
                         try { variable_struct_set(_B, "_pending_open_party_next_mon_ref", undefined); } catch (e_cl2) {}
                     }
@@ -2326,20 +2331,21 @@ function battle_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     draw_rectangle(__bxu(_pid,0), __byu(_pid,0), __bxu(_pid,240), __byu(_pid,160), false);
 
     __battle_draw_battlers(_pid, _B);
-    // Draw queued animation states (overlays, field/weather effects) produced by the
-    // battle animation queue. This ensures stat_overlay entries are rendered.
-    if (!is_undefined(battle_anim_queue_get_states) && !is_undefined(__battle_anim_queue_draw_states)){
-        try {
-            var __aq_states = battle_anim_queue_get_states(_pid);
-            __battle_anim_queue_draw_states(_pid, __aq_states);
-        } catch (e_drawaq) {}
-    }
+    // (moved) animation-queue overlays are drawn after UI so they appear on top
     // Optional intro sprite animations hook: draw during intro phases
     if (!is_undefined(__battle_intro_draw)){
         var _phname = (variable_struct_exists(_B, "phase") ? string(_B.phase) : "");
         if (_phname == "transition_in" || _phname == "intro_enemy" || _phname == "intro_call" || _phname == "intro_player"){
             __battle_intro_draw(_pid, _B);
         }
+    }
+
+    // Draw queued animation states under the UI panels so effect sprites appear beneath UI
+    if (!is_undefined(battle_anim_queue_get_states) && !is_undefined(__battle_anim_queue_draw_states)){
+        try {
+            var __aq_states_under = battle_anim_queue_get_states(_pid);
+            __battle_anim_queue_draw_states(_pid, __aq_states_under);
+        } catch (e_drawaq_under) {}
     }
 
     var _draw_enemy_panel = true;
@@ -2357,6 +2363,7 @@ function battle_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
 
     // Draw any active battle animations (status icons, damage popups)
     if (!is_undefined(__battle_anim_draw)) __battle_anim_draw(_pid);
+    
 
     if (string(_B.phase) == "transition_in"){
         var p = (variable_struct_exists(_B,"phase_progress") ? _B.phase_progress : 0);
@@ -4286,7 +4293,15 @@ function battle_switch_to(_pid, _party_idx, _opts){
         var incoming_name = "Pok\u00e9mon";
         if (is_struct(_incoming) && variable_struct_exists(_incoming, "name")) incoming_name = string(variable_struct_get(_incoming, "name"));
     var dlg_text = "Go. " + incoming_name + "!";
-    if (!is_undefined(dialog2p_show_now)) { try { dialog2p_show_now(_pid, dlg_text); } catch(e_) { try { dialog2p_enqueue(_pid, dlg_text); } catch(e2){} } _B._dlg_active = true; }
+    if (!is_undefined(dialog2p_show_now)) { try { dialog2p_show_now(_pid, dlg_text); } catch(e_) { try { dialog2p_enqueue(_pid, dlg_text); } catch(e2){} }
+        // Ensure dialog doesn't immediately advance from the same input press
+        try {
+            if (!is_undefined(dialog2p_is_open) && dialog2p_is_open(_pid) && variable_global_exists("DIALOG2P")){
+                var _sess = global.DIALOG2P[_pid];
+                if (is_struct(_sess)) variable_struct_set(_sess, "_open_grace_until", current_time + 300);
+            }
+        } catch (e_g) {}
+        _B._dlg_active = true; }
     } catch (e_sw) {}
     return true;
 }
