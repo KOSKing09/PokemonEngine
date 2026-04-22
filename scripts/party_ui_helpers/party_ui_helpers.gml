@@ -125,7 +125,7 @@ function __party_impl_draw_profile_block(_M, _x, _y, _w, _h, _S){
     draw_text(_x + 6*_S, _y + 6*_S + _lh*3, "ABILITY/");
     draw_text(_x + 6*_S, _y + 6*_S + _lh*5, "TRAINER MEMO");
     draw_set_color(c_white);
-    var _ot="—", _idno="—", _typ="—", _abi="—", _nat="—", _metLv="—", _metMp="—";
+    var _ot="—", _idno="—", _typ="", _abi="—", _nat="—", _metLv="—", _metMp="—";
     if (is_struct(_M)){
         if (variable_struct_exists(_M,"ot"))   _ot   = string(_M.ot);
         if (variable_struct_exists(_M,"idno")) _idno = string(_M.idno);
@@ -147,42 +147,59 @@ function __party_impl_draw_profile_block(_M, _x, _y, _w, _h, _S){
             if (variable_struct_exists(_M,"type1") && is_real(_M.type1) && _M.type1 >= 0) array_push(_type_names, "#"+string(_M.type1));
             if (variable_struct_exists(_M,"type2") && is_real(_M.type2) && _M.type2 >= 0) array_push(_type_names, "#"+string(_M.type2));
         }
-        for (var tn = 0; tn < array_length(_type_names); tn++){
-            var cur = _type_names[tn];
-            if (string_length(cur) > 0 && string_char_at(cur,1) == "#"){
-                var nid = real(string_delete(cur,1,1));
-                var resolved = "";
-                if (variable_global_exists("TYPE_ID_BY_NAME")){
-                    var _map_tmp = variable_global_get("TYPE_ID_BY_NAME");
-                    if (!is_undefined(_map_tmp) && ds_exists(_map_tmp, ds_type_map)){
-                        var _k = ds_map_find_first(_map_tmp);
-                        while(_k != undefined){
-                            var _v = ds_map_find_value(_map_tmp, _k);
-                            if (is_real(_v) && _v == nid){ resolved = string(_k); break; }
-                            _k = ds_map_find_next(_map_tmp, _k);
-                        }
-                    }
-                }
-                if (string_length(resolved) == 0){
-                    var __builtin = ["Normal","Fire","Water","Electric","Grass","Ice","Fighting","Poison","Ground","Flying","Psychic","Bug","Rock","Ghost","Dark","Dragon","Steel","Fairy"];
-                    if (nid >= 1 && nid <= array_length(__builtin)) resolved = __builtin[nid];
-                    else resolved = "Type"+string(nid);
-                }
-                _type_names[tn] = resolved;
-            } else {
-                var s = string(cur);
-                if (string_length(s) > 0) _type_names[tn] = string_upper(string_copy(s,1,1)) + string_delete(s,1,1);
+
+        // If no explicit type info on the mon struct, prefer species-level resolver
+        if (array_length(_type_names) == 0){
+            var _sid_try = -1;
+            if (variable_struct_exists(_M, "species_id") && is_real(_M.species_id)) _sid_try = floor(_M.species_id);
+            else if (variable_struct_exists(_M, "_id") && is_real(_M._id)) _sid_try = floor(_M._id);
+            if (_sid_try >= 0 && !is_undefined(scr_poke_type_str)){
+                var _resolved = scr_poke_type_str(_sid_try);
+                if (string_length(string_trim(_resolved)) > 0) _typ = _resolved;
             }
         }
-        if (array_length(_type_names) > 0){
-            if (array_length(_type_names) == 1) _typ = _type_names[0];
-            else _typ = _type_names[0] + " / " + _type_names[1];
+
+        // If _typ wasn't set by the resolver above, fall back to local name resolution
+        if (string_length(_typ) == 0){
+            for (var tn = 0; tn < array_length(_type_names); tn++){
+                var cur = _type_names[tn];
+                if (string_length(cur) > 0 && string_char_at(cur,1) == "#"){
+                    var nid = real(string_delete(cur,1,1));
+                    var resolved = "";
+                    if (variable_global_exists("TYPE_ID_BY_NAME")){
+                        var _map_tmp = variable_global_get("TYPE_ID_BY_NAME");
+                        if (!is_undefined(_map_tmp) && ds_exists(_map_tmp, ds_type_map)){
+                            var _k = ds_map_find_first(_map_tmp);
+                            while(_k != undefined){
+                                var _v = ds_map_find_value(_map_tmp, _k);
+                                if (is_real(_v) && _v == nid){ resolved = string(_k); break; }
+                                _k = ds_map_find_next(_map_tmp, _k);
+                            }
+                        }
+                    }
+                    if (string_length(resolved) == 0){
+                        var __builtin = ["Normal","Fire","Water","Electric","Grass","Ice","Fighting","Poison","Ground","Flying","Psychic","Bug","Rock","Ghost","Dark","Dragon","Steel","Fairy"];
+                        if (nid >= 1 && nid <= array_length(__builtin)) resolved = __builtin[nid - 1];
+                        else resolved = "Type"+string(nid);
+                    }
+                    _type_names[tn] = resolved;
+                } else {
+                    var s = string(cur);
+                    if (string_length(s) > 0) _type_names[tn] = string_upper(string_copy(s,1,1)) + string_delete(s,1,1);
+                }
+            }
+            if (array_length(_type_names) > 0){
+                _typ = _type_names[0];
+                for (var __ti = 1; __ti < array_length(_type_names); ++__ti) _typ += "/" + _type_names[__ti];
+            }
         }
         if (variable_struct_exists(_M,"ability"))  _abi  = string(_M.ability);
         if (variable_struct_exists(_M,"nature"))   _nat  = string(_M.nature);
         if (variable_struct_exists(_M,"met_level")) _metLv = string(_M.met_level);
         if (variable_struct_exists(_M,"met_map"))   _metMp = string(_M.met_map);
     }
+    // If no type resolved, show placeholder
+    if (string_length(string_trim(_typ)) == 0) _typ = "—";
     var _ot_label_x = _x + 6*_S;
     var _ot_value_x = _ot_label_x + string_width("OT/") + 4;
     draw_text(_ot_value_x, _y + 6*_S + _lh*1, _ot);

@@ -518,7 +518,7 @@ function battle_anim_queue_enqueue(_pid_or_slot, _spec){
         if (variable_struct_exists(_norm, "actor")) _entry.actor = _norm.actor;
         if (variable_struct_exists(_norm, "use_actor_sprite")) _entry.use_actor_sprite = _norm.use_actor_sprite;
         // Allow callers to provide a base alpha for overlays so we can fade them independently
-        if (variable_struct_exists(_norm, "alpha")) _entry.alpha = _norm.alpha;
+        if (variable_struct_exists(_norm, "alpha")) _entry.alpha = variable_struct_get(_norm, "alpha");
     // (alpha is computed by the draw-state for most overlays; no explicit copy needed)
         array_push(_aq.overlays, _entry);
     } else {
@@ -654,7 +654,7 @@ function __battle_anim_queue_build_draw_state(_pid, _slot, _entry){
         } catch (e_usea) {}
         var _scale_he = (variable_struct_exists(_entry, "scale") && is_real(_entry.scale)) ? _entry.scale : 1;
         // Compute alpha using an optional base alpha and an eased fade so afterimages fade faster
-        var _alpha_base = (variable_struct_exists(_entry, "alpha") && is_real(_entry.alpha)) ? clamp(_entry.alpha, 0, 1) : 1;
+        var _alpha_base = (variable_struct_exists(_entry, "alpha") && is_real(variable_struct_get(_entry, "alpha"))) ? clamp(variable_struct_get(_entry, "alpha"), 0, 1) : 1;
         var _alpha_he = _alpha_base * (1 - power(_prog, 1.8));
     // Offsets in the normalized spec are provided in logical pixels; convert
     // to UI pixels here so overlays are positioned relative to the actor

@@ -1147,6 +1147,8 @@ function data_load_all_structs_ext(){
     data_load_ability_text_structs();    // UPDATED to PokeAPI flavor text
     data_load_species_abilities_structs();
     data_load_species_moves_structs();
+    // Types: load core type list and per-species mappings
+    if (is_undefined(data_load_types_structs) == false) data_load_types_structs();
     // Optional: per-species flavor text/prose (pokemon_species_flavor_text.csv / pokemon_species_flavor_summaries.csv)
     if (is_undefined(data_load_species_flavor_text_structs) == false) data_load_species_flavor_text_structs();
     // Growth rates table + Experience
@@ -1329,6 +1331,101 @@ function data_load_move_meta_structs(){
         rows += 1;
     }
     data_debug("[DATA][move_meta] mapped rows=" + string(rows));
+}
+
+// ---------- DATA: types + pokemon_types.csv -> global._types, global._species_types
+function data_load_types_structs(){
+    var path = working_directory + "/data/csv/types.csv";
+    var g = load_csv(path);
+    if (g == -1) { data_debug("[DATA][types] SKIP: " + path); global._types = []; }
+    else {
+        var H = ds_grid_height(g);
+        var ci_id = __col_find_ci(g, "id");
+        var ci_ident = __col_find_ci(g, "identifier");
+        if (ci_id < 0) ci_id = 0;
+        if (ci_ident < 0) ci_ident = 1;
+        var max_id = 0;
+        for (var r = 1; r < H; r++){
+            var tid = __to_int_safe(__grid(g, ci_id, r, 0), 0);
+            if (tid > max_id) max_id = tid;
+        }
+        global._types = []; array_resize(global._types, max_id + 1);
+        var rows = 0;
+        for (var r2 = 1; r2 < H; r2++){
+            var idv = __to_int_safe(__grid(g, ci_id, r2, 0), 0);
+            if (idv <= 0) continue;
+            var ident = string_trim(string(__grid(g, ci_ident, r2, "")));
+            var display = (string_length(ident) > 0) ? string_upper(string_copy(ident,1,1)) + string_delete(ident,1,1) : ident;
+            global._types[idv] = { id: idv, identifier: ident, name: display };
+            rows++;
+        }
+        data_debug("[DATA][types] loaded rows=" + string(rows));
+    }
+
+    // Load per-species mapping
+    var ppath = working_directory + "/data/csv/pokemon_types.csv";
+    var g2 = load_csv(ppath);
+    var species_types = [];
+    if (g2 == -1) {
+        data_debug("[DATA][pokemon_types] SKIP: " + ppath);
+        // also attempt pokemon_form_types.csv as fallback
+        var fpath = working_directory + "/data/csv/pokemon_form_types.csv";
+        var gf = load_csv(fpath);
+        if (gf == -1) { data_debug("[DATA][pokemon_form_types] SKIP: " + fpath); global._species_types = []; return; }
+        // parse form types into species_types by pokemon_id
+        var Hf = ds_grid_height(gf);
+        var ci_pidf = __col_find_ci(gf, "pokemon_id"); if (ci_pidf < 0) ci_pidf = __col_find_ci(gf, "pokemon_species_id"); if (ci_pidf < 0) ci_pidf = 0;
+        var ci_typef = __col_find_ci(gf, "type_id"); if (ci_typef < 0) ci_typef = __col_find_ci(gf, "type"); if (ci_typef < 0) ci_typef = 1;
+        var maxsidf = 0;
+        for (var rr = 1; rr < Hf; rr++){ var sid = __to_int_safe(__grid(gf, ci_pidf, rr, 0), 0); if (sid > maxsidf) maxsidf = sid; }
+        array_resize(species_types, maxsidf + 1);
+        for (var r3 = 1; r3 < Hf; r3++){
+            var sid2 = __to_int_safe(__grid(gf, ci_pidf, r3, 0), 0);
+            var tid2 = __to_int_safe(__grid(gf, ci_typef, r3, 0), 0);
+            if (sid2 <= 0) continue;
+            if (!is_array(species_types[sid2])) species_types[sid2] = [];
+            array_push(species_types[sid2], tid2);
+        }
+        global._species_types = species_types;
+        data_debug("[DATA][pokemon_form_types] loaded species_count=" + string(array_length(global._species_types)));
+        return;
+    }
+
+    // parse pokemon_types.csv
+    var H2 = ds_grid_height(g2);
+    var ci_pid = __col_find_ci(g2, "pokemon_id"); if (ci_pid < 0) ci_pid = __col_find_ci(g2, "pokemon_species_id"); if (ci_pid < 0) ci_pid = 0;
+    var ci_type = __col_find_ci(g2, "type_id"); if (ci_type < 0) ci_type = __col_find_ci(g2, "type"); if (ci_type < 0) ci_type = 1;
+    var maxsid = 0;
+    for (var r4 = 1; r4 < H2; r4++){ var sid3 = __to_int_safe(__grid(g2, ci_pid, r4, 0), 0); if (sid3 > maxsid) maxsid = sid3; }
+    array_resize(species_types, maxsid + 1);
+    var rows2 = 0;
+    for (var r5 = 1; r5 < H2; r5++){
+        var sid4 = __to_int_safe(__grid(g2, ci_pid, r5, 0), 0);
+        var tid3 = __to_int_safe(__grid(g2, ci_type, r5, 0), 0);
+        if (sid4 <= 0) continue;
+        if (!is_array(species_types[sid4])) species_types[sid4] = [];
+        array_push(species_types[sid4], tid3);
+        rows2++;
+    }
+    // Also attempt to merge pokemon_form_types.csv if present
+    var fpath2 = working_directory + "/data/csv/pokemon_form_types.csv";
+    var gf2 = load_csv(fpath2);
+    if (gf2 != -1){
+        var Hf2 = ds_grid_height(gf2);
+        var ci_pid2 = __col_find_ci(gf2, "pokemon_id"); if (ci_pid2 < 0) ci_pid2 = __col_find_ci(gf2, "pokemon_species_id"); if (ci_pid2 < 0) ci_pid2 = 0;
+        var ci_type2 = __col_find_ci(gf2, "type_id"); if (ci_type2 < 0) ci_type2 = __col_find_ci(gf2, "type"); if (ci_type2 < 0) ci_type2 = 1;
+        for (var rf = 1; rf < Hf2; rf++){
+            var sf = __to_int_safe(__grid(gf2, ci_pid2, rf, 0), 0);
+            var tf = __to_int_safe(__grid(gf2, ci_type2, rf, 0), 0);
+            if (sf <= 0) continue;
+            if (sf >= array_length(species_types)) array_resize(species_types, sf+1);
+            if (!is_array(species_types[sf])) species_types[sf] = [];
+            array_push(species_types[sf], tf);
+        }
+    }
+
+    global._species_types = species_types;
+    data_debug("[DATA][pokemon_types] loaded rows=" + string(rows2) + " species_count=" + string(array_length(global._species_types)));
 }
 
 // ---------- DATA: growth_rates.csv -> global._growth_rates[growth_rate_id] = { id, identifier, name, description }

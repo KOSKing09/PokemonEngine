@@ -215,8 +215,46 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
         var ease = 1 - (1 - p_in) * (1 - p_in);
         fx = lerp(start_cx, fx, ease);
     }
-    var draw_x = fx - (w*drawScaleE)/2;
-    var draw_y = fy - (h*drawScaleE)/2;
+    // Position using sprite origin so large sprites anchor correctly
+    var origin_x_e = (is_undefined(sprE) || !sprite_exists(sprE)) ? (w * 0.5) : sprite_get_xoffset(sprE);
+    var origin_y_e = (is_undefined(sprE) || !sprite_exists(sprE)) ? (h * 0.5) : sprite_get_yoffset(sprE);
+    var draw_x = fx + (origin_x_e - (w * 0.5)) * drawScaleE;
+    // Anchor sprite bottom to the platform bottom so different sprite origins/sizes align correctly
+    var platform_bottom_local = base_fy + (h * scale_foe * ui_s) * 0.5;
+    var draw_y = platform_bottom_local - (h - origin_y_e) * drawScaleE;
+    // If actor is not grounded (flying / levitate), raise sprite to simulate floating
+    try {
+        var _is_grounded_e = true;
+        if (!is_undefined(__actor_is_grounded)) _is_grounded_e = __actor_is_grounded(E);
+        // species-level fallback: if grounded==true, check types/ability/species types for Flying
+        if (_is_grounded_e){
+            try {
+                var _flying_id_e = undefined;
+                if (variable_global_exists("TYPE_ID_BY_NAME")){
+                    var _tmp_e = variable_global_get("TYPE_ID_BY_NAME"); if (ds_exists(_tmp_e, ds_type_map)) _flying_id_e = ds_map_find_value(_tmp_e, string_lower("flying"));
+                }
+                if (!is_undefined(_flying_id_e) && is_real(_flying_id_e)){
+                    if (variable_struct_exists(E, "types") && is_array(variable_struct_get(E, "types"))){ var _pta_e = variable_struct_get(E, "types"); for (var _tti_e=0; _tti_e<array_length(_pta_e); ++_tti_e) if (is_real(_pta_e[_tti_e]) && _pta_e[_tti_e] == _flying_id_e) { _is_grounded_e = false; break; } }
+                    if (_is_grounded_e && variable_struct_exists(E, "type1") && is_real(variable_struct_get(E, "type1")) && variable_struct_get(E, "type1") == _flying_id_e) _is_grounded_e = false;
+                    if (_is_grounded_e && variable_struct_exists(E, "type2") && is_real(variable_struct_get(E, "type2")) && variable_struct_get(E, "type2") == _flying_id_e) _is_grounded_e = false;
+                    if (_is_grounded_e && variable_struct_exists(E, "mon") && is_struct(variable_struct_get(E, "mon")) && variable_global_exists("_species_types") && is_array(global._species_types)){
+                        var _mref_e = variable_struct_get(E, "mon");
+                        if (variable_struct_exists(_mref_e, "species_id") && is_real(variable_struct_get(_mref_e, "species_id"))){
+                            var _sid_e = floor(variable_struct_get(_mref_e, "species_id"));
+                            if (_sid_e >= 0 && _sid_e < array_length(global._species_types)){
+                                var _starr_e = global._species_types[_sid_e];
+                                if (is_array(_starr_e)) for (var _jj_e=0; _jj_e<array_length(_starr_e); ++_jj_e) if (is_real(_starr_e[_jj_e]) && _starr_e[_jj_e] == _flying_id_e) { _is_grounded_e = false; break; }
+                            }
+                        }
+                    }
+                }
+            } catch (e_fly_e) {}
+        }
+        if (!_is_grounded_e){
+            var _float_px = __bhu(_pid, 18);
+            draw_y -= _float_px;
+        }
+    } catch (e_flt_e) {}
     // Draw frozen-state sprite behind the battler when applicable.
     try {
         if (sprite_exists(spr_frozen)){
@@ -443,11 +481,7 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
         var catch_phase_anchor = string(catchA.phase);
         if (catch_phase_anchor == "impact" || catch_phase_anchor == "shake" || catch_phase_anchor == "resolve" || catch_phase_anchor == "escape") anchor_overridden = true;
     }
-    if (!anchor_overridden){
-        var anchor_bottom = base_fy + (h * scale_foe * ui_s) * 0.5;
-        var current_bottom_final = draw_y + (h * drawScaleE);
-        draw_y += (anchor_bottom - current_bottom_final);
-    }
+    // anchor handled via sprite origin above; skip legacy anchor adjustment
 
     var _breath_amp = 0.03;
     var _breath_period = 2000;
@@ -465,7 +499,12 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
         var shadow_w_e = floor((w * drawScaleE * _bs_e) * 0.6);
         var shadow_h_e = max(2, floor((w * drawScaleE) * 0.12));
         var shadow_cx_e = floor(draw_x + (w * drawScaleE * _bs_e) * 0.5);
-        var shadow_cy_e = floor(draw_y + (h * drawScaleE) * 0.5 + shadow_h_e * 0.8 + floor(15 * ui_s));
+        var shadow_cy_e = 0;
+        if (typeof(_is_grounded_e) != "undefined" && !_is_grounded_e){
+            shadow_cy_e = floor(base_fy + (h * scale_foe * ui_s) * 0.5 + shadow_h_e * 0.8 + floor(15 * ui_s));
+        } else {
+            shadow_cy_e = floor(draw_y + (h * drawScaleE) * 0.5 + shadow_h_e * 0.8 + floor(15 * ui_s));
+        }
         draw_ellipse(shadow_cx_e - shadow_w_e div 2, shadow_cy_e - shadow_h_e div 2, shadow_cx_e + shadow_w_e div 2, shadow_cy_e + shadow_h_e div 2, false);
         draw_set_alpha(1);
     }
@@ -620,8 +659,48 @@ function __battle_draw_player(_pid, _B, mx, my, tx, ty){
         }
     }
 
-    var draw_x = mx - (w*drawScaleP)/2;
-    var draw_y = my - (h*drawScaleP)/2;
+    // Use sprite origin so player sprites of different sizes align correctly
+    var origin_x_p = (is_undefined(sprP) || !sprite_exists(sprP)) ? (w * 0.5) : sprite_get_xoffset(sprP);
+    var origin_y_p = (is_undefined(sprP) || !sprite_exists(sprP)) ? (h * 0.5) : sprite_get_yoffset(sprP);
+    var draw_x = mx + (origin_x_p - (w * 0.5)) * drawScaleP;
+    // Anchor player sprite bottom to the player's platform bottom to avoid half-height offset
+    var draw_y = platform_bottom_player - (h - origin_y_p) * drawScaleP;
+    // Float flying-type players slightly above ground
+    try {
+        var _is_grounded_p = true;
+        if (!is_undefined(__actor_is_grounded)) _is_grounded_p = __actor_is_grounded(P);
+        // If grounded check reports true, try a species-level fallback for Flying type / Levitate
+        if (_is_grounded_p){
+            try {
+                var _flying_id_chk = undefined;
+                if (variable_global_exists("TYPE_ID_BY_NAME")){
+                    var _tmap_chk = variable_global_get("TYPE_ID_BY_NAME");
+                    if (ds_exists(_tmap_chk, ds_type_map)) _flying_id_chk = ds_map_find_value(_tmap_chk, string_lower("flying"));
+                }
+                if (!is_undefined(_flying_id_chk) && is_real(_flying_id_chk)){
+                    // actor-level explicit types
+                    if (variable_struct_exists(P, "types") && is_array(variable_struct_get(P, "types"))){ var _pta = variable_struct_get(P, "types"); for (var _tti2=0; _tti2<array_length(_pta); ++_tti2) if (is_real(_pta[_tti2]) && _pta[_tti2] == _flying_id_chk) { _is_grounded_p = false; break; } }
+                    if (_is_grounded_p && variable_struct_exists(P, "type1") && is_real(variable_struct_get(P, "type1")) && variable_struct_get(P, "type1") == _flying_id_chk) _is_grounded_p = false;
+                    if (_is_grounded_p && variable_struct_exists(P, "type2") && is_real(variable_struct_get(P, "type2")) && variable_struct_get(P, "type2") == _flying_id_chk) _is_grounded_p = false;
+                    // species-level lookup
+                    if (_is_grounded_p && variable_struct_exists(P, "mon") && is_struct(variable_struct_get(P, "mon")) && variable_global_exists("_species_types") && is_array(global._species_types)){
+                        var _mref = variable_struct_get(P, "mon");
+                        if (variable_struct_exists(_mref, "species_id") && is_real(variable_struct_get(_mref, "species_id"))){
+                            var _sidchk = floor(variable_struct_get(_mref, "species_id"));
+                            if (_sidchk >= 0 && _sidchk < array_length(global._species_types)){
+                                var _starr2 = global._species_types[_sidchk];
+                                if (is_array(_starr2)) for (var _jj2=0; _jj2<array_length(_starr2); ++_jj2) if (is_real(_starr2[_jj2]) && _starr2[_jj2] == _flying_id_chk) { _is_grounded_p = false; break; }
+                            }
+                        }
+                    }
+                }
+            } catch (e_flychk_p) {}
+        }
+        if (!_is_grounded_p){
+            var _float_px_p = __bhu(_pid, 18);
+            draw_y -= _float_px_p;
+        }
+    } catch (e_fp) {}
 
     // Draw frozen-state sprite behind the player battler when applicable.
     try {
@@ -785,7 +864,12 @@ function __battle_draw_player(_pid, _B, mx, my, tx, ty){
             var shadow_w_p2 = floor((w * drawScaleP * _bs_p) * 0.6);
             var shadow_h_p2 = max(2, floor((w * drawScaleP) * 0.12));
             var shadow_cx_p2 = floor(draw_x + (w * drawScaleP * _bs_p) * 0.5);
-            var shadow_cy_p2 = floor(draw_y + (h * drawScaleP) * 0.5 + shadow_h_p2 * 0.8 + floor(15 * ui_s));
+            var shadow_cy_p2 = 0;
+            if (typeof(_is_grounded_p) != "undefined" && !_is_grounded_p){
+                shadow_cy_p2 = floor(platform_bottom_player + (h * drawScaleP) * 0.5 + shadow_h_p2 * 0.8 + floor(15 * ui_s));
+            } else {
+                shadow_cy_p2 = floor(draw_y + (h * drawScaleP) * 0.5 + shadow_h_p2 * 0.8 + floor(15 * ui_s));
+            }
             draw_ellipse(shadow_cx_p2 - shadow_w_p2 div 2, shadow_cy_p2 - shadow_h_p2 div 2, shadow_cx_p2 + shadow_w_p2 div 2, shadow_cy_p2 + shadow_h_p2 div 2, false);
             draw_set_alpha(1);
         }

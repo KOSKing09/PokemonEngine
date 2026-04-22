@@ -218,6 +218,15 @@ function pokemon_factory_create(_sid, _level, _opts){
         if (_t1 != -1) array_push(_types_arr,_t1);
         if (_t2 != -1) array_push(_types_arr,_t2);
     }
+    // If no per-mon types were found, try the safe resolver if available
+    if (array_length(_types_arr) == 0 && !is_undefined(scr_poke_types_by_id)) {
+        var _resolved = scr_poke_types_by_id(_s);
+        if (is_array(_resolved) && array_length(_resolved) > 0) {
+            for (var __ri = 0; __ri < array_length(_resolved); __ri++) array_push(_types_arr, _resolved[__ri]);
+            if (array_length(_resolved) > 0) _t1 = _resolved[0];
+            if (array_length(_resolved) > 1) _t2 = _resolved[1];
+        }
+    }
     if (array_length(_types_arr) == 0) { _t1 = 1; array_push(_types_arr,_t1); }
 
     var moves = [-1,-1,-1,-1];

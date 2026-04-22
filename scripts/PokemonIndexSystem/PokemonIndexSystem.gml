@@ -427,6 +427,7 @@ function scr_poke_describe(_sid, _lvl){
         , exp_current: exp_cur
         , exp_next: exp_next
     };
+
 }
 
 /// ===== Move helpers (PlayerIndex) =========================================
@@ -505,4 +506,42 @@ function scr_move_priority_by_id(_mid) {
             return 4;
     }
     return 0;
+}
+
+
+/// Return species type IDs and human-readable names for a given species id
+function scr_poke_types_by_id(_sid){
+    var ids = [];
+    if (is_real(_sid) && variable_global_exists("_species_types") && is_array(global._species_types) && _sid >= 0 && _sid < array_length(global._species_types)){
+        var tmp = global._species_types[_sid];
+        if (is_array(tmp)) for (var i=0;i<array_length(tmp);++i) if (is_real(tmp[i])) array_push(ids, tmp[i]);
+    } else if (is_real(_sid) && variable_global_exists("POKEMON_SPECIES") && ds_exists(POKEMON_SPECIES, ds_type_map) && ds_map_exists(POKEMON_SPECIES, string(_sid))){
+        var sp = ds_map_find_value(POKEMON_SPECIES, string(_sid));
+        if (is_struct(sp)){
+            if (variable_struct_exists(sp, "types") && is_array(sp.types)) for (var j=0;j<array_length(sp.types);++j) if (is_real(sp.types[j])) array_push(ids, sp.types[j]);
+            else { if (variable_struct_exists(sp, "type1") && is_real(sp.type1)) array_push(ids, sp.type1); if (variable_struct_exists(sp, "type2") && is_real(sp.type2)) array_push(ids, sp.type2); }
+        }
+    }
+    return ids;
+}
+
+/// Return a human-readable type string like "Fire/Flying" for a species id
+function scr_poke_type_str(_sid){
+    var ids = scr_poke_types_by_id(_sid);
+    var names = [];
+    var __builtin = ["Normal","Fire","Water","Electric","Grass","Ice","Fighting","Poison","Ground","Flying","Psychic","Bug","Rock","Ghost","Dark","Dragon","Steel","Fairy"];
+    for (var k=0;k<array_length(ids);++k){
+        var tid = ids[k];
+        var resolved = "";
+        if (variable_global_exists("TYPE_ID_BY_NAME") && ds_exists(TYPE_ID_BY_NAME, ds_type_map)){
+            var _first = ds_map_find_first(TYPE_ID_BY_NAME);
+            while(_first != undefined){ var _v = ds_map_find_value(TYPE_ID_BY_NAME, _first); if (is_real(_v) && _v == tid){ resolved = string(_first); break; } _first = ds_map_find_next(TYPE_ID_BY_NAME, _first); }
+        }
+        if (string_length(resolved) == 0){ if (is_real(tid) && tid >= 1 && tid <= array_length(__builtin)) resolved = __builtin[tid - 1]; else resolved = "Type" + string(tid); }
+        if (string_length(resolved) > 0) resolved = string_upper(string_copy(resolved,1,1)) + string_delete(resolved,1,1);
+        array_push(names, resolved);
+    }
+    var out = "";
+    if (array_length(names) > 0){ out = names[0]; for (var xi=1; xi<array_length(names); ++xi) out += "/" + names[xi]; }
+    return out;
 }

@@ -214,8 +214,19 @@ function scr_party_debug_seed_random(_pid, _count)
             var _level = is_undefined(_mon.level) ? (is_undefined(_mon.lvl) ? 5 : _mon.lvl) : _mon.level;
 
             var _abilityId = scr_poke_pick_ability(_speciesId, _speciesId * 1000 + _level);
+            // Debug: report type/ability resolution during demo enrichment
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                var _pre_types = "";
+                try { if (variable_struct_exists(_mon, "types") && is_array(_mon.types)) _pre_types = string(array_length(_mon.types)) + " types"; else _pre_types = string(_mon.type1) + "," + string(_mon.type2); } catch (e_dt) { _pre_types = "?"; }
+                var _typeStrDbg = "";
+                try { if (!is_undefined(scr_poke_type_str)) _typeStrDbg = scr_poke_type_str(_speciesId); } catch (e_tdbg) { _typeStrDbg = "?"; }
+                show_debug_message("[DATA_DEBUG][demo_enrich] slot=" + string(_i) + " species=" + string(_speciesId) + " lvl=" + string(_level) + " pre_types=" + _pre_types + " species_type_str=" + _typeStrDbg);
+            }
             _mon.ability_id = _abilityId;
             _mon.ability    = scr_ability_name_by_id(_abilityId);
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                show_debug_message("[DATA_DEBUG][demo_enrich] slot=" + string(_i) + " ability_id=" + string(_abilityId) + " ability_name=" + string(_mon.ability));
+            }
 
             // Recompute grounded status now that ability is known
             try { if (!is_undefined(scr_compute_grounded_flag)) _mon.grounded = scr_compute_grounded_flag(_mon); } catch (e_gr) {}

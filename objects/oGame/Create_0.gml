@@ -70,6 +70,21 @@ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) {
     show_debug_message("Total ms: " + string(_metrics.sys_total_ms));
 }
 
+// Startup data sanity checks (helpful when types/species arrays appear empty)
+if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) {
+    // Types list
+    if (variable_global_exists("_types") && is_array(global._types)) show_debug_message("[STARTUP] global._types loaded count=" + string(array_length(global._types)));
+    else show_debug_message("[STARTUP] global._types MISSING or not array");
+
+    // TYPE_ID_BY_NAME map
+    if (variable_global_exists("TYPE_ID_BY_NAME") && ds_exists(TYPE_ID_BY_NAME, ds_type_map)) show_debug_message("[STARTUP] TYPE_ID_BY_NAME ds_map exists");
+    else show_debug_message("[STARTUP] TYPE_ID_BY_NAME missing");
+
+    // species types
+    if (variable_global_exists("_species_types") && is_array(global._species_types)) show_debug_message("[STARTUP] global._species_types loaded count=" + string(array_length(global._species_types)));
+    else show_debug_message("[STARTUP] global._species_types MISSING or not array");
+}
+
 // Normalize numeric IDs to textual keys for downstream code that expects prose keys
 if (!is_undefined(data_normalize_item_flag_map)) data_normalize_item_flag_map();
 
