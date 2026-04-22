@@ -63,7 +63,8 @@ function scr_party_debug_seed_list(_pid, _species_array){
         var _factory_opts = { ot: _demo_ot, idno: sid, shiny: false, icon: spr_mon_icon_placeholder };
         var _mon_struct = pokemon_factory_create(sid, L, _factory_opts);
         _mon_struct = demo_mon_ensure_name(_mon_struct);
-        party_model_add_mon(_pid, _mon_struct);
+        _mon_struct._debug_uid = current_time + i;
+        party_model_add_mon(_pid, party_model_copy_mon(_mon_struct));
     }
     P.sel = 0; P.scroll = 0; P.swap_index = -1; P.menu_sel = 0; P.lock = 0;
     show_debug_message("[DEMO] Seeded " + string(array_length(P.mons)) + " forced Pokémon to PARTY[" + string(_pid) + "].");
@@ -90,8 +91,11 @@ function scr_party_demo_apply_forced(_pid){
         var _factory_opts = { ot: _demo_ot, idno: sid, shiny: false, icon: spr_mon_icon_placeholder };
         var newmon = pokemon_factory_create(sid, lvl, _factory_opts);
         newmon = demo_mon_ensure_name(newmon);
-        // Replace slot
-        P.mons[i] = newmon;
+        // Preserve shiny flag from previous slot if present so forced replacements
+        // don't unintentionally remove a shiny that was assigned earlier.
+        if (is_struct(prev) && variable_struct_exists(prev, "shiny")) newmon.shiny = prev.shiny;
+        newmon._debug_uid = current_time + i;
+        party_model_update_mon(_pid, i, party_model_copy_mon(newmon));
     }
     // persist back
     var __Ptmp = party_ensure(_pid); __Ptmp.mons = P.mons;
@@ -187,8 +191,9 @@ function scr_party_debug_seed_random(_pid, _count)
         var _mon_struct = pokemon_factory_create(sid, L, _factory_opts);
         // Ensure names
         _mon_struct = demo_mon_ensure_name(_mon_struct);
+        _mon_struct._debug_uid = current_time + j;
         // Use model API to add mon
-        party_model_add_mon(_pid, _mon_struct);
+        party_model_add_mon(_pid, party_model_copy_mon(_mon_struct));
     }
 
     P.sel = 0; P.scroll = 0; P.swap_index = -1; P.menu_sel = 0; P.lock = 0;
@@ -197,11 +202,19 @@ function scr_party_debug_seed_random(_pid, _count)
     var _mons_arr = party_model_get_mons(_pid);
     if (array_length(_mons_arr) > 0){
         var shiny_index = irandom(array_length(_mons_arr)-1);
-        // mutate via direct struct access (shallow copy not required here)
-        if (is_struct(_mons_arr[shiny_index])) _mons_arr[shiny_index].shiny = true;
-        // persist back
-        var _Ptmp = party_ensure(_pid); _Ptmp.mons = _mons_arr; 
+        if (is_struct(_mons_arr[shiny_index])){
+            var _copy = party_model_copy_mon(_mons_arr[shiny_index]);
+            variable_struct_set(_copy, "shiny", true);
+            party_model_update_mon(_pid, shiny_index, _copy);
+        }
         show_debug_message("[DEMO] Shiny assigned to party slot " + string(shiny_index));
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+            for (var __si = 0; __si < array_length(_mons_arr); __si++){
+                var __s = _mons_arr[__si];
+                var __sh = (is_struct(__s) && variable_struct_exists(__s, "shiny") && __s.shiny) ? "true" : "false";
+                show_debug_message("[DATA_DEBUG][demo_shiny_check] slot=" + string(__si) + " shiny=" + __sh + " uid=" + string(is_struct(__s) && variable_struct_exists(__s,"_debug_uid") ? __s._debug_uid : -1));
+            }
+        }
     }
 
     var _party = party_ensure(_pid);
@@ -255,10 +268,11 @@ function scr_party_debug_seed_random(_pid, _count)
 
             // Ensure names again after enrichment (in case external loaders touched fields)
             _mon = demo_mon_ensure_name(_mon);
-            // persist enriched mon back to the party via model array write
-            var __mons_local = party_model_get_mons(_pid);
-            if (is_array(__mons_local) && _i >= 0 && _i < array_length(__mons_local)) __mons_local[_i] = _mon;
-            var __Ptmp = party_ensure(_pid); __Ptmp.mons = __mons_local;
+            // persist enriched mon back to the party via model API (in-place)
+            party_model_update_mon(_pid, _i, _mon);
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                show_debug_message("[DATA_DEBUG][demo_enrich] slot=" + string(_i) + " debug_uid=" + string(_mon._debug_uid));
+            }
         }
     }
 }

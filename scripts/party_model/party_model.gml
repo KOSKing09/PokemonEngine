@@ -102,7 +102,12 @@ function party_model_copy_mon(_mon){
     if (!is_struct(_mon)) return _mon;
     var out = {};
     var k = variable_struct_get_names(_mon);
-    for (var i=0; i<array_length(k); i++) out[k[i]] = _mon[k[i]];
+    for (var i=0; i<array_length(k); i++){
+        var key = k[i];
+        var val = undefined;
+        if (variable_struct_exists(_mon, key)) val = variable_struct_get(_mon, key);
+        variable_struct_set(out, key, val);
+    }
     return out;
 }
 
@@ -135,6 +140,12 @@ function party_model_update_mon(_pid, _index, _mon){
                     var __k = __keys[__ik];
                     var __val = undefined;
                     if (variable_struct_exists(_mon, __k)) __val = variable_struct_get(_mon, __k);
+                    // Debug: log changes to the shiny flag for tracing
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG && __k == "shiny"){
+                        var __prev = (variable_struct_exists(__old, "shiny") ? string(variable_struct_get(__old, "shiny")) : "<none>");
+                        var __next = string(__val);
+                        show_debug_message("[party_model_update_mon][SHINY] pid=" + string(_pid) + ", slot=" + string(_index) + ", prev=" + __prev + ", next=" + __next);
+                    }
                     variable_struct_set(__old, __k, __val);
                 }
             // Ensure the slot holds the same (mutated) object reference

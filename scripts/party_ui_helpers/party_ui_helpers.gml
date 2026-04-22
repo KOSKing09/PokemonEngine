@@ -369,7 +369,11 @@ function __party_impl_draw_left_panel(_P, _M, _OX, _OY, _S, _LEFT_X, _LEFT_Y, _L
             if (is_struct(_M) && variable_struct_exists(_M,"shiny") && _M.shiny && !is_undefined(__party_impl_draw_shiny_sparkle)){
                 var _sx = _dx + _artW * _sc * 0.78;
                 var _sy = _dy + _artH * _sc * 0.22;
-                __party_impl_draw_shiny_sparkle(_sx,_sy,_S, (_M.species_id) ?? 0);
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                        var _dbg_uid = (variable_struct_exists(_M,"_debug_uid") ? string(_M._debug_uid) : "-1");
+                        var _sub = -1; try { _sub = pkicons_get_art96_subimg_by_mon(_M,false); } catch (e_sub) { _sub = -2; }
+                    }
+                    __party_impl_draw_shiny_sparkle(_sx,_sy,_S, (_M.species_id) ?? 0);
             }
         }
 
