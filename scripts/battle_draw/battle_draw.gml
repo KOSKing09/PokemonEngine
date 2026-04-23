@@ -113,6 +113,22 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
         }
     } catch (e_ui) { ui_s = 1; }
     var drawScaleE = scale_foe * ui_s * __trainer_scale;
+    // Compute a species-based vertical origin adjustment so small/large mons align with platform
+    var species_adj_px_e = 0;
+    if (variable_struct_exists(mE, "species_id") && variable_global_exists("_pokemon") && is_array(global._pokemon)){
+        var _sid_e2 = variable_struct_get(mE, "species_id");
+        if (is_real(_sid_e2) && _sid_e2 >= 0 && _sid_e2 < array_length(global._pokemon)){
+            var _sp_e2 = global._pokemon[_sid_e2];
+            if (is_struct(_sp_e2) && variable_struct_exists(_sp_e2, "height")){
+                var _height_dm_e2 = real(variable_struct_get(_sp_e2, "height"));
+                var _height_m_e2 = _height_dm_e2 * 0.1;
+                var minH_e = 0.15; var maxH_e = 3.0;
+                var norm_e2 = clamp((_height_m_e2 - minH_e) / max(0.0001, (maxH_e - minH_e)), 0, 1);
+                var adj_px_e2 = lerp(0.12 * h, -0.02 * h, norm_e2);
+                species_adj_px_e = floor(adj_px_e2);
+            }
+        }
+    }
     // Freeze detection for enemy (used to modify breathing and tint)
     var _has_freeze = false;
     try { _has_freeze = status_system_has_status(E, "freeze"); } catch (e_hf_e) { _has_freeze = false; }
@@ -218,6 +234,8 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
     // Position using sprite origin so large sprites anchor correctly
     var origin_x_e = (is_undefined(sprE) || !sprite_exists(sprE)) ? (w * 0.5) : sprite_get_xoffset(sprE);
     var origin_y_e = (is_undefined(sprE) || !sprite_exists(sprE)) ? (h * 0.5) : sprite_get_yoffset(sprE);
+    // Apply species-origin adjustment computed earlier so visual feet/shadow align with platform
+    origin_y_e = clamp(origin_y_e + species_adj_px_e, 0, h);
     var draw_x = fx + (origin_x_e - (w * 0.5)) * drawScaleE;
     // Anchor sprite bottom to the platform bottom so different sprite origins/sizes align correctly
     var platform_bottom_local = base_fy + (h * scale_foe * ui_s) * 0.5;
@@ -346,7 +364,7 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
             // shrink the enemy nearly to zero so it appears to be pulled into the ball
             // Compute target anchor (landing position) and lerp both scale and center toward it
             var anchor_x = (variable_struct_exists(catchA, "land_x") ? variable_struct_get(catchA, "land_x") : fx);
-            var anchor_y = (variable_struct_exists(catchA, "land_y") ? variable_struct_get(catchA, "land_y") : (fy + (h * ui_s) * 0.15));
+            var anchor_y = (variable_struct_exists(catchA, "land_y") ? variable_struct_get(catchA, "land_y") : (platform_bottom_local - (h - origin_y_e) * drawScaleE + (h * drawScaleE) * 0.15));
             // Lerp scale down smoothly
             var target_scale_mult = lerp(1, 0, ease2);
             drawScaleE *= target_scale_mult;
@@ -362,7 +380,7 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
             // ball starts centered on the foe while impact completes
                 // Record the landed position once so subsequent hops use this anchor.
                 // Use the enemy_base_bottom (a bit below center) as the anchor so hops don't jump.
-                var _enemy_base_bottom = fy + (h * ui_s) * 0.15;
+                var _enemy_base_bottom = platform_bottom_local - (h - origin_y_e) * drawScaleE + (h * drawScaleE) * 0.15;
                 if (!variable_struct_exists(catchA, "land_x")) variable_struct_set(catchA, "land_x", fx);
                 if (!variable_struct_exists(catchA, "land_y")) variable_struct_set(catchA, "land_y", _enemy_base_bottom);
                 var bx2 = variable_struct_exists(catchA, "land_x") ? variable_struct_get(catchA, "land_x") : fx;
@@ -387,7 +405,7 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
             // if we're in the pause portion (after hop_dur_local), keep at bottom
             var in_pause = ((e3 % cycle) >= hop_dur_local);
             var base_x = (variable_struct_exists(catchA, "land_x") ? variable_struct_get(catchA, "land_x") : fx);
-            var base_y = (variable_struct_exists(catchA, "land_y") ? variable_struct_get(catchA, "land_y") : fy);
+            var base_y = (variable_struct_exists(catchA, "land_y") ? variable_struct_get(catchA, "land_y") : (platform_bottom_local - (h - origin_y_e) * drawScaleE));
             var enemy_base_bottom = base_y;
             var by3 = in_pause ? enemy_base_bottom : (base_y - arc);
             // enemy remains hidden while hops run
@@ -399,7 +417,7 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
             anchor_overridden = true;
         } else if (phase == "resolve" || phase == "caught"){
             // ball rests at the bottom of the enemy sprite; enemy remains hidden
-            var enemy_base_bottom_res = fy + (h * ui_s) * 0.15;
+            var enemy_base_bottom_res = platform_bottom_local - (h - origin_y_e) * drawScaleE + (h * drawScaleE) * 0.15;
             // During resolve/caught, smoothly lerp the remaining tiny scale toward zero and keep center at anchor
             var res_phase_progress = 1;
             if (variable_struct_exists(catchA, "phase_progress")) res_phase_progress = real(catchA.phase_progress);
@@ -422,7 +440,7 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
             // grow enemy back to normal from fully hidden (0 -> 1)
             drawScaleE *= lerp(0, 1, t4);
             // ball stays near the bottom while it fades and slightly drifts
-            var enemy_base_bottom_e = fy + (h * ui_s) * 0.15;
+            var enemy_base_bottom_e = platform_bottom_local - (h - origin_y_e) * drawScaleE + (h * drawScaleE) * 0.15;
             var bx4 = fx; // locked horizontally
             var by4 = enemy_base_bottom_e - lerp(0, 24, t4);
             var scaleb = lerp(0.65, 0.45, t4);
@@ -560,7 +578,7 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
         var bx_draw = ball_to_draw.x - rx;
         var by_draw = ball_to_draw.y - ry;
     var base_x = (variable_struct_exists(catchA, "land_x") ? variable_struct_get(catchA, "land_x") : ball_to_draw.x);
-    var base_y = (variable_struct_exists(catchA, "land_y") ? variable_struct_get(catchA, "land_y") : (fy + (h * ui_s) * 0.15));
+    var base_y = (variable_struct_exists(catchA, "land_y") ? variable_struct_get(catchA, "land_y") : (platform_bottom_local - (h - origin_y_e) * drawScaleE + (h * drawScaleE) * 0.15));
     var hop_est = max(16, floor((h * ui_s) * 0.18));
     var store = { spr: bs, frame: fr, bx: bx_draw, by: by_draw, scale: ball_to_draw.scale, alpha: alpha, base_x: base_x, base_y: base_y, bsw: bsw, ui_s: ui_s, hop_est: hop_est };
         variable_struct_set(catchA, "_ball_to_draw", store);
@@ -662,6 +680,21 @@ function __battle_draw_player(_pid, _B, mx, my, tx, ty){
     // Use sprite origin so player sprites of different sizes align correctly
     var origin_x_p = (is_undefined(sprP) || !sprite_exists(sprP)) ? (w * 0.5) : sprite_get_xoffset(sprP);
     var origin_y_p = (is_undefined(sprP) || !sprite_exists(sprP)) ? (h * 0.5) : sprite_get_yoffset(sprP);
+    // Adjust player origin area based on species height to keep alignment with platform/shadow
+    if (variable_struct_exists(mP, "species_id") && variable_global_exists("_pokemon") && is_array(global._pokemon)){
+        var _sid_h_p = variable_struct_get(mP, "species_id");
+        if (is_real(_sid_h_p) && _sid_h_p >= 0 && _sid_h_p < array_length(global._pokemon)){
+            var _sp_hp = global._pokemon[_sid_h_p];
+            if (is_struct(_sp_hp) && variable_struct_exists(_sp_hp, "height")){
+                var _height_dm_p = real(variable_struct_get(_sp_hp, "height"));
+                var _height_m_p = _height_dm_p * 0.1;
+                var minH_p = 0.15; var maxH_p = 3.0;
+                var norm_p = clamp((_height_m_p - minH_p) / max(0.0001, (maxH_p - minH_p)), 0, 1);
+                var adj_px_p = lerp(0.12 * h, -0.02 * h, norm_p);
+                origin_y_p = clamp(origin_y_p + floor(adj_px_p), 0, h);
+            }
+        }
+    }
     var draw_x = mx + (origin_x_p - (w * 0.5)) * drawScaleP;
     // Anchor player sprite bottom to the player's platform bottom to avoid half-height offset
     var draw_y = platform_bottom_player - (h - origin_y_p) * drawScaleP;
@@ -822,8 +855,10 @@ function __battle_draw_player(_pid, _B, mx, my, tx, ty){
         var minScale = 0.4;
         var targetScale = drawScaleP;
         var curScale = lerp(minScale * ui_s, targetScale, t3);
-        var draw_x2 = mx - (w*curScale)/2;
-        var draw_y2 = my - (h*curScale)/2;
+        // Position intro using the same origin/platform math as normal draw
+        var draw_x2 = mx + (origin_x_p - (w * 0.5)) * curScale;
+        var platform_bottom_intro = my + (h * curScale) * 0.5;
+        var draw_y2 = platform_bottom_intro - (h - origin_y_p) * curScale;
         // Don't draw the player shadow while frozen
         if (!_has_freeze_p){
             draw_set_color(make_color_rgb(20,20,20));
@@ -831,7 +866,7 @@ function __battle_draw_player(_pid, _B, mx, my, tx, ty){
             var shadow_w_p = floor((w * curScale) * 0.6);
             var shadow_h_p = max(2, floor((w * curScale) * 0.12));
             var shadow_cx_p = floor(draw_x2 + (w * curScale) * 0.5);
-            var shadow_cy_p = floor(draw_y2 + (h * curScale) * 0.5 + shadow_h_p * 0.8 + floor(15 * ui_s));
+            var shadow_cy_p = floor(platform_bottom_intro + shadow_h_p * 0.8 + floor(15 * ui_s));
             draw_ellipse(shadow_cx_p - shadow_w_p div 2, shadow_cy_p - shadow_h_p div 2, shadow_cx_p + shadow_w_p div 2, shadow_cy_p + shadow_h_p div 2, false);
             draw_set_alpha(1);
         }

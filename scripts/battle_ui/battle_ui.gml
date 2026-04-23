@@ -70,9 +70,11 @@ function __battle_player_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_A){
     draw_set_color(c_black); draw_rectangle(_barX-1,_barY-1,_barX+_barW+1,_barY+_bh+1,false);
     var _hpcol = _t.col_hp_green; if (_pct<0.5) _hpcol=_t.col_hp_yell; if (_pct<0.2) _hpcol=_t.col_hp_red;
     draw_set_color(_hpcol); draw_rectangle(_barX,_barY,_barX+_barW*_pct,_barY+_bh,false);
-    // Show numeric using visual HP to smoothly animate numbers
+    // Show numeric using visual HP to smoothly animate numbers and align near bar end
     var _vis_hp3 = __battle_hp_visual(_A);
-    draw_text(_bx+_bw-__bwu(_pid,64), _by+__bhu(_pid,18), string(_vis_hp3)+"/"+string((variable_struct_exists(_A, "hp_max") ? variable_struct_get(_A, "hp_max") : 0)));
+    var _hpText = string(_vis_hp3) + "/" + string((variable_struct_exists(_A, "hp_max") ? variable_struct_get(_A, "hp_max") : 0));
+    var _hpTextX = _barX + _barW - __bwu(_pid,6) - string_width(_hpText);
+    draw_text(_hpTextX, _by+__bhu(_pid,18), _hpText);
 
     // EXP bar (Emerald-style) drawn just under HP bar inside the player panel.
     // Reserve right side for the numeric exp text so the bar doesn't overlap the command/menu box.
@@ -111,7 +113,7 @@ function __battle_player_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_A){
         _expText = string(variable_struct_get(monRef2, "exp")) + "/" + string(variable_struct_get(monRef2, "exp_next"));
     }
     // Position EXP numeric in the same right-aligned column as HP numeric text
-    var _expTextX = _bx + _bw - __bwu(_pid,64);
+    var _expTextX = _bx + _bw - __bwu(_pid,8) - string_width(_expText);
     draw_text(_expTextX, _expBarY, _expText);
 }
 
