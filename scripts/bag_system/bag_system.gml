@@ -305,6 +305,23 @@ function bag_open_for_battle(_pid){
     if (variable_struct_exists(_b, "give_from_party")) { _b.give_from_party = false; _b.give_to_mon = undefined; }
 }
 
+function bag__battle_item_target_block_reason(_pid, _target, _item_id){
+    if (is_undefined(battle_is_open) || !battle_is_open(_pid)) return "";
+    if (is_undefined(status_system_has_status) || !is_struct(_target)) return "";
+
+    var _blocked = false;
+    try { _blocked = status_system_has_status(_target, "embargo"); } catch (e_bag_embargo) { _blocked = false; }
+    if (!_blocked) return "";
+
+    var _name = "That Pokémon";
+    try {
+        if (!is_undefined(__status_mon_display_name)) _name = string(__status_mon_display_name(_target));
+        else if (!is_undefined(mon_display_name)) _name = string(mon_display_name(_target));
+        else if (variable_struct_exists(_target, "name") && string_length(string(variable_struct_get(_target, "name"))) > 0) _name = string(variable_struct_get(_target, "name"));
+    } catch (e_bag_name) { _name = "That Pokémon"; }
+    return _name + " can't receive items because of Embargo!";
+}
+
 // Default in-battle Use handler. Call this from the bag UI when the player
 // selects Use while the bag is open in battle mode. It implements a small set
 // of commonly expected behaviors (Poké Ball -> attempt catch, basic Potion

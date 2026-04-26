@@ -144,6 +144,7 @@ try {
         switch (_move){
             case 182: // Protect
             case 197: // Detect shares Protect rules
+            case 203: // Endure shares the same diminishing success gate
                 if (!is_struct(_user)) return false;
 
                 var _last_turn = (variable_struct_exists(_user, "sys_protect_last_turn") ? variable_struct_get(_user, "sys_protect_last_turn") : -999);
@@ -170,17 +171,26 @@ try {
                     try { variable_struct_set(_user, "sys_protect_streak", 0); } catch (e_rstreak) {}
                     try { variable_struct_set(_user, "sys_protected", false); } catch (e_pf) {}
                     try { variable_struct_set(_user, "_protected", false); } catch (e_pf2) {}
+                    try { variable_struct_set(_user, "sys_enduring", false); } catch (e_endf1) {}
+                    try { variable_struct_set(_user, "_enduring", false); } catch (e_endf2) {}
                     try { variable_struct_set(_user, "sys_protected_turn", undefined); } catch (e_pf3) {}
                     try { variable_struct_set(_user, "sys_protected_source_move", undefined); } catch (e_pf4) {}
+                    try { variable_struct_set(_user, "sys_endure_turn", undefined); } catch (e_endf3) {}
                     return false;
                 }
 
                 try { variable_struct_set(_user, "sys_protect_streak", _consecutive); } catch (e_sp) {}
-                try { variable_struct_set(_user, "sys_protected", true); } catch (e_p1) {}
-                try { variable_struct_set(_user, "_protected", true); } catch (e_p2) {}
-                try { variable_struct_set(_user, "_protected_announce_shown", false); } catch (e_p3) {}
-                try { variable_struct_set(_user, "sys_protected_turn", _turn_now); } catch (e_p4) {}
-                try { variable_struct_set(_user, "sys_protected_source_move", _move); } catch (e_p5) {}
+                if (_move == 203){
+                    try { variable_struct_set(_user, "sys_enduring", true); } catch (e_end1) {}
+                    try { variable_struct_set(_user, "_enduring", true); } catch (e_end2) {}
+                    try { variable_struct_set(_user, "sys_endure_turn", _turn_now); } catch (e_end3) {}
+                } else {
+                    try { variable_struct_set(_user, "sys_protected", true); } catch (e_p1) {}
+                    try { variable_struct_set(_user, "_protected", true); } catch (e_p2) {}
+                    try { variable_struct_set(_user, "_protected_announce_shown", false); } catch (e_p3) {}
+                    try { variable_struct_set(_user, "sys_protected_turn", _turn_now); } catch (e_p4) {}
+                    try { variable_struct_set(_user, "sys_protected_source_move", _move); } catch (e_p5) {}
+                }
                 return true;
 
             default:
@@ -436,6 +446,15 @@ function __battle_calc_damage_impl(_A, _D, _move_id, _power){
         } else if (variable_global_exists("_move_meta") && is_array(global._move_meta) && is_struct(global._move_meta[_move_id])){
             try { var _mm2 = global._move_meta[_move_id]; if (variable_struct_exists(_mm2, "crit_rate") && is_real(variable_struct_get(_mm2, "crit_rate"))) crit_rate_level = variable_struct_get(_mm2, "crit_rate"); } catch (e_m2) { crit_rate_level = 0; }
         }
+        try {
+            var _focus_bonus = 0;
+            if (is_struct(_A) && variable_struct_exists(_A, "_focus_energy_level") && is_real(variable_struct_get(_A, "_focus_energy_level"))) _focus_bonus = max(0, floor(variable_struct_get(_A, "_focus_energy_level")));
+            else if (is_struct(_A) && variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon"))){
+                var _focus_mon = variable_struct_get(_A, "mon");
+                if (variable_struct_exists(_focus_mon, "_focus_energy_level") && is_real(variable_struct_get(_focus_mon, "_focus_energy_level"))) _focus_bonus = max(0, floor(variable_struct_get(_focus_mon, "_focus_energy_level")));
+            }
+            crit_rate_level += _focus_bonus;
+        } catch (e_focus_crit) {}
         // Map crit_rate_level to a sampling denominator (conservative mapping)
         var denom = 24;
         if (is_real(crit_rate_level)){
@@ -575,6 +594,15 @@ function __battle_apply_damage_impl(_pid, _target_index, _dmg, _mult){
 
     var cur_hp = __battle_hp_now(T);
     var newhp = max(0, cur_hp - max(0, round(_dmg * (is_real(_mult) ? _mult : 1))));
+    try {
+        if (is_real(cur_hp) && cur_hp > 0 && is_real(newhp) && newhp <= 0 && variable_struct_exists(T, "_enduring") && variable_struct_get(T, "_enduring") == true){
+            newhp = 1;
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                var _tname_endure_impl = variable_struct_exists(T, "name") ? string(variable_struct_get(T, "name")) : "target";
+                show_debug_message("[battle][endure] " + _tname_endure_impl + " endured the hit at 1 HP");
+            }
+        }
+    } catch (e_endure_impl) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][endure] impl damage guard failed: " + string(e_endure_impl)); }
     __battle_set_hp_now(T, newhp);
     // If this damage caused a faint, mark the entity and inner mon as fainted
     // and schedule a pending party open on the battle slot so the UI can prompt
@@ -907,51 +935,41 @@ function __battle_move_copycat_is_ignored(_move_id){
 // Helper: find the move id candidate for Copycat for a given user (walks per-target history backwards)
 function __battle_find_copycat_candidate(_pid, _user){
     try {
-        if (!is_struct(_user)) return undefined;
-        var _hist = [];
-        try { if (variable_struct_exists(_user, "_last_moves") && is_array(variable_struct_get(_user, "_last_moves"))) _hist = variable_struct_get(_user, "_last_moves"); } catch (e_h) { _hist = []; }
         var _Bslot = __battle_ensure_slot(_pid);
-        for (var hi = array_length(_hist)-1; hi >= 0; --hi){
-            var rec = _hist[hi];
-            if (!is_struct(rec) || !variable_struct_exists(rec, "move")) continue;
-            var cand = variable_struct_get(rec, "move");
-            if (!is_real(cand)) continue;
-            // ignore based on identifier/meta
-            if (__battle_move_copycat_is_ignored(cand)){
-                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][copycat][preview] skipping move id="+string(cand)+" (ignored)");
-                continue;
-            }
-            // ensure source still on-field — be robust to actor-wrapper recreation by matching _uid or inner .mon
-            var src = (variable_struct_exists(rec, "src") ? variable_struct_get(rec, "src") : undefined);
-            var src_ok = false;
+        if (!is_struct(_Bslot) || !variable_struct_exists(_Bslot, "actor") || !is_array(variable_struct_get(_Bslot, "actor"))) return undefined;
+        var acts = variable_struct_get(_Bslot, "actor");
+        var best_move = undefined;
+        var best_ts = -1;
+        for (var ai = 0; ai < array_length(acts); ++ai){
+            var act = acts[ai];
+            if (!is_struct(act)) continue;
+            var _hist = [];
             try {
-                if (is_struct(src) && is_struct(_Bslot) && variable_struct_exists(_Bslot, "actor") && is_array(variable_struct_get(_Bslot, "actor"))){
-                    var acts = variable_struct_get(_Bslot, "actor");
-                    for (var ai=0; ai<array_length(acts); ++ai){
-                        var act = acts[ai];
-                        if (!is_struct(act)) continue;
-                        var matched = false;
-                        // Prefer UID matching when available
-                        try {
-                            if (variable_struct_exists(src, "_uid") && variable_struct_exists(act, "_uid") && is_real(variable_struct_get(src, "_uid")) && is_real(variable_struct_get(act, "_uid"))){
-                                if (variable_struct_get(src, "_uid") == variable_struct_get(act, "_uid")) matched = true;
-                            }
-                        } catch (e_uidm) {}
-                        // Fallback to direct struct equality
-                        if (!matched && act == src) matched = true;
-                        // Fallback to inner mon equality (sometimes stored src could be .mon)
-                        if (!matched){
-                            try {
-                                if (variable_struct_exists(src, "mon") && variable_struct_exists(act, "mon") && variable_struct_get(src, "mon") == variable_struct_get(act, "mon")) matched = true;
-                            } catch (e_mon) {}
-                        }
-                        if (matched){ try { if (__battle_hp_now(act) > 0) src_ok = true; else src_ok = false; } catch (e_chk) { src_ok = true; } break; }
-                    }
+                if (variable_struct_exists(act, "_last_moves_used") && is_array(variable_struct_get(act, "_last_moves_used"))){
+                    _hist = variable_struct_get(act, "_last_moves_used");
                 }
-            } catch (e_s) { src_ok = false; }
-            if (!src_ok){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][copycat][preview] skipping move id="+string(cand)+" (source gone)"); continue; }
-            return cand;
+            } catch (e_h) { _hist = []; }
+            for (var hi = array_length(_hist) - 1; hi >= 0; --hi){
+                var rec = _hist[hi];
+                if (!is_struct(rec) || !variable_struct_exists(rec, "move")) continue;
+                var cand = variable_struct_get(rec, "move");
+                if (!is_real(cand)) continue;
+                if (__battle_move_copycat_is_ignored(cand)) continue;
+                var ts = (variable_struct_exists(rec, "ts") ? variable_struct_get(rec, "ts") : hi);
+                if (!is_real(ts)) ts = hi;
+                if (ts >= best_ts){
+                    best_ts = ts;
+                    best_move = cand;
+                }
+                break;
+            }
         }
+        if (is_real(best_move)) return best_move;
+        try {
+            if (variable_global_exists("lastMoveUsed_ID") && is_real(global.lastMoveUsed_ID) && !__battle_move_copycat_is_ignored(global.lastMoveUsed_ID)){
+                return global.lastMoveUsed_ID;
+            }
+        } catch (e_glob) {}
     } catch (e_all){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][copycat][find] error: " + string(e_all)); }
     return undefined;
 }
@@ -998,7 +1016,7 @@ function __bhu_impl(_pid,_hv){
 
 // [FORCE FIX] __battle_apply_move with full Copycat control
 function __battle_apply_move(_pid, _user, _target, _move){
-    if (!__battle_check_can_act(_user)) return;
+    if (!__battle_check_can_act(_user, _move)) return;
 
     var _flags = move_get_flags(_move);
     // Read global flag masks into locals to avoid bare global symbol references
@@ -1081,14 +1099,12 @@ function __battle_apply_move(_pid, _user, _target, _move){
     var _isCopycatMove = false;
     try { if (is_struct(_moveEntry) && variable_struct_exists(_moveEntry, "identifier") && string_lower(variable_struct_get(_moveEntry, "identifier")) == "copycat") _isCopycatMove = true; } catch (e_ic) { _isCopycatMove = false; }
     if (_isCopycatMove){
-        // Simple Copycat semantics: copy the global last move used in the battle when available
-        var _copiedMove = undefined;
-        try { if (variable_global_exists("lastMoveUsed_ID") && !is_undefined(global.lastMoveUsed_ID) && is_real(global.lastMoveUsed_ID) && global.lastMoveUsed_ID >= 0 && global.lastMoveUsed_ID != _move) _copiedMove = global.lastMoveUsed_ID; } catch (e_cp) { _copiedMove = undefined; }
+        var _copiedMove = __battle_find_copycat_candidate(_pid, _user);
+        if (is_real(_copiedMove) && _copiedMove == _move) _copiedMove = undefined;
         if (!is_real(_copiedMove)){
             dialog_queue(_user.name + " failed to Copycat!");
             return;
         }
-        var _copiedName = (is_undefined(move_get_name) ? __battle_move_name_impl(_copiedMove) : move_get_name(_copiedMove));
         try { variable_struct_set(_user, "_suppress_last_move_record", true); } catch (e_s1) {}
         try { __battle_apply_move(_pid, _user, _target, _copiedMove); } catch (e_replay){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][copycat] replay failed: " + string(e_replay)); }
         try { if (variable_struct_exists(_user, "_suppress_last_move_record")) variable_struct_set(_user, "_suppress_last_move_record", false); } catch (e_s2) {}
@@ -1474,7 +1490,7 @@ function __battle_apply_move(_pid, _user, _target, _move){
 }
 
 
-function __battle_check_can_act(_user){
+function __battle_check_can_act(_user, _move_id){
     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
         var _dbg_name = "actor";
         var _dbg_has_freeze = "?";
@@ -1508,6 +1524,12 @@ function __battle_check_can_act(_user){
             }
             // Freeze handling: 75% chance to remain frozen each attempt; thaw on success
             if (status_system_has_status(_user, "freeze")){
+                var _thaw_on_use = (is_real(_move_id) && (_move_id == 172 || _move_id == 221));
+                if (_thaw_on_use){
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][status][freeze] thaw-on-use move=" + string(_move_id));
+                    status_system_clear_status(_user, "freeze");
+                    return true;
+                }
                 var _freeze_inst = undefined;
                 try { _freeze_inst = status_system_get(_user, "freeze"); } catch (e_freeze_inst) { _freeze_inst = undefined; }
                 var _freeze_name = "The Pokémon";
@@ -1573,6 +1595,23 @@ function __battle_check_can_act(_user){
                         dialog_queue((variable_struct_exists(_user, "name") ? variable_struct_get(_user, "name") : "The user") + " is paralyzed! It can't move!");
                         try { variable_struct_set(_user, "_last_paralyze_msg_ts", current_time); } catch (e_setp) {}
                     }
+                    return false;
+                }
+                return true;
+            }
+            // Infatuation: 50% chance to be immobilized.
+            if (status_system_has_status(_user, "infatuation")){
+                var _iinst = undefined;
+                try { _iinst = status_system_get(_user, "infatuation"); } catch (e_ii) { _iinst = undefined; }
+                var _immobile_love = false;
+                if (is_struct(_iinst) && variable_struct_exists(_iinst, "_force_skip_next_move") && variable_struct_get(_iinst, "_force_skip_next_move") == true){
+                    _immobile_love = true;
+                    try { variable_struct_set(_iinst, "_force_skip_next_move", false); } catch (e_ilclr) {}
+                } else {
+                    _immobile_love = (irandom(1) == 0);
+                }
+                if (_immobile_love){
+                    dialog_queue((variable_struct_exists(_user, "name") ? variable_struct_get(_user, "name") : "The user") + " is in love and can't move!");
                     return false;
                 }
                 return true;

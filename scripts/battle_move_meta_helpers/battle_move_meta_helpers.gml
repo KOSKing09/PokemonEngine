@@ -1,5 +1,19 @@
 // Move meta helpers extracted from battle_system.gml to keep the main script lean.
 
+if (is_undefined(__battle_meta_held_items_enabled)){
+    function __battle_meta_held_items_enabled(_actor){
+        if (!is_struct(_actor)) return false;
+        if (is_undefined(status_system_has_status)) return true;
+        try {
+            if (status_system_has_status(_actor, "embargo")) return false;
+        } catch (e_actor_embargo) {}
+        try {
+            if (variable_struct_exists(_actor, "mon") && is_struct(variable_struct_get(_actor, "mon")) && status_system_has_status(variable_struct_get(_actor, "mon"), "embargo")) return false;
+        } catch (e_actor_embargo_mon) {}
+        return true;
+    }
+}
+
 if (is_undefined(__battle_apply_move_meta_effects)){
     function __battle_apply_move_meta_effects(_pid, _step, _A, _D, _move_id, _dmg, _mm){
         // Default meta-effect handler: implement drain (Absorb/Drain) and
@@ -22,6 +36,12 @@ if (is_undefined(__battle_apply_move_meta_effects)){
 
             var A_before = real(get_hp_now(_A));
             var A_max = max(1, real(get_hp_max(_A)));
+            var _move_rec_status = undefined;
+            var _eid_status = undefined;
+            try {
+                if (variable_global_exists("_moves") && is_array(global._moves) && is_real(_move_id) && _move_id >= 0 && _move_id < array_length(global._moves)) _move_rec_status = global._moves[_move_id];
+                if (is_struct(_move_rec_status) && variable_struct_exists(_move_rec_status, "effect_id") && is_real(variable_struct_get(_move_rec_status, "effect_id"))) _eid_status = variable_struct_get(_move_rec_status, "effect_id");
+            } catch (e_move_meta_effect) { _eid_status = undefined; }
 
             // Process drain (positive = heal attacker; negative = recoil to attacker)
             if (variable_struct_exists(_mm, "drain") && is_real(variable_struct_get(_mm, "drain"))){
@@ -99,6 +119,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                     // Process status application (e.g., Sleep Powder, Poison Powder)
                     if (variable_struct_exists(_mm, "status") && string_length(string(variable_struct_get(_mm, "status"))) > 0){
                         var stid = string(variable_struct_get(_mm, "status"));
+                        var _stid_norm_global = string_lower(string(stid));
                         var stchance = (variable_struct_exists(_mm, "chance") && is_real(variable_struct_get(_mm, "chance"))) ? real(variable_struct_get(_mm, "chance")) : 100;
                         // clamp chance to 0..100
                         stchance = clamp(floor(stchance), 0, 100);
@@ -129,6 +150,33 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                             try {
                                     // Use status_system_apply_status on the defender
                                     if (!is_undefined(status_system_apply_status)){
+                                        if (is_real(_eid_status) && _eid_status == 115 && _stid_norm_global == "perish-song"){
+                                            var _applied_perish = false;
+                                            var _actors_perish = (is_struct(_B) && variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor"))) ? variable_struct_get(_B, "actor") : [];
+                                            for (var _ps_i = 0; _ps_i < array_length(_actors_perish); ++_ps_i){
+                                                var _ps_actor = _actors_perish[_ps_i];
+                                                if (!is_struct(_ps_actor)) continue;
+                                                var _ps_hp = 1;
+                                                try { if (!is_undefined(__battle_hp_now)) _ps_hp = __battle_hp_now(_ps_actor); } catch (e_ps_hp) { _ps_hp = 1; }
+                                                if (is_real(_ps_hp) && _ps_hp <= 0) continue;
+                                                var _soundproof = false;
+                                                try {
+                                                    if (!is_undefined(__battle_actor_has_ability_named) && __battle_actor_has_ability_named(_ps_actor, "soundproof")) _soundproof = true;
+                                                } catch (e_ps_ability) { _soundproof = false; }
+                                                if (_soundproof) continue;
+                                                var _perish_opts = { duration: 4 };
+                                                try { variable_struct_set(_perish_opts, "source", _A); } catch (e_ps_src) {}
+                                                var _ok_perish = status_system_apply_status(_ps_actor, "perish-song", _perish_opts);
+                                                if (_ok_perish) _applied_perish = true;
+                                            }
+                                            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] perish-song applied_any=" + string(_applied_perish));
+                                            return undefined;
+                                        }
+                                        var _status_target = _D;
+                                        try {
+                                            var _stid_norm = _stid_norm_global;
+                                            if (_stid_norm == "ingrain") _status_target = _A;
+                                        } catch (e_st_tgt) { _status_target = _D; }
                                         var opts = {};
                                         if (variable_struct_exists(_mm, "duration") && is_real(variable_struct_get(_mm, "duration"))) variable_struct_set(opts, "duration", variable_struct_get(_mm, "duration"));
                                         // source info useful for later (who applied)
@@ -137,21 +185,68 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                         // first tick doesn't immediately apply damage in the same turn
                                         // the move was used. The status system honors skip_first_tick.
                                         try { if (string(stid) == "trap") variable_struct_set(opts, "skip_first_tick", true); } catch (e_sft) {}
-                                        var ok2 = status_system_apply_status(_D, stid, opts);
+                                        var ok2 = status_system_apply_status(_status_target, stid, opts);
                                         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] status_system_apply_status returned=" + string(ok2));
                                             // If the status applied and it is sleep, spawn floating Z overlay
                                             try {
                                                 if (ok2 && string(stid) == "sleep"){
                                                     var _tgt_idx_sleep = undefined;
-                                                    try { if (is_struct(_D) && variable_struct_exists(_D, "actor_index")) _tgt_idx_sleep = variable_struct_get(_D, "actor_index"); } catch (e_ti) { _tgt_idx_sleep = undefined; }
+                                                    try { if (is_struct(_status_target) && variable_struct_exists(_status_target, "actor_index")) _tgt_idx_sleep = variable_struct_get(_status_target, "actor_index"); } catch (e_ti) { _tgt_idx_sleep = undefined; }
                                                     var _offx_s = irandom_range(-6, 6);
                                                     var _offy_s = -18 + irandom_range(-4, 4);
                                                     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){ try { show_debug_message("[battle][sleep][meta-enqueue] pid=" + string(_pid) + ", tgt=" + string(_tgt_idx_sleep) + ", off=(" + string(_offx_s) + "," + string(_offy_s) + ")"); } catch (e_dbgs) {} }
-                                                    try { __battle_request_animation_safe(_pid, { type: "sleep_effect", target_index: _tgt_idx_sleep, actor: _A, target: _D, sprite: spr_sleep, scale: 1.0, offset_x: _offx_s, offset_y: _offy_s, rise: 26, duration: 1200 }); } catch (e_req_sleep) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][sleep] enqueue failed: " + string(e_req_sleep)); }
+                                                    try { __battle_request_animation_safe(_pid, { type: "sleep_effect", target_index: _tgt_idx_sleep, actor: _A, target: _status_target, sprite: spr_sleep, scale: 1.0, offset_x: _offx_s, offset_y: _offy_s, rise: 26, duration: 1200 }); } catch (e_req_sleep) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][sleep] enqueue failed: " + string(e_req_sleep)); }
                                                 }
                                             } catch (e_sleep_all) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][sleep] enqueue outer failed: " + string(e_sleep_all)); }
                                     }
                                 } catch (e_stat) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] status apply failed: " + string(e_stat)); }
+                        }
+                    }
+                    if (variable_struct_exists(_mm, "infatuation") && variable_struct_get(_mm, "infatuation") == true && !is_undefined(status_system_apply_status)){
+                        var _gender_key = function(_ent){
+                            var _scan = function(_obj){
+                                if (!is_struct(_obj)) return "unknown";
+                                if (variable_struct_exists(_obj, "gender")){
+                                    var _g = string_lower(string(variable_struct_get(_obj, "gender")));
+                                    if (_g == "m" || _g == "male") return "male";
+                                    if (_g == "f" || _g == "female") return "female";
+                                    if (_g == "genderless" || _g == "none" || _g == "unknown") return "genderless";
+                                }
+                                if (variable_struct_exists(_obj, "sex")){
+                                    var _s = string_lower(string(variable_struct_get(_obj, "sex")));
+                                    if (_s == "m" || _s == "male") return "male";
+                                    if (_s == "f" || _s == "female") return "female";
+                                    if (_s == "genderless" || _s == "none" || _s == "unknown") return "genderless";
+                                }
+                                if (variable_struct_exists(_obj, "is_female")) return (variable_struct_get(_obj, "is_female") == true) ? "female" : "male";
+                                if (variable_struct_exists(_obj, "female")) return (variable_struct_get(_obj, "female") == true) ? "female" : "male";
+                                if (variable_struct_exists(_obj, "male") && variable_struct_get(_obj, "male") == true) return "male";
+                                var _name_fields = ["species", "identifier", "species_name"];
+                                for (var _nf = 0; _nf < array_length(_name_fields); ++_nf){
+                                    var _field = _name_fields[_nf];
+                                    if (!variable_struct_exists(_obj, _field)) continue;
+                                    var _txt = string_lower(string(variable_struct_get(_obj, _field)));
+                                    if (string_pos("-male", _txt) > 0) return "male";
+                                    if (string_pos("-female", _txt) > 0) return "female";
+                                }
+                                return "unknown";
+                            };
+                            var _res = _scan(_ent);
+                            if (_res == "unknown" && is_struct(_ent) && variable_struct_exists(_ent, "mon") && is_struct(variable_struct_get(_ent, "mon"))) _res = _scan(variable_struct_get(_ent, "mon"));
+                            return _res;
+                        };
+                        var _ag = _gender_key(_A);
+                        var _dg = _gender_key(_D);
+                        var _can_infatuate = true;
+                        if (_ag == "genderless" || _dg == "genderless") _can_infatuate = false;
+                        else if ((_ag == "male" || _ag == "female") && (_dg == "male" || _dg == "female")) _can_infatuate = (_ag != _dg);
+                        if (_can_infatuate){
+                            var _inf_opts = {};
+                            try { variable_struct_set(_inf_opts, "source", _A); } catch (e_inf_src) {}
+                            var _inf_ok = status_system_apply_status(_D, "infatuation", _inf_opts);
+                            if (!_inf_ok) dialog_queue("But it failed!");
+                        } else {
+                            dialog_queue("But it failed!");
                         }
                     }
                         // Imprison: prevent opposing Pokémon from using the same moves as the user
@@ -218,9 +313,27 @@ if (is_undefined(__battle_apply_move_meta_effects)){
             // Process explicit healing meta (e.g., Heal Pulse, Moonlight): applies to attacker
             if (variable_struct_exists(_mm, "healing") && is_real(variable_struct_get(_mm, "healing"))){
                 var heal_v = real(variable_struct_get(_mm, "healing"));
+                var _weather_heal_amt = undefined;
+                if (is_real(_eid_status) && floor(_eid_status) == 133){
+                    try {
+                        var _weather_heal = __battle_get_weather(_pid);
+                        if (__battle_weather_is_active(_weather_heal)){
+                            var _wid_heal = __battle_weather_get_normalized_id(_weather_heal);
+                            if (_wid_heal == "sun" || _wid_heal == "harsh-sun"){
+                                _weather_heal_amt = floor(A_max * 2 / 3);
+                            } else if (_wid_heal == "rain" || _wid_heal == "hail" || _wid_heal == "snow" || _wid_heal == "sandstorm"){
+                                _weather_heal_amt = floor(A_max / 4);
+                            }
+                        }
+                    } catch (e_weather_heal) {
+                        _weather_heal_amt = undefined;
+                    }
+                }
                 if (heal_v > 0){
                     var heal_amt2 = 0;
-                    if (heal_v > 0 && heal_v <= 100){
+                    if (is_real(_weather_heal_amt)){
+                        heal_amt2 = max(1, floor(_weather_heal_amt));
+                    } else if (heal_v > 0 && heal_v <= 100){
                         heal_amt2 = floor(A_max * heal_v / 100);
                     } else {
                         heal_amt2 = floor(heal_v);
@@ -288,6 +401,89 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                     __battle_set_weather(_pid, _weather_target, _wopts);
                 }
 
+                if (is_real(_eid)){
+                    if (_eid == 36 || _eid == 66){
+                        try {
+                            var _barrier_name = (_eid == 36) ? "light_screen" : "reflect";
+                            var _barrier_label = (_eid == 36) ? "Light Screen" : "Reflect";
+                            var _side_idx = 0;
+                            try {
+                                if (is_struct(_A) && variable_struct_exists(_A, "actor_index") && is_real(variable_struct_get(_A, "actor_index"))) _side_idx = __battle_field_side_index_for_actor(variable_struct_get(_A, "actor_index"));
+                            } catch (e_side_bar) { _side_idx = 0; }
+                            var _barrier_turns = 5;
+                            var _has_light_clay = false;
+                            try {
+                                if (__battle_meta_held_items_enabled(_A) && variable_struct_exists(_A, "held_item_real_name")){
+                                    var _nm_bar = string_lower(string(variable_struct_get(_A, "held_item_real_name")));
+                                    if (string_pos("light clay", _nm_bar) > 0) _has_light_clay = true;
+                                }
+                                if (__battle_meta_held_items_enabled(_A) && !_has_light_clay && variable_struct_exists(_A, "held_item_id")){
+                                    var _iid_bar = variable_struct_get(_A, "held_item_id");
+                                    if (is_real(_iid_bar) && _iid_bar == 246) _has_light_clay = true;
+                                    else if (is_real(_iid_bar) && _iid_bar > 0 && variable_global_exists("_items") && is_array(global._items) && _iid_bar < array_length(global._items)){
+                                        var _it_bar = global._items[_iid_bar];
+                                        if (is_struct(_it_bar)){
+                                            var _ident_bar = (variable_struct_exists(_it_bar, "identifier") ? string_lower(string(variable_struct_get(_it_bar, "identifier"))) : "");
+                                            var _name_bar = (variable_struct_exists(_it_bar, "name") ? string_lower(string(variable_struct_get(_it_bar, "name"))) : "");
+                                            if (string_pos("light-clay", _ident_bar) > 0 || string_pos("light clay", _name_bar) > 0) _has_light_clay = true;
+                                        }
+                                    }
+                                }
+                            } catch (e_lc) { _has_light_clay = _has_light_clay; }
+                            if (_has_light_clay) _barrier_turns = 8;
+                            __battle_field_set_barrier(_pid, _side_idx, _barrier_name, _barrier_turns);
+                            try { __battle_request_animation_safe(_pid, { type: "set_barrier", barrier: _barrier_name, actor: _A, target: _D }); } catch (e_bar_anim) {}
+                            try { if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, _barrier_label + " protected the team!", false); } catch (e_bar_msg) {}
+                            return undefined;
+                        } catch (e_barrier_apply) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] barrier apply failed: " + string(e_barrier_apply)); }
+                    }
+
+                    if (_eid == 47){
+                        try {
+                            var _mist_side = 0;
+                            try {
+                                if (is_struct(_A) && variable_struct_exists(_A, "actor_index") && is_real(variable_struct_get(_A, "actor_index"))) _mist_side = __battle_field_side_index_for_actor(variable_struct_get(_A, "actor_index"));
+                            } catch (e_side_mist) { _mist_side = 0; }
+                            __battle_field_set_side_status(_pid, _mist_side, "mist", 5);
+                            try { __battle_request_animation_safe(_pid, { type: "mist", actor: _A, target: _D }); } catch (e_mist_anim) {}
+                            try { if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, "Mist shrouded the team!", false); } catch (e_mist_msg) {}
+                            return undefined;
+                        } catch (e_mist_apply) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] mist apply failed: " + string(e_mist_apply)); }
+                    }
+
+                    if (_eid == 125){
+                        try {
+                            var _safe_side = 0;
+                            try {
+                                if (is_struct(_A) && variable_struct_exists(_A, "actor_index") && is_real(variable_struct_get(_A, "actor_index"))) _safe_side = __battle_field_side_index_for_actor(variable_struct_get(_A, "actor_index"));
+                            } catch (e_side_safe) { _safe_side = 0; }
+                            __battle_field_set_side_status(_pid, _safe_side, "safeguard", 5);
+                            try { __battle_request_animation_safe(_pid, { type: "safeguard", actor: _A, target: _D }); } catch (e_safe_anim) {}
+                            try { if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, "Safeguard protected the team!", false); } catch (e_safe_msg) {}
+                            return undefined;
+                        } catch (e_safe_apply) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] safeguard apply failed: " + string(e_safe_apply)); }
+                    }
+
+                    if (_eid == 26){
+                        try {
+                            var _B_haze = __battle_ensure_slot(_pid);
+                            if (is_struct(_B_haze) && variable_struct_exists(_B_haze, "actor") && is_array(variable_struct_get(_B_haze, "actor"))){
+                                var _acts_haze = variable_struct_get(_B_haze, "actor");
+                                for (var _hz = 0; _hz < array_length(_acts_haze); ++_hz){
+                                    var _act_haze = _acts_haze[_hz];
+                                    if (!is_struct(_act_haze)) continue;
+                                    if (variable_struct_exists(_act_haze, "_stages")) variable_struct_set(_act_haze, "_stages", {});
+                                }
+                            }
+                            __battle_field_clear_side_status(_pid, 0, "mist");
+                            __battle_field_clear_side_status(_pid, 1, "mist");
+                            try { __battle_request_animation_safe(_pid, { type: "haze", actor: _A, target: _D }); } catch (e_haze_anim) {}
+                            try { if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_A, "All stat changes were eliminated!", false); } catch (e_haze_msg) {}
+                            return undefined;
+                        } catch (e_haze_apply) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] haze apply failed: " + string(e_haze_apply)); }
+                    }
+                }
+
                 // Early terrain handling: apply even if no stat_changes array exists in move meta
                 if (is_real(_eid)){
                     // Electric/Grassy/Misty Terrain
@@ -297,11 +493,11 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                             var terr_turns_early = 5;
                             var has_ext_early = false;
                             try {
-                                if (variable_struct_exists(_A, "held_item_real_name")){
+                                if (__battle_meta_held_items_enabled(_A) && variable_struct_exists(_A, "held_item_real_name")){
                                     var _nm_e = string_lower(string(variable_struct_get(_A, "held_item_real_name")));
                                     if (string_pos("terrain extender", _nm_e) > 0) has_ext_early = true;
                                 }
-                                if (!has_ext_early && variable_struct_exists(_A, "held_item_id")){
+                                if (__battle_meta_held_items_enabled(_A) && !has_ext_early && variable_struct_exists(_A, "held_item_id")){
                                     var _iid_e = variable_struct_get(_A, "held_item_id");
                                     if (is_real(_iid_e) && _iid_e == 896) has_ext_early = true;
                                     else if (is_real(_iid_e) && _iid_e > 0 && variable_global_exists("_items") && is_array(global._items) && _iid_e < array_length(global._items)){
@@ -412,11 +608,11 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                             var psy_turns_e = 5;
                             var has_ext_p = false;
                             try {
-                                if (variable_struct_exists(_A, "held_item_real_name")){
+                                if (__battle_meta_held_items_enabled(_A) && variable_struct_exists(_A, "held_item_real_name")){
                                     var _nm2_e = string_lower(string(variable_struct_get(_A, "held_item_real_name")));
                                     if (string_pos("terrain extender", _nm2_e) > 0) has_ext_p = true;
                                 }
-                                if (!has_ext_p && variable_struct_exists(_A, "held_item_id")){
+                                if (__battle_meta_held_items_enabled(_A) && !has_ext_p && variable_struct_exists(_A, "held_item_id")){
                                     var _iid2_e = variable_struct_get(_A, "held_item_id");
                                     if (is_real(_iid2_e) && _iid2_e == 896) has_ext_p = true;
                                     else if (is_real(_iid2_e) && _iid2_e > 0 && variable_global_exists("_items") && is_array(global._items) && _iid2_e < array_length(global._items)){
@@ -486,7 +682,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                     if (!is_struct(_actor) || !is_array(_sc_array)) return;
                     var _overlay_changes = {};
                     var _overlay_any = false;
-                        for (var _si2 = 0; _si2 < array_length(_sc_array); ++_si2){ var _rec2 = _sc_array[_si2]; if (!is_struct(_rec2)) continue; var _sid2 = (variable_struct_exists(_rec2, "stat_id") ? variable_struct_get(_rec2, "stat_id") : undefined); var _chg2 = (variable_struct_exists(_rec2, "change") ? variable_struct_get(_rec2, "change") : undefined); if (!is_real(_sid2) || !is_real(_chg2)) continue; var _sk2 = __stat_key_by_id_local(_sid2); if (is_undefined(_sk2)) continue; if (!variable_struct_exists(_actor, "_stages") || !is_struct(variable_struct_get(_actor, "_stages"))) variable_struct_set(_actor, "_stages", {}); var _stobj = variable_struct_get(_actor, "_stages"); var _prev = (variable_struct_exists(_stobj, _sk2) && is_real(variable_struct_get(_stobj, _sk2))) ? variable_struct_get(_stobj, _sk2) : 0; var _next = clamp(_prev + floor(_chg2), -6, 6); variable_struct_set(_stobj, _sk2, _next); variable_struct_set(_actor, "_stages", _stobj);
+                        for (var _si2 = 0; _si2 < array_length(_sc_array); ++_si2){ var _rec2 = _sc_array[_si2]; if (!is_struct(_rec2)) continue; var _sid2 = (variable_struct_exists(_rec2, "stat_id") ? variable_struct_get(_rec2, "stat_id") : undefined); var _chg2 = (variable_struct_exists(_rec2, "change") ? variable_struct_get(_rec2, "change") : undefined); if (!is_real(_sid2) || !is_real(_chg2)) continue; var _sk2 = __stat_key_by_id_local(_sid2); if (is_undefined(_sk2)) continue; if (!variable_struct_exists(_actor, "_stages") || !is_struct(variable_struct_get(_actor, "_stages"))) variable_struct_set(_actor, "_stages", {}); var _stobj = variable_struct_get(_actor, "_stages"); var _prev = (variable_struct_exists(_stobj, _sk2) && is_real(variable_struct_get(_stobj, _sk2))) ? variable_struct_get(_stobj, _sk2) : 0; var _next = clamp(_prev + floor(_chg2), -6, 6); var _apply_change = true; if (_chg2 < 0){ try { var _mist_side_idx = __battle_field_side_index_for_actor(_actor_idx); var _mist_turns = __battle_field_get_side_status_or(_pid_local, _mist_side_idx, "mist", 0); if (is_real(_mist_turns) && _mist_turns > 0) { _apply_change = false; _next = _prev; } } catch (e_mist_block) { _apply_change = true; } } if (_apply_change) variable_struct_set(_stobj, _sk2, _next); variable_struct_set(_actor, "_stages", _stobj);
                         var _delta_stage = _next - _prev;
                         if (_delta_stage != 0){
                             variable_struct_set(_overlay_changes, _sk2, _delta_stage);
@@ -974,11 +1170,11 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                 var terr_turns = 5;
                                 var has_extender = false;
                                 try {
-                                    if (variable_struct_exists(_A, "held_item_real_name")){
+                                    if (__battle_meta_held_items_enabled(_A) && variable_struct_exists(_A, "held_item_real_name")){
                                         var _nm = string_lower(string(variable_struct_get(_A, "held_item_real_name")));
                                         if (string_pos("terrain extender", _nm) > 0) has_extender = true;
                                     }
-                                    if (!has_extender && variable_struct_exists(_A, "held_item_id")){
+                                    if (__battle_meta_held_items_enabled(_A) && !has_extender && variable_struct_exists(_A, "held_item_id")){
                                         var _iid = variable_struct_get(_A, "held_item_id");
                                         if (is_real(_iid) && _iid == 896) has_extender = true;
                                         else if (is_real(_iid) && _iid > 0 && variable_global_exists("_items") && is_array(global._items) && _iid < array_length(global._items)){
@@ -1019,11 +1215,11 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                 var psy_turns = 5;
                                 var has_ext = false;
                                 try {
-                                    if (variable_struct_exists(_A, "held_item_real_name")){
+                                    if (__battle_meta_held_items_enabled(_A) && variable_struct_exists(_A, "held_item_real_name")){
                                         var _nm2 = string_lower(string(variable_struct_get(_A, "held_item_real_name")));
                                         if (string_pos("terrain extender", _nm2) > 0) has_ext = true;
                                     }
-                                    if (!has_ext && variable_struct_exists(_A, "held_item_id")){
+                                    if (__battle_meta_held_items_enabled(_A) && !has_ext && variable_struct_exists(_A, "held_item_id")){
                                         var _iid2 = variable_struct_get(_A, "held_item_id");
                                         if (is_real(_iid2) && _iid2 == 896) has_ext = true;
                                         else if (is_real(_iid2) && _iid2 > 0 && variable_global_exists("_items") && is_array(global._items) && _iid2 < array_length(global._items)){
@@ -1062,11 +1258,11 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                     var psy_turns2 = 5;
                                     var has_ext3 = false;
                                     try {
-                                        if (variable_struct_exists(_A, "held_item_real_name")){
+                                        if (__battle_meta_held_items_enabled(_A) && variable_struct_exists(_A, "held_item_real_name")){
                                             var _nm3 = string_lower(string(variable_struct_get(_A, "held_item_real_name")));
                                             if (string_pos("terrain extender", _nm3) > 0) has_ext3 = true;
                                         }
-                                        if (!has_ext3 && variable_struct_exists(_A, "held_item_id")){
+                                        if (__battle_meta_held_items_enabled(_A) && !has_ext3 && variable_struct_exists(_A, "held_item_id")){
                                             var _iid3 = variable_struct_get(_A, "held_item_id");
                                             if (is_real(_iid3) && _iid3 == 896) has_ext3 = true;
                                             else if (is_real(_iid3) && _iid3 > 0 && variable_global_exists("_items") && is_array(global._items) && _iid3 < array_length(global._items)){

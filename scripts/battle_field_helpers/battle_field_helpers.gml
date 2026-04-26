@@ -292,3 +292,91 @@ function __battle_field_clear_hazard(_pid, _side_index, _name){
     if (name == "stealth_rock" || name == "sticky_web") return __battle_field_set_hazard(_pid, _side_index, name, false);
     return __battle_field_set_hazard(_pid, _side_index, name, 0);
 }
+
+function __battle_field_get_barrier_struct(_field, _side_index){
+    var side_struct = __battle_field_get_side_struct(_field, _side_index);
+    if (!is_struct(side_struct)) return undefined;
+    if (!variable_struct_exists(side_struct, "barriers") || !is_struct(variable_struct_get(side_struct, "barriers"))) variable_struct_set(side_struct, "barriers", __battle_field_default_barriers());
+    return variable_struct_get(side_struct, "barriers");
+}
+
+function __battle_field_get_barrier(_pid, _side_index, _name){
+    var field = __battle_field_ensure(_pid);
+    if (!is_struct(field)) return undefined;
+    var barriers = __battle_field_get_barrier_struct(field, _side_index);
+    if (!is_struct(barriers)) return undefined;
+    switch (string_lower(string(_name))){
+        case "light_screen": return variable_struct_get(barriers, "light_screen");
+        case "reflect": return variable_struct_get(barriers, "reflect");
+        case "aurora_veil": return variable_struct_get(barriers, "aurora_veil");
+    }
+    return undefined;
+}
+
+function __battle_field_get_barrier_or(_pid, _side_index, _name, _default){
+    var bv = __battle_field_get_barrier(_pid, _side_index, _name);
+    if (is_undefined(bv)) return _default;
+    return bv;
+}
+
+function __battle_field_set_barrier(_pid, _side_index, _name, _turns){
+    var field = __battle_field_ensure(_pid);
+    if (!is_struct(field)) return undefined;
+    var barriers = __battle_field_get_barrier_struct(field, _side_index);
+    if (!is_struct(barriers)) return undefined;
+    var name = string_lower(string(_name));
+    var turns = max(0, floor(is_real(_turns) ? _turns : 0));
+    switch (name){
+        case "light_screen":
+            variable_struct_set(barriers, "light_screen", turns);
+            return turns;
+        case "reflect":
+            variable_struct_set(barriers, "reflect", turns);
+            return turns;
+        case "aurora_veil":
+            variable_struct_set(barriers, "aurora_veil", turns);
+            return turns;
+    }
+    return undefined;
+}
+
+function __battle_field_clear_barrier(_pid, _side_index, _name){
+    return __battle_field_set_barrier(_pid, _side_index, _name, 0);
+}
+
+function __battle_field_get_side_status_struct(_field, _side_index){
+    var side_struct = __battle_field_get_side_struct(_field, _side_index);
+    if (!is_struct(side_struct)) return undefined;
+    if (!variable_struct_exists(side_struct, "statuses") || !is_struct(variable_struct_get(side_struct, "statuses"))) variable_struct_set(side_struct, "statuses", {});
+    return variable_struct_get(side_struct, "statuses");
+}
+
+function __battle_field_get_side_status(_pid, _side_index, _name){
+    var field = __battle_field_ensure(_pid);
+    if (!is_struct(field)) return undefined;
+    var statuses = __battle_field_get_side_status_struct(field, _side_index);
+    if (!is_struct(statuses)) return undefined;
+    var name = string_lower(string(_name));
+    if (!variable_struct_exists(statuses, name)) return undefined;
+    return variable_struct_get(statuses, name);
+}
+
+function __battle_field_get_side_status_or(_pid, _side_index, _name, _default){
+    var sv = __battle_field_get_side_status(_pid, _side_index, _name);
+    if (is_undefined(sv)) return _default;
+    return sv;
+}
+
+function __battle_field_set_side_status(_pid, _side_index, _name, _value){
+    var field = __battle_field_ensure(_pid);
+    if (!is_struct(field)) return undefined;
+    var statuses = __battle_field_get_side_status_struct(field, _side_index);
+    if (!is_struct(statuses)) return undefined;
+    var name = string_lower(string(_name));
+    variable_struct_set(statuses, name, _value);
+    return _value;
+}
+
+function __battle_field_clear_side_status(_pid, _side_index, _name){
+    return __battle_field_set_side_status(_pid, _side_index, _name, 0);
+}

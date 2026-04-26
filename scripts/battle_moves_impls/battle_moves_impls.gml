@@ -139,7 +139,7 @@ function __battle_perform_action_impl(_pid, _step){
     // Status gate: prevent acting when frozen/asleep/etc. before consuming PP or applying meta moves.
     if (is_struct(A) && !is_undefined(__battle_check_can_act)){
         var _can_act = true;
-        try { _can_act = __battle_check_can_act(A); } catch (e_can_act) {
+        try { _can_act = __battle_check_can_act(A, move_id); } catch (e_can_act) {
             if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][status][gate] exception while checking actability: " + string(e_can_act));
             _can_act = true;
         }
@@ -154,6 +154,8 @@ function __battle_perform_action_impl(_pid, _step){
     }
 
     var _is_protect_like = (is_real(move_id) && (move_id == 182 || move_id == 197));
+    var _is_endure_like = (is_real(move_id) && move_id == 203);
+    var _is_guard_like = (_is_protect_like || _is_endure_like);
     var _turn_now = 0;
     try {
         var _slot_turn = __battle_ensure_slot(_pid);
@@ -173,8 +175,56 @@ function __battle_perform_action_impl(_pid, _step){
         }
     } catch (e_moveIdent) { _moveEntry = undefined; _moveIdent = ""; }
 
+    if (is_struct(A) && is_real(move_id) && !is_undefined(status_system_has_status)){
+        try {
+            if (status_system_has_status(A, "heal-block")){
+                var _hb_blocks_move = (move_id == 156);
+                if (!_hb_blocks_move && !is_undefined(__battle_get_move_meta)){
+                    var _hb_mm = __battle_get_move_meta(move_id);
+                    if (is_struct(_hb_mm)){
+                        if (variable_struct_exists(_hb_mm, "healing") && is_real(variable_struct_get(_hb_mm, "healing")) && real(variable_struct_get(_hb_mm, "healing")) > 0) _hb_blocks_move = true;
+                        if (!_hb_blocks_move && variable_struct_exists(_hb_mm, "drain") && is_real(variable_struct_get(_hb_mm, "drain")) && real(variable_struct_get(_hb_mm, "drain")) > 0) _hb_blocks_move = true;
+                    }
+                }
+                if (_hb_blocks_move){
+                    var _hb_name = (variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The Pokémon");
+                    dialog_queue(_hb_name + " is prevented from using healing moves!");
+                    return __battle_impl_return_used(_pid, A, __battle_move_name(move_id), move_id);
+                }
+            }
+        } catch (e_heal_block_gate) {
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][status][heal-block] gate failed: " + string(e_heal_block_gate));
+        }
+    }
+
+    if (is_struct(A) && is_real(move_id) && !is_undefined(status_system_has_status)){
+        try {
+            if (status_system_has_status(A, "torment")){
+                var _last_torment_move = undefined;
+                if (variable_struct_exists(A, "sys_last_move_used")) _last_torment_move = variable_struct_get(A, "sys_last_move_used");
+                if (!is_real(_last_torment_move) && variable_struct_exists(A, "_last_move_dialog_id")) _last_torment_move = variable_struct_get(A, "_last_move_dialog_id");
+                if (!is_real(_last_torment_move) && variable_struct_exists(A, "mon") && is_struct(variable_struct_get(A, "mon"))){
+                    var _Amon = variable_struct_get(A, "mon");
+                    if (variable_struct_exists(_Amon, "sys_last_move_used")) _last_torment_move = variable_struct_get(_Amon, "sys_last_move_used");
+                    if (!is_real(_last_torment_move) && variable_struct_exists(_Amon, "_last_move_dialog_id")) _last_torment_move = variable_struct_get(_Amon, "_last_move_dialog_id");
+                }
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][status][torment] last_move=" + string(_last_torment_move) + ", attempted=" + string(move_id));
+                if (is_real(_last_torment_move) && _last_torment_move == move_id){
+                    var _torment_name = (variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The Pokémon");
+                    var _torment_move_name = _moveIdent;
+                    if (string_length(_torment_move_name) <= 0) _torment_move_name = "that move";
+                    else _torment_move_name = string_replace_all(_torment_move_name, "-", " ");
+                    dialog_queue(_torment_name + " can't use " + _torment_move_name + " again due to Torment!");
+                    return "";
+                }
+            }
+        } catch (e_torment_gate) {
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][status][torment] gate failed: " + string(e_torment_gate));
+        }
+    }
+
     if (is_struct(A)){
-        if (!_is_protect_like){
+        if (!_is_guard_like){
             try { variable_struct_set(A, "sys_protect_streak", 0); } catch (e_rstreakA) {}
         }
         try {
@@ -185,6 +235,14 @@ function __battle_perform_action_impl(_pid, _step){
                 variable_struct_set(A, "sys_protected_turn", undefined);
             }
         } catch (e_prot_clearA) {}
+        try {
+            var _endure_turn = (variable_struct_exists(A, "sys_endure_turn") ? variable_struct_get(A, "sys_endure_turn") : undefined);
+            if (is_real(_endure_turn) && _turn_now > _endure_turn){
+                variable_struct_set(A, "sys_enduring", false);
+                variable_struct_set(A, "_enduring", false);
+                variable_struct_set(A, "sys_endure_turn", undefined);
+            }
+        } catch (e_endure_clearA) {}
 
         var _disableExpireA = undefined;
         var _disableActiveA = false;
@@ -428,12 +486,8 @@ function __battle_perform_action_impl(_pid, _step){
         // COPYCAT (383): reuse the most recent move used in battle when available
         if (is_real(move_id) && move_id == 383){
             if (!__battle_consume_pp(A, move_slot)) return __battle_no_pp_msg(A);
-            var _copied = undefined;
-            try {
-                if (variable_global_exists("lastMoveUsed_ID") && is_real(global.lastMoveUsed_ID) && global.lastMoveUsed_ID >= 0 && global.lastMoveUsed_ID != move_id){
-                    _copied = global.lastMoveUsed_ID;
-                }
-            } catch (e_cp) { _copied = undefined; }
+            var _copied = __battle_find_copycat_candidate(_pid, A);
+            if (is_real(_copied) && _copied == move_id) _copied = undefined;
             if (!is_real(_copied)){
                 dialog_queue(string((variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"The user")) + " failed to Copycat!");
                 return __battle_impl_return_used(_pid, A, __battle_move_name(move_id), move_id);
@@ -442,6 +496,104 @@ function __battle_perform_action_impl(_pid, _step){
             try { __battle_apply_move(_pid, A, D, _copied); } catch (e_cfail) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][copycat] replay failed: " + string(e_cfail)); }
             try { variable_struct_set(A, "_suppress_last_move_record", false); } catch (e_surp2) {}
             return "";
+        }
+
+        // SUBSTITUTE (164): spend 1/4 max HP to create a decoy that absorbs direct move damage
+        if (is_real(move_id) && move_id == 164){
+            if (!__battle_consume_pp(A, move_slot)) return __battle_no_pp_msg(A);
+            __battle_record_move_usage(_pid, A, D, move_id, false);
+            var _sub_used_msg = __battle_impl_return_used(_pid, A, __battle_move_name(move_id), move_id);
+            if (!is_struct(A)) return _sub_used_msg;
+            var _sub_hp_now = max(0, __battle_hp_now(A));
+            var _sub_hp_max = max(1, __battle_hp_max(A));
+            var _sub_cost = max(1, floor(_sub_hp_max / 4));
+            var _already_sub = false;
+            try { if (!is_undefined(status_system_has_status)) _already_sub = status_system_has_status(A, "substitute"); } catch (e_sub_has) { _already_sub = false; }
+            if (_already_sub || _sub_hp_now <= _sub_cost){
+                dialog_queue("But it failed!");
+                return _sub_used_msg;
+            }
+            __battle_set_hp_now(A, _sub_hp_now - _sub_cost);
+            var _sub_ok = false;
+            try {
+                if (!is_undefined(status_system_apply_status)) _sub_ok = status_system_apply_status(A, "substitute", { source: A });
+                if (_sub_ok && !is_undefined(status_system_get)){
+                    var _sub_inst = status_system_get(A, "substitute");
+                    if (is_struct(_sub_inst)){
+                        variable_struct_set(_sub_inst, "hp", _sub_cost);
+                        variable_struct_set(_sub_inst, "hp_max", _sub_cost);
+                    }
+                }
+            } catch (e_sub_apply) { _sub_ok = false; }
+            if (_sub_ok){
+                try { __battle_request_animation_safe(A, { type: "substitute" }); } catch (e_sub_anim) {}
+                var _sub_name = (variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user");
+                dialog_queue(_sub_name + " made a substitute!");
+            } else {
+                __battle_set_hp_now(A, _sub_hp_now);
+                dialog_queue("But it failed!");
+            }
+            return _sub_used_msg;
+        }
+
+        // HEAL BELL / AROMATHERAPY (effect 103): clear major status and confusion on the user's side party
+        if (is_real(move_id) && (move_id == 215 || move_id == 312)){
+            if (!__battle_consume_pp(A, move_slot)) return __battle_no_pp_msg(A);
+            __battle_record_move_usage(_pid, A, D, move_id, false);
+            var _heal_party_used_msg = __battle_impl_return_used(_pid, A, __battle_move_name(move_id), move_id);
+            var _clear_ids = ["sleep", "freeze", "burn", "poison", "toxic", "paralysis", "paralyze", "confusion"];
+            var _side_idx = 0;
+            try {
+                if (is_struct(A) && variable_struct_exists(A, "actor_index") && is_real(variable_struct_get(A, "actor_index"))) _side_idx = __battle_field_side_index_for_actor(variable_struct_get(A, "actor_index"));
+            } catch (e_hpside) { _side_idx = 0; }
+            var _cleared_any = false;
+            var _clear_statuses_on_mon = function(_mon_ref){
+                var _did_any = false;
+                if (!is_struct(_mon_ref) || is_undefined(status_system_clear_status)) return false;
+                for (var _ci = 0; _ci < array_length(_clear_ids); ++_ci){
+                    try {
+                        if (status_system_clear_status(_mon_ref, _clear_ids[_ci])) _did_any = true;
+                    } catch (e_hclear) {}
+                }
+                return _did_any;
+            };
+            try {
+                var _Bslot_hp = __battle_ensure_slot(_pid);
+                if (is_struct(_Bslot_hp) && variable_struct_exists(_Bslot_hp, "actor") && is_array(variable_struct_get(_Bslot_hp, "actor"))){
+                    var _acts_hp = variable_struct_get(_Bslot_hp, "actor");
+                    for (var _ai_hp = 0; _ai_hp < array_length(_acts_hp); ++_ai_hp){
+                        var _act_hp = _acts_hp[_ai_hp];
+                        if (!is_struct(_act_hp)) continue;
+                        var _act_side = __battle_field_side_index_for_actor(_ai_hp);
+                        if (_act_side != _side_idx) continue;
+                        if (_clear_statuses_on_mon(_act_hp)) _cleared_any = true;
+                    }
+                }
+            } catch (e_hacts) {}
+            try {
+                if (_side_idx == 0){
+                    var _party_mons = party_model_get_mons(_pid);
+                    if (is_array(_party_mons)){
+                        for (var _pm = 0; _pm < array_length(_party_mons); ++_pm){
+                            if (_clear_statuses_on_mon(_party_mons[_pm])) _cleared_any = true;
+                        }
+                    }
+                } else {
+                    var _Bslot_enemy = __battle_ensure_slot(_pid);
+                    if (is_struct(_Bslot_enemy) && variable_struct_exists(_Bslot_enemy, "_trainer_party") && is_array(variable_struct_get(_Bslot_enemy, "_trainer_party"))){
+                        var _tparty = variable_struct_get(_Bslot_enemy, "_trainer_party");
+                        for (var _tp = 0; _tp < array_length(_tparty); ++_tp){
+                            if (_clear_statuses_on_mon(_tparty[_tp])) _cleared_any = true;
+                        }
+                    }
+                }
+            } catch (e_hparty) {}
+            try {
+                if (move_id == 215) dialog_queue("A bell chimed!");
+                else dialog_queue("A soothing aroma wafted through the area!");
+                if (_cleared_any) dialog_queue("The party's status was healed!");
+            } catch (e_hmsg) {}
+            return _heal_party_used_msg;
         }
     } catch (e_metaAll) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta_moves] handler error: " + string(e_metaAll)); }
 
@@ -565,10 +717,133 @@ function __battle_perform_action_impl(_pid, _step){
     if (!__battle_consume_pp(A, move_slot)) return __battle_no_pp_msg(A);
 
     var mv_name = (is_undefined(move_id) ? "the move" : __battle_move_name(move_id));
+    if (is_real(move_id) && move_id == 100){
+        __battle_record_move_usage(_pid, A, D, move_id, false);
+        var _teleport_used_msg = __battle_impl_return_used(_pid, A, mv_name, move_id);
+        var _teleport_slot = __battle_ensure_slot(_pid);
+        var _teleport_mode = "wild";
+        try {
+            if (is_struct(_teleport_slot) && variable_struct_exists(_teleport_slot, "_battle_mode")){
+                _teleport_mode = string_lower(string(variable_struct_get(_teleport_slot, "_battle_mode")));
+            }
+        } catch (e_tp_mode) { _teleport_mode = "wild"; }
+        if (_teleport_mode != "trainer"){
+            try { variable_struct_set(_teleport_slot, "result", "escaped"); } catch (e_tp_result) {}
+            try { variable_struct_set(_teleport_slot, "_pending_close", true); } catch (e_tp_close) {}
+            dialog_queue("Got away safely!");
+        } else {
+            dialog_queue("But it failed!");
+        }
+        return _teleport_used_msg;
+    }
+    if (is_real(move_id) && move_id == 187){
+        __battle_record_move_usage(_pid, A, D, move_id, false);
+        var _belly_used_msg = __battle_impl_return_used(_pid, A, mv_name, move_id);
+        var _belly_hp = __battle_hp_now(A);
+        var _belly_max = max(1, __battle_hp_max(A));
+        var _belly_cost = max(1, floor(_belly_max / 2));
+        var _belly_stage = 0;
+        try {
+            if (is_struct(A) && variable_struct_exists(A, "_stages") && is_struct(variable_struct_get(A, "_stages"))){
+                var _belly_stages_read = variable_struct_get(A, "_stages");
+                if (variable_struct_exists(_belly_stages_read, "atk") && is_real(variable_struct_get(_belly_stages_read, "atk"))) _belly_stage = variable_struct_get(_belly_stages_read, "atk");
+            }
+        } catch (e_belly_read) { _belly_stage = 0; }
+        if (_belly_hp <= _belly_cost || _belly_stage >= 6){
+            dialog_queue("But it failed!");
+            return _belly_used_msg;
+        }
+        if (!variable_struct_exists(A, "_stages") || !is_struct(variable_struct_get(A, "_stages"))) variable_struct_set(A, "_stages", {});
+        var _belly_stages = variable_struct_get(A, "_stages");
+        variable_struct_set(_belly_stages, "atk", 6);
+        variable_struct_set(A, "_stages", _belly_stages);
+        __battle_set_hp_now(A, max(1, _belly_hp - _belly_cost));
+        try { __battle_request_animation_safe(A, { type: "stat_change", stat: "atk", change: 6 }); } catch (e_belly_anim) {}
+        var _belly_name = (is_struct(A) && variable_struct_exists(A, "name")) ? string(variable_struct_get(A, "name")) : "The user";
+        dialog_queue(_belly_name + " cut its HP and maximized its Attack!");
+        return _belly_used_msg;
+    }
+    if (is_real(move_id) && move_id == 244){
+        __battle_record_move_usage(_pid, A, D, move_id, false);
+        var _psych_used_msg = __battle_impl_return_used(_pid, A, mv_name, move_id);
+        if (is_struct(A) && is_struct(D)){
+            var _copied_stages = {};
+            try {
+                if (variable_struct_exists(D, "_stages") && is_struct(variable_struct_get(D, "_stages"))){
+                    _copied_stages = __battle_clone_stage_struct(variable_struct_get(D, "_stages"));
+                }
+            } catch (e_psych_clone) { _copied_stages = {}; }
+            variable_struct_set(A, "_stages", _copied_stages);
+            try { __battle_request_animation_safe(A, { type: "stat_change", stat: "all", change: 0 }); } catch (e_psych_anim) {}
+            var _psych_name = (variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user");
+            dialog_queue(_psych_name + " copied the target's stat changes!");
+        } else {
+            dialog_queue("But it failed!");
+        }
+        return _psych_used_msg;
+    }
+    if (is_real(move_id) && move_id == 226){
+        __battle_record_move_usage(_pid, A, D, move_id, false);
+        var _bp_used_msg = __battle_impl_return_used(_pid, A, mv_name, move_id);
+        var _bp_slot = __battle_ensure_slot(_pid);
+        var _bp_stages = {};
+        try {
+            if (is_struct(A) && variable_struct_exists(A, "_stages") && is_struct(variable_struct_get(A, "_stages"))) _bp_stages = __battle_clone_stage_struct(variable_struct_get(A, "_stages"));
+        } catch (e_bp_clone) { _bp_stages = {}; }
+        if (is_struct(_bp_slot)) variable_struct_set(_bp_slot, "_baton_pass_pending", { actor_index: actor_idx, stages: _bp_stages });
+
+        if (actor_idx == 0){
+            var _P_bp = (is_undefined(party_ensure) ? undefined : party_ensure(_pid));
+            var _can_pass = false;
+            if (is_struct(_P_bp) && variable_struct_exists(_P_bp, "mons") && is_array(variable_struct_get(_P_bp, "mons"))){
+                var _bp_mons = variable_struct_get(_P_bp, "mons");
+                var _self_mon = (is_struct(A) && variable_struct_exists(A, "mon") && is_struct(variable_struct_get(A, "mon"))) ? variable_struct_get(A, "mon") : A;
+                for (var _bp_i = 0; _bp_i < array_length(_bp_mons); ++_bp_i){
+                    var _bp_mon = _bp_mons[_bp_i];
+                    if (!is_struct(_bp_mon) || _bp_mon == _self_mon) continue;
+                    var _bp_hp = __battle_hp_now(_bp_mon);
+                    if (is_real(_bp_hp) && _bp_hp > 0){ _can_pass = true; break; }
+                }
+            }
+            if (!_can_pass){
+                dialog_queue("But it failed!");
+                try { if (is_struct(_bp_slot)) variable_struct_set(_bp_slot, "_baton_pass_pending", undefined); } catch (e_bp_fail_clear) {}
+                return _bp_used_msg;
+            }
+            if (!is_undefined(party_open) && is_struct(_P_bp)){
+                party_open(_pid);
+                try { if (!is_undefined(party_set_swap_mode_impl)) party_set_swap_mode_impl(_pid, true, false); } catch (e_bp_swap) {}
+                try { variable_struct_set(_P_bp, "_battle_baton_pass_mode", true); } catch (e_bp_mode) {}
+                try { variable_struct_set(_P_bp, "lock", 0); } catch (e_bp_lock) {}
+            } else {
+                dialog_queue("But it failed!");
+                try { if (is_struct(_bp_slot)) variable_struct_set(_bp_slot, "_baton_pass_pending", undefined); } catch (e_bp_clear2) {}
+            }
+            return _bp_used_msg;
+        }
+
+        if (actor_idx == 1){
+            var _next_bp = -1;
+            try { _next_bp = __battle_trainer_next_alive_index(_bp_slot, (variable_struct_exists(_bp_slot, "_trainer_party_active_idx") ? variable_struct_get(_bp_slot, "_trainer_party_active_idx") : -1)); } catch (e_bp_next) { _next_bp = -1; }
+            if (is_real(_next_bp) && _next_bp >= 0 && !is_undefined(__battle_trainer_perform_switch_action)){
+                try { __battle_trainer_perform_switch_action(_pid, _next_bp, { move_id: move_id, baton_pass: true }); } catch (e_bp_enemy) { dialog_queue("But it failed!"); }
+            } else {
+                dialog_queue("But it failed!");
+                try { if (is_struct(_bp_slot)) variable_struct_set(_bp_slot, "_baton_pass_pending", undefined); } catch (e_bp_clear3) {}
+            }
+            return _bp_used_msg;
+        }
+    }
+
     var mv_power = 0;
     try { mv_power = __battle_move_power(move_id, A, D); } catch (e) { mv_power = 0; }
+    try {
+        if (is_real(move_id) && move_id == 228 && is_struct(_step) && variable_struct_exists(_step, "pursuit_switching") && variable_struct_get(_step, "pursuit_switching") == true){
+            mv_power = max(1, floor(mv_power * 2));
+        }
+    } catch (e_pursuit_power) {}
 
-    if (_is_protect_like){
+    if (_is_guard_like){
         __battle_record_move_usage(_pid, A, D, move_id, false);
         __battle_apply_status_move(_pid, A, D, move_id);
         return __battle_impl_return_used(_pid, A, mv_name, move_id);
@@ -588,6 +863,93 @@ function __battle_perform_action_impl(_pid, _step){
         return _disable_used_msg;
     }
 
+    if (is_real(move_id) && move_id == 116){
+        if (!__battle_consume_pp(A, move_slot)) return __battle_no_pp_msg(A);
+        __battle_record_move_usage(_pid, A, D, move_id, false);
+        var _focus_used_msg = __battle_impl_return_used(_pid, A, mv_name, move_id);
+        var _focus_applied = false;
+        try {
+            if (is_struct(A)){
+                var _focus_level = (variable_struct_exists(A, "_focus_energy_level") && is_real(variable_struct_get(A, "_focus_energy_level"))) ? floor(variable_struct_get(A, "_focus_energy_level")) : 0;
+                if (_focus_level <= 0){
+                    variable_struct_set(A, "_focus_energy_level", 1);
+                    _focus_applied = true;
+                }
+            }
+        } catch (e_focus_set) { _focus_applied = false; }
+        if (_focus_applied){
+            try { __battle_request_animation_safe(A, { type: "focus_energy" }); } catch (e_focus_anim) {}
+            var _focus_name = (is_struct(A) && variable_struct_exists(A, "name")) ? string(variable_struct_get(A, "name")) : "The user";
+            dialog_queue(_focus_name + " is getting pumped!");
+        } else {
+            dialog_queue("But it failed!");
+        }
+        return _focus_used_msg;
+    }
+
+    if (is_real(move_id) && move_id == 156){
+        if (!__battle_consume_pp(A, move_slot)) return __battle_no_pp_msg(A);
+        __battle_record_move_usage(_pid, A, D, move_id, false);
+        var _rest_used_msg = __battle_impl_return_used(_pid, A, mv_name, move_id);
+        if (!is_struct(A)) return _rest_used_msg;
+        var _rest_hp_now = __battle_hp_now(A);
+        var _rest_hp_max = max(1, __battle_hp_max(A));
+        var _rest_needs_heal = (_rest_hp_now < _rest_hp_max);
+        var _rest_has_major = false;
+        try {
+            if (!is_undefined(status_system_has_status)){
+                var _rest_major = ["poison", "toxic", "burn", "freeze", "paralysis", "paralyze"];
+                for (var _rs = 0; _rs < array_length(_rest_major); ++_rs){
+                    if (status_system_has_status(A, _rest_major[_rs])){ _rest_has_major = true; break; }
+                }
+            }
+        } catch (e_rest_check) { _rest_has_major = false; }
+        if (!_rest_needs_heal && !_rest_has_major){
+            dialog_queue("But it failed!");
+            return _rest_used_msg;
+        }
+        try {
+            if (!is_undefined(status_system_clear_status)){
+                var _rest_clear = ["poison", "toxic", "burn", "freeze", "paralysis", "paralyze"];
+                for (var _rc = 0; _rc < array_length(_rest_clear); ++_rc){
+                    status_system_clear_status(A, _rest_clear[_rc]);
+                }
+            }
+        } catch (e_rest_clear) {}
+        var _rest_sleep_ok = false;
+        try {
+            if (!is_undefined(status_system_apply_status)) _rest_sleep_ok = status_system_apply_status(A, "sleep", { duration: 2, source: A });
+        } catch (e_rest_sleep) { _rest_sleep_ok = false; }
+        if (!_rest_sleep_ok){
+            dialog_queue("But it failed!");
+            return _rest_used_msg;
+        }
+        var _rest_heal = max(0, _rest_hp_max - _rest_hp_now);
+        if (_rest_heal > 0){
+            try { __battle_set_hp_now(A, _rest_hp_max); } catch (e_rest_hp) {}
+            try { __battle_clear_fainted_if_healed(A); } catch (e_rest_faint) {}
+            try {
+                variable_struct_set(A, "_hp_lerp_from", _rest_hp_now);
+                variable_struct_set(A, "_hp_lerp_to", _rest_hp_max);
+                variable_struct_set(A, "_hp_lerp_start_ms", current_time);
+                variable_struct_set(A, "_hp_lerp_dur", 400);
+                variable_struct_set(A, "_hp_lerp_active", true);
+                if (variable_struct_exists(A, "mon") && is_struct(variable_struct_get(A, "mon"))){
+                    var _rest_mon = variable_struct_get(A, "mon");
+                    variable_struct_set(_rest_mon, "_hp_lerp_from", _rest_hp_now);
+                    variable_struct_set(_rest_mon, "_hp_lerp_to", _rest_hp_max);
+                    variable_struct_set(_rest_mon, "_hp_lerp_start_ms", variable_struct_get(A, "_hp_lerp_start_ms"));
+                    variable_struct_set(_rest_mon, "_hp_lerp_dur", variable_struct_get(A, "_hp_lerp_dur"));
+                    variable_struct_set(_rest_mon, "_hp_lerp_active", true);
+                }
+            } catch (e_rest_lerp) {}
+            try { __battle_request_animation_safe(A, { type: "heal", amount: _rest_heal }); } catch (e_rest_anim) {}
+        }
+        var _rest_name = (variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user");
+        dialog_queue(_rest_name + " went to sleep and restored its health!");
+        return _rest_used_msg;
+    }
+
     // Generic two-turn move handling (charge then strike). This handles common
     // Gen3 two-turn moves like Razor Wind, SolarBeam, Skull Bash, Sky Attack,
     // Fly, Dig, Dive, Bounce, etc. First use sets a charging flag on the actor
@@ -595,18 +957,32 @@ function __battle_perform_action_impl(_pid, _step){
     // the flag and proceeds to actually perform the attack.
     try {
         if (is_real(move_id) && is_struct(A)){
-            var two_ids = [13,19,76,91,130,143,291,340,467,507,566]; // razor-wind, fly, solar-beam, dig, skull-bash, sky-attack, dive, bounce, shadow-force, sky-drop, phantom-force
+            var two_ids = [13,19,76,91,130,143,291,340,467,507,566,669]; // razor-wind, fly, solar-beam, dig, skull-bash, sky-attack, dive, bounce, shadow-force, sky-drop, phantom-force, solar-blade
             var is_two = false;
             for (var _ti=0; _ti<array_length(two_ids); ++_ti) if (two_ids[_ti] == move_id) { is_two = true; break; }
-            // Special-case: Thrash / Rage-like behavior (lock for 2-3 turns then confuse)
-            // Move id 37 => Thrash (Gen3 behavior: successful use locks user for 2-3 turns,
-            // forcing repeated use of the same move; at the end the user becomes confused.)
+            if (is_two && (move_id == 76 || move_id == 669)){
+                try {
+                    var _solar_weather = __battle_get_weather(_pid);
+                    if (__battle_weather_is_active(_solar_weather)){
+                        var _solar_wid = __battle_weather_get_normalized_id(_solar_weather);
+                        if (_solar_wid == "sun" || _solar_wid == "harsh-sun") is_two = false;
+                    }
+                } catch (e_solar_weather) {}
+            }
+            // Special-case: Thrash / Rollout-like behavior using shared locked-move state.
             if (is_real(move_id) && move_id == 37){
                 var _locked = (variable_struct_exists(A, "_locked_move") ? variable_struct_get(A, "_locked_move") : undefined);
                 // If not previously locked, initialize lock state (2..3 turns inclusive)
                 if (!is_struct(_locked) || !variable_struct_exists(_locked, "move_id") || variable_struct_get(_locked, "move_id") != 37){
                     var dur = irandom_range(2,3);
                     variable_struct_set(A, "_locked_move", { move_id: 37, remaining: dur, apply_confuse_on_end: true });
+                }
+            }
+            if (is_real(move_id) && move_id == 205){
+                var _locked_roll = (variable_struct_exists(A, "_locked_move") ? variable_struct_get(A, "_locked_move") : undefined);
+                if (!is_struct(_locked_roll) || !variable_struct_exists(_locked_roll, "move_id") || variable_struct_get(_locked_roll, "move_id") != 205){
+                    variable_struct_set(A, "_locked_move", { move_id: 205, remaining: 5, apply_confuse_on_end: false });
+                    if (!variable_struct_exists(A, "_rollout_mul") || !is_real(variable_struct_get(A, "_rollout_mul"))) variable_struct_set(A, "_rollout_mul", 1);
                 }
             }
             if (is_two){
@@ -663,6 +1039,16 @@ function __battle_perform_action_impl(_pid, _step){
                             try { variable_struct_set(_charge_rec, "target_actor", D); } catch (e_tar) {}
                         }
                         variable_struct_set(A, "_charging_move", _charge_rec);
+                        if (move_id == 130){
+                            try {
+                                if (!variable_struct_exists(A, "_stages") || !is_struct(variable_struct_get(A, "_stages"))) variable_struct_set(A, "_stages", {});
+                                var _skull_stages = variable_struct_get(A, "_stages");
+                                var _skull_prev = (variable_struct_exists(_skull_stages, "def") && is_real(variable_struct_get(_skull_stages, "def"))) ? variable_struct_get(_skull_stages, "def") : 0;
+                                variable_struct_set(_skull_stages, "def", clamp(_skull_prev + 1, -6, 6));
+                                variable_struct_set(A, "_stages", _skull_stages);
+                                dialog_queue((variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user") + "'s Defense rose!");
+                            } catch (e_skull_def) {}
+                        }
                         // If this is a semi-invulnerable two-turn move (fly/dig/dive/bounce/sky-attack),
                         // mark the actor so other move handlers can apply the special rules.
                         try {
@@ -693,20 +1079,28 @@ function __battle_perform_action_impl(_pid, _step){
         }
     } catch (e_two){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][two-turn] handler error: " + string(e_two)); }
 
-    // Thrash lock enforcement: if attacker is locked into Thrash (move 37), ensure
-    // they must continue using the move until lock expires. If they attempt a
-    // different move, block it and force the thrash move instead (consuming PP already).
+    // Locked-move enforcement: Thrash and Rollout both force repeated use while active.
     try {
-        if (is_struct(A) && is_real(move_id) && move_id != 37){
+        if (is_struct(A) && is_real(move_id) && move_id != 37 && move_id != 205){
             var _lm = (variable_struct_exists(A, "_locked_move") ? variable_struct_get(A, "_locked_move") : undefined);
-            if (is_struct(_lm) && variable_struct_exists(_lm, "move_id") && variable_struct_get(_lm, "move_id") == 37 && is_real(variable_struct_get(_lm, "remaining")) && variable_struct_get(_lm, "remaining") > 0){
-                // Block non-thrash selection: replace move_id with 37 and keep flow
-                move_id = 37;
-                mv_name = __battle_move_name(move_id);
-                mv_power = __battle_move_power(move_id, A, D);
+            if (is_struct(_lm) && variable_struct_exists(_lm, "move_id") && is_real(variable_struct_get(_lm, "move_id")) && is_real(variable_struct_get(_lm, "remaining")) && variable_struct_get(_lm, "remaining") > 0){
+                var _locked_move_id = variable_struct_get(_lm, "move_id");
+                if (_locked_move_id == 37 || _locked_move_id == 205){
+                    move_id = _locked_move_id;
+                    mv_name = __battle_move_name(move_id);
+                    mv_power = __battle_move_power(move_id, A, D);
+                }
             }
         }
     } catch (e_tl) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][thrash] enforcement error: " + string(e_tl)); }
+
+    // Fury Cutter resets when the user executes any other move, including status moves.
+    try {
+        if (is_struct(A) && is_real(move_id) && move_id != 210 && variable_struct_exists(A, "_fury_cutter_mul")){
+            variable_struct_set(A, "_fury_cutter_mul", 1);
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][fury] non-fury move reset: set _fury_cutter_mul=1");
+        }
+    } catch (e_fc_reset) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][fury] non-fury reset failed: " + string(e_fc_reset)); }
 
     // Counter / Mirror Coat / Metal Burst: reflect last-received damage if appropriate
     try {
@@ -797,10 +1191,10 @@ function __battle_perform_action_impl(_pid, _step){
             }
         } catch (e_h) { total_hits = 1; }
 
-        // Apply first hit now (only if move has power or is OHKO)
-        if ((is_real(mv_power) && mv_power > 0) || is_ohko_move){
-    // If this is Thrash (id 37) mark that the actor executed the locked move
-    try { if (is_real(move_id) && move_id == 37 && is_struct(A)) { variable_struct_set(A, "_locked_move_executed", true); } } catch (e_lf) {}
+        // Apply first hit now (only if move has power, is OHKO, or uses a custom damage semantic like Present)
+        if ((is_real(mv_power) && mv_power > 0) || is_ohko_move || (is_real(move_id) && move_id == 217)){
+    // If this is a locked repeated move, mark that the actor executed it this turn.
+    try { if (is_real(move_id) && (move_id == 37 || move_id == 205) && is_struct(A)) { variable_struct_set(A, "_locked_move_executed", true); } } catch (e_lf) {}
     var resf = __battle_apply_move_damage(_pid, target_idx, A, D, move_id, mv_power);
         var _semi_blocked = false;
         try {
@@ -853,11 +1247,10 @@ function __battle_perform_action_impl(_pid, _step){
             }
         } catch (e_hclr) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] hazard-clear failed: " + string(e_hclr)); }
 
-        // Special-case: Jump Kick (id 26) — if the move missed (dmgh == 0) but the
-        // attacker selected Jump Kick, apply miss recoil equal to 50% of attacker's max HP
-        // (original Gen3 behavior). Ensure recoil uses canonical damage so animations run.
+        // Special-case: Jump Kick / High Jump Kick — if the move missed (dmgh == 0),
+        // apply miss recoil equal to 50% of the attacker's max HP.
         try {
-            if (is_real(move_id) && move_id == 26 && is_struct(A)){
+            if (is_real(move_id) && (move_id == 26 || move_id == 136) && is_struct(A)){
                 if (!is_real(dmgh) || dmgh <= 0){
                     // attacker actor index discovery
                     var atk_idx = undefined;
@@ -872,7 +1265,7 @@ function __battle_perform_action_impl(_pid, _step){
                     var ahpmax = (variable_struct_exists(A, "hp_max") ? variable_struct_get(A, "hp_max") : (variable_struct_exists(A, "maxhp") ? variable_struct_get(A, "maxhp") : (variable_struct_exists(A, "mon") && is_struct(variable_struct_get(A, "mon")) && variable_struct_exists(variable_struct_get(A, "mon"), "hp_max") ? variable_struct_get(variable_struct_get(A, "mon"), "hp_max") : 1)));
                     ahpmax = max(1, floor(real(ahpmax)));
                     var recoil = max(1, floor(ahpmax * 0.5));
-                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][jump-kick] miss recoil for " + string(variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"?") + ", amt=" + string(recoil));
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][jump-kick] miss recoil for " + string(variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"?") + ", move_id=" + string(move_id) + ", amt=" + string(recoil));
                     try { if (is_real(atk_idx)) __battle_apply_damage(_pid, atk_idx, recoil, 1.0); else __battle_set_hp_now(A, max(0, __battle_hp_now(A) - recoil)); } catch (e_rk) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][jump-kick] recoil failed: " + string(e_rk)); }
                 }
             }
@@ -899,6 +1292,26 @@ function __battle_perform_action_impl(_pid, _step){
                 if (variable_struct_exists(A, "_fury_cutter_mul")) variable_struct_set(A, "_fury_cutter_mul", 1);
             }
         } catch (e_fc2) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][fury] multiplier update failed: " + string(e_fc2)); }
+
+        // Rollout: each successful hit doubles the next hit's power while the lock remains active.
+        try {
+            if (is_real(move_id) && move_id == 205 && is_struct(A)){
+                if (is_real(dmgh) && dmgh > 0){
+                    var cur_roll = (variable_struct_exists(A, "_rollout_mul") && is_real(variable_struct_get(A, "_rollout_mul"))) ? variable_struct_get(A, "_rollout_mul") : 1;
+                    var next_roll = min(cur_roll * 2, 16);
+                    variable_struct_set(A, "_rollout_mul", next_roll);
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][rollout] hit: set _rollout_mul=" + string(next_roll));
+                } else {
+                    variable_struct_set(A, "_rollout_mul", 1);
+                    try { if (variable_struct_exists(A, "_locked_move")) variable_struct_set(A, "_locked_move", undefined); } catch (e_roll_clear) {}
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][rollout] miss/reset: cleared lock and reset _rollout_mul=1");
+                }
+            } else if (is_struct(A)){
+                var _roll_lock = (variable_struct_exists(A, "_locked_move") ? variable_struct_get(A, "_locked_move") : undefined);
+                var _roll_active = (is_struct(_roll_lock) && variable_struct_exists(_roll_lock, "move_id") && variable_struct_get(_roll_lock, "move_id") == 205 && is_real(variable_struct_get(_roll_lock, "remaining")) && variable_struct_get(_roll_lock, "remaining") > 0);
+                if (!_roll_active && variable_struct_exists(A, "_rollout_mul")) variable_struct_set(A, "_rollout_mul", 1);
+            }
+        } catch (e_roll) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][rollout] multiplier update failed: " + string(e_roll)); }
 
         // If multiple hits, schedule the rest into the battle slot for per-hit processing
         if (is_real(total_hits) && total_hits > 1){
@@ -928,6 +1341,16 @@ function __battle_perform_action_impl(_pid, _step){
                 __battle_apply_move_meta_effects(_pid, _step, A, D, move_id, 0, __battle_get_move_meta(move_id));
             } catch (e_meta_nd) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][impl] meta(status) error: " + string(e_meta_nd)); }
         }
+
+        try {
+            if (is_real(move_id) && (move_id == 120 || move_id == 153) && is_struct(A)){
+                var _self_ko_hp = __battle_hp_now(A);
+                if (is_real(_self_ko_hp) && _self_ko_hp > 0){
+                    try { __battle_apply_damage(_pid, actor_idx, _self_ko_hp, 1.0); } catch (e_sdmg) { __battle_set_hp_now(A, 0); }
+                }
+            }
+        } catch (e_self_ko) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][self-ko] handler error: " + string(e_self_ko)); }
+
         return __battle_impl_return_used(_pid, A, mv_name, move_id);
     }
 }

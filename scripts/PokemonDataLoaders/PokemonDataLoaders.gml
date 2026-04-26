@@ -1306,6 +1306,7 @@ function data_load_move_meta_structs(){
             variable_struct_set(_fallback, "12", "torment");
             variable_struct_set(_fallback, "13", "disable");
             variable_struct_set(_fallback, "14", "yawn");
+            variable_struct_set(_fallback, "15", "heal-block");
             variable_struct_set(_fallback, "18", "leech-seed");
             variable_struct_set(_fallback, "19", "embargo");
             variable_struct_set(_fallback, "20", "perish-song");

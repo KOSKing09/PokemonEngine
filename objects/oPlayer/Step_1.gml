@@ -43,6 +43,97 @@ if (keyboard_check_pressed(vk_f2)) {
 	test_trainer_battle_scenario();
 }
 
+if (keyboard_check_pressed(vk_f3)) {
+    test_battle_status_smoke_start();
+}
+
+if (keyboard_check_pressed(vk_f4)) {
+    test_battle_heal_block_smoke_start();
+}
+
+if (keyboard_check_pressed(vk_f5)) {
+    test_battle_embargo_smoke_start();
+}
+
+if (keyboard_check_pressed(vk_f6)) {
+    test_battle_perish_song_smoke_start();
+}
+
+if (keyboard_check_pressed(vk_f7)) {
+    test_battle_endure_smoke_start();
+}
+
+if (keyboard_check_pressed(vk_f8)) {
+    test_battle_rollout_smoke_start();
+}
+
+if (keyboard_check_pressed(vk_f9)) {
+    test_battle_fury_cutter_smoke_start();
+}
+
+if (keyboard_check_pressed(vk_f10)) {
+    test_battle_love_gift_smoke_start();
+}
+
+if (keyboard_check_pressed(vk_f11)) {
+    test_battle_field_switch_smoke_start();
+}
+
+if (variable_global_exists("DEV_AUTO_STATUS_SMOKE") && global.DEV_AUTO_STATUS_SMOKE) {
+    global.DEV_AUTO_STATUS_SMOKE = false;
+    test_battle_status_smoke_start(true);
+}
+
+if (variable_global_exists("DEV_AUTO_HEAL_BLOCK_SMOKE") && global.DEV_AUTO_HEAL_BLOCK_SMOKE) {
+    global.DEV_AUTO_HEAL_BLOCK_SMOKE = false;
+    test_battle_heal_block_smoke_start(true);
+}
+
+if (variable_global_exists("DEV_AUTO_EMBARGO_SMOKE") && global.DEV_AUTO_EMBARGO_SMOKE) {
+    global.DEV_AUTO_EMBARGO_SMOKE = false;
+    test_battle_embargo_smoke_start(true);
+}
+
+if (variable_global_exists("DEV_AUTO_PERISH_SONG_SMOKE") && global.DEV_AUTO_PERISH_SONG_SMOKE) {
+    global.DEV_AUTO_PERISH_SONG_SMOKE = false;
+    test_battle_perish_song_smoke_start(true);
+}
+
+if (variable_global_exists("DEV_AUTO_ENDURE_SMOKE") && global.DEV_AUTO_ENDURE_SMOKE) {
+    global.DEV_AUTO_ENDURE_SMOKE = false;
+    test_battle_endure_smoke_start(true);
+}
+
+if (variable_global_exists("DEV_AUTO_ROLLOUT_SMOKE") && global.DEV_AUTO_ROLLOUT_SMOKE) {
+    global.DEV_AUTO_ROLLOUT_SMOKE = false;
+    test_battle_rollout_smoke_start(true);
+}
+
+if (variable_global_exists("DEV_AUTO_FURY_CUTTER_SMOKE") && global.DEV_AUTO_FURY_CUTTER_SMOKE) {
+    global.DEV_AUTO_FURY_CUTTER_SMOKE = false;
+    test_battle_fury_cutter_smoke_start(true);
+}
+
+if (variable_global_exists("DEV_AUTO_LOVE_GIFT_SMOKE") && global.DEV_AUTO_LOVE_GIFT_SMOKE) {
+    global.DEV_AUTO_LOVE_GIFT_SMOKE = false;
+    test_battle_love_gift_smoke_start(true);
+}
+
+if (variable_global_exists("DEV_AUTO_FIELD_SWITCH_SMOKE") && global.DEV_AUTO_FIELD_SWITCH_SMOKE) {
+    global.DEV_AUTO_FIELD_SWITCH_SMOKE = false;
+    test_battle_field_switch_smoke_start(true);
+}
+
+test_battle_status_smoke_update(0);
+test_battle_heal_block_smoke_update(0);
+test_battle_embargo_smoke_update(0);
+test_battle_perish_song_smoke_update(0);
+test_battle_endure_smoke_update(0);
+test_battle_rollout_smoke_update(0);
+test_battle_fury_cutter_smoke_update(0);
+test_battle_love_gift_smoke_update(0);
+test_battle_field_switch_smoke_update(0);
+
 // detect closing edge: if it was open last frame and now not
 if (!variable_instance_exists(id,"_dlg_was")) _dlg_was = false;
 var _now = dialog2p_is_open(pid);

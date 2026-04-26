@@ -41,9 +41,10 @@ function __party_impl_party_update(){
 
     var _mons = _P.mons, _n = array_length(_mons), _ROWS = 6;
     var _is_forced = (is_struct(_P) && variable_struct_exists(_P, "_battle_swap_mode_forced") && variable_struct_get(_P, "_battle_swap_mode_forced") == true);
+    var _is_baton_mode = (is_struct(_P) && variable_struct_exists(_P, "_battle_baton_pass_mode") && variable_struct_get(_P, "_battle_baton_pass_mode") == true);
 
         if (_P.mode != "select" && _P.mode != "summary_profile" && _P.mode != "summary_moves" && _P.mode != "summary_forget"){
-            if (controls_pressed(_pid,"Run") && _P.lock == 0 && !_is_forced){ _P.open = false; _P.lock = 2; continue; }
+            if (controls_pressed(_pid,"Run") && _P.lock == 0 && !_is_forced && !_is_baton_mode){ _P.open = false; _P.lock = 2; continue; }
         }
 
         // Mode dispatch: each `case` handles input for a particular UI state.
@@ -71,10 +72,12 @@ function __party_impl_party_update(){
                     //   choose "Swap In" explicitly.
                     var _PtmpChk = party_ensure(_pid);
                     var __frc_now = false;
+                    var __baton_now = false;
                     if (is_struct(_PtmpChk) && !is_undefined(battle_is_open) && battle_is_open(_pid)){
                         __frc_now = (variable_struct_exists(_PtmpChk, "_battle_swap_mode_forced") && variable_struct_get(_PtmpChk, "_battle_swap_mode_forced") == true);
+                        __baton_now = (variable_struct_exists(_PtmpChk, "_battle_baton_pass_mode") && variable_struct_get(_PtmpChk, "_battle_baton_pass_mode") == true);
                     }
-                    if (__frc_now && (variable_global_exists("cutscene_switch_to") || variable_global_exists("battle_switch_to"))){
+                    if ((__frc_now || __baton_now) && (variable_global_exists("cutscene_switch_to") || variable_global_exists("battle_switch_to"))){
                         var _dst = _P.sel;
                         // Prevent selecting fainted mon
                         var _tmon = party_model_get_mon(_pid, _dst);
@@ -89,14 +92,15 @@ function __party_impl_party_update(){
                         } else {
                             // Determine if forced (replacement after faint)
                             var _forced = (is_struct(_PtmpChk) && variable_struct_exists(_PtmpChk, "_battle_swap_mode_forced") && variable_struct_get(_PtmpChk, "_battle_swap_mode_forced") == true);
+                            var _baton_pass = (is_struct(_PtmpChk) && variable_struct_exists(_PtmpChk, "_battle_baton_pass_mode") && variable_struct_get(_PtmpChk, "_battle_baton_pass_mode") == true);
                             var _consume = !_forced;
                             var ok = false;
                             if (variable_global_exists("cutscene_switch_to")){
                                 var _fn_sw = variable_global_get("cutscene_switch_to");
-                                if (!is_undefined(_fn_sw)) ok = _fn_sw(_pid, _dst, { auto_apply:true, consume_turn:_consume, forced:_forced });
+                                if (!is_undefined(_fn_sw)) ok = _fn_sw(_pid, _dst, { auto_apply:true, consume_turn:_consume, forced:_forced, baton_pass:_baton_pass });
                             } else if (variable_global_exists("battle_switch_to")){
                                 var _fn_sw2 = variable_global_get("battle_switch_to");
-                                if (!is_undefined(_fn_sw2)) ok = _fn_sw2(_pid, _dst, { auto_apply:true, consume_turn:_consume, forced:_forced });
+                                if (!is_undefined(_fn_sw2)) ok = _fn_sw2(_pid, _dst, { auto_apply:true, consume_turn:_consume, forced:_forced, baton_pass:_baton_pass });
                             }
                             if (ok){ if (!is_undefined(party_close)) party_close(_pid);
                     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party][input] party_close called after battle_switch_to ok pid=" + string(_pid) + ", dst=" + string(_dst));
@@ -387,7 +391,7 @@ function __party_impl_party_update(){
                             _P.mode = "menu"; _P.lock = 2;
                         }
                     }
-                    if (controls_pressed(_pid,"Run") && _P.lock == 0 && !(is_struct(_P) && variable_struct_exists(_P, "_battle_swap_mode_forced") && variable_struct_get(_P, "_battle_swap_mode_forced") == true)){ _P.mode = "menu"; _P.lock = 2; }
+                    if (controls_pressed(_pid,"Run") && _P.lock == 0 && !(is_struct(_P) && ((variable_struct_exists(_P, "_battle_swap_mode_forced") && variable_struct_get(_P, "_battle_swap_mode_forced") == true) || (variable_struct_exists(_P, "_battle_baton_pass_mode") && variable_struct_get(_P, "_battle_baton_pass_mode") == true)))){ _P.mode = "menu"; _P.lock = 2; }
                 }
             break;
 
@@ -480,7 +484,7 @@ function __party_impl_party_update(){
                     }
                     _P.mode="list"; _P.swap_index=-1; _P.lock=2;
                 }
-                if (controls_pressed(_pid,"Run") && _P.lock == 0 && !(is_struct(_P) && variable_struct_exists(_P, "_battle_swap_mode_forced") && variable_struct_get(_P, "_battle_swap_mode_forced") == true)){ _P.mode="list"; _P.swap_index=-1; _P.lock=2; }
+                if (controls_pressed(_pid,"Run") && _P.lock == 0 && !(is_struct(_P) && ((variable_struct_exists(_P, "_battle_swap_mode_forced") && variable_struct_get(_P, "_battle_swap_mode_forced") == true) || (variable_struct_exists(_P, "_battle_baton_pass_mode") && variable_struct_get(_P, "_battle_baton_pass_mode") == true)))){ _P.mode="list"; _P.swap_index=-1; _P.lock=2; }
             break;
 
             // Select a party target for an item (triggered from the Bag).
@@ -511,6 +515,18 @@ function __party_impl_party_update(){
                             var target_mon = _P.mons[_P.sel]; if (!is_struct(target_mon)) target_mon = _P.mons[_P.sel] = {};
                             var A0 = undefined;
                             var res = undefined;
+                            var _blocked_item_msg = "";
+                            if (_battle_open_for_item && !is_undefined(bag__battle_item_target_block_reason)){
+                                try { _blocked_item_msg = string(bag__battle_item_target_block_reason(_pid, target_mon, item_id)); } catch (e_item_block_reason) { _blocked_item_msg = ""; }
+                            }
+                            if (string_length(_blocked_item_msg) > 0){
+                                if (!is_undefined(party_close)) party_close(_pid);
+                                try { dialog2p_show_now(_pid, _blocked_item_msg); } catch (e_item_block_now) { try { dialog2p_enqueue(_pid, _blocked_item_msg); } catch (e_item_block_queue) {} }
+                                _P.use_pending = undefined;
+                                _P.mode = "list";
+                                _P.lock = 2;
+                                return;
+                            }
                             // Find battle slot and actor to mirror HP if in battle
                             if (!is_undefined(__battle_ensure_slot) && _battle_open_for_item){
                                 var _B = __battle_ensure_slot(_pid);

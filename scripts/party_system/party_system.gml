@@ -26,9 +26,11 @@ function party_set_swap_mode_impl(_pid, _swap, _forced){
     try {
         if (!variable_struct_exists(_P, "_battle_swap_mode")) variable_struct_set(_P, "_battle_swap_mode", false);
         if (!variable_struct_exists(_P, "_battle_swap_mode_forced")) variable_struct_set(_P, "_battle_swap_mode_forced", false);
+        if (!variable_struct_exists(_P, "_battle_baton_pass_mode")) variable_struct_set(_P, "_battle_baton_pass_mode", false);
         // Coerce booleans safely without using '!!' which confuses the parser
         if (_swap) variable_struct_set(_P, "_battle_swap_mode", true); else variable_struct_set(_P, "_battle_swap_mode", false);
         if (_swap && _forced) variable_struct_set(_P, "_battle_swap_mode_forced", true); else variable_struct_set(_P, "_battle_swap_mode_forced", false);
+        if (!_swap) variable_struct_set(_P, "_battle_baton_pass_mode", false);
         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
             show_debug_message("[party_swap_helpers] party_set_swap_mode pid=" + string(_pid) + ", swap=" + string(_swap == true) + ", forced=" + string((_forced == true) && (_swap == true)));
         }
@@ -45,6 +47,7 @@ function party_clear_swap_mode_impl(_pid){
     try {
         variable_struct_set(_P, "_battle_swap_mode", false);
         variable_struct_set(_P, "_battle_swap_mode_forced", false);
+        variable_struct_set(_P, "_battle_baton_pass_mode", false);
         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
             show_debug_message("[party_swap_helpers] party_clear_swap_mode pid=" + string(_pid));
         }
@@ -114,6 +117,7 @@ function party_open(_pid){
     }
     // Ensure the battle-swap marker is false by default; callers (battle) may set it.
     try { party_set_swap_mode_impl(_pid, false, false); } catch (e_psi) {}
+    try { if (variable_struct_exists(_P, "_battle_baton_pass_mode")) variable_struct_set(_P, "_battle_baton_pass_mode", false); } catch (e_bpm_open) {}
     // Debug: report initial swap flags when opening party
     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
         var _bm_val = (variable_struct_exists(_P, "_battle_swap_mode") ? variable_struct_get(_P, "_battle_swap_mode") : false);

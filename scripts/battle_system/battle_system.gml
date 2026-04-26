@@ -1558,7 +1558,8 @@ function battle_update(_pid){
     // Note: __battle_update_animations has already been called above so
     // catch animations will still advance.
     var _bag_open_here = (is_undefined(bag_is_open) ? false : bag_is_open(_pid));
-    if (_bag_open_here) return;
+    var _party_open_here = (is_undefined(party_is_open) ? false : party_is_open(_pid));
+    if (_bag_open_here || _party_open_here) return;
     if (is_struct(_B) && variable_struct_exists(_B, "_catch_anim")){
         var _ca = variable_struct_get(_B, "_catch_anim");
         if (is_struct(_ca) && variable_struct_exists(_ca, "active") && _ca.active){
@@ -2200,13 +2201,37 @@ function battle_update(_pid){
                         try { if (is_struct(_B.actor[0])) variable_struct_set(_B.actor[0], "_last_moves", []); } catch (e_hc_switch) {}
                         // Ensure actor_index is set so debug logs and targeting can find the correct slot
                         try { if (is_struct(_B.actor[0])) variable_struct_set(_B.actor[0], "actor_index", 0); } catch (e_ai_sw) {}
+                        try { if (is_struct(_B.actor[0])) __battle_apply_baton_pass_payload(_B, _B.actor[0], 0); } catch (e_bp_apply_player) {}
                         // If outgoing had a trap status, clear it (also try clearing inner .mon)
                         try {
                             if (!is_undefined(status_system_clear_status) && is_struct(_outgoing)){
                                 // Prefer clearing on actor wrapper first
                                 status_system_clear_status(_outgoing, "trap");
+                                status_system_clear_status(_outgoing, "perish-song");
+                                status_system_clear_status(_outgoing, "infatuation");
                                 // Also try inner mon
-                                if (variable_struct_exists(_outgoing, "mon") && is_struct(variable_struct_get(_outgoing, "mon"))) status_system_clear_status(variable_struct_get(_outgoing, "mon"), "trap");
+                                if (variable_struct_exists(_outgoing, "mon") && is_struct(variable_struct_get(_outgoing, "mon"))){
+                                    status_system_clear_status(variable_struct_get(_outgoing, "mon"), "trap");
+                                    status_system_clear_status(variable_struct_get(_outgoing, "mon"), "perish-song");
+                                    status_system_clear_status(variable_struct_get(_outgoing, "mon"), "infatuation");
+                                }
+                                if (!is_undefined(status_system_has_status) && !is_undefined(status_system_get) && variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor"))){
+                                    var _acts_inf = variable_struct_get(_B, "actor");
+                                    var _out_mon = (variable_struct_exists(_outgoing, "mon") && is_struct(variable_struct_get(_outgoing, "mon")) ? variable_struct_get(_outgoing, "mon") : undefined);
+                                    for (var _ii_inf = 0; _ii_inf < array_length(_acts_inf); ++_ii_inf){
+                                        var _cand_inf = _acts_inf[_ii_inf];
+                                        if (!is_struct(_cand_inf) || _cand_inf == _outgoing) continue;
+                                        if (!status_system_has_status(_cand_inf, "infatuation")) continue;
+                                        var _inf_inst = status_system_get(_cand_inf, "infatuation");
+                                        var _inf_src = (is_struct(_inf_inst) && variable_struct_exists(_inf_inst, "source") ? variable_struct_get(_inf_inst, "source") : undefined);
+                                        var _clear_inf = (_inf_src == _outgoing) || (!is_undefined(_out_mon) && _inf_src == _out_mon);
+                                        if (!_clear_inf && is_struct(_inf_src) && variable_struct_exists(_inf_src, "mon") && !is_undefined(_out_mon)) _clear_inf = (variable_struct_get(_inf_src, "mon") == _out_mon);
+                                        if (_clear_inf){
+                                            status_system_clear_status(_cand_inf, "infatuation");
+                                            if (variable_struct_exists(_cand_inf, "mon") && is_struct(variable_struct_get(_cand_inf, "mon"))) status_system_clear_status(variable_struct_get(_cand_inf, "mon"), "infatuation");
+                                        }
+                                    }
+                                }
                             }
                         } catch (e_cl) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][switch] failed clearing trap on outgoing: " + string(e_cl)); }
                         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
@@ -2591,13 +2616,6 @@ function __battle_process_input(_pid){
             if (is_array(moves_arr) && move_idx >= 0 && move_idx < array_length(moves_arr)) mv = moves_arr[move_idx];
             var pps_arr = [];
             if (is_struct(A) && variable_struct_exists(A, "pps") && is_array(variable_struct_get(A, "pps"))) pps_arr = variable_struct_get(A, "pps");
-// [Copycat Fix � use global._moves from CSV]
-if (is_real(mv) && mv >= 0 && variable_global_exists("_moves") && is_array(global._moves) && mv < array_length(global._moves) && is_struct(global._moves[mv]) && global._moves[mv].identifier == "copycat") {
-    // If a global last move exists, show it in the preview so UI matches runtime Copycat behavior
-    if (variable_global_exists("lastMoveUsed_ID") && !is_undefined(global.lastMoveUsed_ID) && is_real(global.lastMoveUsed_ID) && global.lastMoveUsed_ID >= 0 && global.lastMoveUsed_ID != mv){
-        mv = global.lastMoveUsed_ID;
-    }
-}
             var pp = 0;
             if (is_array(pps_arr) && move_idx >= 0 && move_idx < array_length(pps_arr)) pp = pps_arr[move_idx];
             if (!is_real(pp)) pp = 0;
@@ -2696,6 +2714,23 @@ function __battle_build_turn_actions(_pid){
     if (is_struct(actP) && variable_struct_exists(actP, "item_use") && variable_struct_get(actP, "item_use") == true){
         firstEnemy = false;
     }
+
+    // Pursuit: if one battler is using Pursuit while the other is taking a queued switch action,
+    // let Pursuit resolve first and mark it for its doubled switch damage.
+    try {
+        var _player_switching = (is_struct(actP) && variable_struct_exists(actP, "switch_to") && is_real(variable_struct_get(actP, "switch_to")));
+        var _enemy_switching = (is_struct(actE) && variable_struct_exists(actE, "switch_to") && is_real(variable_struct_get(actE, "switch_to")));
+        var _player_pursuit = (is_struct(actP) && variable_struct_exists(actP, "move_id") && is_real(variable_struct_get(actP, "move_id")) && variable_struct_get(actP, "move_id") == 228);
+        var _enemy_pursuit = (is_struct(actE) && variable_struct_exists(actE, "move_id") && is_real(variable_struct_get(actE, "move_id")) && variable_struct_get(actE, "move_id") == 228);
+        if (_player_pursuit && _enemy_switching){
+            variable_struct_set(actP, "pursuit_switching", true);
+            firstEnemy = false;
+        }
+        if (_enemy_pursuit && _player_switching){
+            variable_struct_set(actE, "pursuit_switching", true);
+            firstEnemy = true;
+        }
+    } catch (e_pursuit_order) {}
 
     if (is_struct(actP) && is_struct(actE)){
         if (firstEnemy){ actions[0] = actE; actions[1] = actP; }
@@ -2971,6 +3006,28 @@ function __battle_step_turn_if_ready(_pid){
                         }
                     }
                 } catch (e_te) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][terrain] end-of-turn tick failed: " + string(e_te)); }
+                try {
+                    for (var _side_tick = 0; _side_tick < 2; ++_side_tick){
+                        var _barrier_keys = ["light_screen", "reflect", "aurora_veil"];
+                        for (var _bk = 0; _bk < array_length(_barrier_keys); ++_bk){
+                            var _bkey = _barrier_keys[_bk];
+                            var _bturns = __battle_field_get_barrier_or(_pid, _side_tick, _bkey, 0);
+                            if (!is_real(_bturns) || _bturns <= 0) continue;
+                            var _bnext = _bturns - 1;
+                            if (_bnext > 0) __battle_field_set_barrier(_pid, _side_tick, _bkey, _bnext);
+                            else __battle_field_clear_barrier(_pid, _side_tick, _bkey);
+                        }
+                        var _side_status_keys = ["mist", "safeguard"];
+                        for (var _ssk = 0; _ssk < array_length(_side_status_keys); ++_ssk){
+                            var _skey = _side_status_keys[_ssk];
+                            var _sturns = __battle_field_get_side_status_or(_pid, _side_tick, _skey, 0);
+                            if (!(is_real(_sturns) && _sturns > 0)) continue;
+                            var _snext = _sturns - 1;
+                            if (_snext > 0) __battle_field_set_side_status(_pid, _side_tick, _skey, _snext);
+                            else __battle_field_clear_side_status(_pid, _side_tick, _skey);
+                        }
+                    }
+                } catch (e_side_tick) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][field] side-state tick failed: " + string(e_side_tick)); }
                 // mark that we've ticked statuses for this end-of-turn so we don't repeat
                 try { variable_struct_set(_B, "_statuses_ticked", true); } catch (e_st) {}
             }
@@ -3153,7 +3210,7 @@ function __battle_step_turn_if_ready(_pid){
                     if (!is_struct(_a_locked)) continue;
                     try {
                         var _lm = (variable_struct_exists(_a_locked, "_locked_move") ? variable_struct_get(_a_locked, "_locked_move") : undefined);
-                        if (is_struct(_lm) && variable_struct_exists(_lm, "move_id") && variable_struct_get(_lm, "move_id") == 37 && is_real(variable_struct_get(_lm, "remaining"))){
+                        if (is_struct(_lm) && variable_struct_exists(_lm, "move_id") && (variable_struct_get(_lm, "move_id") == 37 || variable_struct_get(_lm, "move_id") == 205) && is_real(variable_struct_get(_lm, "remaining"))){
                             var rem = floor(variable_struct_get(_lm, "remaining"));
                             // Only decrement the lock if the actor actually executed the locked move this turn
                             var executed = false;
@@ -3167,16 +3224,17 @@ function __battle_step_turn_if_ready(_pid){
                             // persist remaining even if not decremented
                             variable_struct_set(_lm, "remaining", rem);
                             variable_struct_set(_a_locked, "_locked_move", _lm);
-                            // optional: debug suppressed for thrash; use DATA_DEBUG_VERBOSE elsewhere if needed
-                            // if lock expired and config requested confusion, apply confusion
-                            if (rem == 0 && variable_struct_exists(_lm, "apply_confuse_on_end") && variable_struct_get(_lm, "apply_confuse_on_end") == true){
-                                try {
-                                    if (!is_undefined(status_system_apply_status)){
-                                        status_system_apply_status(_a_locked, "confusion", {});
-                                    }
-                                } catch (e_conf) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][thrash] apply confusion failed: " + string(e_conf)); }
-                                // clear lock struct
+                            // optional: debug suppressed for thrash/rollout; use DATA_DEBUG_VERBOSE elsewhere if needed
+                            if (rem == 0){
+                                if (variable_struct_exists(_lm, "apply_confuse_on_end") && variable_struct_get(_lm, "apply_confuse_on_end") == true){
+                                    try {
+                                        if (!is_undefined(status_system_apply_status)){
+                                            status_system_apply_status(_a_locked, "confusion", {});
+                                        }
+                                    } catch (e_conf) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][thrash] apply confusion failed: " + string(e_conf)); }
+                                }
                                 variable_struct_set(_a_locked, "_locked_move", undefined);
+                                try { if (variable_struct_exists(_a_locked, "_rollout_mul")) variable_struct_set(_a_locked, "_rollout_mul", 1); } catch (e_roll_reset) {}
                             }
                         }
                     } catch (e_lm) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][thrash] locked processing failed: " + string(e_lm)); }
@@ -3842,16 +3900,14 @@ function __battle_move_power(_code, _A, _D){
             // If it returns 0 it usually means 'unspecified / variable power' in the dataset;
             // treat that the same as no value so the fallback applies instead of
             // causing the move to be treated as non-damaging.
-            if (is_real(p) && p > 0) return max(0, real(p));
-                    // Special-case: Fury Cutter (move id 210) scales with a per-attacker multiplier
-                    // stored on the attacker struct as _fury_cutter_mul. If present, apply it.
-                    try {
-                        if (_code == 210 && is_struct(_A)){
-                            var _mul = 1;
-                            try { if (variable_struct_exists(_A, "_fury_cutter_mul") && is_real(variable_struct_get(_A, "_fury_cutter_mul"))) _mul = max(1, floor(variable_struct_get(_A, "_fury_cutter_mul"))); } catch (e_m) { _mul = 1; }
-                            return max(0, real(p) * _mul);
-                        }
-                    } catch (e_fc) { }
+            if (is_real(p) && p > 0){
+                var _mul_live = 1;
+                try {
+                    if (_code == 210 && is_struct(_A) && variable_struct_exists(_A, "_fury_cutter_mul") && is_real(variable_struct_get(_A, "_fury_cutter_mul"))) _mul_live = max(1, floor(variable_struct_get(_A, "_fury_cutter_mul")));
+                    if (_code == 205 && is_struct(_A) && variable_struct_exists(_A, "_rollout_mul") && is_real(variable_struct_get(_A, "_rollout_mul"))) _mul_live = max(1, floor(variable_struct_get(_A, "_rollout_mul")));
+                } catch (e_m_live) { _mul_live = 1; }
+                return max(0, real(p) * _mul_live);
+            }
             // If p is zero or unspecified, attempt known variable-power move calculations
             var vp = __battle_variable_move_power(_code, _A, _D);
             if (is_real(vp) && vp > 0) return vp;
@@ -3913,6 +3969,21 @@ function __battle_weight_to_kg(_raw){
 function __battle_variable_move_power(_move_id, _A, _D){
     if (!is_real(_move_id)) return 0;
     var mid = floor(_move_id);
+    var _friendship_value = function(_actor){
+        var _scan = function(_ent){
+            if (!is_struct(_ent)) return undefined;
+            var _fields = ["happiness", "friendship", "friendliness", "affection"];
+            for (var _fi = 0; _fi < array_length(_fields); ++_fi){
+                var _fname = _fields[_fi];
+                if (variable_struct_exists(_ent, _fname) && is_real(variable_struct_get(_ent, _fname))) return clamp(floor(variable_struct_get(_ent, _fname)), 0, 255);
+            }
+            return undefined;
+        };
+        var _val = _scan(_actor);
+        if (!is_real(_val) && is_struct(_actor) && variable_struct_exists(_actor, "mon") && is_struct(variable_struct_get(_actor, "mon"))) _val = _scan(variable_struct_get(_actor, "mon"));
+        if (!is_real(_val)) _val = 70;
+        return clamp(floor(_val), 0, 255);
+    };
     // Extract weights (best-effort). The helper returns a raw weight value;
     // callers should normalize if species weights are in hectograms elsewhere.
     var aw = __battle_entity_weight(_A);
@@ -3984,6 +4055,16 @@ function __battle_variable_move_power(_move_id, _A, _D){
         else if (r >= 1.5) return 60;
         else if (r >= 1.0) return 40;
         else return 20;
+    }
+
+    // Return / Frustration: power scales with friendship/happiness.
+    if (mid == 216){
+        var _happy_return = _friendship_value(_A);
+        return clamp(floor(_happy_return * 2 / 5), 1, 102);
+    }
+    if (mid == 218){
+        var _happy_frustration = _friendship_value(_A);
+        return clamp(floor((255 - _happy_frustration) * 2 / 5), 1, 102);
     }
 
     // Crush Grip / Wring Out / Eruption / Flail / Reversal: power scales with target HP% or attacker's HP
@@ -4103,6 +4184,10 @@ function __battle_can_hit_target(_A, _D, _move_id){
         var _weather_acc = __battle_get_weather(_pid_weather);
         if (__battle_weather_is_active(_weather_acc)){
             var _wid_acc = __battle_weather_get_normalized_id(_weather_acc);
+            if (is_real(_move_id) && floor(_move_id) == 87){
+                if (_wid_acc == "rain") eff_acc = 100;
+                else if (_wid_acc == "sun" || _wid_acc == "harsh-sun") eff_acc = 50;
+            }
             if (_wid_acc == "fog") eff_acc = clamp(floor(eff_acc * 0.6), 0, 100);
         }
         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][accuracy] base=" + string(base_acc) + ", acc_stage=" + string(acc_stage) + ", eva_stage=" + string(eva_stage) + ", eff=" + string(eff_acc));
@@ -4239,10 +4324,11 @@ function battle_switch_to(_pid, _party_idx, _opts){
     // phase restriction so the player's replacement choice can be triggered
     // even if the battle is currently in a non-command phase.
     var _is_forced_switch = (is_struct(_opts) && variable_struct_exists(_opts, "forced") && variable_struct_get(_opts, "forced") == true);
-    if (_phase_val != "command" && !_is_forced_switch){
+    var _is_baton_pass_switch = (is_struct(_opts) && variable_struct_exists(_opts, "baton_pass") && variable_struct_get(_opts, "baton_pass") == true);
+    if (_phase_val != "command" && !_is_forced_switch && !_is_baton_pass_switch){
         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_switch_to] rejected: phase not 'command' (pid=" + string(_pid) + ", phase=" + _phase_val + ")");
         return false;
-    } else if (_is_forced_switch){
+    } else if (_is_forced_switch || _is_baton_pass_switch){
         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_switch_to] accepted forced switch while phase=" + _phase_val + " (pid=" + string(_pid) + ")");
     }
 
@@ -4378,6 +4464,31 @@ function __battle_heal_party_full(_pid){
     return true;
 }
 
+function __battle_clone_stage_struct(_src){
+    var _out = {};
+    if (!is_struct(_src)) return _out;
+    var _keys = variable_struct_get_names(_src);
+    for (var _ki = 0; _ki < array_length(_keys); ++_ki){
+        var _key = _keys[_ki];
+        if (!variable_struct_exists(_src, _key)) continue;
+        variable_struct_set(_out, _key, variable_struct_get(_src, _key));
+    }
+    return _out;
+}
+
+function __battle_apply_baton_pass_payload(_B, _actor, _actor_index){
+    if (!is_struct(_B) || !is_struct(_actor)) return false;
+    if (!variable_struct_exists(_B, "_baton_pass_pending")) return false;
+    var _payload = variable_struct_get(_B, "_baton_pass_pending");
+    if (!is_struct(_payload)) return false;
+    var _owner = (variable_struct_exists(_payload, "actor_index") ? variable_struct_get(_payload, "actor_index") : undefined);
+    if (!is_real(_owner) || _owner != _actor_index) return false;
+    var _stages = (variable_struct_exists(_payload, "stages") ? variable_struct_get(_payload, "stages") : undefined);
+    if (is_struct(_stages)) variable_struct_set(_actor, "_stages", __battle_clone_stage_struct(_stages));
+    try { variable_struct_set(_B, "_baton_pass_pending", undefined); } catch (e_bp_clear) {}
+    return true;
+}
+
 // Detect if a status message line looks like a stat stage change (e.g., "NAME ATK +1").
 function __battle_is_stat_status_line(_s){
     var t = string_upper(string_trim(string(_s)));
@@ -4501,6 +4612,7 @@ function __battle_actor_from_party_mon(_M){
     try { if (!variable_struct_exists(A, "_uid") || !is_real(A._uid)) { if (!variable_global_exists("_B_actor_uid_counter")) global._B_actor_uid_counter = 1; A._uid = global._B_actor_uid_counter; global._B_actor_uid_counter += 1; } } catch (e_uid) {}
     // Clear any residual copycat history on this actor when created
     try { variable_struct_set(A, "_last_moves", []); } catch (e_cl) {}
+    try { variable_struct_set(A, "_last_moves_used", []); } catch (e_clu) {}
     return A;
     }
 
@@ -5095,6 +5207,15 @@ function __battle_apply_damage(_pid, _target_index, _dmg, _mult){
 
     var cur_hp = __battle_hp_now(T);
     var newhp = max(0, cur_hp - max(0, _dmg));
+    try {
+        if (is_real(cur_hp) && cur_hp > 0 && is_real(newhp) && newhp <= 0 && variable_struct_exists(T, "_enduring") && variable_struct_get(T, "_enduring") == true){
+            newhp = 1;
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                var _tname_endure = variable_struct_exists(T, "name") ? string(variable_struct_get(T, "name")) : "target";
+                show_debug_message("[battle][endure] " + _tname_endure + " endured the hit at 1 HP");
+            }
+        }
+    } catch (e_endure_guard) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][endure] damage guard failed: " + string(e_endure_guard)); }
     __battle_set_hp_now(T, newhp);
     // Trigger visual lerp and hit SFX for this applied damage
     try {
@@ -5650,7 +5771,30 @@ if (is_undefined(__battle_trainer_perform_switch_action)){
         try {
             if (!is_undefined(status_system_clear_status) && is_struct(old_actor)){
                 status_system_clear_status(old_actor, "trap");
-                if (variable_struct_exists(old_actor, "mon") && is_struct(variable_struct_get(old_actor, "mon"))) status_system_clear_status(variable_struct_get(old_actor, "mon"), "trap");
+                status_system_clear_status(old_actor, "perish-song");
+                status_system_clear_status(old_actor, "infatuation");
+                if (variable_struct_exists(old_actor, "mon") && is_struct(variable_struct_get(old_actor, "mon"))){
+                    status_system_clear_status(variable_struct_get(old_actor, "mon"), "trap");
+                    status_system_clear_status(variable_struct_get(old_actor, "mon"), "perish-song");
+                    status_system_clear_status(variable_struct_get(old_actor, "mon"), "infatuation");
+                }
+                if (!is_undefined(status_system_has_status) && !is_undefined(status_system_get) && variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor"))){
+                    var _acts_inf_tr = variable_struct_get(_B, "actor");
+                    var _old_mon = (variable_struct_exists(old_actor, "mon") && is_struct(variable_struct_get(old_actor, "mon")) ? variable_struct_get(old_actor, "mon") : undefined);
+                    for (var _it_inf = 0; _it_inf < array_length(_acts_inf_tr); ++_it_inf){
+                        var _cand_inf_tr = _acts_inf_tr[_it_inf];
+                        if (!is_struct(_cand_inf_tr) || _cand_inf_tr == old_actor) continue;
+                        if (!status_system_has_status(_cand_inf_tr, "infatuation")) continue;
+                        var _inst_inf_tr = status_system_get(_cand_inf_tr, "infatuation");
+                        var _src_inf_tr = (is_struct(_inst_inf_tr) && variable_struct_exists(_inst_inf_tr, "source") ? variable_struct_get(_inst_inf_tr, "source") : undefined);
+                        var _clear_inf_tr = (_src_inf_tr == old_actor) || (!is_undefined(_old_mon) && _src_inf_tr == _old_mon);
+                        if (!_clear_inf_tr && is_struct(_src_inf_tr) && variable_struct_exists(_src_inf_tr, "mon") && !is_undefined(_old_mon)) _clear_inf_tr = (variable_struct_get(_src_inf_tr, "mon") == _old_mon);
+                        if (_clear_inf_tr){
+                            status_system_clear_status(_cand_inf_tr, "infatuation");
+                            if (variable_struct_exists(_cand_inf_tr, "mon") && is_struct(variable_struct_get(_cand_inf_tr, "mon"))) status_system_clear_status(variable_struct_get(_cand_inf_tr, "mon"), "infatuation");
+                        }
+                    }
+                }
             }
         } catch (e_trap) {}
 
@@ -5668,6 +5812,7 @@ if (is_undefined(__battle_trainer_perform_switch_action)){
             if (is_struct(new_actor)){
                 try { variable_struct_set(new_actor, "actor_index", 1); } catch (e_ai) {}
                 if (!is_undefined(__battle_apply_party_moves)) __battle_apply_party_moves(new_actor);
+                try { __battle_apply_baton_pass_payload(_B, new_actor, 1); } catch (e_bp_apply_enemy) {}
             }
 
             try {

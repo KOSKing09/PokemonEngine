@@ -221,11 +221,96 @@ function status_system_apply_status(mon, status_id, opts){
     // statuses when a substitute is present. If the caller is explicitly trying
     // to apply a 'substitute' status itself, allow it.
     try {
-        if (status_id != "substitute" && status_system_has_status(_target_mon, "substitute")){
+        if (status_id != "substitute" && status_id != "perish-song" && status_system_has_status(_target_mon, "substitute")){
             if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status_system] blocked apply '" + string(status_id) + "' because target has substitute");
             return false;
         }
     } catch (e_block) { /* ignore any errors and continue */ }
+    try {
+        var _sid_guard = string_lower(string(status_id));
+        var _is_major_guard = (_sid_guard == "sleep" || _sid_guard == "burn" || _sid_guard == "poison" || _sid_guard == "toxic" || _sid_guard == "paralysis" || _sid_guard == "freeze");
+        if (_is_major_guard){
+            var _pid_guard = __status_find_battle_pid(mon);
+            if (!is_undefined(_pid_guard)){
+                var _guard_actor = mon;
+                if (!(is_struct(_guard_actor) && variable_struct_exists(_guard_actor, "actor_index") && is_real(variable_struct_get(_guard_actor, "actor_index")))){
+                    var _B_guard = __battle_ensure_slot(_pid_guard);
+                    if (is_struct(_B_guard) && variable_struct_exists(_B_guard, "actor") && is_array(variable_struct_get(_B_guard, "actor"))){
+                        var _guard_acts = variable_struct_get(_B_guard, "actor");
+                        for (var _gi = 0; _gi < array_length(_guard_acts); ++_gi){
+                            var _guard_cand = _guard_acts[_gi];
+                            if (!is_struct(_guard_cand)) continue;
+                            if (_guard_cand == mon){ _guard_actor = _guard_cand; break; }
+                            if (variable_struct_exists(_guard_cand, "mon") && is_struct(variable_struct_get(_guard_cand, "mon")) && variable_struct_get(_guard_cand, "mon") == _target_mon){ _guard_actor = _guard_cand; break; }
+                        }
+                    }
+                }
+                var _guard_side = 0;
+                try {
+                    if (is_struct(_guard_actor) && variable_struct_exists(_guard_actor, "actor_index") && is_real(variable_struct_get(_guard_actor, "actor_index"))) _guard_side = __battle_field_side_index_for_actor(variable_struct_get(_guard_actor, "actor_index"));
+                } catch (e_guard_side) { _guard_side = 0; }
+                var _safe_turns = __battle_field_get_side_status_or(_pid_guard, _guard_side, "safeguard", 0);
+                if (is_real(_safe_turns) && _safe_turns > 0){
+                    var _block_for_safeguard = true;
+                    if (is_struct(opts) && variable_struct_exists(opts, "source")){
+                        var _src_guard = variable_struct_get(opts, "source");
+                        var _src_side = undefined;
+                        try {
+                            if (is_struct(_src_guard) && variable_struct_exists(_src_guard, "actor_index") && is_real(variable_struct_get(_src_guard, "actor_index"))) _src_side = __battle_field_side_index_for_actor(variable_struct_get(_src_guard, "actor_index"));
+                            else if (is_struct(_src_guard) && variable_struct_exists(_src_guard, "mon") && is_struct(variable_struct_get(_src_guard, "mon"))){
+                                var _B_src_guard = __battle_ensure_slot(_pid_guard);
+                                if (is_struct(_B_src_guard) && variable_struct_exists(_B_src_guard, "actor") && is_array(variable_struct_get(_B_src_guard, "actor"))){
+                                    var _src_acts = variable_struct_get(_B_src_guard, "actor");
+                                    for (var _sgi = 0; _sgi < array_length(_src_acts); ++_sgi){
+                                        var _src_cand = _src_acts[_sgi];
+                                        if (!is_struct(_src_cand)) continue;
+                                        if (_src_cand == _src_guard || (variable_struct_exists(_src_cand, "mon") && is_struct(variable_struct_get(_src_cand, "mon")) && variable_struct_get(_src_cand, "mon") == variable_struct_get(_src_guard, "mon"))){
+                                            _src_side = __battle_field_side_index_for_actor(_sgi);
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (e_guard_src) { _src_side = undefined; }
+                        if (is_real(_src_side) && _src_side == _guard_side) _block_for_safeguard = false;
+                    }
+                    if (_block_for_safeguard){
+                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][side] blocked '" + _sid_guard + "' due to Safeguard");
+                        return false;
+                    }
+                }
+            }
+        }
+    } catch (e_guard) { /* ignore and continue */ }
+    try {
+        if (string_lower(string(status_id)) == "leech-seed"){
+            var _grass_id_local = -1;
+            if (variable_global_exists("TYPE_ID_BY_NAME")){
+                var _tmap_grass = variable_global_get("TYPE_ID_BY_NAME");
+                if (ds_exists(_tmap_grass, ds_type_map)) _grass_id_local = ds_map_find_value(_tmap_grass, "grass");
+            }
+            if (!is_real(_grass_id_local)) _grass_id_local = 12;
+            var _leech_target = mon;
+            if (!is_struct(_leech_target)) _leech_target = _target_mon;
+            var _is_grass_target = false;
+            try {
+                if (is_struct(_leech_target)){
+                    if (variable_struct_exists(_leech_target, "types") && is_array(variable_struct_get(_leech_target, "types"))){
+                        var _types_ls = variable_struct_get(_leech_target, "types");
+                        for (var _ti_ls = 0; _ti_ls < array_length(_types_ls); ++_ti_ls){
+                            if (is_real(_types_ls[_ti_ls]) && _types_ls[_ti_ls] == _grass_id_local){ _is_grass_target = true; break; }
+                        }
+                    }
+                    if (!_is_grass_target && variable_struct_exists(_leech_target, "type1") && is_real(variable_struct_get(_leech_target, "type1")) && variable_struct_get(_leech_target, "type1") == _grass_id_local) _is_grass_target = true;
+                    if (!_is_grass_target && variable_struct_exists(_leech_target, "type2") && is_real(variable_struct_get(_leech_target, "type2")) && variable_struct_get(_leech_target, "type2") == _grass_id_local) _is_grass_target = true;
+                }
+            } catch (e_grass_chk) { _is_grass_target = false; }
+            if (_is_grass_target){
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status_system] blocked leech-seed because target is Grass-type");
+                return false;
+            }
+        }
+    } catch (e_leech_immune) { /* ignore and continue */ }
     if (!already_present && is_struct(mon) && variable_struct_exists(mon, "statuses")){
         var ss_actor = variable_struct_get(mon, "statuses"); if (variable_struct_exists(ss_actor, status_id)) already_present = true;
     }
@@ -668,8 +753,10 @@ function __status_apply_message_for(id, mon){
     case "poison": return string(name) + " was poisoned!";
     case "toxic": return string(name) + " was badly poisoned!";
         case "confusion": return string(name) + " became confused!";
+        case "infatuation": return string(name) + " fell in love!";
         case "trap": return string(name) + " became trapped!";
         case "leech-seed": return string(name) + " was seeded!";
+        case "perish-song": return string(name) + " heard the Perish Song!";
         default: return string(name) + " is affected by " + string_upper(string(id)) + "!";
     }
 }
@@ -833,7 +920,7 @@ function __status_play_effect_sound(status_id, event, mon){
 
 function __reg_basic(id, name){ var meta = { id:id, name:name, persist:false, max_stacks:1 }; status_system_register(id, meta); }
 
-var _basic = ["paralysis","sleep","freeze","burn","poison","toxic","confusion","infatuation","trap","nightmare","torment","disable","yawn","heal-block","no-type-immunity","leech-seed","embargo","perish-song","ingrain","silence","tar-shot"];
+var _basic = ["paralysis","sleep","freeze","burn","poison","toxic","confusion","infatuation","trap","nightmare","torment","disable","yawn","heal-block","no-type-immunity","leech-seed","embargo","perish-song","ingrain","silence","tar-shot","substitute"];
 for (var j = 0; j < array_length(_basic); ++j) __reg_basic(_basic[j], _basic[j]);
 
 if (variable_global_exists("STATUS_SYS") && variable_struct_exists(global.STATUS_SYS, "registry")){
@@ -908,6 +995,84 @@ if (variable_global_exists("STATUS_SYS") && variable_struct_exists(global.STATUS
         }
     });
         variable_struct_set(_reg, "leech-seed", _ls);
+    }
+    if (variable_struct_exists(_reg, "ingrain")){
+        var _ingrain = variable_struct_get(_reg, "ingrain");
+        variable_struct_set(_ingrain, "on_apply", function(mon, s, opts){
+            try {
+                if (is_struct(mon)) variable_struct_set(mon, "grounded", true);
+                if (is_struct(mon) && variable_struct_exists(mon, "mon") && is_struct(variable_struct_get(mon, "mon"))) variable_struct_set(variable_struct_get(mon, "mon"), "grounded", true);
+                __battle_request_animation_safe(mon, { type: "status_apply", status: "ingrain" });
+            } catch (e_ingrain_apply) {}
+        });
+        variable_struct_set(_ingrain, "on_tick", function(mon, s, dt){
+            try {
+                var mh = 0;
+                if (is_struct(mon) && variable_struct_exists(mon, "hp_max") && is_real(variable_struct_get(mon, "hp_max"))) mh = variable_struct_get(mon, "hp_max");
+                if (mh <= 0 && is_struct(mon) && variable_struct_exists(mon, "mon") && is_struct(variable_struct_get(mon, "mon")) && variable_struct_exists(variable_struct_get(mon, "mon"), "hp_max") && is_real(variable_struct_get(variable_struct_get(mon, "mon"), "hp_max"))) mh = variable_struct_get(variable_struct_get(mon, "mon"), "hp_max");
+                if (mh <= 0) mh = 1;
+                var heal = max(1, floor(real(mh) / 16.0));
+                if (!is_undefined(__battle_set_hp_now) && !is_undefined(__battle_hp_now)){
+                    var cur = __battle_hp_now(mon);
+                    var cap = mh;
+                    __battle_set_hp_now(mon, min(cap, cur + heal));
+                    if (!is_undefined(__battle_clear_fainted_if_healed)) __battle_clear_fainted_if_healed(mon);
+                    try { if (__battle_hp_now(mon) > cur) __battle_play_heal_once(snd_Heal); } catch (e_ingrain_sfx) {}
+                } else if (is_struct(mon) && variable_struct_exists(mon, "hp_now")){
+                    var cur2 = variable_struct_get(mon, "hp_now");
+                    variable_struct_set(mon, "hp_now", min(mh, cur2 + heal));
+                }
+            } catch (e_ingrain_tick) {
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][ingrain] on_tick failed: " + string(e_ingrain_tick));
+            }
+        });
+        variable_struct_set(_ingrain, "on_clear", function(mon, s){
+            try {
+                if (is_struct(mon)) variable_struct_set(mon, "grounded", undefined);
+                if (is_struct(mon) && variable_struct_exists(mon, "mon") && is_struct(variable_struct_get(mon, "mon"))) variable_struct_set(variable_struct_get(mon, "mon"), "grounded", undefined);
+            } catch (e_ingrain_clear) {}
+        });
+        variable_struct_set(_reg, "ingrain", _ingrain);
+    }
+    if (variable_struct_exists(_reg, "perish-song")){
+        var _perish_song = variable_struct_get(_reg, "perish-song");
+        variable_struct_set(_perish_song, "on_apply", function(mon, s, opts){
+            try {
+                if (is_struct(s)){
+                    var _existing_turns = (variable_struct_exists(s, "turns") && is_real(variable_struct_get(s, "turns"))) ? floor(variable_struct_get(s, "turns")) : 0;
+                    if (_existing_turns <= 0) variable_struct_set(s, "turns", 4);
+                }
+                __battle_request_animation_safe(mon, { type: "status_apply", status: "perish-song" });
+            } catch (e_perish_apply) {}
+        });
+        variable_struct_set(_perish_song, "on_tick", function(mon, s, dt){
+            try {
+                if (!is_struct(s)) return;
+                var _current_turns = (variable_struct_exists(s, "turns") && is_real(variable_struct_get(s, "turns"))) ? floor(variable_struct_get(s, "turns")) : 0;
+                if (_current_turns <= 0) _current_turns = 1;
+                var _next_turns = _current_turns - 1;
+                if (_next_turns > 0){
+                    __status_request_dialog_for_mon(mon, string(__status_mon_display_name(mon)) + "'s perish count fell to " + string(_next_turns) + "!", false);
+                    return;
+                }
+
+                __status_request_dialog_for_mon(mon, string(__status_mon_display_name(mon)) + "'s perish count fell to 0!", false);
+                var _hp_before = 0;
+                try { if (!is_undefined(__battle_hp_now)) _hp_before = __battle_hp_now(mon); } catch (e_perish_hp) { _hp_before = 0; }
+                if (is_real(_hp_before) && _hp_before < 0) _hp_before = 0;
+                try {
+                    if (!is_undefined(__battle_set_hp_now)) __battle_set_hp_now(mon, 0);
+                    else {
+                        if (is_struct(mon) && variable_struct_exists(mon, "hp_now")) variable_struct_set(mon, "hp_now", 0);
+                        if (is_struct(mon) && variable_struct_exists(mon, "hp")) variable_struct_set(mon, "hp", 0);
+                    }
+                } catch (e_perish_set) {}
+                try { __battle_request_animation_safe(mon, { type: "status_tick_damage", status: "perish-song", amount: _hp_before }); } catch (e_perish_anim) {}
+            } catch (e_perish_tick) {
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][perish-song] on_tick failed: " + string(e_perish_tick));
+            }
+        });
+        variable_struct_set(_reg, "perish-song", _perish_song);
     }
     // trap (Bind/Wrap/Clamp/Sand Tomb family)
     if (variable_struct_exists(_reg, "trap")){

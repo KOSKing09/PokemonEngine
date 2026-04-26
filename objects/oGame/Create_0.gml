@@ -24,6 +24,7 @@ display_set_gui_size(240, 160);
 
 // --- DEBUG FLAGS ---------------------------------------------------------
 // Central debug master switch. False by default in production builds.
+globalvar TYPE_ID_BY_NAME;
 globalvar DEBUG;
 global.DEBUG = true;
 
@@ -77,8 +78,11 @@ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) {
     else show_debug_message("[STARTUP] global._types MISSING or not array");
 
     // TYPE_ID_BY_NAME map
-    if (variable_global_exists("TYPE_ID_BY_NAME") && ds_exists(TYPE_ID_BY_NAME, ds_type_map)) show_debug_message("[STARTUP] TYPE_ID_BY_NAME ds_map exists");
-    else show_debug_message("[STARTUP] TYPE_ID_BY_NAME missing");
+    if (variable_global_exists("TYPE_ID_BY_NAME")) {
+        var _type_id_by_name_map = variable_global_get("TYPE_ID_BY_NAME");
+        if (is_real(_type_id_by_name_map) && ds_exists(_type_id_by_name_map, ds_type_map)) show_debug_message("[STARTUP] TYPE_ID_BY_NAME ds_map exists");
+        else show_debug_message("[STARTUP] TYPE_ID_BY_NAME missing");
+    } else show_debug_message("[STARTUP] TYPE_ID_BY_NAME missing");
 
     // species types
     if (variable_global_exists("_species_types") && is_array(global._species_types)) show_debug_message("[STARTUP] global._species_types loaded count=" + string(array_length(global._species_types)));
@@ -151,6 +155,15 @@ global.DEV_FORCE_FREEZE_CHANCE = -1;
 global.DEV_FORCE_PARALYSIS_CHANCE = -1;
 global.DEV_FORCE_CONFUSION_CHANCE = -1;
 global.DEV_FORCE_TRAP_CHANCE = -1;
+global.DEV_AUTO_STATUS_SMOKE = false;
+global.DEV_AUTO_HEAL_BLOCK_SMOKE = false;
+global.DEV_AUTO_EMBARGO_SMOKE = false;
+global.DEV_AUTO_PERISH_SONG_SMOKE = false;
+global.DEV_AUTO_ENDURE_SMOKE = false;
+global.DEV_AUTO_ROLLOUT_SMOKE = false;
+global.DEV_AUTO_FURY_CUTTER_SMOKE = false;
+global.DEV_AUTO_LOVE_GIFT_SMOKE = false;
+global.DEV_AUTO_FIELD_SWITCH_SMOKE = false;
 
 // Initialize bags (seed with some items for demo/dev)
 bags_init(1);

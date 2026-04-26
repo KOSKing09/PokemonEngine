@@ -171,6 +171,48 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
         }
     } catch (e_semi_guard){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][semi] guard apply_damage failed: " + string(e_semi_guard)); }
 
+    // Normal accuracy gate for moves that don't use custom accuracy semantics below.
+    try {
+        if (is_real(_move_id) && _move_id != 217){
+            if (!__battle_can_hit_target(_A, _D, _move_id)){
+                var _miss_name = (is_struct(_A) && variable_struct_exists(_A, "name") ? string(variable_struct_get(_A, "name")) : "The attacker");
+                dialog_queue(_miss_name + "'s attack missed!");
+                var _hp_now_miss = __battle_hp_now(_D);
+                return [0, _hp_now_miss, _hp_now_miss];
+            }
+        }
+    } catch (e_acc_gate) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][accuracy] gate failed: " + string(e_acc_gate)); }
+
+    // Present: after accuracy resolves, either heal the target or deal random damage.
+    try {
+        if (is_real(_move_id) && _move_id == 217){
+            if (!__battle_can_hit_target(_A, _D, _move_id)){
+                var _present_miss_name = (is_struct(_A) && variable_struct_exists(_A, "name") ? string(variable_struct_get(_A, "name")) : "The attacker");
+                dialog_queue(_present_miss_name + "'s attack missed!");
+                var _hp_now_present_miss = __battle_hp_now(_D);
+                return [0, _hp_now_present_miss, _hp_now_present_miss];
+            }
+            var _present_roll = irandom(3);
+            if (_present_roll == 0){
+                var _before_present = __battle_hp_now(_D);
+                var _max_present = max(1, __battle_hp_max(_D));
+                var _heal_present = max(1, floor(_max_present / 4));
+                __battle_set_hp_now(_D, min(_max_present, _before_present + _heal_present));
+                __battle_clear_fainted_if_healed(_D);
+                try { __battle_request_animation_safe(_A, { type: "heal", actor: _A, target: _D, amount: _heal_present }); } catch (e_present_anim) {}
+                dialog_queue((is_struct(_D) && variable_struct_exists(_D, "name") ? string(variable_struct_get(_D, "name")) : "The target") + " had its HP restored!");
+                var _after_present = __battle_hp_now(_D);
+                return [0, _before_present, _after_present];
+            }
+            switch (_present_roll){
+                case 1: _mv_power = 40; break;
+                case 2: _mv_power = 80; break;
+                default: _mv_power = 120; break;
+            }
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][present] damage roll=" + string(_present_roll) + " power=" + string(_mv_power));
+        }
+    } catch (e_present) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][present] handler failed: " + string(e_present)); }
+
     // Check for OHKO (one-hit KO) move meta first. This implements Sheer Cold / Fissure / Guillotine/Horn Drill style behavior.
     try {
         var oh = undefined;
@@ -322,6 +364,34 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
             } catch (e_lvl) { }
         }
 
+        if (is_real(_move_id) && (_move_id == 76 || _move_id == 669) && is_real(dmg) && dmg > 0){
+            try {
+                var _solar_weather_dmg = __battle_get_weather(_pid);
+                if (__battle_weather_is_active(_solar_weather_dmg)){
+                    var _solar_wid_dmg = __battle_weather_get_normalized_id(_solar_weather_dmg);
+                    if (_solar_wid_dmg == "rain" || _solar_wid_dmg == "hail" || _solar_wid_dmg == "snow" || _solar_wid_dmg == "sandstorm"){
+                        dmg = max(1, floor(dmg * 0.5));
+                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][move_special] solar charge move halved by weather=" + string(_solar_wid_dmg));
+                    }
+                }
+            } catch (e_solar_dmg) {}
+        }
+
+        if (is_real(_move_id) && (_move_id == 23 || _move_id == 537) && is_real(dmg) && dmg > 0 && is_struct(_D)){
+            var _target_minimized = false;
+            try {
+                _target_minimized = (variable_struct_exists(_D, "_minimized") && variable_struct_get(_D, "_minimized") == true);
+                if (!_target_minimized && variable_struct_exists(_D, "mon") && is_struct(variable_struct_get(_D, "mon"))){
+                    var _min_mon = variable_struct_get(_D, "mon");
+                    _target_minimized = (variable_struct_exists(_min_mon, "_minimized") && variable_struct_get(_min_mon, "_minimized") == true);
+                }
+            } catch (e_min_check) { _target_minimized = false; }
+            if (_target_minimized){
+                dmg = max(1, floor(dmg * 2));
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][move_special] Stomp-style minimize damage doubled");
+            }
+        }
+
         // False Swipe (id 206) must not reduce the target below 1 HP (can't OHKO)
         if (is_real(_move_id) && _move_id == 206 && is_real(dmg) && dmg > 0){
             var before_hp_fs = before;
@@ -407,6 +477,25 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
                 }
             }
         } catch (e_terr) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][terrain] damage adjust failed: " + string(e_terr)); }
+
+        try {
+            var _damage_class = undefined;
+            if (!is_undefined(scr_move_damage_class_by_id) && is_real(_move_id)) _damage_class = scr_move_damage_class_by_id(_move_id);
+            else if (is_struct(_move_rec) && variable_struct_exists(_move_rec, "damage_class_id") && is_real(variable_struct_get(_move_rec, "damage_class_id"))) _damage_class = variable_struct_get(_move_rec, "damage_class_id");
+            if (is_real(_damage_class) && is_real(_target_index) && is_real(dmg) && dmg > 0){
+                var _def_side = __battle_field_side_index_for_actor(_target_index);
+                var _aurora_turns = __battle_field_get_barrier_or(_pid, _def_side, "aurora_veil", 0);
+                if (is_real(_aurora_turns) && _aurora_turns > 0){
+                    dmg = max(1, floor(dmg * 0.5));
+                } else if (_damage_class == 2){
+                    var _reflect_turns = __battle_field_get_barrier_or(_pid, _def_side, "reflect", 0);
+                    if (is_real(_reflect_turns) && _reflect_turns > 0) dmg = max(1, floor(dmg * 0.5));
+                } else if (_damage_class == 3){
+                    var _screen_turns = __battle_field_get_barrier_or(_pid, _def_side, "light_screen", 0);
+                    if (is_real(_screen_turns) && _screen_turns > 0) dmg = max(1, floor(dmg * 0.5));
+                }
+            }
+        } catch (e_barrier_dmg) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][barrier] damage adjust failed: " + string(e_barrier_dmg)); }
     } catch (e_ms) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][move_special] handler error: " + string(e_ms)); }
 
     // Defensive guard: prevent accidental self-hits when target == attacker and move is not a self-targeting move
@@ -460,6 +549,32 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
                 }
             }
     } catch (e_semimul) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][semi] multiplier apply failed: " + string(e_semimul)); }
+
+    try {
+        if (is_real(dmg) && dmg > 0 && !is_undefined(status_system_has_status) && !is_undefined(status_system_get) && status_system_has_status(_D, "substitute")){
+            var _sub_inst_live = status_system_get(_D, "substitute");
+            if (is_struct(_sub_inst_live)){
+                var _sub_hp_live = (variable_struct_exists(_sub_inst_live, "hp") && is_real(variable_struct_get(_sub_inst_live, "hp"))) ? floor(variable_struct_get(_sub_inst_live, "hp")) : 0;
+                var _incoming_sub = max(0, round(dmg * (is_real(mult) ? mult : 1)));
+                if (_sub_hp_live > 0 && _incoming_sub > 0){
+                    var _sub_left = max(0, _sub_hp_live - _incoming_sub);
+                    variable_struct_set(_sub_inst_live, "hp", _sub_left);
+                    if (variable_struct_exists(_sub_inst_live, "hp_max") && is_real(variable_struct_get(_sub_inst_live, "hp_max"))){
+                        variable_struct_set(_sub_inst_live, "hp_max", max(variable_struct_get(_sub_inst_live, "hp_max"), _sub_hp_live));
+                    }
+                    try { __battle_request_animation_safe(_pid, { type: "substitute_hit", target_index: _target_index }); } catch (e_sub_anim) {}
+                    if (_sub_left <= 0){
+                        try { status_system_clear_status(_D, "substitute"); } catch (e_sub_clear) {}
+                        try {
+                            var _sub_name_break = (is_struct(_D) && variable_struct_exists(_D, "name") ? string(variable_struct_get(_D, "name")) : "The substitute");
+                            dialog_queue(_sub_name_break + "'s substitute faded!");
+                        } catch (e_sub_msg_break) {}
+                    }
+                    return [0, before, before];
+                }
+            }
+        }
+    } catch (e_sub_block) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][substitute] damage intercept failed: " + string(e_sub_block)); }
 
     // Apply damage (this will update hp_now). Pass effectiveness multiplier so SFX choice can match.
     __battle_apply_damage(_pid, _target_index, dmg, mult);

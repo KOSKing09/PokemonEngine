@@ -234,8 +234,6 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
                         if (variable_struct_exists(A, "pps") && is_array(variable_struct_get(A, "pps")) && i >= 0 && i < array_length(variable_struct_get(A, "pps"))) pp = variable_struct_get(A, "pps")[i];
                     }
                 } catch (e_read) { mv = -1; pp = 0; }
-                // If this slot is Copycat, attempt to show the candidate move name in the UI.
-                // Important: __battle_move_name expects a numeric move id, not a string.
                 var nm = "";
                 var is_copycat_slot = false;
                 try {
@@ -243,11 +241,15 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
                     else if (is_real(mv) && variable_global_exists("_moves") && is_array(global._moves) == false && is_struct(global._moves[mv]) && variable_struct_exists(global._moves[mv], "identifier") && string_lower(variable_struct_get(global._moves[mv], "identifier")) == "copycat") is_copycat_slot = true;
                     else if (is_real(mv) && variable_global_exists("_moves") && is_array(global._moves) && is_struct(global._moves[mv]) && variable_struct_exists(global._moves[mv], "identifier") && string_lower(variable_struct_get(global._moves[mv], "identifier")) == "copycat") is_copycat_slot = true;
                 } catch (e_ic) { is_copycat_slot = false; }
-            // Always display the slot's own move name (e.g. "Copycat").
-            // The preview of the last move is intentionally disabled here to
-            // avoid confusing the player; if you want a preview, show it only
-            // on highlight or via a tooltip elsewhere.
-            nm = __battle_move_name(mv);
+                nm = __battle_move_name(mv);
+                if (is_copycat_slot && !is_undefined(__battle_find_copycat_candidate)){
+                    try {
+                        var copycat_mv = __battle_find_copycat_candidate(_pid, A);
+                        if (is_real(copycat_mv) && copycat_mv != mv){
+                            nm = __battle_move_name(copycat_mv);
+                        }
+                    } catch (e_cc_preview) {}
+                }
             var label = nm + "  " + (is_real(pp) ? string(pp) : "0") + " PP";
             label = __battle_text_fit_ellipsis(_pid, label, cellW);
 
