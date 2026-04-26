@@ -754,6 +754,8 @@ function __battle_anim_queue_build_draw_state(_pid, _slot, _entry){
 
 function __battle_anim_queue_draw_states(_pid, _states){
     if (!is_array(_states) || array_length(_states) <= 0) return;
+    var _gui_w = display_get_gui_width();
+    var _gui_h = display_get_gui_height();
     var _offx = 0;
     var _offy = 0;
     if (!is_undefined(battle_cam_get_draw_state)){
@@ -785,6 +787,7 @@ function __battle_anim_queue_draw_states(_pid, _states){
     var _field_full = [_full_x1, _full_y1, _full_x2, _full_y2];
     var _field_player = [_full_x1, _split_y, _full_x2, _full_y2];
     var _field_enemy = [_full_x1, _full_y1, _full_x2, _split_y];
+    var _gui_full = [0, 0, _gui_w, _gui_h];
 
     for (var _si = 0; _si < array_length(_states); ++_si){
         var _st = _states[_si];
@@ -834,11 +837,12 @@ function __battle_anim_queue_draw_states(_pid, _states){
                 // Draw tiled across the full battlefield rectangle
                 // Use normal blending for the tiled background to avoid additive brightness
                 gpu_set_blendmode(bm_normal);
-                // Force full logical canvas (0..240 x 0..160) to guarantee full-screen coverage
-                var _lx = __battle_anim_queue_xu(_pid, 0);
-                var _ty0 = __battle_anim_queue_yu(_pid, 0);
-                var _rx = __battle_anim_queue_xu(_pid, 240);
-                var _by = __battle_anim_queue_yu(_pid, 160);
+                // Use the real GUI surface so fullscreen flashes cover the entire screen,
+                // not just the battle letterbox rect.
+                var _lx = _gui_full[0];
+                var _ty0 = _gui_full[1];
+                var _rx = _gui_full[2];
+                var _by = _gui_full[3];
                 // Start one tile earlier to ensure full coverage at the left/top edges.
                 // Use floor-based alignment so floating GUI coords don't skip the first column.
                 var _start_y = _ty0 + _scroll - _tile_h;
@@ -946,7 +950,7 @@ function __battle_anim_queue_draw_states(_pid, _states){
             // Pad full-field weather rect to avoid seams
             var _pad_xw = max(1, floor(__battle_anim_queue_wu(_pid, 1)));
             var _pad_yw = max(1, floor(__battle_anim_queue_hu(_pid, 1)));
-            var _wf0 = _field_full[0] - _pad_xw; var _wf1 = _field_full[1] - _pad_yw; var _wf2 = _field_full[2] + _pad_xw; var _wf3 = _field_full[3] + _pad_yw;
+            var _wf0 = _gui_full[0] - _pad_xw; var _wf1 = _gui_full[1] - _pad_yw; var _wf2 = _gui_full[2] + _pad_xw; var _wf3 = _gui_full[3] + _pad_yw;
             draw_set_alpha(_alphaw * 0.7);
             draw_set_color(_colorw);
             draw_rectangle(_wf0, _wf1, _wf2, _wf3, false);
@@ -959,7 +963,7 @@ function __battle_anim_queue_draw_states(_pid, _states){
             var _alphas = clamp((variable_struct_exists(_st, "alpha") ? _st.alpha : 0.3), 0, 1);
             var _pad_xs = max(1, floor(__battle_anim_queue_wu(_pid, 1)));
             var _pad_ys = max(1, floor(__battle_anim_queue_hu(_pid, 1)));
-            var _sf0 = _field_full[0] - _pad_xs; var _sf1 = _field_full[1] - _pad_ys; var _sf2 = _field_full[2] + _pad_xs; var _sf3 = _field_full[3] + _pad_ys;
+            var _sf0 = _gui_full[0] - _pad_xs; var _sf1 = _gui_full[1] - _pad_ys; var _sf2 = _gui_full[2] + _pad_xs; var _sf3 = _gui_full[3] + _pad_ys;
             draw_set_alpha(_alphas);
             draw_set_color(_colors);
             draw_rectangle(_sf0, _sf1, _sf2, _sf3, false);
