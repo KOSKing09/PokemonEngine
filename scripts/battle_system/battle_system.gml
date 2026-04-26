@@ -254,6 +254,7 @@ if (is_undefined(__battle_request_animation_safe)){
 
 
 // Safe audio handle stop helper: try to stop a channel handle, otherwise fall back
+// Stop an audio handle/channel safely. Falls back to global stop if needed.
 function __battle_audio_stop_handle(_h){
     try {
         if (!is_undefined(audio_stop_sound) && !is_undefined(_h)){
@@ -271,6 +272,8 @@ function __battle_audio_stop_handle(_h){
 
 // Safe wrapper to play a sound resource using the best available runtime API.
 // Returns an audio channel/handle when possible, otherwise undefined.
+// Play a sound resource using the best runtime API available. Returns
+// an audio handle/channel when possible, otherwise undefined.
 function __battle_sound_play_safe(_res){
     try {
         if (is_undefined(_res)) return undefined;
@@ -304,6 +307,7 @@ function __battle_sound_play_safe(_res){
 // Play a sound once (non-looping). Prefer audio_play_sound with loop=false when
 // available; otherwise fall back to __battle_sound_play_safe. Returns true when
 // a play was attempted.
+// Play a sound once (non-looping). Returns true if a play was attempted.
 function __battle_play_one_shot(_res){
     try {
         if (is_undefined(_res)) return false;
@@ -319,6 +323,7 @@ function __battle_play_one_shot(_res){
 
 // Play heal SFX but deduplicate repeated plays within a short timeframe
 // so items/multi-target heals don't trigger multiple overlapping sounds.
+// Play a heal SFX but deduplicate repeats within a short timeframe.
 function __battle_play_heal_once(_res){
     try {
         var now = (is_undefined(current_time) ? undefined : current_time);
@@ -340,6 +345,7 @@ function __battle_play_heal_once(_res){
 // Attempt to restore any previously saved audio for the battle slot.
 // This is defensive: many platforms won't have previous audio captured; the
 // function should silently no-op when no previous audio exists.
+// Attempt to restore previously saved audio for a battle slot (defensive no-op).
 function __battle_restore_prev_audio(_pid){
     try {
         var _B = __battle_ensure_slot(_pid);

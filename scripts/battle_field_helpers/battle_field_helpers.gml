@@ -1,14 +1,17 @@
 // Battle field helpers extracted from battle_system.gml to keep the core script leaner.
 // Provides struct initialization, hazard accessors, and legacy migration helpers.
 
+// Return a default hazards struct for a battle side.
 function __battle_field_default_hazards(){
     return { spikes: 0, toxic_spikes: 0, stealth_rock: false, sticky_web: false };
 }
 
+// Return default protective barrier counters for a battle side.
 function __battle_field_default_barriers(){
     return { light_screen: 0, reflect: 0, aurora_veil: 0 };
 }
 
+// Construct and return a default side struct (hazards/barriers/statuses).
 function __battle_field_side_defaults(){
     return {
         hazards: __battle_field_default_hazards(),
@@ -18,6 +21,7 @@ function __battle_field_side_defaults(){
     };
 }
 
+// Construct and return the full default battlefield struct for a battle slot.
 function __battle_field_defaults(){
     return {
         weather: __battle_field_default_weather_state(),
@@ -29,15 +33,18 @@ function __battle_field_defaults(){
     };
 }
 
+// Convert an actor index to its side index (0 = player/left, 1 = opponent/right).
 function __battle_field_side_index_for_actor(_actor_index){
     if (is_real(_actor_index) && _actor_index > 0) return 1;
     return 0;
 }
 
+// Return the opposing side index for a given actor index.
 function __battle_field_side_index_for_opponent(_actor_index){
     return (__battle_field_side_index_for_actor(_actor_index) == 0) ? 1 : 0;
 }
 
+// Ensure and return the struct for a specific side inside a battlefield struct.
 function __battle_field_get_side_struct(_field, _side_index){
     if (!is_struct(_field)) return undefined;
     if (!variable_struct_exists(_field, "sides") || !is_array(_field.sides)) _field.sides = [];
@@ -57,6 +64,7 @@ function __battle_field_get_side_struct(_field, _side_index){
     return _field.sides[idx];
 }
 
+// Return the hazards struct for a battlefield side, creating defaults if needed.
 function __battle_field_get_hazard_struct(_field, _side_index){
     var side_struct = __battle_field_get_side_struct(_field, _side_index);
     if (!is_struct(side_struct)) return undefined;
@@ -64,6 +72,7 @@ function __battle_field_get_hazard_struct(_field, _side_index){
     return variable_struct_get(side_struct, "hazards");
 }
 
+// Apply a legacy-style hazard value into the modern hazards struct.
 function __battle_field_apply_legacy_hazard(_field, _side_index, _name, _value, _clamp){
     if (!is_struct(_field)) return;
     var hazards = __battle_field_get_hazard_struct(_field, _side_index);
@@ -87,6 +96,7 @@ function __battle_field_apply_legacy_hazard(_field, _side_index, _name, _value, 
     }
 }
 
+// Migrate legacy battlefield keys stored on _B into the normalized _field.
 function __battle_field_migrate_legacy(_B, _field){
     if (!is_struct(_B) || !is_struct(_field)) return;
     var migrated = (variable_struct_exists(_field, "_legacy_migrated") && variable_struct_get(_field, "_legacy_migrated") == true);
@@ -148,6 +158,7 @@ function __battle_field_migrate_legacy(_B, _field){
     variable_struct_set(_field, "_legacy_migrated", true);
 }
 
+// Ensure a battlefield struct exists for the given _pid and return it.
 function __battle_field_ensure(_pid){
     var _B = __battle_ensure_slot(_pid);
     if (!is_struct(_B)) return undefined;
@@ -167,6 +178,7 @@ function __battle_field_ensure(_pid){
     return field;
 }
 
+// Reset the residual tick guard on a battlefield slot (slot-level helper).
 function __battle_field_reset_residual_guard_slot(_B){
     if (!is_struct(_B)) return;
     var field = (variable_struct_exists(_B, "_field") ? variable_struct_get(_B, "_field") : undefined);
@@ -178,11 +190,13 @@ function __battle_field_reset_residual_guard_slot(_B){
     try { variable_struct_set(_B, "_statuses_ticked", false); } catch (e_st) {}
 }
 
+// Reset residual tick guards for the battlefield of _pid.
 function __battle_field_reset_residual_guard(_pid){
     var _B = __battle_ensure_slot(_pid);
     __battle_field_reset_residual_guard_slot(_B);
 }
 
+// Mark that residual effects have been processed for the given slot.
 function __battle_field_mark_residual_processed_slot(_B){
     if (!is_struct(_B)) return;
     var field = (variable_struct_exists(_B, "_field") ? variable_struct_get(_B, "_field") : undefined);
@@ -194,11 +208,13 @@ function __battle_field_mark_residual_processed_slot(_B){
     try { variable_struct_set(_B, "_statuses_ticked", true); } catch (e_st) {}
 }
 
+// Mark residual effects processed for battlefield of _pid.
 function __battle_field_mark_residual_processed(_pid){
     var _B = __battle_ensure_slot(_pid);
     __battle_field_mark_residual_processed_slot(_B);
 }
 
+// Read a named hazard value for a side (e.g., "spikes", "toxic_spikes").
 function __battle_field_get_hazard(_pid, _side_index, _name){
     var field = __battle_field_ensure(_pid);
     if (!is_struct(field)) return undefined;
@@ -213,12 +229,14 @@ function __battle_field_get_hazard(_pid, _side_index, _name){
     return undefined;
 }
 
+// Read a hazard with a default fallback when missing.
 function __battle_field_get_hazard_or(_pid, _side_index, _name, _default){
     var hv = __battle_field_get_hazard(_pid, _side_index, _name);
     if (is_undefined(hv)) return _default;
     return hv;
 }
 
+// Set a named battlefield hazard, returns the applied canonical value.
 function __battle_field_set_hazard(_pid, _side_index, _name, _value){
     var field = __battle_field_ensure(_pid);
     if (!is_struct(field)) return undefined;
@@ -246,6 +264,7 @@ function __battle_field_set_hazard(_pid, _side_index, _name, _value){
     return undefined;
 }
 
+// Increment a numeric hazard by `_delta`, clamped to canonical ranges.
 function __battle_field_increment_hazard(_pid, _side_index, _name, _delta){
     var field = __battle_field_ensure(_pid);
     if (!is_struct(field)) return undefined;

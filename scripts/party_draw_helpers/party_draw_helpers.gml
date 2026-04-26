@@ -1,6 +1,8 @@
 // Helper: draw and text utilities extracted from party_system for modularity
 // Contains implementations prefixed with __party_impl_ to be called from the main party API.
 
+// Draw a shiny sparkle effect at (_x,_y).
+// Params: _S scale, _seed deterministic variation.
 function __party_impl_draw_shiny_sparkle(_x,_y,_S,_seed){
     // Stable animated sparkle (diamond + cross) that rotates & pulses.
     var t_ms = current_time;
@@ -44,6 +46,7 @@ function __party_impl_draw_shiny_sparkle(_x,_y,_S,_seed){
     draw_set_color(c_white);
 }
 
+// Clean description text by removing control/newline characters and trimming.
 function __party_impl_desc_clean_local(_s){
     var _t = string(_s);
     _t = string_replace_all(_t, "\n", " ");
@@ -56,6 +59,8 @@ function __party_impl_desc_clean_local(_s){
     return string_trim(_t);
 }
 
+// Draw scrollable, color-annotated description text into a box.
+// Highlights keywords (types, physical/special/status/heal) with colors.
 function __party_impl_desc_draw_scrollable_colored(_x, _y, _w, _h, _text) {
     if (string_length(string(_text)) <= 0) return;
 
@@ -219,6 +224,7 @@ function __party_impl_desc_draw_scrollable_colored(_x, _y, _w, _h, _text) {
     if (_restoreTo != -1) draw_set_font(_restoreTo);
 }
 
+// Draw a simple vertical scrollbar for a scrollable text area.
 function __party_impl_draw_scrollbar(_rx, _ry, _rw, _rh, _scroll, _pageSize, _totalItems) {
     var _oldCol = draw_get_color();
     var _oldAlpha = draw_get_alpha();
@@ -250,6 +256,7 @@ function __party_impl_draw_scrollbar(_rx, _ry, _rw, _rh, _scroll, _pageSize, _to
     draw_set_color(_oldCol);
 }
 
+// Helper to set the project's Pokemon font, returning previous font id.
 function __party_impl_use_font(){
     var _old = -1;
     if (variable_global_exists("FNT_POKEMON")){

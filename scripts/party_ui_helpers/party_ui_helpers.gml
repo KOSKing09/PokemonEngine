@@ -1,6 +1,8 @@
 // Party UI helpers (migrated from party_system.gml)
 // Implementations are named __party_impl_* and are called by forwarding stubs in party_system.gml
 
+// Draw the full party summary UI for player `_pid` at GUI origin (_OX,_OY).
+// Renders left panel, right frame, and optional learnset UI based on `_P`.
 function __party_impl_draw_summary(_pid, _P, _OX, _OY, _S){
     var _C_BG    = make_color_rgb(224, 216, 248);
     var _C_PAPER = make_color_rgb(255, 243, 195);
@@ -115,6 +117,8 @@ function __party_impl_draw_summary(_pid, _P, _OX, _OY, _S){
     }
 }
 
+// Draw the profile info block for a single mon (_M) into the left column.
+// Shows OT, types, ability, nature, and trainer memo fields.
 function __party_impl_draw_profile_block(_M, _x, _y, _w, _h, _S){
     var _C_LABEL = make_color_rgb(40, 96, 96);
     var _lh = max(12, string_height("A") + 2) * _S;
@@ -212,6 +216,8 @@ function __party_impl_draw_profile_block(_M, _x, _y, _w, _h, _S){
     draw_text(_x + 6*_S,  _y + 6*_S + _lh*8, _metMp + ".");
 }
 
+// Draw the moves block (right-side) showing current moves and help hints.
+// If `_highlightForget` is true, highlight selection for forgetting/replacing.
 function __party_impl_draw_moves_block(_P, _M, _x, _y, _w, _h, _S, _highlightForget){
     var _lh = max(12, string_height("A") + 2) * _S;
     draw_set_color(c_white);
@@ -270,6 +276,7 @@ function __party_impl_draw_moves_block(_P, _M, _x, _y, _w, _h, _S, _highlightFor
     return _secondaryHelp;
 }
 
+// Draw a short two-line secondary help string below the main panels.
 function __party_impl_draw_secondary_help(_text, _OX, _S, _leftInfo){
     var _fullLeft  = _OX + 0;
     var _fullRight = _OX + 240*_S;
@@ -301,6 +308,8 @@ function __party_impl_draw_secondary_help(_text, _OX, _S, _leftInfo){
     }
 }
 
+// Draw the left panel with mon artwork, level, and small badges.
+// Returns geometry info used by other draw helpers (descX, descY, descW, descH).
 function __party_impl_draw_left_panel(_P, _M, _OX, _OY, _S, _LEFT_X, _LEFT_Y, _LEFT_W, _LEFT_H){
     var _lx1 = _OX + _LEFT_X*_S,  _ly1 = _OY + _LEFT_Y*_S;
     var _lx2 = _OX + (_LEFT_X + _LEFT_W)*_S, _ly2 = _OY + (_LEFT_Y + _LEFT_H)*_S;
@@ -410,6 +419,7 @@ function __party_impl_draw_left_panel(_P, _M, _OX, _OY, _S, _LEFT_X, _LEFT_Y, _L
     return { descPad: _DESC_PAD, descAreaH: _DESC_AREA_H, descX: (_lx1 + _DESC_PAD), descY: (_ly2 - _DESC_AREA_H + _DESC_PAD), descW: min((_LEFT_W + 10) * _S, (108 - _LEFT_X - 4) * _S) - _DESC_PAD*2, descH: _DESC_AREA_H - _DESC_PAD*2 };
 }
 
+// Draw the right parchment frame and return its GUI coordinates.
 function __party_impl_draw_right_frame(_OX, _OY, _S, _RIGHT_X, _RIGHT_Y, _RIGHT_W, _RIGHT_H){
     var _rx1 = _OX + _RIGHT_X*_S, _ry1 = _OY + _RIGHT_Y*_S;
     var _rx2 = _OX + (_RIGHT_X + _RIGHT_W)*_S, _ry2 = _OY + (_RIGHT_Y + _RIGHT_H)*_S;
@@ -420,6 +430,7 @@ function __party_impl_draw_right_frame(_OX, _OY, _S, _RIGHT_X, _RIGHT_Y, _RIGHT_
     return { rx1: _rx1, ry1: _ry1, rx2: _rx2, ry2: _ry2 };
 }
 
+// Draw the header hints and the selection circles for the party slots.
 function __party_impl_draw_header_and_circles(_P, _OX, _OY, _S, _n, _C_ACC, _C_PAPER){
     var _modeStr = string(_P.mode);
     draw_set_color(c_white);
@@ -473,6 +484,8 @@ function __party_impl_draw_header_and_circles(_P, _OX, _OY, _S, _n, _C_ACC, _C_P
     }
 }
 
+// Draw content inside the right frame depending on `_P.mode` (profile/moves/forget).
+// Returns a secondary help string displayed under the panels.
 function __party_impl_draw_right_content(_P, _M, _rightInfo, _RIGHT_W, _RIGHT_H, _S){
     var _rx1 = _rightInfo.rx1, _ry1 = _rightInfo.ry1, _rx2 = _rightInfo.rx2, _ry2 = _rightInfo.ry2;
     var _secondaryLine = "";

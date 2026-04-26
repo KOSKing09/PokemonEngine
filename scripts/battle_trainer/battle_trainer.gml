@@ -224,6 +224,7 @@ function battle_open_trainer(_pid, _trainer_data){
     battle_intro_set_handlers(_pid, __battle_trainer_intro_update, __battle_trainer_intro_draw);
 }
 
+// Queue or immediately show trainer-intro dialog text during the trainer intro sequence.
 function __battle_trainer_intro_show_dialog(_pid, _text){
     var txt = string(_text);
     if (string_length(txt) <= 0) return;
@@ -233,6 +234,7 @@ function __battle_trainer_intro_show_dialog(_pid, _text){
     } catch (e_show) {}
 }
 
+// Open the dialog system for the trainer intro sequence; sets up UI state.
 function __battle_trainer_intro_dialog_open(_pid){
     try {
         if (!is_undefined(dialog2p_is_open)) return dialog2p_is_open(_pid);
@@ -240,6 +242,7 @@ function __battle_trainer_intro_dialog_open(_pid){
     return false;
 }
 
+// Update tick for the trainer intro animation; advances timelines and dialog.
 function __battle_trainer_intro_update(_pid, _B){
     if (!is_struct(_B) || !variable_struct_exists(_B, "_trainer_intro")) return;
     var intro = variable_struct_get(_B, "_trainer_intro");
@@ -382,6 +385,7 @@ function __battle_trainer_intro_update(_pid, _B){
     }
 }
 
+// Draw the trainer intro cinematic (trainer sprite, throw animation, overlays).
 function __battle_trainer_intro_draw(_pid, _B){
     if (!is_struct(_B) || !variable_struct_exists(_B, "_trainer_intro")) return;
     var intro = variable_struct_get(_B, "_trainer_intro");
@@ -536,6 +540,7 @@ function __battle_trainer_intro_draw(_pid, _B){
     }
 }
 
+// Begin the victory slide animation after trainer defeat; schedules end states.
 function __battle_trainer_start_victory_slide(_pid){
     var _B = __battle_ensure_slot(_pid);
     if (!is_struct(_B)) return;
@@ -571,6 +576,7 @@ function __battle_trainer_start_victory_slide(_pid){
     try { variable_struct_set(_B, "_trainer_victory_slide", state); } catch (e_set) {}
 }
 
+// Update loop for the trainer victory animation (slide-out, rewards).
 function __battle_trainer_victory_update(_pid, _B){
     if (!is_struct(_B)) _B = __battle_ensure_slot(_pid);
     if (!is_struct(_B) || !variable_struct_exists(_B, "_trainer_victory_slide")) return;
@@ -593,6 +599,7 @@ function __battle_trainer_victory_update(_pid, _B){
     }
 }
 
+// Draw elements for the victory slide (trainer leaving, UI overlays).
 function __battle_trainer_draw_victory(_pid, _B){
     if (!is_struct(_B)) _B = __battle_ensure_slot(_pid);
     if (!is_struct(_B) || !variable_struct_exists(_B, "_trainer_victory_slide")) return;

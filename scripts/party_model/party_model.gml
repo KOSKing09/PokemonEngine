@@ -1,7 +1,9 @@
 // Party model: data-only helpers for party manipulation and queries.
 // Keep this file free of UI, drawing, or input state.
 
-// Return the mons array for a pid, or empty array
+// Return the mons array for a player id, or an empty array when missing.
+// Params: _pid (int)
+// Returns: array of mon structs (may be empty)
 function party_model_get_mons(_pid){
     if (variable_global_exists("PARTY") && is_array(global.PARTY) && array_length(global.PARTY) > _pid){
         var _p = global.PARTY[_pid];
@@ -10,7 +12,9 @@ function party_model_get_mons(_pid){
     return [];
 }
 
-// Safe accessor: get mon struct at index (returns undefined if missing)
+// Safe accessor: return mon struct at `_index` for `_pid`, or undefined.
+// Params: _pid (int), _index (int)
+// Returns: mon struct or undefined
 function party_model_get_mon(_pid, _index){
     var _mons = party_model_get_mons(_pid);
     if (!is_array(_mons)) return undefined;
@@ -18,7 +22,9 @@ function party_model_get_mon(_pid, _index){
     return _mons[_index];
 }
 
-// Add a mon to the end of the party. Returns new index or -1 on failure
+// Add a mon to the end of the specified player's party.
+// Normalizes HP fields and ensures party container exists.
+// Returns: new index (int) or -1 on failure.
 function party_model_add_mon(_pid, _mon){
     if (is_undefined(_mon)) return -1;
     if (!variable_global_exists("PARTY")) global.PARTY = [];
@@ -31,13 +37,30 @@ function party_model_add_mon(_pid, _mon){
     }
     if (!variable_struct_exists(_P,"mons") || !is_array(_P.mons)) _P.mons = [];
     var _mons = _P.mons;
+    // Normalize HP fields to avoid hp_max < current HP issues
+    if (is_struct(_mon)){
+        var cur_hp = 0;
+        if (variable_struct_exists(_mon, "hp_now") && is_real(variable_struct_get(_mon, "hp_now"))) cur_hp = variable_struct_get(_mon, "hp_now");
+        else if (variable_struct_exists(_mon, "hp") && is_real(variable_struct_get(_mon, "hp"))) cur_hp = variable_struct_get(_mon, "hp");
+        var cur_max = undefined;
+        if (variable_struct_exists(_mon, "hp_max") && is_real(variable_struct_get(_mon, "hp_max"))) cur_max = variable_struct_get(_mon, "hp_max");
+        else if (variable_struct_exists(_mon, "maxhp") && is_real(variable_struct_get(_mon, "maxhp"))) cur_max = variable_struct_get(_mon, "maxhp");
+        var final_max = max(1, max(cur_hp, (is_real(cur_max) ? cur_max : 0)));
+        variable_struct_set(_mon, "hp_max", final_max);
+        variable_struct_set(_mon, "maxhp", final_max);
+        // Ensure canonical current hp fields exist
+        if (!variable_struct_exists(_mon, "hp_now") && variable_struct_exists(_mon, "hp")) variable_struct_set(_mon, "hp_now", variable_struct_get(_mon, "hp"));
+        if (!variable_struct_exists(_mon, "hp") && variable_struct_exists(_mon, "hp_now")) variable_struct_set(_mon, "hp", variable_struct_get(_mon, "hp_now"));
+    }
     array_push(_mons, _mon);
+    // ensure global.PARTY updated below
     _P.mons = _mons;
     global.PARTY[_pid] = _P;
     return array_length(_mons) - 1;
 }
 
-// Remove a mon by index. Returns true if removed.
+// Remove a mon at `_index` from player's party. Returns true on success.
+// Params: _pid (int), _index (int)
 function party_model_remove_mon(_pid, _index){
     var _mons = party_model_get_mons(_pid);
     if (!is_array(_mons)) return false;
@@ -49,7 +72,8 @@ function party_model_remove_mon(_pid, _index){
     return true;
 }
 
-// Swap two indices. Returns true if successful.
+// Swap two party slots by index. Returns true when swap succeeds.
+// Preserves struct references to avoid breaking external refs.
 function party_model_swap(_pid, _i, _j){
     var _mons = party_model_get_mons(_pid);
     if (!is_array(_mons)) return false;
@@ -60,7 +84,8 @@ function party_model_swap(_pid, _i, _j){
     return true;
 }
 
-// Find next alive (hp > 0) starting after startIndex. Returns index or -1.
+// Find the next alive (hp > 0) party index after `_startIndex`.
+// Returns index (int) or -1 if none found.
 function party_model_find_next_alive(_pid, _startIndex){
     var _mons = party_model_get_mons(_pid);
     var _n = array_length(_mons);
@@ -77,7 +102,8 @@ function party_model_find_next_alive(_pid, _startIndex){
     return -1;
 }
 
-// Ensure OT/idno on a mon (mutates). Returns mon.
+// Ensure `ot` (original trainer name) and `idno` exist on `_mon`.
+// Mutates `_mon` in-place and returns it.
 function party_model_ensure_ot_idno(_mon, _pid, _slot){
     if (!is_struct(_mon)) return _mon;
     if (!variable_struct_exists(_mon, "ot")){
@@ -97,7 +123,8 @@ function party_model_ensure_ot_idno(_mon, _pid, _slot){
     return _mon;
 }
 
-// Helper: shallow copy a mon struct (to avoid accidental shared refs)
+// Shallow-copy a mon struct into a new struct to avoid shared references.
+// Returns a new struct or the original value if not a struct.
 function party_model_copy_mon(_mon){
     if (!is_struct(_mon)) return _mon;
     var out = {};
@@ -111,9 +138,10 @@ function party_model_copy_mon(_mon){
     return out;
 }
 
-// Update/replace a mon struct at index in the party. Ensures the party
-// container exists and writes the struct back in a single place.
-// Returns true on success, false on failure.
+// Update or replace a mon struct at `_index` in the given player's party.
+// Preserves existing slot object where possible (in-place field copy).
+// Performs defensive normalization (hp_max >= current hp).
+// Returns: true on success, false on failure.
 function party_model_update_mon(_pid, _index, _mon){
     if (!is_struct(_mon)) return false;
     if (!variable_global_exists("PARTY")) global.PARTY = [];
@@ -157,6 +185,22 @@ function party_model_update_mon(_pid, _index, _mon){
     } else {
         _mons[_index] = _mon;
     }
+    // Defensive normalization: ensure hp_max >= current hp for this slot
+    if (_index >= 0 && _index < array_length(_mons) && is_struct(_mons[_index])){
+        var __m = _mons[_index];
+        var __cur = 0;
+        if (variable_struct_exists(__m, "hp_now") && is_real(variable_struct_get(__m, "hp_now"))) __cur = variable_struct_get(__m, "hp_now");
+        else if (variable_struct_exists(__m, "hp") && is_real(variable_struct_get(__m, "hp"))) __cur = variable_struct_get(__m, "hp");
+        var __mx = undefined;
+        if (variable_struct_exists(__m, "hp_max") && is_real(variable_struct_get(__m, "hp_max"))) __mx = variable_struct_get(__m, "hp_max");
+        else if (variable_struct_exists(__m, "maxhp") && is_real(variable_struct_get(__m, "maxhp"))) __mx = variable_struct_get(__m, "maxhp");
+        var __final = max(1, max(__cur, (is_real(__mx) ? __mx : 0)));
+        variable_struct_set(__m, "hp_max", __final);
+        variable_struct_set(__m, "maxhp", __final);
+        if (!variable_struct_exists(__m, "hp_now") && variable_struct_exists(__m, "hp")) variable_struct_set(__m, "hp_now", variable_struct_get(__m, "hp"));
+        if (!variable_struct_exists(__m, "hp") && variable_struct_exists(__m, "hp_now")) variable_struct_set(__m, "hp", variable_struct_get(__m, "hp_now"));
+        _mons[_index] = __m;
+    }
     _P.mons = _mons;
     global.PARTY[_pid] = _P;
     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
@@ -173,8 +217,8 @@ function party_model_update_mon(_pid, _index, _mon){
     return true;
 }
 
-// Move fainted mons (hp <= 0) to the end of the party array preserving relative order.
-// Returns true if any reorder occurred.
+// Move fainted mons (hp <= 0) to the end of the party array preserving order.
+// Returns true if the party ordering changed.
 function party_model_reorder_fainted_to_bottom(_pid){
     var _mons = party_model_get_mons(_pid);
     if (!is_array(_mons)) return false;

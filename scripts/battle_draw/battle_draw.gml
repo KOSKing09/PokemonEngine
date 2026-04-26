@@ -115,17 +115,25 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
     var drawScaleE = scale_foe * ui_s * __trainer_scale;
     // Compute a species-based vertical origin adjustment so small/large mons align with platform
     var species_adj_px_e = 0;
-    if (variable_struct_exists(mE, "species_id") && variable_global_exists("_pokemon") && is_array(global._pokemon)){
-        var _sid_e2 = variable_struct_get(mE, "species_id");
+    var species_height_m_e = undefined;
+    // Resolve species id from common fields (species_id preferred, fall back to species)
+    var _resolved_sid_e = undefined;
+    if (variable_struct_exists(mE, "species_id")) _resolved_sid_e = variable_struct_get(mE, "species_id");
+    else if (variable_struct_exists(mE, "species")) _resolved_sid_e = variable_struct_get(mE, "species");
+    if (is_real(_resolved_sid_e) && variable_global_exists("_pokemon") && is_array(global._pokemon)){
+        var _sid_e2 = floor(_resolved_sid_e);
         if (is_real(_sid_e2) && _sid_e2 >= 0 && _sid_e2 < array_length(global._pokemon)){
             var _sp_e2 = global._pokemon[_sid_e2];
             if (is_struct(_sp_e2) && variable_struct_exists(_sp_e2, "height")){
                 var _height_dm_e2 = real(variable_struct_get(_sp_e2, "height"));
                 var _height_m_e2 = _height_dm_e2 * 0.1;
+                species_height_m_e = _height_m_e2;
                 var minH_e = 0.15; var maxH_e = 3.0;
                 var norm_e2 = clamp((_height_m_e2 - minH_e) / max(0.0001, (maxH_e - minH_e)), 0, 1);
-                var adj_px_e2 = lerp(0.12 * h, -0.02 * h, norm_e2);
-                species_adj_px_e = floor(adj_px_e2);
+                var adj_px_e2 = lerp(0.30 * h, -0.04 * h, norm_e2);
+                // increased extra nudge for the tiniest species to ensure they touch ground
+                var extra_nudge_e = floor(lerp(10, 0, norm_e2));
+                species_adj_px_e = floor(adj_px_e2) + extra_nudge_e;
             }
         }
     }
@@ -236,6 +244,13 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
     var origin_y_e = (is_undefined(sprE) || !sprite_exists(sprE)) ? (h * 0.5) : sprite_get_yoffset(sprE);
     // Apply species-origin adjustment computed earlier so visual feet/shadow align with platform
     origin_y_e = clamp(origin_y_e + species_adj_px_e, 0, h);
+    // If species is very small (physically), ensure origin sits very near bottom
+    try {
+        if (is_real(species_height_m_e) && species_height_m_e > 0 && species_height_m_e < 0.35){
+            var _bottom_margin = floor(0.12 * h);
+            origin_y_e = max(origin_y_e, h - _bottom_margin);
+        }
+    } catch (e_small_e) {}
     var draw_x = fx + (origin_x_e - (w * 0.5)) * drawScaleE;
     // Anchor sprite bottom to the platform bottom so different sprite origins/sizes align correctly
     var platform_bottom_local = base_fy + (h * scale_foe * ui_s) * 0.5;
@@ -255,10 +270,19 @@ function __battle_draw_enemy(_pid, _B, fx, fy){
                     if (variable_struct_exists(E, "types") && is_array(variable_struct_get(E, "types"))){ var _pta_e = variable_struct_get(E, "types"); for (var _tti_e=0; _tti_e<array_length(_pta_e); ++_tti_e) if (is_real(_pta_e[_tti_e]) && _pta_e[_tti_e] == _flying_id_e) { _is_grounded_e = false; break; } }
                     if (_is_grounded_e && variable_struct_exists(E, "type1") && is_real(variable_struct_get(E, "type1")) && variable_struct_get(E, "type1") == _flying_id_e) _is_grounded_e = false;
                     if (_is_grounded_e && variable_struct_exists(E, "type2") && is_real(variable_struct_get(E, "type2")) && variable_struct_get(E, "type2") == _flying_id_e) _is_grounded_e = false;
+                    // Also check the inner mon struct (mE) for stored type fields when actor-level fields are missing
+                    if (_is_grounded_e && is_struct(mE)){
+                        if (variable_struct_exists(mE, "types") && is_array(variable_struct_get(mE, "types"))){ var _mpta = variable_struct_get(mE, "types"); for (var _mmi=0; _mmi<array_length(_mpta); ++_mmi) if (is_real(_mpta[_mmi]) && _mpta[_mmi] == _flying_id_e){ _is_grounded_e = false; break; } }
+                        if (_is_grounded_e && variable_struct_exists(mE, "type1") && is_real(variable_struct_get(mE, "type1")) && variable_struct_get(mE, "type1") == _flying_id_e) _is_grounded_e = false;
+                        if (_is_grounded_e && variable_struct_exists(mE, "type2") && is_real(variable_struct_get(mE, "type2")) && variable_struct_get(mE, "type2") == _flying_id_e) _is_grounded_e = false;
+                    }
                     if (_is_grounded_e && variable_struct_exists(E, "mon") && is_struct(variable_struct_get(E, "mon")) && variable_global_exists("_species_types") && is_array(global._species_types)){
                         var _mref_e = variable_struct_get(E, "mon");
-                        if (variable_struct_exists(_mref_e, "species_id") && is_real(variable_struct_get(_mref_e, "species_id"))){
-                            var _sid_e = floor(variable_struct_get(_mref_e, "species_id"));
+                        var _resolved_sid_mref = undefined;
+                        if (variable_struct_exists(_mref_e, "species_id")) _resolved_sid_mref = variable_struct_get(_mref_e, "species_id");
+                        else if (variable_struct_exists(_mref_e, "species")) _resolved_sid_mref = variable_struct_get(_mref_e, "species");
+                        if (is_real(_resolved_sid_mref)){
+                            var _sid_e = floor(_resolved_sid_mref);
                             if (_sid_e >= 0 && _sid_e < array_length(global._species_types)){
                                 var _starr_e = global._species_types[_sid_e];
                                 if (is_array(_starr_e)) for (var _jj_e=0; _jj_e<array_length(_starr_e); ++_jj_e) if (is_real(_starr_e[_jj_e]) && _starr_e[_jj_e] == _flying_id_e) { _is_grounded_e = false; break; }
@@ -681,17 +705,32 @@ function __battle_draw_player(_pid, _B, mx, my, tx, ty){
     var origin_x_p = (is_undefined(sprP) || !sprite_exists(sprP)) ? (w * 0.5) : sprite_get_xoffset(sprP);
     var origin_y_p = (is_undefined(sprP) || !sprite_exists(sprP)) ? (h * 0.5) : sprite_get_yoffset(sprP);
     // Adjust player origin area based on species height to keep alignment with platform/shadow
-    if (variable_struct_exists(mP, "species_id") && variable_global_exists("_pokemon") && is_array(global._pokemon)){
-        var _sid_h_p = variable_struct_get(mP, "species_id");
+    var species_height_m_p = undefined;
+    var species_adj_px_p = 0;
+    var _resolved_sid_p = undefined;
+    if (variable_struct_exists(mP, "species_id")) _resolved_sid_p = variable_struct_get(mP, "species_id");
+    else if (variable_struct_exists(mP, "species")) _resolved_sid_p = variable_struct_get(mP, "species");
+    if (is_real(_resolved_sid_p) && variable_global_exists("_pokemon") && is_array(global._pokemon)){
+        var _sid_h_p = floor(_resolved_sid_p);
         if (is_real(_sid_h_p) && _sid_h_p >= 0 && _sid_h_p < array_length(global._pokemon)){
             var _sp_hp = global._pokemon[_sid_h_p];
             if (is_struct(_sp_hp) && variable_struct_exists(_sp_hp, "height")){
                 var _height_dm_p = real(variable_struct_get(_sp_hp, "height"));
                 var _height_m_p = _height_dm_p * 0.1;
+                species_height_m_p = _height_m_p;
                 var minH_p = 0.15; var maxH_p = 3.0;
                 var norm_p = clamp((_height_m_p - minH_p) / max(0.0001, (maxH_p - minH_p)), 0, 1);
-                var adj_px_p = lerp(0.12 * h, -0.02 * h, norm_p);
-                origin_y_p = clamp(origin_y_p + floor(adj_px_p), 0, h);
+                // player nudges are smaller to avoid shifting UI overlays
+                var adj_px_p = lerp(0.14 * h, -0.02 * h, norm_p);
+                var extra_nudge_p = floor(lerp(3, 0, norm_p));
+                species_adj_px_p = floor(adj_px_p) + extra_nudge_p;
+                origin_y_p = clamp(origin_y_p + species_adj_px_p, 0, h);
+                try {
+                    if (is_real(species_height_m_p) && species_height_m_p > 0 && species_height_m_p < 0.35){
+                        var _bottom_margin_p = floor(0.12 * h);
+                        origin_y_p = max(origin_y_p, h - _bottom_margin_p);
+                    }
+                } catch (e_sp_p) {}
             }
         }
     }
@@ -715,11 +754,20 @@ function __battle_draw_player(_pid, _B, mx, my, tx, ty){
                     if (variable_struct_exists(P, "types") && is_array(variable_struct_get(P, "types"))){ var _pta = variable_struct_get(P, "types"); for (var _tti2=0; _tti2<array_length(_pta); ++_tti2) if (is_real(_pta[_tti2]) && _pta[_tti2] == _flying_id_chk) { _is_grounded_p = false; break; } }
                     if (_is_grounded_p && variable_struct_exists(P, "type1") && is_real(variable_struct_get(P, "type1")) && variable_struct_get(P, "type1") == _flying_id_chk) _is_grounded_p = false;
                     if (_is_grounded_p && variable_struct_exists(P, "type2") && is_real(variable_struct_get(P, "type2")) && variable_struct_get(P, "type2") == _flying_id_chk) _is_grounded_p = false;
-                    // species-level lookup
+                    // also check inner mon struct (mP) for types
+                    if (_is_grounded_p && is_struct(mP)){
+                        if (variable_struct_exists(mP, "types") && is_array(variable_struct_get(mP, "types"))){ var _mpta2 = variable_struct_get(mP, "types"); for (var _ii=0; _ii<array_length(_mpta2); ++_ii) if (is_real(_mpta2[_ii]) && _mpta2[_ii] == _flying_id_chk) { _is_grounded_p = false; break; } }
+                        if (_is_grounded_p && variable_struct_exists(mP, "type1") && is_real(variable_struct_get(mP, "type1")) && variable_struct_get(mP, "type1") == _flying_id_chk) _is_grounded_p = false;
+                        if (_is_grounded_p && variable_struct_exists(mP, "type2") && is_real(variable_struct_get(mP, "type2")) && variable_struct_get(mP, "type2") == _flying_id_chk) _is_grounded_p = false;
+                    }
+                    // species-level lookup (support legacy `species` field in mon struct)
                     if (_is_grounded_p && variable_struct_exists(P, "mon") && is_struct(variable_struct_get(P, "mon")) && variable_global_exists("_species_types") && is_array(global._species_types)){
                         var _mref = variable_struct_get(P, "mon");
-                        if (variable_struct_exists(_mref, "species_id") && is_real(variable_struct_get(_mref, "species_id"))){
-                            var _sidchk = floor(variable_struct_get(_mref, "species_id"));
+                        var _resolved_sid_mref_p = undefined;
+                        if (variable_struct_exists(_mref, "species_id")) _resolved_sid_mref_p = variable_struct_get(_mref, "species_id");
+                        else if (variable_struct_exists(_mref, "species")) _resolved_sid_mref_p = variable_struct_get(_mref, "species");
+                        if (is_real(_resolved_sid_mref_p)){
+                            var _sidchk = floor(_resolved_sid_mref_p);
                             if (_sidchk >= 0 && _sidchk < array_length(global._species_types)){
                                 var _starr2 = global._species_types[_sidchk];
                                 if (is_array(_starr2)) for (var _jj2=0; _jj2<array_length(_starr2); ++_jj2) if (is_real(_starr2[_jj2]) && _starr2[_jj2] == _flying_id_chk) { _is_grounded_p = false; break; }

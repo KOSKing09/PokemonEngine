@@ -2,6 +2,8 @@
 
 #macro PARTY_NICKNAMES_ENABLED 1
 
+// Return the display name for a mon, preferring `nickname` then `name`,
+// falling back to species name via `scr_poke_name_by_id`.
 function __party_impl_mon_display_name(_mon) {
     if (is_undefined(_mon)) return "???";
     if (variable_struct_exists(_mon,"nickname") && is_string(_mon.nickname) && string_length(_mon.nickname) > 0) {
@@ -17,6 +19,8 @@ function __party_impl_mon_display_name(_mon) {
     return "???";
 }
 
+// Ensure that a mon struct has canonical `name` and `nickname` fields.
+// Mutates and returns the mon.
 function __party_impl_party_mon_ensure_name(_mon) {
     if (is_undefined(_mon)) return _mon;
     if (!variable_struct_exists(_mon,"nickname")) _mon.nickname = undefined;
@@ -29,6 +33,7 @@ function __party_impl_party_mon_ensure_name(_mon) {
     return _mon;
 }
 
+// Apply naming support (ensure names/nicknames) to all mons in player's party.
 function __party_impl_party_apply_name_support(_pid) {
     if (!PARTY_NICKNAMES_ENABLED) return;
     var __P = party_ensure(_pid);
@@ -45,6 +50,7 @@ function __party_impl_party_apply_name_support(_pid) {
     __P.mons = __mons;
 }
 
+// Set or clear a mon's nickname in the party. Returns true on success.
 function __party_impl_party_set_nickname(_pid, _index, _nick) {
     if (!PARTY_NICKNAMES_ENABLED) return false;
     var __P = party_ensure(_pid);
@@ -61,12 +67,14 @@ function __party_impl_party_set_nickname(_pid, _index, _nick) {
     return true;
 }
 
+// Ensure party naming support is applied and return the party struct.
 function __party_impl_party_ensure_named(_pid) {
     var __P = party_ensure(_pid);
     __party_impl_party_apply_name_support(_pid);
     return __P;
 }
 
+// Helper used by tests: apply name support for battle-prepared parties.
 function __party_impl_battle_test_prepare_names(_pid) {
     __party_impl_party_apply_name_support(_pid);
 }

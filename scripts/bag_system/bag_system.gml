@@ -382,14 +382,24 @@ function bag__use_item_on_self(_pid, _row){
     var flag_set = (is_struct(_rf) && variable_struct_exists(_rf, "flag_set")) ? variable_struct_get(_rf, "flag_set") : {};
     var usable_in_battle = (is_struct(_rf) && variable_struct_exists(_rf, "usable_in_battle")) ? variable_struct_get(_rf, "usable_in_battle") : false;
     var is_consumable_flagged = (is_struct(_rf) && variable_struct_exists(_rf, "is_consumable_flagged")) ? variable_struct_get(_rf, "is_consumable_flagged") : false;
+    var allow_out_of_battle = false; // local helper to permit out-of-battle flows for flagged items
 
-    // If flag map exists for this item and it explicitly lacks usable-in-battle, block use
-    // Exception: if item is marked consumable (e.g., potions) allow it to proceed so party selection can occur.
+    // If the item has explicit flags but isn't marked usable-in-battle, we used to block it here entirely.
+    // That made some items unusable outside battle when flag maps existed but didn't include a 'consumable' hint.
+    // Change: only block when we're currently *in* a battle. Outside battle, prefer to allow out-of-battle handlers
+    // (party selection / consumable application) so players can use items like Potions even if flags are incomplete.
     if (is_array(flag_arr) && array_length(flag_arr) > 0 && !usable_in_battle && !is_consumable_flagged && !recognized_party_consumable){
-        show_debug_message("[bag][debug] abort: item has flags but not usable_in_battle and not consumable (iid=" + string(iid) + ")");
-    out_txt += "\nYou can't use that here.";
-    try { dialog2p_show(_pid, out_txt); } catch (e_) {}
-        return false;
+        if (inBattle){
+            show_debug_message("[bag][debug] abort: item has flags but not usable_in_battle and not consumable (iid=" + string(iid) + ")");
+            out_txt += "\nYou can't use that here.";
+            try { dialog2p_show(_pid, out_txt); } catch (e_) {}
+            return false;
+        } else {
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[bag][debug] flagged item not usable_in_battle but not in battle — allowing out-of-battle handlers (iid=" + string(iid) + ")");
+            // Permit out-of-battle handling for flagged-but-not-usable items so players
+            // can still use consumables (Potions, Revives) even when flag maps are incomplete.
+            allow_out_of_battle = true;
+        }
     }
 
     // Debug: dump resolved flags and decision values when using an item
@@ -512,7 +522,7 @@ function bag__use_item_on_self(_pid, _row){
     }
 
     // Basic healing/status/PP items: defer to party selector when recognized
-    if ((usable_in_battle || is_consumable_flagged || (!is_array(flag_arr) || array_length(flag_arr) == 0) || recognized_party_consumable) && should_open_party){
+    if ((usable_in_battle || is_consumable_flagged || allow_out_of_battle || (!is_array(flag_arr) || array_length(flag_arr) == 0) || recognized_party_consumable) && should_open_party){
     // Instead of applying immediately to the active battler, open the party
     // selector so the player can choose which Pokémon to use the consumable on.
     var _b = bag_inventory_ensure(_pid);

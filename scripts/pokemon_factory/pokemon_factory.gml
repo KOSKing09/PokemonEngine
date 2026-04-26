@@ -393,6 +393,10 @@ function pokemon_factory_create(_sid, _level, _opts){
     try {
         if (!is_undefined(scr_compute_grounded_flag)) mon.grounded = scr_compute_grounded_flag(mon);
     } catch (e_gf) { /* ignore */ }
+    // Debug: report HP values assigned at creation when DATA_DEBUG enabled
+    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+        try { show_debug_message("[DATA_DEBUG][pokemon_factory_create] species=" + string(_s) + ", level=" + string(L) + ", hp=" + string(variable_struct_exists(mon,"hp") ? variable_struct_get(mon,"hp") : "<none>") + ", hp_max=" + string(variable_struct_exists(mon,"hp_max") ? variable_struct_get(mon,"hp_max") : "<none>")); } catch (e_dbg) {}
+    }
     return mon;
 }
 

@@ -1,6 +1,16 @@
-// Party input module: contains party_update (input/state transitions) separated from UI/draw/model.
-// Implementation function is named __party_impl_party_update and is invoked by the public party_update()
-
+// Party input module: contains party_update (input/state transitions)
+// separated from UI/draw/model.
+//
+// __party_impl_party_update responsibilities:
+// - Handle per-player party UI input and state transitions.
+// - Drive party-specific flows: list selection, per-mon menu, swapping,
+//   item give/use, move learn/forget flows, and summary screens.
+// - Coordinate with battle systems when the party was opened from a battle
+//   (swap/forced-swap flows) and with the bag system for give/use actions.
+//
+// Inputs/Effects:
+// - Reads global `PARTY`, bag state, and battle helpers.
+// - Mutates `global.PARTY[pid]` fields (mode, sel, mons, locks, pending structs).
 function __party_impl_party_update(){
     // Static-analysis aid: declare a dummy _P struct with expected fields inside
     // a dead branch so the runtime is unaffected but the analyzer recognizes
@@ -36,7 +46,18 @@ function __party_impl_party_update(){
             if (controls_pressed(_pid,"Run") && _P.lock == 0 && !_is_forced){ _P.open = false; _P.lock = 2; continue; }
         }
 
+        // Mode dispatch: each `case` handles input for a particular UI state.
+        // - "list": main party list view (navigation, open menu, quick-close).
+        // - "menu": per-mon menu (Summary / Swap/Switch / Item / Cancel).
+        // - "select": target selection for swapping a mon (in/out of battle).
+        // - "select_item": choosing a party target for a bag item (give/use).
+        // - "summary_profile": Pokemon profile screen (sprite, cry, info).
+        // - "summary_moves": moves panel with optional learn/forget interactions.
+        // - "summary_forget": forget/replace flow when learning a new move.
         switch (_P.mode){
+            // Main party list view. Navigation, open menu or handle forced
+            // in-battle swap requests. `Interact` opens per-mon menu or
+            // selects the incoming mon when in forced swap mode.
             case "list":
                 if (controls_pressed(_pid,"MoveDown") && _n > 0) _P.sel = clamp(_P.sel + 1, 0, _n - 1);
                 if (controls_pressed(_pid,"MoveUp")   && _n > 0) _P.sel = clamp(_P.sel - 1, 0, _n - 1);
@@ -98,6 +119,10 @@ function __party_impl_party_update(){
                 }
             break;
 
+            // Per-mon menu. Presents actions for the selected Pokemon:
+            // Summary, Swap/Switch, Item, Cancel. Skips disabled entries
+            // (e.g., blanked Swap when appropriate) and preserves labels
+            // for in-battle swap contexts.
             case "menu":
                 // Compute effective menu labels (mirror draw logic) so movement skips disabled entries
                 var _swap_label_tmp = "Switch";
@@ -366,6 +391,8 @@ function __party_impl_party_update(){
                 }
             break;
 
+            // Selection mode: choose a replacement or swap target. Used
+            // both for in-battle swaps and local party reordering.
             case "select":
                 if (controls_pressed(_pid,"MoveDown") && _n > 0) _P.sel = clamp(_P.sel + 1, 0, _n - 1);
                 if (controls_pressed(_pid,"MoveUp")   && _n > 0) _P.sel = clamp(_P.sel - 1, 0, _n - 1);
@@ -456,6 +483,10 @@ function __party_impl_party_update(){
                 if (controls_pressed(_pid,"Run") && _P.lock == 0 && !(is_struct(_P) && variable_struct_exists(_P, "_battle_swap_mode_forced") && variable_struct_get(_P, "_battle_swap_mode_forced") == true)){ _P.mode="list"; _P.swap_index=-1; _P.lock=2; }
             break;
 
+            // Select a party target for an item (triggered from the Bag).
+            // Handles both `use_pending` (consumables) and `give_pending`
+            // (holdable items). Applies items immediately out-of-battle or
+            // delegates to battle handlers when used in-battle.
             case "select_item":
                 // navigation for select_item
                 if (controls_pressed(_pid,"MoveDown") && _n > 0) _P.sel = clamp(_P.sel + 1, 0, _n - 1);
@@ -696,6 +727,8 @@ function __party_impl_party_update(){
                 if (controls_pressed(_pid,"Run") && _P.lock == 0 && !_is_forced){ _P.mode = "list"; _P.lock = 2; _P.give_pending = undefined; }
             break;
 
+            // Profile summary screen. Handles sprite intro, cry playback,
+            // and description scrolling. `Run` returns to the list view.
             case "summary_profile":
                 // If a learn flow is active, interpret MoveRight as 'close learn' instead of moving selection
                 if (variable_struct_exists(_P, "learn_pending") && is_struct(variable_struct_get(_P, "learn_pending"))){
@@ -732,6 +765,9 @@ function __party_impl_party_update(){
                 if (controls_pressed(_pid,"Run") && _P.lock == 0 && !_is_forced){ _P.mode = "list"; _P.lock = 2; }
             break;
 
+            // Moves summary: shows current moves and learnable moves.
+            // Supports entering the learn/forget flow and blocks learning
+            // while a battle is active when appropriate.
             case "summary_moves":
                 var _M  = __party_mon_get(_P, _pid);
                 var _mv = (is_struct(_M) && variable_struct_exists(_M,"moves")) ? variable_struct_get(_M, "moves") : [];
@@ -895,6 +931,8 @@ function __party_impl_party_update(){
                 if (controls_pressed(_pid,"Run") && _P.lock == 0 && !(is_struct(_P) && variable_struct_exists(_P, "_battle_swap_mode_forced") && variable_struct_get(_P, "_battle_swap_mode_forced") == true)){ _P.mode = "summary_profile"; _P.lock = 2; }
             break;
 
+            // Forget/replace flow when learning a move. Presents the
+            // current moves and lets the player pick a slot to forget.
             case "summary_forget":
                 var _M2  = __party_mon_get(_P, _pid);
                 var _mv2 = (is_struct(_M2) && variable_struct_exists(_M2,"moves")) ? variable_struct_get(_M2, "moves") : [];

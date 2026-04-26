@@ -14,6 +14,9 @@ globalvar PARTY;
 globalvar sys_party_desc_scroll_req;
 
 // Implementations for swap helpers (moved here so they are declared early).
+// Set the party's swap mode flags used by battle code when opening the party.
+// Params: _pid (int), _swap (bool), _forced (bool)
+// Effects: sets `_battle_swap_mode` and `_battle_swap_mode_forced` on the party struct.
 function party_set_swap_mode_impl(_pid, _swap, _forced){
     if (!variable_global_exists("PARTY")) return;
     if (!is_array(global.PARTY)) return;
@@ -32,6 +35,7 @@ function party_set_swap_mode_impl(_pid, _swap, _forced){
     } catch (e) {}
 }
 
+// Clear any battle swap-mode flags on the party for `_pid`.
 function party_clear_swap_mode_impl(_pid){
     if (!variable_global_exists("PARTY")) return;
     if (!is_array(global.PARTY)) return;
@@ -79,6 +83,7 @@ function __party_draw_shiny_sparkle(_x,_y,_S,_seed){
 // (removed) party__recompute_input_lock
 // (removed) party_is_input_locked
 // ---------- Basic queries / toggles ----------
+// Return whether the party UI is currently open for player `_pid`.
 function party_is_open(_pid){
     if (!variable_global_exists("PARTY")) return false;
     if (!is_array(global.PARTY)) return false;
@@ -88,6 +93,8 @@ function party_is_open(_pid){
     if (!variable_struct_exists(_P,"open")) return false;
     return _P.open;
 }
+// Open the party UI for `_pid` and initialize UI state (mode, sel, locks).
+// Also reorders fainted mons to the bottom and clears transient swap flags.
 function party_open(_pid){
     if (!variable_global_exists("PARTY")) return;
     if (!is_array(global.PARTY)) return;
@@ -114,6 +121,7 @@ function party_open(_pid){
         show_debug_message("[party_system] party_open pid=" + string(_pid) + ", _battle_swap_mode=" + string(_bm_val) + ", _battle_swap_mode_forced=" + string(_bf_val));
     }
 }
+// Close the party UI for `_pid` and clear transient pending open flags.
 function party_close(_pid){
     if (!variable_global_exists("PARTY")) return;
     if (!is_array(global.PARTY)) return;
@@ -121,6 +129,17 @@ function party_close(_pid){
     var _P = global.PARTY[_pid];
     if (!is_struct(_P)) return;
     _P.open = false;
+    // If a battle slot has a pending open-party flag for this pid, clear it now
+    try {
+        if (!is_undefined(__battle_ensure_slot)){
+            var __Btmp = __battle_ensure_slot(_pid);
+            if (is_struct(__Btmp)){
+                if (variable_struct_exists(__Btmp, "_pending_open_party") && variable_struct_get(__Btmp, "_pending_open_party")) variable_struct_set(__Btmp, "_pending_open_party", false);
+                if (variable_struct_exists(__Btmp, "_pending_open_party_next_mon_ref")) variable_struct_set(__Btmp, "_pending_open_party_next_mon_ref", undefined);
+                if (variable_struct_exists(__Btmp, "_pending_open_party_delay_until")) variable_struct_set(__Btmp, "_pending_open_party_delay_until", undefined);
+            }
+        }
+    } catch (e_clear_pending) {}
     // Clear battle swap marker when closing so next open is normal, but preserve
     // the marker if a battle is still active for this player. This prevents
     // the Swap label from disappearing when the party is closed while the
@@ -137,6 +156,7 @@ function party_close(_pid){
         }
     }
 }
+// Toggle the party UI open/closed state for `_pid`.
 function party_toggle(_pid){
     if (!variable_global_exists("PARTY")) return;
     if (!is_array(global.PARTY)) return;
@@ -157,6 +177,7 @@ function party_toggle(_pid){
 }
 
 // ---------- Initialization / ensure ----------
+// Initialize global `PARTY` array for the configured number of players.
 function party_init(){
     if (!variable_global_exists("PARTY")) global.PARTY = [];
     var _players = 1;
@@ -171,6 +192,7 @@ function party_init(){
         }
     }
 }
+// Ensure and return a canonical party struct for `_pid`, creating defaults if missing.
 function party_ensure(_pid){
     if (!variable_global_exists("PARTY")) global.PARTY = [];
     if (!is_array(global.PARTY)) global.PARTY = [];
@@ -403,7 +425,10 @@ function party_update(){
     // Prioritize learn UI input only when the learn LIST is active
     // (prevents a stale learn_pending struct from intercepting input when
     // the player merely navigates to the moves summary).
-    if (!is_undefined(__party_input_learn)){
+        // Main per-frame party input/update entry. Delegates to the learn-input
+        // handler when the learn LIST is active, otherwise forwards to the
+        // modular `__party_impl_party_update` implementation.
+        if (!is_undefined(__party_input_learn)){
         if (party_is_open(0)){
             var _P = party_ensure(0);
             if (variable_struct_exists(_P, "learn_pending") && is_struct(variable_struct_get(_P, "learn_pending"))){
@@ -431,7 +456,12 @@ function party_update(){
 function party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     // Forward to modular implementation in party_draw.gml when available.
     // Support either the canonical implementation name or the historical alias.
-    if (!is_undefined(__party_impl_party_draw_gui_rect)) { __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh); return; }
+        // Draw the party UI into the provided GUI rectangle. Forwards to
+        // `__party_impl_party_draw_gui_rect` when available.
+        if (!is_undefined(__party_impl_party_draw_gui_rect)) { 
+            __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh); 
+            return; 
+        }
     // No implementation present: fallback is a no-op to avoid compile/runtime errors.
     return;
 }
