@@ -502,16 +502,20 @@ function __party_impl_party_update(){
                     if (!is_undefined(up) && is_struct(up)){
                         var bpid = variable_struct_exists(up, "bag_pid") ? variable_struct_get(up, "bag_pid") : -1;
                         var item_id = variable_struct_exists(up, "item_id") ? variable_struct_get(up, "item_id") : -1;
+                        var _battle_open_for_item = (!is_undefined(battle_is_open) && battle_is_open(_pid));
                         // Ensure the bag data is present
                         if (bpid >= 0){
                             var _b = bag_inventory_ensure(bpid);
                             // Apply healing: simple default behavior mirrors bag__use_item_on_self default heal
                             var target = _P.mons[_P.sel]; if (!is_struct(target)) target = _P.mons[_P.sel] = {};
+                            var target_mon = _P.mons[_P.sel]; if (!is_struct(target_mon)) target_mon = _P.mons[_P.sel] = {};
+                            var A0 = undefined;
+                            var res = undefined;
                             // Find battle slot and actor to mirror HP if in battle
-                            if (!is_undefined(__battle_ensure_slot) && !is_undefined(battle_is_open) && battle_is_open(_pid)){
+                            if (!is_undefined(__battle_ensure_slot) && _battle_open_for_item){
                                 var _B = __battle_ensure_slot(_pid);
                                 if (is_struct(_B)){
-                                    var A0 = (is_array(_B.actor) && array_length(_B.actor) > 0) ? _B.actor[0] : undefined;
+                                    A0 = (is_array(_B.actor) && array_length(_B.actor) > 0) ? _B.actor[0] : undefined;
                                     // Close the party UI so the dialog can appear unobstructed, then show the
                                     // standard "Trainer used an item" dialog (if provided by bag)
                                     if (!is_undefined(party_close)) party_close(_pid);
@@ -539,46 +543,54 @@ function __party_impl_party_update(){
                                         }
                                     }
                                     // Apply structured effects from data loaders
-                                    var target_mon = _P.mons[_P.sel]; if (!is_struct(target_mon)) target_mon = _P.mons[_P.sel] = {};
-                                    var res = undefined;
                                     if (!is_undefined(scr_apply_item_effects)) res = scr_apply_item_effects(item_id, target_mon, A0);
                                     else res = { applied:false };
-                                    if (is_struct(res) && res.applied){
-                                        // Remove item and refresh bag
-                                        bag_inventory_remove_item(bpid, item_id, 1);
-                                        bags_seed_from_items(bpid);
-                                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
-                                            var _healed_val = "0";
-                                            if (is_struct(res) && variable_struct_exists(res, "healed")) _healed_val = string(variable_struct_get(res, "healed"));
-                                            var _pp_val = "0";
-                                            if (is_struct(res) && variable_struct_exists(res, "pp_restored")) _pp_val = string(variable_struct_get(res, "pp_restored"));
-                                            show_debug_message("[party][debug] scr_apply_item_effects result: " + string((is_struct(res) && variable_struct_exists(res, "applied")) ? string(variable_struct_get(res, "applied")) : "false") + ", healed=" + _healed_val + ", pp=" + _pp_val);
-                                        }
-                                        // enqueue effect details if provided
-                                        if (is_struct(res) && variable_struct_exists(res, "messages") && is_array(variable_struct_get(res, "messages"))){
-                                            var _msgs = variable_struct_get(res, "messages");
-                                            var _detail = "";
-                                            for (var _mi = 0; _mi < array_length(_msgs); ++_mi){
-                                                var _msg = string_trim(string(_msgs[_mi]));
-                                                if (string_length(_msg) == 0) continue;
-                                                if (string_length(_detail) > 0) _detail += "\n";
-                                                _detail += _msg;
-                                            }
-                                            if (string_length(_detail) > 0){
-                                                var _enqueued = false;
-                                                try { dialog2p_enqueue(_pid, _detail); _enqueued = true; } catch (e_msgq) {}
-                                                if (!_enqueued){ try { dialog2p_show_now(_pid, _detail); } catch (e_msgn) {} }
-                                            }
-                                        }
-                                    } else if (is_struct(res)){
-                                        var _no_effect = "But it had no effect!";
-                                        var _queued = false;
-                                        try { dialog2p_enqueue(_pid, _no_effect); _queued = true; } catch (e_noq) {}
-                                        if (!_queued){ try { dialog2p_show_now(_pid, _no_effect); } catch (e_non) {} }
-                                    }
                                 }
                                 // Reopen/close bag briefly so UI state remains consistent
                                 bag_open(bpid); bag_close(bpid);
+                            }
+
+                            // Outside battle, the target selection flow still needs to apply the
+                            // item here. Previously only the in-battle branch called the item-effect
+                            // resolver, so out-of-battle use_pending silently cleared itself.
+                            if (!_battle_open_for_item){
+                                if (!is_undefined(scr_apply_item_effects)) res = scr_apply_item_effects(item_id, target_mon, undefined);
+                                else res = { applied:false };
+                                if (!is_undefined(party_close)) party_close(_pid);
+                            }
+
+                            if (is_struct(res) && res.applied){
+                                // Remove item and refresh bag
+                                bag_inventory_remove_item(bpid, item_id, 1);
+                                bags_seed_from_items(bpid);
+                                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                                    var _healed_val = "0";
+                                    if (is_struct(res) && variable_struct_exists(res, "healed")) _healed_val = string(variable_struct_get(res, "healed"));
+                                    var _pp_val = "0";
+                                    if (is_struct(res) && variable_struct_exists(res, "pp_restored")) _pp_val = string(variable_struct_get(res, "pp_restored"));
+                                    show_debug_message("[party][debug] scr_apply_item_effects result: " + string((is_struct(res) && variable_struct_exists(res, "applied")) ? string(variable_struct_get(res, "applied")) : "false") + ", healed=" + _healed_val + ", pp=" + _pp_val);
+                                }
+                                // enqueue effect details if provided
+                                if (is_struct(res) && variable_struct_exists(res, "messages") && is_array(variable_struct_get(res, "messages"))){
+                                    var _msgs = variable_struct_get(res, "messages");
+                                    var _detail = "";
+                                    for (var _mi = 0; _mi < array_length(_msgs); ++_mi){
+                                        var _msg = string_trim(string(_msgs[_mi]));
+                                        if (string_length(_msg) == 0) continue;
+                                        if (string_length(_detail) > 0) _detail += "\n";
+                                        _detail += _msg;
+                                    }
+                                    if (string_length(_detail) > 0){
+                                        var _enqueued = false;
+                                        try { dialog2p_enqueue(_pid, _detail); _enqueued = true; } catch (e_msgq) {}
+                                        if (!_enqueued){ try { dialog2p_show_now(_pid, _detail); } catch (e_msgn) {} }
+                                    }
+                                }
+                            } else if (is_struct(res)){
+                                var _no_effect = "But it had no effect!";
+                                var _queued = false;
+                                try { dialog2p_enqueue(_pid, _no_effect); _queued = true; } catch (e_noq) {}
+                                if (!_queued){ try { dialog2p_show_now(_pid, _no_effect); } catch (e_non) {} }
                             }
 
                             // Debug: report that the use was applied and whether we queued an enemy action
@@ -590,7 +602,7 @@ function __party_impl_party_update(){
                         _P.mode = "list"; _P.lock = 2;
 
                         // After consuming an item in battle, allow the enemy to take their turn.
-                        if (!is_undefined(__battle_ensure_slot)){
+                        if (_battle_open_for_item && !is_undefined(__battle_ensure_slot)){
                             var _B2 = __battle_ensure_slot(_pid);
                             if (is_struct(_B2)){
                                 // No player action this turn (item use consumes player's action)

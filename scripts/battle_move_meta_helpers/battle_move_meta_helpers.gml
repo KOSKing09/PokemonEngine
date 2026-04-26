@@ -442,6 +442,44 @@ if (is_undefined(__battle_apply_move_meta_effects)){
 
                 // Helper: map stat id -> stage key (same as later loop)
                 function __stat_key_by_id_local(_id){ switch(floor(_id)){ case 1: return "hp"; case 2: return "atk"; case 3: return "def"; case 4: return "spa"; case 5: return "spd"; case 6: return "spe"; case 7: return "accuracy"; case 8: return "evasion"; } return undefined; }
+                function __stat_label_by_key_local(_key){
+                    switch(string_lower(string(_key))){
+                        case "hp": return "HP";
+                        case "atk": return "ATK";
+                        case "def": return "DEF";
+                        case "spa": return "SPA";
+                        case "spd": return "SPD";
+                        case "spe": return "SPE";
+                        case "accuracy": return "ACCURACY";
+                        case "evasion": return "EVASION";
+                    }
+                    return "STAT";
+                }
+                function __stat_target_ref_local(_actor){
+                    if (is_struct(_actor) && variable_struct_exists(_actor, "mon") && is_struct(variable_struct_get(_actor, "mon"))) return variable_struct_get(_actor, "mon");
+                    return _actor;
+                }
+                function __stat_actor_name_local(_actor){
+                    var _target_ref = __stat_target_ref_local(_actor);
+                    try {
+                        if (!is_undefined(__status_mon_display_name)){
+                            var _display = __status_mon_display_name(_target_ref);
+                            if (is_string(_display) && string_length(_display) > 0) return _display;
+                        }
+                    } catch (e_stat_name) {}
+                    if (is_struct(_actor) && variable_struct_exists(_actor, "name") && is_string(variable_struct_get(_actor, "name")) && string_length(variable_struct_get(_actor, "name")) > 0) return variable_struct_get(_actor, "name");
+                    return "The Pokemon";
+                }
+                function __stat_change_dialog_text_local(_actor, _stat_key, _applied_delta, _requested_delta){
+                    var _actor_name = __stat_actor_name_local(_actor);
+                    var _stat_label = __stat_label_by_key_local(_stat_key);
+                    if (_applied_delta == 0){
+                        var _blocked_lower = (is_real(_requested_delta) && _requested_delta < 0);
+                        return string(_actor_name) + "'s " + string(_stat_label) + (_blocked_lower ? " won't go any lower!" : " won't go any higher!");
+                    }
+                    var _sign = (_applied_delta > 0) ? ("+" + string(_applied_delta)) : string(_applied_delta);
+                    return string(_actor_name) + " " + string(_stat_label) + " " + string(_sign);
+                }
 
                 // Helper: apply a list of stat_changes (array of {stat_id,change}) to a single actor
                 function __apply_stat_changes_to_actor(_pid_local, _actor, _actor_idx, _sc_array){
@@ -458,11 +496,8 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                         try { __battle_request_animation_safe(_pid_local, { type: "stat_change", target_index: _actor_idx, stat: _sk2, from: _prev, to: _next }); } catch (e_reqg) {}
                         // Note: SFX for stat changes is played when the dialog is shown; do not play here.
                         try {
-                            var _an = (variable_struct_exists(_actor, "name") ? variable_struct_get(_actor, "name") : "The Pokémon");
-                            var _ap = _delta_stage; var _sign = (_ap > 0) ? ("+" + string(_ap)) : string(_ap);
-                            var _scm = "";
-                            if (_ap == 0) _scm = string(_an) + "'s " + string_upper(string(_sk2)) + " won't go any higher!"; else _scm = string(_an) + " " + string_upper(string(_sk2)) + " " + string(_sign);
-                            var _tref = _actor; if (is_struct(_actor) && variable_struct_exists(_actor, "mon") && is_struct(variable_struct_get(_actor, "mon"))) _tref = variable_struct_get(_actor, "mon");
+                            var _scm = __stat_change_dialog_text_local(_actor, _sk2, _delta_stage, _chg2);
+                            var _tref = __stat_target_ref_local(_actor);
                             if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_tref, _scm, false);
                         } catch (e_msgg) {}
                         try { var _B3 = __battle_ensure_slot(_pid_local); if (is_struct(_B3)) variable_struct_set(_B3, "_meta_effect_applied", true); } catch (e_b3) {}
@@ -1242,12 +1277,8 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                         try { __battle_request_animation_safe(_pid, { type: "stat_change", target_index: variable_struct_exists(_A, "actor_index") ? variable_struct_get(_A, "actor_index") : (variable_struct_exists(_A, "slot") ? variable_struct_get(_A, "slot") : undefined), stat: sk, from: prev, to: next }); } catch (e_req) {}
                         // Note: SFX for stat changes is played when the dialog is shown; do not play here.
                         try {
-                            var aname = (variable_struct_exists(_A, "name") ? variable_struct_get(_A, "name") : "The Pokémon");
-                            var sign_amt = (applied_amt > 0) ? ("+" + string(applied_amt)) : string(applied_amt);
-                            var sc_msg = "";
-                            if (applied_amt == 0) sc_msg = string(aname) + "'s " + string_upper(string(sk)) + " won't go any higher!";
-                            else sc_msg = string(aname) + " " + string_upper(string(sk)) + " " + string(sign_amt);
-                            var _target_mon_ref = _A; if (is_struct(_A) && variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon"))) _target_mon_ref = variable_struct_get(_A, "mon");
+                            var sc_msg = __stat_change_dialog_text_local(_A, sk, applied_amt, change);
+                            var _target_mon_ref = __stat_target_ref_local(_A);
                             if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_target_mon_ref, sc_msg, false);
                         } catch (e_msg) {}
                         try { var _B2 = __battle_ensure_slot(_pid); if (is_struct(_B2)) variable_struct_set(_B2, "_meta_effect_applied", true); } catch (e_b2) {}

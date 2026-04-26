@@ -284,7 +284,7 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         }
         draw_text(_ix1 + 6*_S, _iy1 + 20*_S, "Nature: " + _nature_txt);
 
-        var _hp_cur = 0; if (is_struct(_L)){ if (variable_struct_exists(_L,"hp")) _hp_cur = _L.hp; else if (variable_struct_exists(_L,"HP")) _hp_cur = _L.HP; }
+        var _hp_cur = 0; if (is_struct(_L)){ if (variable_struct_exists(_L,"hp_now")) _hp_cur = _L.hp_now; else if (variable_struct_exists(_L,"hp")) _hp_cur = _L.hp; else if (variable_struct_exists(_L,"HP")) _hp_cur = _L.HP; }
         var _hp_max = 1; if (is_struct(_L)){ if (variable_struct_exists(_L,"maxhp")) _hp_max = _L.maxhp; else if (variable_struct_exists(_L,"hp_max")) _hp_max = _L.hp_max; }
         if (!is_real(_hp_max) || _hp_max <= 0) _hp_max = max(1, _hp_cur);
 

@@ -738,6 +738,101 @@ function __battle_weight_to_kg_impl(_raw){
     return r / 10.0;
 }
 
+function __battle_find_pid_by_slot_impl(_B){
+    if (variable_global_exists("sys_battles") && is_array(global.sys_battles)){
+        for (var _i = 0; _i < array_length(global.sys_battles); _i++){
+            if (global.sys_battles[_i] == _B) return _i;
+        }
+    }
+    return 0;
+}
+
+function __battle_prepare_caught_mon_impl(_pid, _caught){
+    if (!is_struct(_caught)) return _caught;
+
+    var growth_id = undefined;
+    if (variable_struct_exists(_caught, "growth_id") && is_real(variable_struct_get(_caught, "growth_id"))) growth_id = variable_struct_get(_caught, "growth_id");
+    else if (variable_struct_exists(_caught, "growth") && is_real(variable_struct_get(_caught, "growth"))) growth_id = variable_struct_get(_caught, "growth");
+    else if (variable_struct_exists(_caught, "growth_rate_id") && is_real(variable_struct_get(_caught, "growth_rate_id"))) growth_id = variable_struct_get(_caught, "growth_rate_id");
+
+    var lvl = 1;
+    if (variable_struct_exists(_caught, "level") && is_real(variable_struct_get(_caught, "level"))) lvl = floor(variable_struct_get(_caught, "level"));
+    else if (variable_struct_exists(_caught, "lvl") && is_real(variable_struct_get(_caught, "lvl"))) lvl = floor(variable_struct_get(_caught, "lvl"));
+
+    if (!is_undefined(scr_get_exp_for_level) && is_real(growth_id)){
+        var cur_exp = scr_get_exp_for_level(growth_id, lvl);
+        if (is_real(cur_exp) && cur_exp >= 0) variable_struct_set(_caught, "exp", cur_exp);
+        var next_exp = scr_get_exp_for_level(growth_id, min(100, lvl + 1));
+        if (is_real(next_exp) && next_exp > 0) variable_struct_set(_caught, "exp_next", next_exp);
+    }
+    if (!variable_struct_exists(_caught, "exp")) variable_struct_set(_caught, "exp", 0);
+    if (!variable_struct_exists(_caught, "exp_next")) variable_struct_set(_caught, "exp_next", max(20, lvl * lvl * 2));
+    if (!variable_struct_exists(_caught, "pokeball_item_id") || !is_real(variable_struct_get(_caught, "pokeball_item_id")) || variable_struct_get(_caught, "pokeball_item_id") <= 0){
+        variable_struct_set(_caught, "pokeball_item_id", 4);
+    }
+    return _caught;
+}
+
+// Final catch handoff: normalize the caught mon, route it into party or PC
+// storage, and show the resolved destination in dialog. The item sprite path
+// stays item-id based here because the mon stores a canonical `pokeball_item_id`.
+function __battle_finalize_catch_impl(_B, _caught){
+    if (!is_struct(_B)) return { ok:false, location:"none" };
+
+    var _pid = __battle_find_pid_by_slot_impl(_B);
+    var _mon = __battle_prepare_caught_mon_impl(_pid, _caught);
+    var _store = { ok:false, location:"none", mon:_mon };
+    if (is_struct(_mon) && !is_undefined(party_model_store_caught_mon)) _store = party_model_store_caught_mon(_pid, _mon);
+
+    var _caught_name = "Pokemon";
+    if (is_struct(_mon) && variable_struct_exists(_mon, "name")) _caught_name = string(variable_struct_get(_mon, "name"));
+    else if (is_struct(_mon) && variable_struct_exists(_mon, "nickname") && string_length(string(variable_struct_get(_mon, "nickname"))) > 0) _caught_name = string(variable_struct_get(_mon, "nickname"));
+    else if (is_array(_B.actor) && array_length(_B.actor) > 1 && is_struct(_B.actor[1]) && variable_struct_exists(_B.actor[1], "name")) _caught_name = string(variable_struct_get(_B.actor[1], "name"));
+
+    var _msg = "Gotcha!\nYou caught " + _caught_name + "!";
+    if (is_struct(_store) && variable_struct_exists(_store, "ok") && _store.ok){
+        if (variable_struct_exists(_store, "location") && string(variable_struct_get(_store, "location")) == "pc"){
+            var _box_num = (variable_struct_exists(_store, "box_index") && is_real(variable_struct_get(_store, "box_index"))) ? floor(variable_struct_get(_store, "box_index")) + 1 : 1;
+            _msg += "\n" + _caught_name + " was sent to Box " + string(_box_num) + ".";
+        }
+    } else {
+        _msg += "\nStorage failed; the catch was not persisted.";
+    }
+
+    try {
+        if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, _msg);
+        else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, _msg, _msg, "any");
+    } catch (e_msg) {}
+
+    _B.result = "caught";
+    _B._pending_close = true;
+
+    try {
+        var _stop_res = (variable_struct_exists(_B, "_battle_music") ? variable_struct_get(_B, "_battle_music") : undefined);
+        var _bgm_handle = (variable_struct_exists(_B, "_bgm_handle") ? variable_struct_get(_B, "_bgm_handle") : undefined);
+        if (!is_undefined(audio_stop_sound)) audio_stop_sound(_stop_res);
+        else if (!is_undefined(_bgm_handle)) __battle_audio_stop_handle(_bgm_handle);
+        else if (!is_undefined(audio_stop_all)) audio_stop_all();
+    } catch (e_stop) {}
+    try { variable_struct_set(_B, "_bgm_handle", undefined); } catch (e_bgm_clear) {}
+    try {
+        var _def_music = (variable_struct_exists(_B, "_battle_defeated_music") ? variable_struct_get(_B, "_battle_defeated_music") : undefined);
+        if (!is_undefined(_def_music)){
+            var _def_handle = __battle_sound_play_safe(_def_music);
+            variable_struct_set(_B, "_defeated_handle", _def_handle);
+        }
+    } catch (e_defmusic) {}
+
+    if (variable_struct_exists(_B, "_catch_anim") && is_struct(variable_struct_get(_B, "_catch_anim"))){
+        var _A = variable_struct_get(_B, "_catch_anim");
+        variable_struct_set(_A, "phase", "caught");
+        variable_struct_set(_A, "phase_start", current_time);
+        variable_struct_set(_A, "persistent", true);
+        variable_struct_set(_B, "_catch_anim", _A);
+    }
+    return _store;
+}
+
 // Register impl functions into a global registry to allow battle_system.gml
 // to call them without requiring duplicate script definitions.
 function __battle_impls_register_all(){
@@ -753,8 +848,7 @@ function __battle_impls_register_all(){
         try { variable_struct_set(_reg, "__battle_move_name_impl", __battle_move_name_impl); } catch (e_reg) {}
         try { variable_struct_set(_reg, "__battle_move_power_impl", __battle_move_power_impl); } catch (e_reg) {}
         try { variable_struct_set(_reg, "__battle_entity_weight_impl", __battle_entity_weight_impl); } catch (e_reg) {}
-        // Optional finalize/catch hook (may be implemented elsewhere). Register a safe placeholder.
-        try { variable_struct_set(_reg, "__battle_finalize_catch", undefined); } catch (e_reg) {}
+        try { variable_struct_set(_reg, "__battle_finalize_catch", __battle_finalize_catch_impl); } catch (e_reg) {}
         // Proxy for __battle_perform_action_impl: will call the real impl if/when it's registered
         try {
             variable_struct_set(_reg, "__battle_perform_action_impl", function(_pid,_step){

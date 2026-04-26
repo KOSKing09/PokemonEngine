@@ -39,6 +39,10 @@ if (keyboard_check_pressed(vk_f1)){
 	}
 }
 
+if (keyboard_check_pressed(vk_f2)) {
+	test_trainer_battle_scenario();
+}
+
 // detect closing edge: if it was open last frame and now not
 if (!variable_instance_exists(id,"_dlg_was")) _dlg_was = false;
 var _now = dialog2p_is_open(pid);

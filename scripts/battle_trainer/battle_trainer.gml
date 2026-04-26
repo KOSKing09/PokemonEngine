@@ -217,6 +217,12 @@ function battle_open_trainer(_pid, _trainer_data){
         subimg: trainer_subimg,
         scale: trainer_scale,
         ball_sprite: ball_sprite,
+        ball_scale: ball_scale,
+        throw_duration: throw_duration,
+        throw_height: throw_height,
+        reveal_at: reveal_at,
+        throw_origin_x: throw_origin_x,
+        throw_origin_y: throw_origin_y,
         slide_return_duration: slide_out_duration
     };
     try { variable_struct_set(_B, "_trainer_info", trainer_info); } catch (e_info) {}

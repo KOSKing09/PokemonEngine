@@ -1573,6 +1573,11 @@ function battle_update(_pid){
         }
     }
 
+    var _trainer_switch_active = false;
+    try {
+        if (!is_undefined(__battle_trainer_update_switch_anim)) _trainer_switch_active = __battle_trainer_update_switch_anim(_pid);
+    } catch (e_tswitch) { _trainer_switch_active = false; }
+
     // Cutscene system: allow queued cutscenes to start and pause battle progression
     // when a cutscene is active. This mirrors how the Bag UI and catch animations
     // temporarily suspend battle logic.
@@ -1668,6 +1673,8 @@ function battle_update(_pid){
         _B._dlg_active = true;
         return;
     }
+
+    if (_trainer_switch_active) return;
 
     // If a dialog just closed
     if (variable_struct_exists(_B, "_dlg_active") && _B._dlg_active){
@@ -5307,8 +5314,145 @@ function __battle_trainer_schedule_next_mon(_pid, _next_idx){
         dialog_enqueued: false,
         message: string(trainer_name) + " sent out " + string(mon_name) + "!"
     };
+    if (__battle_dialog_debug_enabled()){
+        try { show_debug_message("[battle][trainer] schedule pending pid=" + string(_pid) + ", idx=" + string(_next_idx) + ", mon=" + string(mon_name)); } catch (e_dbg) {}
+    }
 
     try { variable_struct_set(_B, "_trainer_pending_send", pending); } catch (e_set) { return false; }
+    return true;
+}
+
+function __battle_trainer_start_switch_anim(_pid, _pending_actor, _pending_idx, _opts){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B)) return false;
+
+    var info = (variable_struct_exists(_B, "_trainer_info") ? variable_struct_get(_B, "_trainer_info") : undefined);
+    var throw_duration = 540;
+    var recall_duration = 220;
+    var materialize_duration = 180;
+    var throw_height = 52;
+    var throw_origin_x = 210;
+    var throw_origin_y = 72;
+    var ball_sprite = undefined;
+    var ball_scale = 0.75;
+    if (is_struct(info)){
+        if (variable_struct_exists(info, "throw_duration") && is_real(variable_struct_get(info, "throw_duration"))) throw_duration = max(120, real(variable_struct_get(info, "throw_duration")));
+        if (variable_struct_exists(info, "throw_height") && is_real(variable_struct_get(info, "throw_height"))) throw_height = max(8, real(variable_struct_get(info, "throw_height")));
+        if (variable_struct_exists(info, "throw_origin_x") && is_real(variable_struct_get(info, "throw_origin_x"))) throw_origin_x = real(variable_struct_get(info, "throw_origin_x"));
+        if (variable_struct_exists(info, "throw_origin_y") && is_real(variable_struct_get(info, "throw_origin_y"))) throw_origin_y = real(variable_struct_get(info, "throw_origin_y"));
+        if (variable_struct_exists(info, "ball_sprite")) ball_sprite = variable_struct_get(info, "ball_sprite");
+        if (variable_struct_exists(info, "ball_scale") && is_real(variable_struct_get(info, "ball_scale"))) ball_scale = max(0.1, real(variable_struct_get(info, "ball_scale")));
+    }
+
+    var recall = true;
+    var old_actor = undefined;
+    if (variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor"))){
+        var _actors_sw = variable_struct_get(_B, "actor");
+        if (array_length(_actors_sw) > 1) old_actor = _actors_sw[1];
+    }
+    if (is_struct(_opts)){
+        if (variable_struct_exists(_opts, "recall") && variable_struct_get(_opts, "recall") == false) recall = false;
+        if (variable_struct_exists(_opts, "recall_duration") && is_real(variable_struct_get(_opts, "recall_duration"))) recall_duration = max(0, real(variable_struct_get(_opts, "recall_duration")));
+    }
+
+    if (recall && is_struct(old_actor)){
+        var _old_hp = __battle_hp_now(old_actor);
+        if (!is_real(_old_hp) || _old_hp <= 0) recall = false;
+        try {
+            if (variable_struct_exists(old_actor, "fainted") && variable_struct_get(old_actor, "fainted") == true) recall = false;
+        } catch (e_old_fainted) {}
+    } else {
+        recall = false;
+    }
+
+    var anim = {
+        phase: (recall ? "recall" : "throw"),
+        phase_start_ms: current_time,
+        recall_duration: recall_duration,
+        throw_duration: throw_duration,
+        materialize_duration: materialize_duration,
+        throw_height: throw_height,
+        throw_origin_x: throw_origin_x,
+        throw_origin_y: throw_origin_y,
+        ball_sprite: ball_sprite,
+        ball_scale: ball_scale,
+        pending_actor: _pending_actor,
+        pending_idx: _pending_idx,
+        applied: false,
+        active: true
+    };
+    try { variable_struct_set(_B, "_trainer_switch", anim); } catch (e_anim) { return false; }
+    try {
+        var _anim_until = current_time + recall_duration + throw_duration + materialize_duration;
+        if (!variable_struct_exists(_B, "_suppress_sys_ui_until") || !is_real(variable_struct_get(_B, "_suppress_sys_ui_until")) || variable_struct_get(_B, "_suppress_sys_ui_until") < _anim_until){
+            variable_struct_set(_B, "_suppress_sys_ui_until", _anim_until);
+        }
+    } catch (e_sup_anim) {}
+    return true;
+}
+
+function __battle_trainer_update_switch_anim(_pid){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !variable_struct_exists(_B, "_trainer_switch")) return false;
+    var anim = variable_struct_get(_B, "_trainer_switch");
+    if (!is_struct(anim)) return false;
+
+    var now = current_time;
+    var phase = (variable_struct_exists(anim, "phase") ? string(variable_struct_get(anim, "phase")) : "");
+    var phase_start = (variable_struct_exists(anim, "phase_start_ms") && is_real(variable_struct_get(anim, "phase_start_ms"))) ? real(variable_struct_get(anim, "phase_start_ms")) : now;
+
+    if (phase == "recall"){
+        var recall_duration = (variable_struct_exists(anim, "recall_duration") && is_real(variable_struct_get(anim, "recall_duration"))) ? max(1, real(variable_struct_get(anim, "recall_duration"))) : 220;
+        if (now - phase_start >= recall_duration){
+            variable_struct_set(anim, "phase", "throw");
+            variable_struct_set(anim, "phase_start_ms", now);
+            phase = "throw";
+            phase_start = now;
+        }
+    }
+
+    if (phase == "throw"){
+        var throw_duration = (variable_struct_exists(anim, "throw_duration") && is_real(variable_struct_get(anim, "throw_duration"))) ? max(1, real(variable_struct_get(anim, "throw_duration"))) : 540;
+        var throw_prog = clamp((now - phase_start) / throw_duration, 0, 1);
+
+        if (throw_prog >= 1){
+            variable_struct_set(anim, "phase", "materialize");
+            variable_struct_set(anim, "phase_start_ms", now);
+            phase = "materialize";
+            phase_start = now;
+        }
+    }
+
+    if (phase == "materialize"){
+        if ((!variable_struct_exists(anim, "applied") || variable_struct_get(anim, "applied") != true)){
+            var new_actor = (variable_struct_exists(anim, "pending_actor") ? variable_struct_get(anim, "pending_actor") : undefined);
+            var idx = (variable_struct_exists(anim, "pending_idx") ? variable_struct_get(anim, "pending_idx") : -1);
+            if (is_struct(new_actor)){
+                _B.actor[1] = new_actor;
+                try { variable_struct_set(new_actor, "actor_index", 1); } catch (e_ai_sw) {}
+                __battle_apply_party_moves(new_actor);
+                try { variable_struct_set(_B, "_trainer_party_active_idx", idx); } catch (e_idx_sw) {}
+                try {
+                    var __fn_entry_haz_sw = undefined;
+                    if (variable_global_exists("__battle_apply_entry_hazards")) __fn_entry_haz_sw = variable_global_get("__battle_apply_entry_hazards");
+                    if (!is_undefined(__fn_entry_haz_sw)) __fn_entry_haz_sw(_pid, 1);
+                } catch (e_haz_sw) {}
+                try {
+                    variable_struct_set(_B, "_cry_played_enemy", false);
+                    variable_struct_set(_B, "_cry_play_start_ms_enemy", current_time);
+                } catch (e_cry_sw) {}
+            }
+            variable_struct_set(anim, "applied", true);
+        }
+
+        var materialize_duration = (variable_struct_exists(anim, "materialize_duration") && is_real(variable_struct_get(anim, "materialize_duration"))) ? max(1, real(variable_struct_get(anim, "materialize_duration"))) : 180;
+        var materialize_prog = clamp((now - phase_start) / materialize_duration, 0, 1);
+        if (materialize_prog >= 1){
+            try { variable_struct_remove(_B, "_trainer_switch"); } catch (e_done_sw) { variable_struct_set(_B, "_trainer_switch", undefined); }
+            return false;
+        }
+    }
+
     return true;
 }
 
@@ -5318,6 +5462,8 @@ function __battle_trainer_apply_pending_send(_pid){
     if (!is_struct(_B) || !variable_struct_exists(_B, "_trainer_pending_send")) return false;
     var pending = variable_struct_get(_B, "_trainer_pending_send");
     if (!is_struct(pending)) return false;
+
+    
 
     var party = (variable_struct_exists(_B, "_trainer_party") ? variable_struct_get(_B, "_trainer_party") : undefined);
     if (!is_array(party)) { if (variable_struct_exists(_B, "_trainer_pending_send")) variable_struct_remove(_B, "_trainer_pending_send"); return false; }
@@ -5344,6 +5490,9 @@ function __battle_trainer_apply_pending_send(_pid){
             pending.dialog_enqueued = true;
             pending.ready_ms = now + 160; // short buffer so the dialog can appear before we continue
             try { variable_struct_set(_B, "_trainer_pending_send", pending); } catch (e_upd) {}
+            if (__battle_dialog_debug_enabled()){
+                try { show_debug_message("[battle][trainer] dialog enqueued pid=" + string(_pid) + ", msg=" + string(msg)); } catch (e_dbg3) {}
+            }
         }
         return false;
     }
@@ -5352,21 +5501,27 @@ function __battle_trainer_apply_pending_send(_pid){
     if (variable_struct_exists(pending, "ready_ms") && is_real(pending.ready_ms) && now < pending.ready_ms) return false;
 
     var new_actor = __battle_actor_from_party_mon(mon);
-    _B.actor[1] = new_actor;
-    try { variable_struct_set(_B, "_trainer_party_active_idx", idx); } catch (e_act_idx) {}
-    if (is_struct(new_actor)){
-        try { variable_struct_set(new_actor, "actor_index", 1); } catch (e_ai) {}
-        __battle_apply_party_moves(new_actor);
-    }
-
+    var _anim_started = false;
     try {
-        var __fn_entry_haz = undefined;
-        if (variable_global_exists("__battle_apply_entry_hazards")){
-            __fn_entry_haz = variable_global_get("__battle_apply_entry_hazards");
+        if (!is_undefined(__battle_trainer_start_switch_anim)) _anim_started = __battle_trainer_start_switch_anim(_pid, new_actor, idx, { recall: false });
+    } catch (e_anim_pending) { _anim_started = false; }
+    if (!_anim_started){
+        _B.actor[1] = new_actor;
+        try { variable_struct_set(_B, "_trainer_party_active_idx", idx); } catch (e_act_idx) {}
+        if (is_struct(new_actor)){
+            try { variable_struct_set(new_actor, "actor_index", 1); } catch (e_ai) {}
+            __battle_apply_party_moves(new_actor);
         }
-        if (!is_undefined(__fn_entry_haz)) __fn_entry_haz(_pid, 1);
-    } catch (e_haz) {}
-    try { variable_struct_set(_B, "_cry_played_enemy", false); variable_struct_set(_B, "_cry_play_start_ms_enemy", current_time); } catch (e_cr) {}
+
+        try {
+            var __fn_entry_haz = undefined;
+            if (variable_global_exists("__battle_apply_entry_hazards")){
+                __fn_entry_haz = variable_global_get("__battle_apply_entry_hazards");
+            }
+            if (!is_undefined(__fn_entry_haz)) __fn_entry_haz(_pid, 1);
+        } catch (e_haz) {}
+        try { variable_struct_set(_B, "_cry_played_enemy", false); variable_struct_set(_B, "_cry_play_start_ms_enemy", current_time); } catch (e_cr) {}
+    }
     try {
         if (variable_struct_exists(_B, "_trainer_pending_send")) variable_struct_remove(_B, "_trainer_pending_send");
     } catch (e_clr) {}
@@ -5500,27 +5655,33 @@ if (is_undefined(__battle_trainer_perform_switch_action)){
         } catch (e_trap) {}
 
         var new_actor = __battle_actor_from_party_mon(mon);
-        if (array_length(actors_arr) <= 1) actors_arr[1] = new_actor;
-        else actors_arr[1] = new_actor;
-        try { variable_struct_set(_B, "actor", actors_arr); } catch (e_setarr) {}
-        try { variable_struct_set(_B, "_trainer_party_active_idx", idx); } catch (e_idxset) {}
-
-        if (is_struct(new_actor)){
-            try { variable_struct_set(new_actor, "actor_index", 1); } catch (e_ai) {}
-            if (!is_undefined(__battle_apply_party_moves)) __battle_apply_party_moves(new_actor);
-        }
-
+        var _anim_started = false;
         try {
-            var __fn_entry_haz_trainer = undefined;
-            if (variable_global_exists("__battle_apply_entry_hazards")){
-                __fn_entry_haz_trainer = variable_global_get("__battle_apply_entry_hazards");
+            if (!is_undefined(__battle_trainer_start_switch_anim)) _anim_started = __battle_trainer_start_switch_anim(_pid, new_actor, idx, { recall: true });
+        } catch (e_anim) { _anim_started = false; }
+        if (!_anim_started){
+            if (array_length(actors_arr) <= 1) actors_arr[1] = new_actor;
+            else actors_arr[1] = new_actor;
+            try { variable_struct_set(_B, "actor", actors_arr); } catch (e_setarr) {}
+            try { variable_struct_set(_B, "_trainer_party_active_idx", idx); } catch (e_idxset) {}
+
+            if (is_struct(new_actor)){
+                try { variable_struct_set(new_actor, "actor_index", 1); } catch (e_ai) {}
+                if (!is_undefined(__battle_apply_party_moves)) __battle_apply_party_moves(new_actor);
             }
-            if (!is_undefined(__fn_entry_haz_trainer)) __fn_entry_haz_trainer(_pid, 1);
-        } catch (e_haz) {}
-        try {
-            variable_struct_set(_B, "_cry_played_enemy", false);
-            variable_struct_set(_B, "_cry_play_start_ms_enemy", current_time);
-        } catch (e_cry) {}
+
+            try {
+                var __fn_entry_haz_trainer = undefined;
+                if (variable_global_exists("__battle_apply_entry_hazards")){
+                    __fn_entry_haz_trainer = variable_global_get("__battle_apply_entry_hazards");
+                }
+                if (!is_undefined(__fn_entry_haz_trainer)) __fn_entry_haz_trainer(_pid, 1);
+            } catch (e_haz) {}
+            try {
+                variable_struct_set(_B, "_cry_played_enemy", false);
+                variable_struct_set(_B, "_cry_play_start_ms_enemy", current_time);
+            } catch (e_cry) {}
+        }
         try {
             variable_struct_set(_B, "_debug_trainer_force_switch_idx", undefined);
             variable_struct_set(_B, "_debug_trainer_force_switch_from", undefined);
@@ -5936,6 +6097,9 @@ function __battle_try_catch(_pid, _ball_mult, _item_id){
     var caught = undefined;
     if (variable_struct_exists(A1, "mon") && is_struct(A1.mon)) caught = A1.mon;
     else if (is_struct(A1)) caught = A1;
+    if (success && is_struct(caught) && is_real(_item_id) && _item_id > 0){
+        try { variable_struct_set(caught, "pokeball_item_id", floor(_item_id)); } catch (e_ball_set) {}
+    }
 
     // create an animation state on the battle slot so the draw/update code can render it
     // durations in ms
@@ -5979,7 +6143,7 @@ function __battle_try_catch(_pid, _ball_mult, _item_id){
             catch_hop_success: succ_hop,
             break_hop: break_hop,
             outcome: success,
-            ball_sprite: (is_undefined(ball_spr) ? (variable_global_exists("sbagpokeball") ? sbagpokeball : undefined) : ball_spr),
+            ball_sprite: ball_spr,
             ball_frame: 0,
             start_x: undefined,
             start_y: undefined,
@@ -6261,49 +6425,17 @@ function __battle_update_animations(_pid){
                 if (!variable_struct_exists(caught, "exp")) variable_struct_set(caught, "exp", 0);
                 if (!variable_struct_exists(caught, "exp_next")) variable_struct_set(caught, "exp_next", max(20, lvl * lvl * 2));
             }
-            // show dialog and keep a persistent caught visual state (ball stays on-screen with mon hidden)
-            // Emerald-like behavior: if the player's party is full, the mon should be sent to the PC.
-            // The PC system is not implemented yet; show a TODO dialog and mark pending close.
-            var _P = undefined;
-            if (!is_undefined(party_ensure)) _P = party_ensure(_pid);
-            var party_full = false;
-            if (is_struct(_P) && variable_struct_exists(_P, "mons")){
-                var _pmons_local2 = variable_struct_get(_P, "mons");
-                if (is_array(_pmons_local2) && array_length(_pmons_local2) >= 6) party_full = true;
+            // Route the final catch result through the shared finalize hook so the
+            // current battle flow and any future catch entry points use the same
+            // party/PC persistence logic.
+            var _final_fn_legacy = (variable_global_exists("_battle_impls") && is_struct(global._battle_impls) && variable_struct_exists(global._battle_impls, "__battle_finalize_catch") ? variable_struct_get(global._battle_impls, "__battle_finalize_catch") : undefined);
+            if (!is_undefined(_final_fn_legacy)) _final_fn_legacy(_B, caught);
+            else {
+                _B._pending_close = true;
+                A.phase = "caught";
+                A.phase_start = now;
+                A.persistent = true;
             }
-            if (party_full){
-                try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, "Gotcha!\nYou caught " + string(_B.actor[1].name) + "!\nYour party is full � the Pok�mon will be sent to the PC (TODO)."); else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, "Gotcha!\nYou caught " + string(_B.actor[1].name) + "!\nYour party is full � the Pok�mon will be sent to the PC (TODO).", "Gotcha!\nYou caught " + string(_B.actor[1].name) + "!\nYour party is full � the Pok�mon will be sent to the PC (TODO).", "any"); } catch (e_) {}
-            } else {
-                try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, "Gotcha!\nYou caught " + string(_B.actor[1].name) + "!"); else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, "Gotcha!\nYou caught " + string(_B.actor[1].name) + "!", "Gotcha!\nYou caught " + string(_B.actor[1].name) + "!", "any"); } catch (e_) {}
-                // TODO: Add the caught mon to the player's party here when party API is available.
-            }
-            _B._pending_close = true;
-            // Stop battle BGM (use audio_stop_sound on stored resource) and start defeated loop if available
-            try {
-                var _stop_res = (variable_struct_exists(_B, "_battle_music") ? variable_struct_get(_B, "_battle_music") : undefined);
-                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] stopping before defeated music: " + string(_stop_res));
-                var _bgm_handle_local2 = (variable_struct_exists(_B, "_bgm_handle") ? variable_struct_get(_B, "_bgm_handle") : undefined);
-                if (!is_undefined(audio_stop_sound)){
-                    audio_stop_sound(_stop_res);
-                } else if (!is_undefined(_bgm_handle_local2)){
-                    __battle_audio_stop_handle(_bgm_handle_local2);
-                } else if (!is_undefined(audio_stop_all)){
-                    audio_stop_all();
-                }
-            } catch (e_stop_b) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed stopping bgm before defeated: " + string(e_stop_b)); }
-            variable_struct_set(_B, "_bgm_handle", undefined);
-            try {
-                var _def_music_local = (variable_struct_exists(_B, "_battle_defeated_music") ? variable_struct_get(_B, "_battle_defeated_music") : undefined);
-                if (!is_undefined(_def_music_local)){
-                    var _dh = __battle_sound_play_safe(_def_music_local);
-                    variable_struct_set(_B, "_defeated_handle", _dh);
-                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] played defeated_music="+string(_def_music_local)+" handle="+string(_dh));
-                }
-            } catch (e_play_d) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to play defeated_music="+string(_def_music_local)+" err="+string(e_play_d)); }
-            // instead of clearing animation, freeze it into a 'caught' phase so the ball remains drawn
-            A.phase = "caught";
-            A.phase_start = now;
-            A.persistent = true;
         } else {
             // failed capture: transition to escape phase where the Pok�mon regrows and ball fades
             A.phase = "escape";

@@ -138,6 +138,86 @@ function party_model_copy_mon(_mon){
     return out;
 }
 
+// Party capacity is currently fixed to the mainline six-slot team limit.
+// Keep this helper as the single source of truth so catch routing and UI stay aligned.
+function party_model_get_party_capacity(){
+    return 6;
+}
+
+// Minimal PC storage backing for caught Pokemon when the party is full.
+// This is intentionally data-only so a future PC UI/system can adopt the same
+// global shape or migrate it in one place without battle code changes.
+function party_model_pc_ensure(_pid){
+    if (!variable_global_exists("PC_STORAGE")) global.PC_STORAGE = [];
+    if (!is_array(global.PC_STORAGE)) global.PC_STORAGE = [];
+    if (_pid < 0) _pid = 0;
+    if (array_length(global.PC_STORAGE) <= _pid) array_resize(global.PC_STORAGE, _pid + 1);
+
+    var _pc = global.PC_STORAGE[_pid];
+    if (!is_struct(_pc)) _pc = { box_capacity:30, boxes:[] };
+    if (!variable_struct_exists(_pc, "box_capacity") || !is_real(_pc.box_capacity) || _pc.box_capacity <= 0) _pc.box_capacity = 30;
+    if (!variable_struct_exists(_pc, "boxes") || !is_array(_pc.boxes)) _pc.boxes = [];
+    if (array_length(_pc.boxes) <= 0) array_push(_pc.boxes, { name:"Box 1", mons:[] });
+
+    global.PC_STORAGE[_pid] = _pc;
+    return _pc;
+}
+
+// Store a caught mon in the active party when space exists, otherwise into the
+// minimal PC backing store. Callers should use this instead of open-coding the
+// 6-slot check so battle, future catch flows, and a later PC UI share one path.
+function party_model_store_caught_mon(_pid, _mon){
+    if (!is_struct(_mon)) return { ok:false, location:"none", mon:undefined };
+
+    var _stored = party_model_copy_mon(_mon);
+    if (!variable_struct_exists(_stored, "pokeball_item_id") || !is_real(variable_struct_get(_stored, "pokeball_item_id")) || variable_struct_get(_stored, "pokeball_item_id") <= 0){
+        variable_struct_set(_stored, "pokeball_item_id", 4);
+    }
+
+    var _party = party_model_get_mons(_pid);
+    var _party_count = array_length(_party);
+    var _party_cap = party_model_get_party_capacity();
+    if (_party_count < _party_cap){
+        party_model_ensure_ot_idno(_stored, _pid, _party_count);
+        var _slot = party_model_add_mon(_pid, _stored);
+        return { ok:(_slot >= 0), location:"party", slot_index:_slot, mon:_stored };
+    }
+
+    var _pc = party_model_pc_ensure(_pid);
+    var _boxes = variable_struct_get(_pc, "boxes");
+    var _box_cap = max(1, floor(variable_struct_get(_pc, "box_capacity")));
+    var _target_box = -1;
+    var _target_slot = -1;
+
+    for (var _bi = 0; _bi < array_length(_boxes); _bi++){
+        var _box = _boxes[_bi];
+        if (!is_struct(_box)) _box = { name:"Box " + string(_bi + 1), mons:[] };
+        if (!variable_struct_exists(_box, "name")) _box.name = "Box " + string(_bi + 1);
+        if (!variable_struct_exists(_box, "mons") || !is_array(_box.mons)) _box.mons = [];
+        _boxes[_bi] = _box;
+        if (array_length(_box.mons) < _box_cap){
+            _target_box = _bi;
+            _target_slot = array_length(_box.mons);
+            break;
+        }
+    }
+
+    if (_target_box < 0){
+        _target_box = array_length(_boxes);
+        _target_slot = 0;
+        array_push(_boxes, { name:"Box " + string(_target_box + 1), mons:[] });
+    }
+
+    var _store_key = _party_cap + (_target_box * _box_cap) + _target_slot;
+    party_model_ensure_ot_idno(_stored, _pid, _store_key);
+    var _dst_box = _boxes[_target_box];
+    array_push(_dst_box.mons, _stored);
+    _boxes[_target_box] = _dst_box;
+    _pc.boxes = _boxes;
+    global.PC_STORAGE[_pid] = _pc;
+    return { ok:true, location:"pc", box_index:_target_box, slot_index:_target_slot, mon:_stored };
+}
+
 // Update or replace a mon struct at `_index` in the given player's party.
 // Preserves existing slot object where possible (in-place field copy).
 // Performs defensive normalization (hp_max >= current hp).

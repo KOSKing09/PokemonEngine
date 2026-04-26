@@ -243,6 +243,11 @@ function pokemon_factory_create(_sid, _level, _opts){
 
     var held_item_id   = (variable_struct_exists(_o, "held_item_id") && is_real(_o.held_item_id)) ? floor(_o.held_item_id) : -1;
     var held_item_meta = (variable_struct_exists(_o, "held_item_meta") && is_real(_o.held_item_meta)) ? floor(_o.held_item_meta) : 0;
+    var pokeball_item_id = 4;
+    if (variable_struct_exists(_o, "pokeball_item_id") && is_real(_o.pokeball_item_id)) pokeball_item_id = floor(_o.pokeball_item_id);
+    else if (variable_struct_exists(_o, "ball_item_id") && is_real(_o.ball_item_id)) pokeball_item_id = floor(_o.ball_item_id);
+    else if (variable_struct_exists(_o, "capture_ball_item_id") && is_real(_o.capture_ball_item_id)) pokeball_item_id = floor(_o.capture_ball_item_id);
+    if (!is_real(pokeball_item_id) || pokeball_item_id <= 0) pokeball_item_id = 4;
 
     var _exp = (variable_struct_exists(_o, "exp") && is_real(_o.exp)) ? floor(_o.exp) : 0;
     // Prefer CSV-driven threshold if available: scr_get_exp_next_for_mon expects a mon-like struct
@@ -289,6 +294,7 @@ function pokemon_factory_create(_sid, _level, _opts){
         moves      : moves,
         pps        : pps,
         status     : 0,
+        pokeball_item_id : pokeball_item_id,
         held_item_id   : held_item_id,
         held_item_meta : held_item_meta
     };
@@ -360,7 +366,9 @@ function pokemon_factory_create(_sid, _level, _opts){
         var ev_spe = (is_struct(ev) && variable_struct_exists(ev, "spe") && is_real(variable_struct_get(ev, "spe"))) ? real(variable_struct_get(ev, "spe")) : 0;
 
         mon.hp_max = is_real(b_hp) ? scr_compute_stat(b_hp, iv_hp, ev_hp, lvl, true) : mon.hp_max;
+        mon.maxhp = mon.hp_max;
         mon.hp = mon.hp_max;
+        mon.hp_now = mon.hp_max;
         // assign base computed stats
         mon.atk = is_real(b_atk) ? scr_compute_stat(b_atk, iv_atk, ev_atk, lvl, false) : mon.atk;
         mon.def = is_real(b_def) ? scr_compute_stat(b_def, iv_def, ev_def, lvl, false) : mon.def;
@@ -380,6 +388,11 @@ function pokemon_factory_create(_sid, _level, _opts){
         mon.spd = max(1, floor(mon.spd * scr_nature_multiplier(nat, "spd")));
         mon.spe = max(1, floor(mon.spe * scr_nature_multiplier(nat, "spe")));
     }
+    // Keep HP aliases synchronized so party/battle/UI code sees a full-health
+    // freshly created mon regardless of which canonical field it reads.
+    mon.maxhp = mon.hp_max;
+    mon.hp = mon.hp_max;
+    mon.hp_now = mon.hp_max;
     // Populate a per-mon `learnset` for convenience: list of move IDs the species can learn up to this level.
     // This allows UI code that prefers a per-mon learnset (mon.learnset) to work without additional fallbacks.
     if (!is_undefined(scr_poke_moves_upto_level)){

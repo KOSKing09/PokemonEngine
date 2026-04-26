@@ -1,0 +1,13 @@
+{
+  "$GMScript":"v1",
+  "%Name":"test_trainer_battle_scenario",
+  "isCompatibility":false,
+  "isDnD":false,
+  "name":"test_trainer_battle_scenario",
+  "parent":{
+    "name":"Tests",
+    "path":"folders/Scripts/Game/Tests.yy",
+  },
+  "resourceType":"GMScript",
+  "resourceVersion":"2.0",
+}

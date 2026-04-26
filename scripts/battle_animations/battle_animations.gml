@@ -765,14 +765,22 @@ function __battle_anim_queue_draw_states(_pid, _states){
     }
     var _center_player_arr = __battle_anim_queue_actor_center(_pid, 0);
     var _center_enemy_arr = __battle_anim_queue_actor_center(_pid, 1);
-    var _player_cx = (is_array(_center_player_arr) && array_length(_center_player_arr) >= 2) ? _center_player_arr[0] + _offx : _offx;
-    var _player_cy = (is_array(_center_player_arr) && array_length(_center_player_arr) >= 2) ? _center_player_arr[1] + _offy : _offy;
-    var _enemy_cx = (is_array(_center_enemy_arr) && array_length(_center_enemy_arr) >= 2) ? _center_enemy_arr[0] + _offx : _offx;
-    var _enemy_cy = (is_array(_center_enemy_arr) && array_length(_center_enemy_arr) >= 2) ? _center_enemy_arr[1] + _offy : _offy;
-    var _full_x1 = __battle_anim_queue_xu(_pid, 0) + _offx;
-    var _full_y1 = __battle_anim_queue_yu(_pid, 0) + _offy;
-    var _full_x2 = __battle_anim_queue_xu(_pid, 240) + _offx;
-    var _full_y2 = __battle_anim_queue_yu(_pid, 160) + _offy;
+    var _player_cx_base = (is_array(_center_player_arr) && array_length(_center_player_arr) >= 2) ? _center_player_arr[0] : 0;
+    var _player_cy_base = (is_array(_center_player_arr) && array_length(_center_player_arr) >= 2) ? _center_player_arr[1] : 0;
+    var _enemy_cx_base = (is_array(_center_enemy_arr) && array_length(_center_enemy_arr) >= 2) ? _center_enemy_arr[0] : 0;
+    var _enemy_cy_base = (is_array(_center_enemy_arr) && array_length(_center_enemy_arr) >= 2) ? _center_enemy_arr[1] : 0;
+    var _player_cx = _player_cx_base + _offx;
+    var _player_cy = _player_cy_base + _offy;
+    var _enemy_cx = _enemy_cx_base + _offx;
+    var _enemy_cy = _enemy_cy_base + _offy;
+    var _full_x1_base = __battle_anim_queue_xu(_pid, 0);
+    var _full_y1_base = __battle_anim_queue_yu(_pid, 0);
+    var _full_x2_base = __battle_anim_queue_xu(_pid, 240);
+    var _full_y2_base = __battle_anim_queue_yu(_pid, 160);
+    var _full_x1 = _full_x1_base + _offx;
+    var _full_y1 = _full_y1_base + _offy;
+    var _full_x2 = _full_x2_base + _offx;
+    var _full_y2 = _full_y2_base + _offy;
     var _split_y = __battle_anim_queue_yu(_pid, 88) + _offy;
     var _field_full = [_full_x1, _full_y1, _full_x2, _full_y2];
     var _field_player = [_full_x1, _split_y, _full_x2, _full_y2];
@@ -784,17 +792,16 @@ function __battle_anim_queue_draw_states(_pid, _states){
         var _kind = (variable_struct_exists(_st, "kind") ? string(_st.kind) : "");
         if (_kind == "stat_overlay"){
             if (!sprite_exists(spr_stateffects)) continue;
-            // Center status flashes over the camera view so they remain visible
-            // and correctly positioned when the battle camera pans.
-            var _cam_cx = floor((_full_x1 + _full_x2) * 0.5);
-            var _cam_cy = floor((_full_y1 + _full_y2) * 0.5);
+            // Keep stat overlays anchored to the stable GUI battlefield rect so
+            // screen shake does not drag or clip the fullscreen effect.
+            var _cam_cx = floor((_full_x1_base + _full_x2_base) * 0.5);
+            var _cam_cy = floor((_full_y1_base + _full_y2_base) * 0.5);
             var _idx_so = (variable_struct_exists(_st, "target_index") && is_real(variable_struct_get(_st, "target_index"))) ? clamp(variable_struct_get(_st, "target_index"), 0, 1) : 0;
-            // Preserve per-actor centering for specific actor-targeted overlays, but
-            // default to the camera center for general status flashes so they don't
-            // drift off-screen when the camera pans.
+            // Preserve actor-relative centering for targeted flashes, but keep it in
+            // stable GUI coordinates instead of shaken camera coordinates.
             var _has_target = (variable_struct_exists(_st, "target_index") && is_real(variable_struct_get(_st, "target_index")));
-            var _cx_so = (_has_target ? (_idx_so == 1 ? _enemy_cx : _player_cx) : _cam_cx);
-            var _cy_so = (_has_target ? (_idx_so == 1 ? _enemy_cy : _player_cy) : _cam_cy);
+            var _cx_so = (_has_target ? (_idx_so == 1 ? _enemy_cx_base : _player_cx_base) : _cam_cx);
+            var _cy_so = (_has_target ? (_idx_so == 1 ? _enemy_cy_base : _player_cy_base) : _cam_cy);
             var _frame_so = (variable_struct_exists(_st, "frame") && is_real(_st.frame)) ? clamp(floor(_st.frame), 0, max(0, sprite_get_number(spr_stateffects) - 1)) : 0;
             var _darken_so = (variable_struct_exists(_st, "darken") && _st.darken);
             var _prog_so = clamp((variable_struct_exists(_st, "progress") ? _st.progress : 0), 0, 1);
@@ -1053,7 +1060,7 @@ function __battle_anim_create_catch(_B, _item_id, _caught_struct, _opts){
     catch_hop_success: (success ? hop_total : 0),
     break_hop: break_hop,
     outcome: success,
-        ball_sprite: (is_undefined(ball_spr) ? (variable_global_exists("sbagpokeball") ? sbagpokeball : undefined) : ball_spr),
+        ball_sprite: ball_spr,
         ball_frame: 0,
         start_x: undefined,
         start_y: undefined,

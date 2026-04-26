@@ -2,7 +2,7 @@
   "$GMProject":"v1",
   "%Name":"Pokemon Rogue",
   "AudioGroups":[
-    {"$GMAudioGroup":"","%Name":"audiogroup_default","name":"audiogroup_default","resourceType":"GMAudioGroup","resourceVersion":"2.0","targets":-1,},
+    {"$GMAudioGroup":"v1","%Name":"audiogroup_default","exportDir":"","name":"audiogroup_default","resourceType":"GMAudioGroup","resourceVersion":"2.0","targets":-1,},
   ],
   "configs":{
     "children":[],
@@ -299,6 +299,7 @@
     {"id":{"name":"scr_status_diag","path":"scripts/scr_status_diag/scr_status_diag.yy",},},
     {"id":{"name":"SkinSystem","path":"scripts/SkinSystem/SkinSystem.yy",},},
     {"id":{"name":"status_system","path":"scripts/status_system/status_system.yy",},},
+    {"id":{"name":"test_trainer_battle_scenario","path":"scripts/test_trainer_battle_scenario/test_trainer_battle_scenario.yy",},},
     {"id":{"name":"snd_Asleep","path":"sounds/snd_Asleep/snd_Asleep.yy",},},
     {"id":{"name":"snd_Burned","path":"sounds/snd_Burned/snd_Burned.yy",},},
     {"id":{"name":"snd_Confused","path":"sounds/snd_Confused/snd_Confused.yy",},},

@@ -82,3 +82,37 @@ battle_draw_gui(0);
 ## Notes
 - The code defensively guards undefined symbols for portability between runtime editions.
 - If you add new state in `_B`, update this doc and add a brief docblock where it’s created.
+
+## Trainer Battle — Entry Points (quick reference)
+
+- `battle_open_trainer(pid, trainer_payload)` — convenience wrapper to open a trainer battle. `trainer_payload` typically contains:
+	- `trainer_name` (string)
+	- `sprite` (trainer sprite resource) and `sprite_index` (int)
+	- `party` (array of mon structs, preferably created via `pokemon_factory_create`)
+	- `area_type` (optional string)
+	- `trainer_reward` (optional numeric reward/money to grant on defeat)
+
+- `__battle_trainer_schedule_next_mon(pid, idx)` — called when an enemy mon faints to enqueue the next alive party member for sending-out. It writes a `_trainer_pending_send` struct on the battle slot with `idx`, `ready_ms`, and `message`.
+
+- `__battle_trainer_apply_pending_send(pid)` — should be invoked from `battle_update()` when dialog gates clear and the pending send's `ready_ms` has passed; it displays the "sent out" dialog then replaces the enemy actor with the new mon and applies entry hazards.
+
+- `__battle_trainer_handle_defeat(pid)` — awards the trainer payout (uses `currency_add` if present or `global.PLAYER_MONEY`) and enqueues defeat/reward dialog lines to `_pending_status_msgs`.
+
+Implementation tips:
+- Place `__battle_trainer_apply_pending_send(pid)` calls inside safe phase boundaries (e.g., at the start of `battle_update()` when `phase` moves back to `command`) so sends don't interrupt animations or active turns.
+- Use the existing `__battle_actor_from_party_mon(mon)` and `__battle_apply_party_moves(actor)` helpers rather than duplicating actor initialization logic.
+- Guard against double-sends by checking and clearing `_trainer_pending_send` once applied.
+
+Example trainer payload (used in tests):
+```gml
+var trainer_party = [ pokemon_factory_create(133,5,{}), pokemon_factory_create(10,5,{}), pokemon_factory_create(252,5,{}) ];
+var trainer_payload = {
+	trainer_name: "Bug Catcher Rick",
+	sprite: spr_PokemonEmeraldTrainers,
+	sprite_index: 12,
+	party: trainer_party,
+	area_type: "forest",
+	trainer_reward: 50
+};
+battle_open_trainer(0, trainer_payload);
+```

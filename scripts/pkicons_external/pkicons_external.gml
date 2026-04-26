@@ -222,7 +222,11 @@ function pkicons__asset_try(_cand){
     return -1;
 }
 
-// Public: get item icon by numeric item id. Returns the same types as pkicons_get_item_icon_by_name
+// Public item-icon lookup by item id.
+// Callers should prefer the id-based API when they already have the canonical item id
+// (for example held items, capture balls, or data-driven battle effects). Internally,
+// this still resolves through the item's CSV identifier/name first so file-based icon
+// packs can stay name-driven while game code remains id-driven.
 function pkicons_get_item_icon_by_id(_id){
     pkicons_init();
     var key = "ITEMID|" + string(_id);
@@ -369,6 +373,9 @@ function pkicons_get_item_icon_by_id(_id){
     return spr;
 }
 
+// Name-based lookup is still supported for UI code that only has a raw identifier/name
+// on hand, but id-based lookups are the canonical gameplay path because they avoid
+// ambiguity between localized display names and the CSV identifier.
 function pkicons_get_item_icon_by_name(_name){
     pkicons_init();
     var key = "ITEM|" + string(_name);
