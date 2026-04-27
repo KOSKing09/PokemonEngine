@@ -93,6 +93,7 @@ try {
                     var _rec = _hist[_di];
                     if (!is_struct(_rec) || !variable_struct_exists(_rec, "move")) continue;
                     var _mv = variable_struct_get(_rec, "move");
+                    if (is_real(_mv) && is_real(_move) && _mv == _move) continue;
                     if (is_real(_mv)){ _last_move = _mv; break; }
                 }
             }
@@ -447,6 +448,14 @@ function __battle_calc_damage_impl(_A, _D, _move_id, _power){
             try { var _mm2 = global._move_meta[_move_id]; if (variable_struct_exists(_mm2, "crit_rate") && is_real(variable_struct_get(_mm2, "crit_rate"))) crit_rate_level = variable_struct_get(_mm2, "crit_rate"); } catch (e_m2) { crit_rate_level = 0; }
         }
         try {
+            var _crit_eid_impl = undefined;
+            if (variable_global_exists("_moves") && is_array(global._moves) && is_real(_move_id) && _move_id >= 0 && _move_id < array_length(global._moves)){
+                var _crit_move_impl = global._moves[_move_id];
+                if (is_struct(_crit_move_impl) && variable_struct_exists(_crit_move_impl, "effect_id") && is_real(variable_struct_get(_crit_move_impl, "effect_id"))) _crit_eid_impl = floor(variable_struct_get(_crit_move_impl, "effect_id"));
+            }
+            if (is_real(_crit_eid_impl) && _crit_eid_impl == 44) crit_rate_level += 1;
+        } catch (e_high_crit_impl) {}
+        try {
             var _focus_bonus = 0;
             if (is_struct(_A) && variable_struct_exists(_A, "_focus_energy_level") && is_real(variable_struct_get(_A, "_focus_energy_level"))) _focus_bonus = max(0, floor(variable_struct_get(_A, "_focus_energy_level")));
             else if (is_struct(_A) && variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon"))){
@@ -462,7 +471,19 @@ function __battle_calc_damage_impl(_A, _D, _move_id, _power){
             else if (crit_rate_level == 1) denom = 8; // higher crit chance
             else denom = 2; // very high crit chance for larger values
         }
-        crit = (irandom(max(1, denom) - 1) == 0);
+        var _no_crit_move = false;
+        try {
+            if (is_real(_crit_eid_impl) && _crit_eid_impl == 149) _no_crit_move = true;
+            if (is_real(_move_id) && (_move_id == 248 || _move_id == 353)) _no_crit_move = true;
+        } catch (e_no_crit_impl) { _no_crit_move = false; }
+        if (_no_crit_move){
+            crit = false;
+        } else if (variable_global_exists("DEV_FORCE_CRIT_ROLL_100") && is_real(global.DEV_FORCE_CRIT_ROLL_100) && global.DEV_FORCE_CRIT_ROLL_100 >= 0){
+            var _crit_chance_impl = 100 / max(1, denom);
+            crit = (real(global.DEV_FORCE_CRIT_ROLL_100) < _crit_chance_impl);
+        } else {
+            crit = (irandom(max(1, denom) - 1) == 0);
+        }
     } catch (e_crit) { crit = (irandom(23) == 0); }
     var critMul = crit ? 1.5 : 1.0;
     dmg = floor(dmg * critMul);
@@ -540,7 +561,7 @@ function __battle_calc_damage_impl(_A, _D, _move_id, _power){
         if (_weather_active(_wrec)){
             var _wid_norm = _normalize_weather_id(variable_struct_exists(_wrec, "id") ? variable_struct_get(_wrec, "id") : "");
             var _mv_type = -1;
-            if (!is_undefined(scr_move_type_id_by_id) && is_real(_move_id)) _mv_type = scr_move_type_id_by_id(_move_id);
+            if (!is_undefined(scr_move_type_id_by_id) && is_real(_move_id)) _mv_type = scr_move_type_id_by_id(_move_id, _A);
             var _fire_id = _type_id_lookup("fire");
             var _water_id = _type_id_lookup("water");
             if (_wid_norm == "sun" || _wid_norm == "harsh-sun"){
@@ -727,7 +748,32 @@ function __battle_move_power_impl(_code, _A, _D){
     if (is_real(_code) && _code >= 0){
         if (!is_undefined(scr_move_power_by_id)){
             var p = scr_move_power_by_id(_code);
-            if (is_real(p) && p > 0) return max(0, real(p));
+            if (is_real(p) && p > 0){
+                var _power = max(0, real(p));
+                try {
+                    var _move_entry = undefined;
+                    var _effect_id = undefined;
+                    if (variable_global_exists("_moves") && is_array(global._moves) && _code >= 0 && _code < array_length(global._moves)) _move_entry = global._moves[_code];
+                    if (is_struct(_move_entry) && variable_struct_exists(_move_entry, "effect_id") && is_real(variable_struct_get(_move_entry, "effect_id"))) _effect_id = floor(variable_struct_get(_move_entry, "effect_id"));
+                    if (_effect_id == 170 && is_struct(_A) && !is_undefined(status_system_has_status)){
+                        var _has_status = status_system_has_status(_A, "burn") || status_system_has_status(_A, "poison") || status_system_has_status(_A, "toxic") || status_system_has_status(_A, "paralysis") || status_system_has_status(_A, "paralyze");
+                        if (!_has_status && variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon"))){
+                            var _amon = variable_struct_get(_A, "mon");
+                            _has_status = status_system_has_status(_amon, "burn") || status_system_has_status(_amon, "poison") || status_system_has_status(_amon, "toxic") || status_system_has_status(_amon, "paralysis") || status_system_has_status(_amon, "paralyze");
+                        }
+                        if (_has_status) _power *= 2;
+                    }
+                    if (_effect_id == 172 && is_struct(_D) && !is_undefined(status_system_has_status)){
+                        var _is_paralyzed = status_system_has_status(_D, "paralysis") || status_system_has_status(_D, "paralyze");
+                        if (!_is_paralyzed && variable_struct_exists(_D, "mon") && is_struct(variable_struct_get(_D, "mon"))){
+                            var _dmon = variable_struct_get(_D, "mon");
+                            _is_paralyzed = status_system_has_status(_dmon, "paralysis") || status_system_has_status(_dmon, "paralyze");
+                        }
+                        if (_is_paralyzed) _power *= 2;
+                    }
+                } catch (e_power_mod) {}
+                return _power;
+            }
             var vp = __battle_variable_move_power(_code, _A, _D);
             if (is_real(vp) && vp > 0) return vp;
             return 0;
@@ -838,15 +884,13 @@ function __battle_finalize_catch_impl(_B, _caught){
     try {
         var _stop_res = (variable_struct_exists(_B, "_battle_music") ? variable_struct_get(_B, "_battle_music") : undefined);
         var _bgm_handle = (variable_struct_exists(_B, "_bgm_handle") ? variable_struct_get(_B, "_bgm_handle") : undefined);
-        if (!is_undefined(audio_stop_sound)) audio_stop_sound(_stop_res);
-        else if (!is_undefined(_bgm_handle)) __battle_audio_stop_handle(_bgm_handle);
-        else if (!is_undefined(audio_stop_all)) audio_stop_all();
+        if (!is_undefined(_bgm_handle)) __battle_audio_stop_handle(_bgm_handle);
     } catch (e_stop) {}
     try { variable_struct_set(_B, "_bgm_handle", undefined); } catch (e_bgm_clear) {}
     try {
         var _def_music = (variable_struct_exists(_B, "_battle_defeated_music") ? variable_struct_get(_B, "_battle_defeated_music") : undefined);
         if (!is_undefined(_def_music)){
-            var _def_handle = __battle_sound_play_safe(_def_music);
+            var _def_handle = __battle_sound_play_safe(_def_music, true);
             variable_struct_set(_B, "_defeated_handle", _def_handle);
         }
     } catch (e_defmusic) {}
@@ -1491,6 +1535,11 @@ function __battle_apply_move(_pid, _user, _target, _move){
 
 
 function __battle_check_can_act(_user, _move_id){
+    try {
+        if (is_struct(_user) && variable_struct_exists(_user, "_sleep_talk_bypass") && variable_struct_get(_user, "_sleep_talk_bypass") == true){
+            return true;
+        }
+    } catch (e_sleep_talk_bypass) {}
     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
         var _dbg_name = "actor";
         var _dbg_has_freeze = "?";
@@ -1571,6 +1620,14 @@ function __battle_check_can_act(_user, _move_id){
             }
             // Sleep handling: use turns on the status instance if available
             if (status_system_has_status(_user, "sleep")){
+                try {
+                    var _pid_sleep = __battle_guess_pid_for_entities(_user, undefined);
+                    if (is_real(_pid_sleep) && !is_undefined(__battle_slot_has_active_uproar) && __battle_slot_has_active_uproar(_pid_sleep)){
+                        status_system_clear_status(_user, "sleep");
+                        dialog_queue((variable_struct_exists(_user, "name") ? variable_struct_get(_user, "name") : "The user") + " woke up in the uproar!");
+                        return true;
+                    }
+                } catch (e_sleep_uproar) {}
                 var inst_s = status_system_get(_user, "sleep");
                 var turns = (is_struct(inst_s) && variable_struct_exists(inst_s, "turns") && is_real(variable_struct_get(inst_s, "turns"))) ? variable_struct_get(inst_s, "turns") : undefined;
                 if (is_real(turns) && turns > 0){

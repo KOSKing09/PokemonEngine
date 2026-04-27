@@ -277,7 +277,7 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
     var mult = 1.0;
     try {
         var atk_type = -1;
-        if (!is_undefined(scr_move_type_id_by_id)) atk_type = scr_move_type_id_by_id(_move_id);
+        if (!is_undefined(scr_move_type_id_by_id)) atk_type = scr_move_type_id_by_id(_move_id, _A);
         if (is_real(atk_type) && atk_type >= 0 && variable_global_exists("BATTLE_TYPE_EFFICACY")){
             var _tmp_bte = variable_global_get("BATTLE_TYPE_EFFICACY");
             var dt = [];
@@ -347,12 +347,24 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
             if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][move_special] Dragon Rage flat dmg=40");
         }
 
-        // Super Fang (id 162) deals damage equal to half the target's current HP
-        if (is_real(_move_id) && _move_id == 162){
+        // Super Fang / Nature's Madness deal damage equal to half the target's current HP.
+        if (is_real(_move_id) && (_move_id == 162 || _move_id == 717)){
             var curhp_sf = __battle_hp_now(_D);
             var sf_dmg = max(0, floor(curhp_sf / 2));
             dmg = sf_dmg;
             if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][move_special] Super Fang computed dmg=" + string(dmg) + ", target_hp=" + string(curhp_sf));
+        }
+
+        // Bide releases double the damage stored while the user was biding.
+        if (is_real(_move_id) && _move_id == 117 && is_struct(_A)){
+            var _bide_release = 0;
+            try {
+                if (variable_struct_exists(_A, "_bide_state") && is_struct(variable_struct_get(_A, "_bide_state"))){
+                    var _bide_state_dmg = variable_struct_get(_A, "_bide_state");
+                    if (variable_struct_exists(_bide_state_dmg, "damage") && is_real(variable_struct_get(_bide_state_dmg, "damage"))) _bide_release = floor(variable_struct_get(_bide_state_dmg, "damage")) * 2;
+                }
+            } catch (e_bide_dmg) { _bide_release = 0; }
+            dmg = max(0, _bide_release);
         }
 
         // Seismic Toss and Night Shade: damage equal to attacker's level (classic)
@@ -362,6 +374,15 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
                 dmg = max(0, atk_level_flat);
                 if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][move_special] level-based move applied move="+string(_move_id)+", dmg="+string(dmg));
             } catch (e_lvl) { }
+        }
+
+        // Psywave: random fixed damage from 50% to 150% of the user's level.
+        if (is_real(_move_id) && _move_id == 149){
+            try {
+                var _psy_level = (is_struct(_A) && variable_struct_exists(_A, "level") && is_real(variable_struct_get(_A, "level"))) ? floor(variable_struct_get(_A, "level")) : 1;
+                dmg = max(1, floor(_psy_level * irandom_range(50, 150) / 100));
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][move_special] Psywave fixed dmg=" + string(dmg));
+            } catch (e_psywave) { dmg = max(1, dmg); }
         }
 
         if (is_real(_move_id) && (_move_id == 76 || _move_id == 669) && is_real(dmg) && dmg > 0){
@@ -425,7 +446,7 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
                 try { if (!is_undefined(__actor_is_grounded)) { A_grounded = __actor_is_grounded(_A); D_grounded = __actor_is_grounded(_D); } } catch (e_gr) {}
                 // Move type id when available
                 var mv_type = -1;
-                try { if (!is_undefined(scr_move_type_id_by_id) && is_real(_move_id)) mv_type = scr_move_type_id_by_id(_move_id); } catch (e_mt) { mv_type = -1; }
+                try { if (!is_undefined(scr_move_type_id_by_id) && is_real(_move_id)) mv_type = scr_move_type_id_by_id(_move_id, _A); } catch (e_mt) { mv_type = -1; }
                 // Psychic Terrain: block priority moves against grounded targets, and boost Psychic-type moves (grounded attacker)
                 if (terr == "psychic"){
                     var priority_val = 0;
@@ -600,9 +621,18 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
             if (is_struct(_D) && is_real(actual_delta) && actual_delta > 0){
                 // store last received damage and move context
                 variable_struct_set(_D, "_last_received_damage", actual_delta);
+                variable_struct_set(_D, "_was_hit_this_turn", true);
                 try { variable_struct_set(_D, "_last_received_from_move", _move_id); } catch (ee) {}
                 // store damage class (physical/special) if data-layer helper exists
                 try { if (!is_undefined(scr_move_damage_class_by_id) && is_real(_move_id)) variable_struct_set(_D, "_last_received_move_damage_class", scr_move_damage_class_by_id(_move_id)); } catch (ee2) {}
+                try {
+                    if (variable_struct_exists(_D, "_bide_state") && is_struct(variable_struct_get(_D, "_bide_state"))){
+                        var _bide_taken = variable_struct_get(_D, "_bide_state");
+                        var _bide_accum = (variable_struct_exists(_bide_taken, "damage") && is_real(variable_struct_get(_bide_taken, "damage"))) ? floor(variable_struct_get(_bide_taken, "damage")) : 0;
+                        variable_struct_set(_bide_taken, "damage", max(0, _bide_accum + actual_delta));
+                        variable_struct_set(_D, "_bide_state", _bide_taken);
+                    }
+                } catch (ee_bide) {}
                 // store attacker actor index when discoverable
                 try {
                     var atk_idx = undefined;

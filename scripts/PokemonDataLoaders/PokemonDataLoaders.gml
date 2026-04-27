@@ -676,6 +676,18 @@ function data_map_move_effects_to_meta(){
 
         // Heuristics: drain vs recoil
         if (string_length(etxt) > 0){
+            if (eff == 34){
+                variable_struct_set(mm, "status", "toxic");
+                variable_struct_set(mm, "chance", 100);
+                changed = true;
+            }
+            if (eff == 76){
+                changed |= _set_if_missing(mm, "flinch", true);
+                if (!variable_struct_exists(mm, "flinch_chance") && variable_struct_exists(m, "effect_chance") && is_real(variable_struct_get(m, "effect_chance"))){
+                    variable_struct_set(mm, "flinch_chance", clamp(floor(variable_struct_get(m, "effect_chance")), 0, 100));
+                    changed = true;
+                }
+            }
             // drain (healing) mentions 'drains' or 'heals the user'
             if (string_pos(etxt, "drains") > 0 || string_pos(etxt, "drain") > 0 || string_pos(etxt, "heals the user") > 0 || string_pos(etxt, "restores") > 0){
                 var pct = _extract_percent_from_text(etxt);
@@ -759,6 +771,7 @@ function data_map_move_effects_to_meta(){
         if (!changed){
             switch (eff){
                 case 4: changed |= _set_if_missing(mm, "drain", 50); break;
+                case 9: changed |= _set_if_missing(mm, "drain", 50); break;
                 case 5:
                     var burn_chance = -1;
                     if (variable_struct_exists(m, "effect_chance") && is_real(variable_struct_get(m, "effect_chance"))) burn_chance = clamp(floor(variable_struct_get(m, "effect_chance")), 0, 100);

@@ -91,59 +91,59 @@ function index_build_all()
 {
     // POKEMON_SPECIES: from global._pokemon
     if (variable_global_exists("_pokemon") && is_array(global._pokemon)){
-        if (!variable_global_exists("POKEMON_SPECIES") || !ds_exists(POKEMON_SPECIES, ds_type_map)) POKEMON_SPECIES = ds_map_create();
-        else ds_map_clear(POKEMON_SPECIES);
+        if (!variable_global_exists("POKEMON_SPECIES") || !ds_exists(global.POKEMON_SPECIES, ds_type_map)) global.POKEMON_SPECIES = ds_map_create();
+        else ds_map_clear(global.POKEMON_SPECIES);
         for (var i = 0; i < array_length(global._pokemon); i++){
             var rec = global._pokemon[i];
             if (!is_struct(rec) || is_undefined(rec._id)) continue;
-            ds_map_add(POKEMON_SPECIES, string(rec._id), rec);
+            ds_map_add(global.POKEMON_SPECIES, string(rec._id), rec);
         }
     }
 
     // POKEMON_MOVES: from global._moves
     if (variable_global_exists("_moves") && is_array(global._moves)){
-        if (!variable_global_exists("POKEMON_MOVES") || !ds_exists(POKEMON_MOVES, ds_type_map)) POKEMON_MOVES = ds_map_create();
-        else ds_map_clear(POKEMON_MOVES);
+        if (!variable_global_exists("POKEMON_MOVES") || !ds_exists(global.POKEMON_MOVES, ds_type_map)) global.POKEMON_MOVES = ds_map_create();
+        else ds_map_clear(global.POKEMON_MOVES);
         for (var j = 0; j < array_length(global._moves); j++){
             var m = global._moves[j];
             if (!is_struct(m) || is_undefined(m.id)) continue;
-            ds_map_add(POKEMON_MOVES, string(m.id), m);
+            ds_map_add(global.POKEMON_MOVES, string(m.id), m);
         }
     }
 
     // TYPE_NAME -> id maps (TYPE_ID_BY_NAME) from any existing type lists
     if (variable_global_exists("_types") && is_array(global._types)){
-        if (!variable_global_exists("TYPE_ID_BY_NAME") || !ds_exists(TYPE_ID_BY_NAME, ds_type_map)) TYPE_ID_BY_NAME = ds_map_create();
-        else ds_map_clear(TYPE_ID_BY_NAME);
+        if (!variable_global_exists("TYPE_ID_BY_NAME") || !ds_exists(global.TYPE_ID_BY_NAME, ds_type_map)) global.TYPE_ID_BY_NAME = ds_map_create();
+        else ds_map_clear(global.TYPE_ID_BY_NAME);
         for (var t = 0; t < array_length(global._types); t++){
             var tv = global._types[t];
             if (!is_struct(tv) || is_undefined(tv.id) || is_undefined(tv.identifier)) continue;
-            ds_map_add(TYPE_ID_BY_NAME, string_lower(string(tv.identifier)), tv.id);
+            ds_map_add(global.TYPE_ID_BY_NAME, string_lower(string(tv.identifier)), tv.id);
         }
     }
 
     // BATTLE_TYPES / BATTLE_TYPE_EFFICACY: best-effort if type efficacy table exists (global._type_efficacy)
     if (variable_global_exists("_type_efficacy") && is_array(global._type_efficacy)){
-        if (!variable_global_exists("BATTLE_TYPE_EFFICACY") || !ds_exists(BATTLE_TYPE_EFFICACY, ds_type_map)) BATTLE_TYPE_EFFICACY = ds_map_create();
-        else ds_map_clear(BATTLE_TYPE_EFFICACY);
+        if (!variable_global_exists("BATTLE_TYPE_EFFICACY") || !ds_exists(global.BATTLE_TYPE_EFFICACY, ds_type_map)) global.BATTLE_TYPE_EFFICACY = ds_map_create();
+        else ds_map_clear(global.BATTLE_TYPE_EFFICACY);
         for (var e = 0; e < array_length(global._type_efficacy); e++){
             var row = global._type_efficacy[e];
             if (!is_struct(row) || is_undefined(row.attack) || is_undefined(row.defense) || is_undefined(row.mult)) continue;
             var key = string(row.attack) + ":" + string(row.defense);
-            ds_map_add(BATTLE_TYPE_EFFICACY, key, row.mult);
+            ds_map_add(global.BATTLE_TYPE_EFFICACY, key, row.mult);
         }
     }
 
     // Build simple name->id DS maps for verification probes
-    if (!variable_global_exists("POKEMON_ID_BY_NAME") || !ds_exists(POKEMON_ID_BY_NAME, ds_type_map)) POKEMON_ID_BY_NAME = ds_map_create(); else ds_map_clear(POKEMON_ID_BY_NAME);
-    if (!variable_global_exists("MOVE_ID_BY_NAME")    || !ds_exists(MOVE_ID_BY_NAME, ds_type_map))    MOVE_ID_BY_NAME    = ds_map_create(); else ds_map_clear(MOVE_ID_BY_NAME);
+    if (!variable_global_exists("POKEMON_ID_BY_NAME") || !ds_exists(global.POKEMON_ID_BY_NAME, ds_type_map)) global.POKEMON_ID_BY_NAME = ds_map_create(); else ds_map_clear(global.POKEMON_ID_BY_NAME);
+    if (!variable_global_exists("MOVE_ID_BY_NAME")    || !ds_exists(global.MOVE_ID_BY_NAME, ds_type_map))    global.MOVE_ID_BY_NAME    = ds_map_create(); else ds_map_clear(global.MOVE_ID_BY_NAME);
 
     // Fill POKEMON_ID_BY_NAME from global._pokemon
     if (variable_global_exists("_pokemon") && is_array(global._pokemon)){
         for (var _pi = 0; _pi < array_length(global._pokemon); _pi++){
             var pr = global._pokemon[_pi];
             if (!is_struct(pr) || is_undefined(pr._id) || is_undefined(pr.identifier)) continue;
-            ds_map_add(POKEMON_ID_BY_NAME, string_lower(string(pr.identifier)), pr._id);
+            ds_map_add(global.POKEMON_ID_BY_NAME, string_lower(string(pr.identifier)), pr._id);
         }
     }
 
@@ -152,18 +152,18 @@ function index_build_all()
         for (var mi = 0; mi < array_length(global._moves); mi++){
             var mr = global._moves[mi];
             if (!is_struct(mr) || is_undefined(mr.id) || is_undefined(mr.identifier)) continue;
-            ds_map_add(MOVE_ID_BY_NAME, string_lower(string(mr.identifier)), mr.id);
+            ds_map_add(global.MOVE_ID_BY_NAME, string_lower(string(mr.identifier)), mr.id);
         }
     }
 
     // BATTLE_TYPES best-effort from TYPE_ID_BY_NAME
-    if (variable_global_exists("TYPE_ID_BY_NAME") && ds_exists(TYPE_ID_BY_NAME, ds_type_map)){
-        if (!variable_global_exists("BATTLE_TYPES") || !ds_exists(BATTLE_TYPES, ds_type_map)) BATTLE_TYPES = ds_map_create(); else ds_map_clear(BATTLE_TYPES);
-        var _k = ds_map_find_first(TYPE_ID_BY_NAME);
+    if (variable_global_exists("TYPE_ID_BY_NAME") && ds_exists(global.TYPE_ID_BY_NAME, ds_type_map)){
+        if (!variable_global_exists("BATTLE_TYPES") || !ds_exists(global.BATTLE_TYPES, ds_type_map)) global.BATTLE_TYPES = ds_map_create(); else ds_map_clear(global.BATTLE_TYPES);
+        var _k = ds_map_find_first(global.TYPE_ID_BY_NAME);
         while (_k != undefined){
-            var _v = ds_map_find_value(TYPE_ID_BY_NAME, _k);
-            ds_map_add(BATTLE_TYPES, _k, _v);
-            _k = ds_map_find_next(TYPE_ID_BY_NAME, _k);
+            var _v = ds_map_find_value(global.TYPE_ID_BY_NAME, _k);
+            ds_map_add(global.BATTLE_TYPES, _k, _v);
+            _k = ds_map_find_next(global.TYPE_ID_BY_NAME, _k);
         }
     }
 
@@ -443,8 +443,8 @@ function scr_poke_describe(_sid, _lvl){
 function scr_move_accuracy_by_id(_mid) {
     var mv = (is_array(global._moves) && is_real(_mid) && _mid >= 0 && _mid < array_length(global._moves))
              ? global._moves[_mid] : undefined;
-    if (is_struct(mv) && variable_struct_exists(mv, "accuracy") && is_real(mv.accuracy)) {
-        var mv_acc = real(mv.accuracy);
+    if (is_struct(mv) && variable_struct_exists(mv, "accuracy") && is_real(variable_struct_get(mv, "accuracy"))) {
+        var mv_acc = real(variable_struct_get(mv, "accuracy"));
         // Some datasets use 0 or -1 for “never misses”; default to 100
         if (mv_acc <= 0) return 100;
         return mv_acc;
@@ -456,8 +456,8 @@ function scr_move_accuracy_by_id(_mid) {
 function scr_move_pp_by_id(_mid) {
     var mv = (is_array(global._moves) && is_real(_mid) && _mid >= 0 && _mid < array_length(global._moves))
              ? global._moves[_mid] : undefined;
-    if (is_struct(mv) && variable_struct_exists(mv, "pp") && is_real(mv.pp)) {
-        return max(0, real(mv.pp));
+    if (is_struct(mv) && variable_struct_exists(mv, "pp") && is_real(variable_struct_get(mv, "pp"))) {
+        return max(0, real(variable_struct_get(mv, "pp")));
     }
     return 0;
 }
@@ -466,19 +466,39 @@ function scr_move_pp_by_id(_mid) {
 function scr_move_power_by_id(_mid) {
     var mv = (is_array(global._moves) && is_real(_mid) && _mid >= 0 && _mid < array_length(global._moves))
              ? global._moves[_mid] : undefined;
-    if (is_struct(mv) && variable_struct_exists(mv, "power") && is_real(mv.power)) {
-        var mv_pow = real(mv.power);
+    if (is_struct(mv) && variable_struct_exists(mv, "power") && is_real(variable_struct_get(mv, "power"))) {
+        var mv_pow = real(variable_struct_get(mv, "power"));
         return max(0, mv_pow);
     }
     return 0;
 }
 
 /// Type ID (returns -1 if unknown)
-function scr_move_type_id_by_id(_mid) {
+function scr_move_type_id_by_id(_mid, _A = undefined) {
+    if (is_real(_mid) && floor(_mid) == 237) {
+        var _iv_src = undefined;
+        try {
+            if (is_struct(_A) && variable_struct_exists(_A, "iv") && is_struct(variable_struct_get(_A, "iv"))) _iv_src = variable_struct_get(_A, "iv");
+            else if (is_struct(_A) && variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon")) && variable_struct_exists(variable_struct_get(_A, "mon"), "iv") && is_struct(variable_struct_get(variable_struct_get(_A, "mon"), "iv"))) _iv_src = variable_struct_get(variable_struct_get(_A, "mon"), "iv");
+        } catch (e_hp_iv) { _iv_src = undefined; }
+        if (is_struct(_iv_src)) {
+            var _iv_hp = (variable_struct_exists(_iv_src, "hp") && is_real(variable_struct_get(_iv_src, "hp"))) ? floor(variable_struct_get(_iv_src, "hp")) : 0;
+            var _iv_atk = (variable_struct_exists(_iv_src, "atk") && is_real(variable_struct_get(_iv_src, "atk"))) ? floor(variable_struct_get(_iv_src, "atk")) : 0;
+            var _iv_def = (variable_struct_exists(_iv_src, "def") && is_real(variable_struct_get(_iv_src, "def"))) ? floor(variable_struct_get(_iv_src, "def")) : 0;
+            var _iv_spe = (variable_struct_exists(_iv_src, "spe") && is_real(variable_struct_get(_iv_src, "spe"))) ? floor(variable_struct_get(_iv_src, "spe")) : 0;
+            var _iv_spa = (variable_struct_exists(_iv_src, "spa") && is_real(variable_struct_get(_iv_src, "spa"))) ? floor(variable_struct_get(_iv_src, "spa")) : 0;
+            var _iv_spd = (variable_struct_exists(_iv_src, "spd") && is_real(variable_struct_get(_iv_src, "spd"))) ? floor(variable_struct_get(_iv_src, "spd")) : 0;
+            var _type_value = (_iv_hp & 1) + ((_iv_atk & 1) << 1) + ((_iv_def & 1) << 2) + ((_iv_spe & 1) << 3) + ((_iv_spa & 1) << 4) + ((_iv_spd & 1) << 5);
+            var _type_index = clamp(floor(_type_value * 15 / 63), 0, 15);
+            var _type_map = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
+            return _type_map[_type_index];
+        }
+        return 1;
+    }
     var mv = (is_array(global._moves) && is_real(_mid) && _mid >= 0 && _mid < array_length(global._moves))
              ? global._moves[_mid] : undefined;
-    if (is_struct(mv) && variable_struct_exists(mv, "type_id") && is_real(mv.type_id)) {
-        return real(mv.type_id);
+    if (is_struct(mv) && variable_struct_exists(mv, "type_id") && is_real(variable_struct_get(mv, "type_id"))) {
+        return real(variable_struct_get(mv, "type_id"));
     }
     return -1;
 }
@@ -487,8 +507,8 @@ function scr_move_type_id_by_id(_mid) {
 function scr_move_damage_class_by_id(_mid) {
     var mv = (is_array(global._moves) && is_real(_mid) && _mid >= 0 && _mid < array_length(global._moves))
              ? global._moves[_mid] : undefined;
-    if (is_struct(mv) && variable_struct_exists(mv, "damage_class_id") && is_real(mv.damage_class_id)) {
-        return real(mv.damage_class_id);
+    if (is_struct(mv) && variable_struct_exists(mv, "damage_class_id") && is_real(variable_struct_get(mv, "damage_class_id"))) {
+        return real(variable_struct_get(mv, "damage_class_id"));
     }
     return 0;
 }
@@ -497,8 +517,8 @@ function scr_move_damage_class_by_id(_mid) {
 function scr_move_priority_by_id(_mid) {
     var mv = (is_array(global._moves) && is_real(_mid) && _mid >= 0 && _mid < array_length(global._moves))
              ? global._moves[_mid] : undefined;
-    if (is_struct(mv) && variable_struct_exists(mv, "priority") && is_real(mv.priority)) {
-        return real(mv.priority);
+    if (is_struct(mv) && variable_struct_exists(mv, "priority") && is_real(variable_struct_get(mv, "priority"))) {
+        return real(variable_struct_get(mv, "priority"));
     }
     switch (_mid) {
         case 182: // Protect
@@ -515,11 +535,17 @@ function scr_poke_types_by_id(_sid){
     if (is_real(_sid) && variable_global_exists("_species_types") && is_array(global._species_types) && _sid >= 0 && _sid < array_length(global._species_types)){
         var tmp = global._species_types[_sid];
         if (is_array(tmp)) for (var i=0;i<array_length(tmp);++i) if (is_real(tmp[i])) array_push(ids, tmp[i]);
-    } else if (is_real(_sid) && variable_global_exists("POKEMON_SPECIES") && ds_exists(POKEMON_SPECIES, ds_type_map) && ds_map_exists(POKEMON_SPECIES, string(_sid))){
-        var sp = ds_map_find_value(POKEMON_SPECIES, string(_sid));
+    } else if (is_real(_sid) && variable_global_exists("POKEMON_SPECIES") && ds_exists(global.POKEMON_SPECIES, ds_type_map) && ds_map_exists(global.POKEMON_SPECIES, string(_sid))){
+        var sp = ds_map_find_value(global.POKEMON_SPECIES, string(_sid));
         if (is_struct(sp)){
-            if (variable_struct_exists(sp, "types") && is_array(sp.types)) for (var j=0;j<array_length(sp.types);++j) if (is_real(sp.types[j])) array_push(ids, sp.types[j]);
-            else { if (variable_struct_exists(sp, "type1") && is_real(sp.type1)) array_push(ids, sp.type1); if (variable_struct_exists(sp, "type2") && is_real(sp.type2)) array_push(ids, sp.type2); }
+            if (variable_struct_exists(sp, "types") && is_array(variable_struct_get(sp, "types"))) {
+                var _sp_types = variable_struct_get(sp, "types");
+                for (var j=0;j<array_length(_sp_types);++j) if (is_real(_sp_types[j])) array_push(ids, _sp_types[j]);
+            }
+            else {
+                if (variable_struct_exists(sp, "type1") && is_real(variable_struct_get(sp, "type1"))) array_push(ids, variable_struct_get(sp, "type1"));
+                if (variable_struct_exists(sp, "type2") && is_real(variable_struct_get(sp, "type2"))) array_push(ids, variable_struct_get(sp, "type2"));
+            }
         }
     }
     return ids;

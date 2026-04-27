@@ -185,7 +185,11 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                         // first tick doesn't immediately apply damage in the same turn
                                         // the move was used. The status system honors skip_first_tick.
                                         try { if (string(stid) == "trap") variable_struct_set(opts, "skip_first_tick", true); } catch (e_sft) {}
-                                        var ok2 = status_system_apply_status(_status_target, stid, opts);
+                                        var _sleep_blocked = false;
+                                        try {
+                                            if (string_lower(string(stid)) == "sleep" && !is_undefined(__battle_slot_has_active_uproar) && __battle_slot_has_active_uproar(_pid)) _sleep_blocked = true;
+                                        } catch (e_sleep_block) { _sleep_blocked = false; }
+                                        var ok2 = (_sleep_blocked ? false : status_system_apply_status(_status_target, stid, opts));
                                         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][meta] status_system_apply_status returned=" + string(ok2));
                                             // If the status applied and it is sleep, spawn floating Z overlay
                                             try {
@@ -657,14 +661,22 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                 }
                 function __stat_actor_name_local(_actor){
                     var _target_ref = __stat_target_ref_local(_actor);
+                    var _display_name = undefined;
                     try {
                         if (!is_undefined(__status_mon_display_name)){
                             var _display = __status_mon_display_name(_target_ref);
-                            if (is_string(_display) && string_length(_display) > 0) return _display;
+                            if (is_string(_display) && string_length(_display) > 0) _display_name = _display;
                         }
                     } catch (e_stat_name) {}
-                    if (is_struct(_actor) && variable_struct_exists(_actor, "name") && is_string(variable_struct_get(_actor, "name")) && string_length(variable_struct_get(_actor, "name")) > 0) return variable_struct_get(_actor, "name");
-                    return "The Pokemon";
+                    if (is_undefined(_display_name) && is_struct(_actor) && variable_struct_exists(_actor, "name") && is_string(variable_struct_get(_actor, "name")) && string_length(variable_struct_get(_actor, "name")) > 0) _display_name = variable_struct_get(_actor, "name");
+                    if (is_undefined(_display_name) || !is_string(_display_name) || string_length(_display_name) <= 0) _display_name = "The Pokemon";
+                    try {
+                        var _actor_idx = undefined;
+                        if (is_struct(_actor) && variable_struct_exists(_actor, "actor_index") && is_real(variable_struct_get(_actor, "actor_index"))) _actor_idx = floor(variable_struct_get(_actor, "actor_index"));
+                        else if (is_struct(_target_ref) && variable_struct_exists(_target_ref, "actor_index") && is_real(variable_struct_get(_target_ref, "actor_index"))) _actor_idx = floor(variable_struct_get(_target_ref, "actor_index"));
+                        if (is_real(_actor_idx) && _actor_idx > 0) return "The opposing " + string(_display_name);
+                    } catch (e_stat_side) {}
+                    return _display_name;
                 }
                 function __stat_change_dialog_text_local(_actor, _stat_key, _applied_delta, _requested_delta){
                     var _actor_name = __stat_actor_name_local(_actor);

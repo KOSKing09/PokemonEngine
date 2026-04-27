@@ -164,6 +164,14 @@ global.DEV_AUTO_ROLLOUT_SMOKE = false;
 global.DEV_AUTO_FURY_CUTTER_SMOKE = false;
 global.DEV_AUTO_LOVE_GIFT_SMOKE = false;
 global.DEV_AUTO_FIELD_SWITCH_SMOKE = false;
+global.DEV_AUTO_EFFECT_131_155_SMOKE = false;
+global.DEV_AUTO_EFFECT_159_176_SMOKE = false;
+global.DEV_AUTO_EFFECT_27_42_SMOKE = false;
+global.DEV_AUTO_EFFECT_76_94_SMOKE = false;
+global.DEV_AUTO_EFFECT_9_112_SMOKE = false;
+global.DEV_FORCE_CRIT_ROLL_100 = -1;
+global.DEV_FORCE_ACCURACY_HIT = false;
+global.DEV_SMOKE_EXIT_GAME = false;
 
 // Initialize bags (seed with some items for demo/dev)
 bags_init(1);

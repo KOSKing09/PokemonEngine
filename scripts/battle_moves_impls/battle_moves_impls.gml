@@ -137,7 +137,7 @@ function __battle_perform_action_impl(_pid, _step){
     var move_id   = (variable_struct_exists(_step, "move_id") ? variable_struct_get(_step, "move_id") : undefined);
 
     // Status gate: prevent acting when frozen/asleep/etc. before consuming PP or applying meta moves.
-    if (is_struct(A) && !is_undefined(__battle_check_can_act)){
+    if (is_struct(A) && !is_undefined(__battle_check_can_act) && !(is_real(move_id) && (move_id == 173 || move_id == 214))){
         var _can_act = true;
         try { _can_act = __battle_check_can_act(A, move_id); } catch (e_can_act) {
             if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][status][gate] exception while checking actability: " + string(e_can_act));
@@ -174,6 +174,14 @@ function __battle_perform_action_impl(_pid, _step){
             }
         }
     } catch (e_moveIdent) { _moveEntry = undefined; _moveIdent = ""; }
+    var _effect_id = undefined;
+    try {
+        if (is_struct(_moveEntry) && variable_struct_exists(_moveEntry, "effect_id") && is_real(variable_struct_get(_moveEntry, "effect_id"))) _effect_id = floor(variable_struct_get(_moveEntry, "effect_id"));
+        if (!is_real(_effect_id) && !is_undefined(__battle_get_move_meta) && is_real(move_id)){
+            var _eid_mm = __battle_get_move_meta(move_id);
+            if (is_struct(_eid_mm) && variable_struct_exists(_eid_mm, "effect_id") && is_real(variable_struct_get(_eid_mm, "effect_id"))) _effect_id = floor(variable_struct_get(_eid_mm, "effect_id"));
+        }
+    } catch (e_effect_id) { _effect_id = undefined; }
 
     if (is_struct(A) && is_real(move_id) && !is_undefined(status_system_has_status)){
         try {
@@ -196,6 +204,15 @@ function __battle_perform_action_impl(_pid, _step){
             if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][status][heal-block] gate failed: " + string(e_heal_block_gate));
         }
     }
+
+    try {
+        if (is_struct(A) && variable_struct_exists(A, "_recharge_turn") && variable_struct_get(A, "_recharge_turn") == true){
+            variable_struct_set(A, "_recharge_turn", false);
+            variable_struct_set(A, "_recharge_move", undefined);
+            dialog_queue((variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user") + " must recharge!");
+            return "";
+        }
+    } catch (e_recharge_gate) {}
 
     if (is_struct(A) && is_real(move_id) && !is_undefined(status_system_has_status)){
         try {
@@ -220,6 +237,27 @@ function __battle_perform_action_impl(_pid, _step){
             }
         } catch (e_torment_gate) {
             if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][status][torment] gate failed: " + string(e_torment_gate));
+        }
+    }
+
+    if (is_struct(A) && is_real(move_id) && !is_undefined(status_system_has_status)){
+        try {
+            var _taunt = (variable_struct_exists(A, "_taunt_state") ? variable_struct_get(A, "_taunt_state") : undefined);
+            if (is_struct(_taunt) && variable_struct_exists(_taunt, "remaining") && is_real(variable_struct_get(_taunt, "remaining")) && variable_struct_get(_taunt, "remaining") > 0){
+                var _is_status_move = false;
+                if (!is_undefined(scr_move_damage_class_by_id) && is_real(move_id)) _is_status_move = (scr_move_damage_class_by_id(move_id) == 1);
+                if (!_is_status_move){
+                    var _taunt_power = 0;
+                    try { _taunt_power = scr_move_power_by_id(move_id); } catch (e_taunt_power) { _taunt_power = 0; }
+                    if (is_real(_taunt_power) && _taunt_power <= 0) _is_status_move = true;
+                }
+                if (_is_status_move && _effect_id != 176){
+                    dialog_queue((variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The Pokémon") + " can't use status moves after the taunt!");
+                    return "";
+                }
+            }
+        } catch (e_taunt_gate) {
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][status][taunt] gate failed: " + string(e_taunt_gate));
         }
     }
 
@@ -633,7 +671,7 @@ function __battle_perform_action_impl(_pid, _step){
 
     // minimal status check to avoid crashes during refactor
     try {
-        if (!is_undefined(status_system_has_status) && is_struct(A) && status_system_has_status(A, "sleep")){
+        if (!is_undefined(status_system_has_status) && is_struct(A) && status_system_has_status(A, "sleep") && !(is_real(move_id) && (move_id == 173 || move_id == 214))){
             // Request blocked animation, but do NOT enqueue another dialog because
             // status_system_apply_status already queues the canonical 'fell asleep!'
             __battle_request_animation_safe(A, { type: "status_blocked", status: "sleep" });
@@ -736,6 +774,217 @@ function __battle_perform_action_impl(_pid, _step){
         }
         return _teleport_used_msg;
     }
+    if (is_real(move_id) && (move_id == 248 || move_id == 353)){
+        __battle_record_move_usage(_pid, A, D, move_id, false);
+        var _future_used_msg = __battle_impl_return_used(_pid, A, mv_name, move_id);
+        var _future_power = 0;
+        var _future_damage = 0;
+        try { _future_power = __battle_move_power(move_id, A, D); } catch (e_fs_power) { _future_power = 0; }
+        try { _future_damage = __battle_calc_damage(A, D, move_id, max(1, _future_power)); } catch (e_fs_damage) { _future_damage = 0; }
+        if (!is_real(_future_damage) || _future_damage <= 0) _future_damage = max(1, _future_power);
+        var _queued_future = false;
+        try {
+            if (!is_undefined(__battle_queue_delayed_hit)){
+                _queued_future = __battle_queue_delayed_hit(_pid, {
+                    move_id: move_id,
+                    actor_index: actor_idx,
+                    source_side: actor_idx,
+                    target_index: target_idx,
+                    turns_remaining: 3,
+                    damage: max(1, floor(_future_damage))
+                });
+            }
+        } catch (e_fs_queue) { _queued_future = false; }
+        if (_queued_future) dialog_queue((move_id == 248) ? "Future Sight was set!" : "Doom Desire was set!");
+        else dialog_queue("But it failed!");
+        return _future_used_msg;
+    }
+    if (is_real(move_id) && (move_id == 18 || move_id == 46)){
+        __battle_record_move_usage(_pid, A, D, move_id, false);
+        var _phase_used_msg = __battle_impl_return_used(_pid, A, mv_name, move_id);
+        var _phase_slot = __battle_ensure_slot(_pid);
+        var _phase_mode = "wild";
+        try {
+            if (is_struct(_phase_slot) && variable_struct_exists(_phase_slot, "_battle_mode")) _phase_mode = string_lower(string(variable_struct_get(_phase_slot, "_battle_mode")));
+        } catch (e_phase_mode) { _phase_mode = "wild"; }
+        if (_phase_mode != "trainer"){
+            try { variable_struct_set(_phase_slot, "result", "escaped"); } catch (e_phase_result) {}
+            try { variable_struct_set(_phase_slot, "_pending_close", true); } catch (e_phase_close) {}
+            dialog_queue("Got away safely!");
+        } else if (actor_idx == 0 && is_struct(_phase_slot) && !is_undefined(__battle_trainer_next_alive_index) && !is_undefined(__battle_trainer_perform_switch_action)){
+            var _phase_next = -1;
+            try { _phase_next = __battle_trainer_next_alive_index(_phase_slot, (variable_struct_exists(_phase_slot, "_trainer_party_active_idx") ? variable_struct_get(_phase_slot, "_trainer_party_active_idx") : -1)); } catch (e_phase_next) { _phase_next = -1; }
+            if (is_real(_phase_next) && _phase_next >= 0){
+                try { __battle_trainer_perform_switch_action(_pid, _phase_next, { move_id: move_id, forced: true }); } catch (e_phase_sw) { dialog_queue("But it failed!"); }
+            } else {
+                dialog_queue("But it failed!");
+            }
+        } else {
+            dialog_queue("But it failed!");
+        }
+        return _phase_used_msg;
+    }
+    if (is_real(move_id) && move_id == 150){
+        __battle_record_move_usage(_pid, A, D, move_id, false);
+        var _splash_used_msg = __battle_impl_return_used(_pid, A, mv_name, move_id);
+        dialog_queue("But nothing happened!");
+        return _splash_used_msg;
+    }
+    if (is_real(move_id) && move_id == 117){
+        __battle_record_move_usage(_pid, A, D, move_id, false);
+        var _bide_used_msg = __battle_impl_return_used(_pid, A, mv_name, move_id);
+        var _bide_state = (is_struct(A) && variable_struct_exists(A, "_bide_state")) ? variable_struct_get(A, "_bide_state") : undefined;
+        if (is_struct(_bide_state) && variable_struct_exists(_bide_state, "remaining") && is_real(variable_struct_get(_bide_state, "remaining"))){
+            var _bide_remaining = max(0, floor(variable_struct_get(_bide_state, "remaining")) - 1);
+            variable_struct_set(_bide_state, "remaining", _bide_remaining);
+            if (_bide_remaining <= 0){
+                var _bide_damage = (variable_struct_exists(_bide_state, "damage") && is_real(variable_struct_get(_bide_state, "damage"))) ? floor(variable_struct_get(_bide_state, "damage")) : 0;
+                variable_struct_set(A, "_bide_state", undefined);
+                if (_bide_damage > 0 && is_struct(D)){
+                    __battle_apply_damage(_pid, target_idx, max(1, _bide_damage * 2), 1.0);
+                    dialog_queue((is_struct(A) && variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user") + " unleashed energy!");
+                } else {
+                    dialog_queue("But it failed!");
+                }
+            } else {
+                variable_struct_set(A, "_bide_state", _bide_state);
+                dialog_queue((is_struct(A) && variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user") + " is biding its time!");
+            }
+        } else {
+            variable_struct_set(A, "_bide_state", { remaining: 2, damage: 0 });
+            dialog_queue((is_struct(A) && variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user") + " began storing energy!");
+        }
+        return _bide_used_msg;
+    }
+    if (is_real(move_id) && move_id == 220){
+        __battle_record_move_usage(_pid, A, D, move_id, false);
+        var _pain_used_msg = __battle_impl_return_used(_pid, A, mv_name, move_id);
+        if (is_struct(A) && is_struct(D)){
+            var _pain_avg = floor((max(0, __battle_hp_now(A)) + max(0, __battle_hp_now(D))) / 2);
+            __battle_set_hp_now(A, min(__battle_hp_max(A), _pain_avg));
+            __battle_set_hp_now(D, min(__battle_hp_max(D), _pain_avg));
+            dialog_queue("The battlers shared their pain!");
+        } else {
+            dialog_queue("But it failed!");
+        }
+        return _pain_used_msg;
+    }
+    if (is_real(move_id) && move_id == 227){
+        __battle_record_move_usage(_pid, A, D, move_id, false);
+        var _encore_used_msg = __battle_impl_return_used(_pid, A, mv_name, move_id);
+        var _encore_move = undefined;
+        try {
+            if (is_struct(D) && variable_struct_exists(D, "sys_last_move_used") && is_real(variable_struct_get(D, "sys_last_move_used"))) _encore_move = variable_struct_get(D, "sys_last_move_used");
+            if (!is_real(_encore_move) && is_struct(D) && variable_struct_exists(D, "_last_moves_used") && is_array(variable_struct_get(D, "_last_moves_used"))){
+                var _enc_hist = variable_struct_get(D, "_last_moves_used");
+                for (var _ei = array_length(_enc_hist) - 1; _ei >= 0; --_ei){
+                    var _erec = _enc_hist[_ei];
+                    if (is_struct(_erec) && variable_struct_exists(_erec, "move") && is_real(variable_struct_get(_erec, "move"))){ _encore_move = variable_struct_get(_erec, "move"); break; }
+                }
+            }
+        } catch (e_enc_find) { _encore_move = undefined; }
+        if (is_real(_encore_move) && _encore_move >= 0 && _encore_move != move_id){
+            variable_struct_set(D, "_encore_state", { move_id: _encore_move, remaining: irandom_range(2, 6) });
+            dialog_queue((is_struct(D) && variable_struct_exists(D, "name") ? string(variable_struct_get(D, "name")) : "The target") + " received an encore!");
+        } else {
+            dialog_queue("But it failed!");
+        }
+        return _encore_used_msg;
+    }
+    if (is_real(move_id) && move_id == 160){
+        __battle_record_move_usage(_pid, A, D, move_id, false);
+        var _conversion_used_msg = __battle_impl_return_used(_pid, A, mv_name, move_id);
+        var _candidate_types = [];
+        try {
+            if (is_struct(A) && variable_struct_exists(A, "moves") && is_array(variable_struct_get(A, "moves"))){
+                var _conv_moves = variable_struct_get(A, "moves");
+                for (var _ci = 0; _ci < array_length(_conv_moves); ++_ci){
+                    var _cmove = _conv_moves[_ci];
+                    if (!is_real(_cmove) || _cmove < 0 || _cmove == move_id) continue;
+                    var _ctype = scr_move_type_id_by_id(_cmove);
+                    if (is_real(_ctype) && _ctype >= 0) array_push(_candidate_types, _ctype);
+                }
+            }
+        } catch (e_conv_scan) {}
+        if (array_length(_candidate_types) <= 0){
+            dialog_queue("But it failed!");
+        } else {
+            var _new_type = _candidate_types[irandom(array_length(_candidate_types) - 1)];
+            variable_struct_set(A, "types", [_new_type]);
+            variable_struct_set(A, "type1", _new_type);
+            variable_struct_set(A, "type2", -1);
+            try {
+                if (variable_struct_exists(A, "mon") && is_struct(variable_struct_get(A, "mon"))){
+                    var _conv_mon = variable_struct_get(A, "mon");
+                    variable_struct_set(_conv_mon, "types", [_new_type]);
+                    variable_struct_set(_conv_mon, "type1", _new_type);
+                    variable_struct_set(_conv_mon, "type2", -1);
+                }
+            } catch (e_conv_inner) {}
+            dialog_queue((is_struct(A) && variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user") + " transformed its type!");
+        }
+        return _conversion_used_msg;
+    }
+    if (is_real(move_id) && move_id == 176){
+        __battle_record_move_usage(_pid, A, D, move_id, false);
+        var _conv2_used_msg = __battle_impl_return_used(_pid, A, mv_name, move_id);
+        var _last_type = -1;
+        try {
+            var _last_move = undefined;
+            if (is_struct(A) && variable_struct_exists(A, "_last_moves") && is_array(variable_struct_get(A, "_last_moves"))){
+                var _conv2_hist = variable_struct_get(A, "_last_moves");
+                for (var _c2i = array_length(_conv2_hist) - 1; _c2i >= 0; --_c2i){
+                    var _c2rec = _conv2_hist[_c2i];
+                    if (is_struct(_c2rec) && variable_struct_exists(_c2rec, "move") && is_real(variable_struct_get(_c2rec, "move"))){ _last_move = variable_struct_get(_c2rec, "move"); break; }
+                }
+            }
+            if (!is_real(_last_move) && is_struct(A) && variable_struct_exists(A, "_last_received_from_move") && is_real(variable_struct_get(A, "_last_received_from_move"))) _last_move = variable_struct_get(A, "_last_received_from_move");
+            if (is_real(_last_move)) _last_type = scr_move_type_id_by_id(_last_move);
+        } catch (e_conv2_last) { _last_type = -1; }
+        var _conv2_candidates = [];
+        try {
+            if (is_real(_last_type) && _last_type >= 0 && variable_global_exists("BATTLE_TYPE_EFFICACY")){
+                var _eff_map = variable_global_get("BATTLE_TYPE_EFFICACY");
+                for (var _type_id = 1; _type_id <= 18; ++_type_id){
+                    var _key = string(_last_type) + ":" + string(_type_id);
+                    if (ds_map_exists(_eff_map, _key)){
+                        var _mul = ds_map_find_value(_eff_map, _key);
+                        if (is_real(_mul) && _mul < 1) array_push(_conv2_candidates, _type_id);
+                    }
+                }
+            }
+        } catch (e_conv2_scan) { _conv2_candidates = []; }
+        if (array_length(_conv2_candidates) <= 0){
+            switch (_last_type){
+                case 10: _conv2_candidates = [10, 11, 16]; break; // fire
+                case 11: _conv2_candidates = [11, 12, 16]; break; // water
+                case 12: _conv2_candidates = [10, 12, 3, 7, 16]; break; // grass
+                case 13: _conv2_candidates = [12, 13, 16]; break; // electric
+                case 14: _conv2_candidates = [14, 9]; break; // psychic
+                case 15: _conv2_candidates = [10, 11, 15, 9]; break; // ice
+                case 16: _conv2_candidates = [17]; break; // dragon
+                default: _conv2_candidates = [11, 12, 16]; break;
+            }
+        }
+        if (array_length(_conv2_candidates) <= 0){
+            dialog_queue("But it failed!");
+        } else {
+            var _conv2_type = _conv2_candidates[irandom(array_length(_conv2_candidates) - 1)];
+            variable_struct_set(A, "types", [_conv2_type]);
+            variable_struct_set(A, "type1", _conv2_type);
+            variable_struct_set(A, "type2", -1);
+            try {
+                if (variable_struct_exists(A, "mon") && is_struct(variable_struct_get(A, "mon"))){
+                    var _conv2_mon = variable_struct_get(A, "mon");
+                    variable_struct_set(_conv2_mon, "types", [_conv2_type]);
+                    variable_struct_set(_conv2_mon, "type1", _conv2_type);
+                    variable_struct_set(_conv2_mon, "type2", -1);
+                }
+            } catch (e_conv2_inner) {}
+            dialog_queue((is_struct(A) && variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user") + " transformed its type!");
+        }
+        return _conv2_used_msg;
+    }
     if (is_real(move_id) && move_id == 187){
         __battle_record_move_usage(_pid, A, D, move_id, false);
         var _belly_used_msg = __battle_impl_return_used(_pid, A, mv_name, move_id);
@@ -837,6 +1086,87 @@ function __battle_perform_action_impl(_pid, _step){
 
     var mv_power = 0;
     try { mv_power = __battle_move_power(move_id, A, D); } catch (e) { mv_power = 0; }
+    if (is_real(_effect_id) && _effect_id == 159){
+        var _active_turns = 0;
+        try { if (variable_struct_exists(A, "active_turns") && is_real(variable_struct_get(A, "active_turns"))) _active_turns = floor(variable_struct_get(A, "active_turns")); } catch (e_fake_turns) { _active_turns = 0; }
+        if (_active_turns > 0){
+            __battle_record_move_usage(_pid, A, D, move_id, false);
+            var _fake_out_used_msg = __battle_impl_return_used(_pid, A, mv_name, move_id);
+            dialog_queue("But it failed!");
+            return _fake_out_used_msg;
+        }
+    }
+    if (is_real(move_id) && move_id == 173){
+        var _snore_asleep = false;
+        try {
+            _snore_asleep = !is_undefined(status_system_has_status) && status_system_has_status(A, "sleep");
+            if (!_snore_asleep && is_struct(A) && variable_struct_exists(A, "mon") && is_struct(variable_struct_get(A, "mon"))) _snore_asleep = status_system_has_status(variable_struct_get(A, "mon"), "sleep");
+        } catch (e_snore_sleep) { _snore_asleep = false; }
+        if (!_snore_asleep){
+            __battle_record_move_usage(_pid, A, D, move_id, false);
+            var _snore_used_msg = __battle_impl_return_used(_pid, A, mv_name, move_id);
+            dialog_queue("But it failed!");
+            return _snore_used_msg;
+        }
+    }
+    if (is_real(move_id) && move_id == 214){
+        var _sleep_talk_asleep = false;
+        try {
+            _sleep_talk_asleep = !is_undefined(status_system_has_status) && status_system_has_status(A, "sleep");
+            if (!_sleep_talk_asleep && is_struct(A) && variable_struct_exists(A, "mon") && is_struct(variable_struct_get(A, "mon"))) _sleep_talk_asleep = status_system_has_status(variable_struct_get(A, "mon"), "sleep");
+        } catch (e_sleep_talk_sleep) { _sleep_talk_asleep = false; }
+        __battle_record_move_usage(_pid, A, D, move_id, false);
+        var _sleep_talk_used_msg = __battle_impl_return_used(_pid, A, mv_name, move_id);
+        if (!_sleep_talk_asleep){
+            dialog_queue("But it failed!");
+            return _sleep_talk_used_msg;
+        }
+        var _sleep_talk_choices = [];
+        try {
+            if (is_struct(A) && variable_struct_exists(A, "moves") && is_array(variable_struct_get(A, "moves"))){
+                var _sleep_talk_moves = variable_struct_get(A, "moves");
+                for (var _st_i = 0; _st_i < array_length(_sleep_talk_moves); ++_st_i){
+                    var _st_mid = _sleep_talk_moves[_st_i];
+                    if (!is_real(_st_mid) || _st_mid < 0 || _st_mid == 214) continue;
+                    if (__is_meta_move_ignored(_st_mid)) continue;
+                    array_push(_sleep_talk_choices, _st_mid);
+                }
+            }
+        } catch (e_sleep_talk_choices) { _sleep_talk_choices = []; }
+        if (array_length(_sleep_talk_choices) <= 0){
+            dialog_queue("But it failed!");
+            return _sleep_talk_used_msg;
+        }
+        var _sleep_talk_pick = _sleep_talk_choices[irandom(array_length(_sleep_talk_choices) - 1)];
+        try { variable_struct_set(A, "_sleep_talk_bypass", true); } catch (e_st_bypass1) {}
+        try { variable_struct_set(A, "_suppress_last_move_record", true); } catch (e_st_sup1) {}
+        try {
+            var _sleep_talk_power = __battle_move_power(_sleep_talk_pick, A, D);
+            if (is_real(_sleep_talk_power) && _sleep_talk_power > 0){
+                var _sleep_talk_res = __battle_apply_move_damage(_pid, target_idx, A, D, _sleep_talk_pick, _sleep_talk_power);
+                var _sleep_talk_dmg = (is_array(_sleep_talk_res) ? _sleep_talk_res[0] : 0);
+                try { __battle_apply_move_meta_effects(_pid, { move_id: _sleep_talk_pick }, A, D, _sleep_talk_pick, _sleep_talk_dmg, __battle_get_move_meta(_sleep_talk_pick)); } catch (e_st_meta) {}
+            } else {
+                __battle_apply_move(_pid, A, D, _sleep_talk_pick);
+            }
+        } catch (e_sleep_talk_apply) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][sleep-talk] apply failed: " + string(e_sleep_talk_apply)); }
+        try { variable_struct_set(A, "_suppress_last_move_record", false); } catch (e_st_sup2) {}
+        try { variable_struct_set(A, "_sleep_talk_bypass", false); } catch (e_st_bypass2) {}
+        return _sleep_talk_used_msg;
+    }
+    if (is_real(move_id) && move_id == 138){
+        var _dream_target_asleep = false;
+        try {
+            _dream_target_asleep = !is_undefined(status_system_has_status) && status_system_has_status(D, "sleep");
+            if (!_dream_target_asleep && is_struct(D) && variable_struct_exists(D, "mon") && is_struct(variable_struct_get(D, "mon"))) _dream_target_asleep = status_system_has_status(variable_struct_get(D, "mon"), "sleep");
+        } catch (e_dream_sleep) { _dream_target_asleep = false; }
+        if (!_dream_target_asleep){
+            __battle_record_move_usage(_pid, A, D, move_id, false);
+            var _dream_used_msg = __battle_impl_return_used(_pid, A, mv_name, move_id);
+            dialog_queue("But it failed!");
+            return _dream_used_msg;
+        }
+    }
     try {
         if (is_real(move_id) && move_id == 228 && is_struct(_step) && variable_struct_exists(_step, "pursuit_switching") && variable_struct_get(_step, "pursuit_switching") == true){
             mv_power = max(1, floor(mv_power * 2));
@@ -970,20 +1300,37 @@ function __battle_perform_action_impl(_pid, _step){
                 } catch (e_solar_weather) {}
             }
             // Special-case: Thrash / Rollout-like behavior using shared locked-move state.
-            if (is_real(move_id) && move_id == 37){
+            if (is_real(move_id) && (move_id == 37 || move_id == 80 || move_id == 200)){
                 var _locked = (variable_struct_exists(A, "_locked_move") ? variable_struct_get(A, "_locked_move") : undefined);
                 // If not previously locked, initialize lock state (2..3 turns inclusive)
-                if (!is_struct(_locked) || !variable_struct_exists(_locked, "move_id") || variable_struct_get(_locked, "move_id") != 37){
+                if (!is_struct(_locked) || !variable_struct_exists(_locked, "move_id") || variable_struct_get(_locked, "move_id") != move_id){
                     var dur = irandom_range(2,3);
-                    variable_struct_set(A, "_locked_move", { move_id: 37, remaining: dur, apply_confuse_on_end: true });
+                    variable_struct_set(A, "_locked_move", { move_id: move_id, remaining: dur, apply_confuse_on_end: true, force_reuse: true });
                 }
             }
             if (is_real(move_id) && move_id == 205){
                 var _locked_roll = (variable_struct_exists(A, "_locked_move") ? variable_struct_get(A, "_locked_move") : undefined);
                 if (!is_struct(_locked_roll) || !variable_struct_exists(_locked_roll, "move_id") || variable_struct_get(_locked_roll, "move_id") != 205){
-                    variable_struct_set(A, "_locked_move", { move_id: 205, remaining: 5, apply_confuse_on_end: false });
+                    variable_struct_set(A, "_locked_move", { move_id: 205, remaining: 5, apply_confuse_on_end: false, force_reuse: true });
                     if (!variable_struct_exists(A, "_rollout_mul") || !is_real(variable_struct_get(A, "_rollout_mul"))) variable_struct_set(A, "_rollout_mul", 1);
                 }
+            }
+            if (is_real(_effect_id) && _effect_id == 160){
+                var _uproar_lock = (variable_struct_exists(A, "_locked_move") ? variable_struct_get(A, "_locked_move") : undefined);
+                if (!is_struct(_uproar_lock) || !variable_struct_exists(_uproar_lock, "move_id") || variable_struct_get(_uproar_lock, "move_id") != move_id){
+                    variable_struct_set(A, "_locked_move", { move_id: move_id, remaining: irandom_range(2, 5), apply_confuse_on_end: false, force_reuse: true, wake_field_sleepers: true });
+                }
+                try {
+                    if (variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor")) && !is_undefined(status_system_has_status) && !is_undefined(status_system_clear_status)){
+                        var _uproar_targets = variable_struct_get(_B, "actor");
+                        for (var _uproar_idx = 0; _uproar_idx < array_length(_uproar_targets); ++_uproar_idx){
+                            var _uproar_target = _uproar_targets[_uproar_idx];
+                            if (!is_struct(_uproar_target)) continue;
+                            if (status_system_has_status(_uproar_target, "sleep")) status_system_clear_status(_uproar_target, "sleep");
+                        }
+                    }
+                    variable_struct_set(_B, "_uproar_active", true);
+                } catch (e_uproar_start) {}
             }
             if (is_two){
                 var charging = (variable_struct_exists(A, "_charging_move") ? variable_struct_get(A, "_charging_move") : undefined);
@@ -1079,17 +1426,40 @@ function __battle_perform_action_impl(_pid, _step){
         }
     } catch (e_two){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][two-turn] handler error: " + string(e_two)); }
 
+    if (is_real(_effect_id) && _effect_id == 171 && is_struct(A)){
+        var _focus_punch_interrupted = false;
+        try {
+            _focus_punch_interrupted = variable_struct_exists(A, "_was_hit_this_turn") && variable_struct_get(A, "_was_hit_this_turn") == true && variable_struct_exists(A, "_last_received_damage") && is_real(variable_struct_get(A, "_last_received_damage")) && variable_struct_get(A, "_last_received_damage") > 0;
+        } catch (e_focus_gate) { _focus_punch_interrupted = false; }
+        if (_focus_punch_interrupted){
+            __battle_record_move_usage(_pid, A, D, move_id, false);
+            var _focus_used_msg = __battle_impl_return_used(_pid, A, mv_name, move_id);
+            dialog_queue((variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user") + " lost focus and couldn't move!");
+            return _focus_used_msg;
+        }
+    }
+
+    if (is_real(_effect_id) && _effect_id == 176){
+        __battle_record_move_usage(_pid, A, D, move_id, false);
+        var _taunt_used_msg = __battle_impl_return_used(_pid, A, mv_name, move_id);
+        if (is_struct(D)){
+            variable_struct_set(D, "_taunt_state", { remaining: 2, source_move: move_id, source_actor_index: actor_idx });
+            dialog_queue((variable_struct_exists(D, "name") ? string(variable_struct_get(D, "name")) : "The target") + " fell for the taunt!");
+        } else {
+            dialog_queue("But it failed!");
+        }
+        return _taunt_used_msg;
+    }
+
     // Locked-move enforcement: Thrash and Rollout both force repeated use while active.
     try {
-        if (is_struct(A) && is_real(move_id) && move_id != 37 && move_id != 205){
+        if (is_struct(A) && is_real(move_id) && move_id != 37 && move_id != 80 && move_id != 200 && move_id != 205){
             var _lm = (variable_struct_exists(A, "_locked_move") ? variable_struct_get(A, "_locked_move") : undefined);
-            if (is_struct(_lm) && variable_struct_exists(_lm, "move_id") && is_real(variable_struct_get(_lm, "move_id")) && is_real(variable_struct_get(_lm, "remaining")) && variable_struct_get(_lm, "remaining") > 0){
+            if (is_struct(_lm) && variable_struct_exists(_lm, "force_reuse") && variable_struct_get(_lm, "force_reuse") == true && variable_struct_exists(_lm, "move_id") && is_real(variable_struct_get(_lm, "move_id")) && is_real(variable_struct_get(_lm, "remaining")) && variable_struct_get(_lm, "remaining") > 0){
                 var _locked_move_id = variable_struct_get(_lm, "move_id");
-                if (_locked_move_id == 37 || _locked_move_id == 205){
-                    move_id = _locked_move_id;
-                    mv_name = __battle_move_name(move_id);
-                    mv_power = __battle_move_power(move_id, A, D);
-                }
+                move_id = _locked_move_id;
+                mv_name = __battle_move_name(move_id);
+                mv_power = __battle_move_power(move_id, A, D);
             }
         }
     } catch (e_tl) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][thrash] enforcement error: " + string(e_tl)); }
@@ -1193,8 +1563,20 @@ function __battle_perform_action_impl(_pid, _step){
 
         // Apply first hit now (only if move has power, is OHKO, or uses a custom damage semantic like Present)
         if ((is_real(mv_power) && mv_power > 0) || is_ohko_move || (is_real(move_id) && move_id == 217)){
+    var _target_had_paralysis = false;
+    try {
+        if (is_real(_effect_id) && _effect_id == 172 && !is_undefined(status_system_has_status)){
+            _target_had_paralysis = status_system_has_status(D, "paralysis") || status_system_has_status(D, "paralyze");
+            if (!_target_had_paralysis && variable_struct_exists(D, "mon") && is_struct(variable_struct_get(D, "mon"))) _target_had_paralysis = status_system_has_status(variable_struct_get(D, "mon"), "paralysis") || status_system_has_status(variable_struct_get(D, "mon"), "paralyze");
+        }
+    } catch (e_smelling_pre) { _target_had_paralysis = false; }
     // If this is a locked repeated move, mark that the actor executed it this turn.
-    try { if (is_real(move_id) && (move_id == 37 || move_id == 205) && is_struct(A)) { variable_struct_set(A, "_locked_move_executed", true); } } catch (e_lf) {}
+    try {
+        if (is_struct(A) && variable_struct_exists(A, "_locked_move")){
+            var _exec_lock = variable_struct_get(A, "_locked_move");
+            if (is_struct(_exec_lock) && variable_struct_exists(_exec_lock, "force_reuse") && variable_struct_get(_exec_lock, "force_reuse") == true && variable_struct_exists(_exec_lock, "move_id") && variable_struct_get(_exec_lock, "move_id") == move_id) variable_struct_set(A, "_locked_move_executed", true);
+        }
+    } catch (e_lf) {}
     var resf = __battle_apply_move_damage(_pid, target_idx, A, D, move_id, mv_power);
         var _semi_blocked = false;
         try {
@@ -1209,6 +1591,42 @@ function __battle_perform_action_impl(_pid, _step){
         }
         var dmgh = (is_array(resf) ? resf[0] : 0);
         try { __battle_apply_move_meta_effects(_pid, _step, A, D, move_id, dmgh, mm_local); } catch (e_meta) {}
+        try {
+            if (is_real(_effect_id) && _effect_id == 172 && _target_had_paralysis && is_real(dmgh) && dmgh > 0 && !is_undefined(status_system_clear_status)){
+                status_system_clear_status(D, "paralysis");
+                status_system_clear_status(D, "paralyze");
+                if (variable_struct_exists(D, "mon") && is_struct(variable_struct_get(D, "mon"))){
+                    var _clear_mon = variable_struct_get(D, "mon");
+                    status_system_clear_status(_clear_mon, "paralysis");
+                    status_system_clear_status(_clear_mon, "paralyze");
+                }
+            }
+        } catch (e_smelling_post) {}
+        try {
+            if (is_real(move_id) && move_id == 6 && is_real(dmgh) && dmgh > 0){
+                var _payday_level = (is_struct(A) && variable_struct_exists(A, "level") && is_real(variable_struct_get(A, "level"))) ? floor(variable_struct_get(A, "level")) : 1;
+                var _payday_amount = max(1, _payday_level * 5);
+                var _payday_slot = __battle_ensure_slot(_pid);
+                if (is_struct(_payday_slot)){
+                    var _payday_cur = (variable_struct_exists(_payday_slot, "_pay_day_money") && is_real(variable_struct_get(_payday_slot, "_pay_day_money"))) ? floor(variable_struct_get(_payday_slot, "_pay_day_money")) : 0;
+                    variable_struct_set(_payday_slot, "_pay_day_money", _payday_cur + _payday_amount);
+                    dialog_queue("Coins were scattered everywhere!");
+                }
+            }
+        } catch (e_payday) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][pay-day] failed: " + string(e_payday)); }
+        try {
+            if (is_real(dmgh) && dmgh > 0 && is_struct(A)){
+                var _recharge_eid = undefined;
+                if (variable_global_exists("_moves") && is_array(global._moves) && is_real(move_id) && move_id >= 0 && move_id < array_length(global._moves)){
+                    var _recharge_move = global._moves[move_id];
+                    if (is_struct(_recharge_move) && variable_struct_exists(_recharge_move, "effect_id") && is_real(variable_struct_get(_recharge_move, "effect_id"))) _recharge_eid = floor(variable_struct_get(_recharge_move, "effect_id"));
+                }
+                if (is_real(_recharge_eid) && _recharge_eid == 81){
+                    variable_struct_set(A, "_recharge_turn", true);
+                    variable_struct_set(A, "_recharge_move", move_id);
+                }
+            }
+        } catch (e_recharge_set) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][recharge] set failed: " + string(e_recharge_set)); }
 
         // Hazard removal moves: Rapid Spin (229) clears hazards on user's side;
         // Defog (432) clears hazards on the target's side. Implement here

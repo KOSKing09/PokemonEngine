@@ -260,10 +260,6 @@ function __battle_audio_stop_handle(_h){
         if (!is_undefined(audio_stop_sound) && !is_undefined(_h)){
             audio_stop_sound(_h);
             if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] stopped handle=" + string(_h));
-        } else if (!is_undefined(audio_stop_all)){
-            // Fallback when only a global-all stop is available
-            audio_stop_all();
-            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] called audio_stop_all() as fallback");
         }
     } catch (e) {
         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] stop_handle error: " + string(e));
@@ -274,17 +270,13 @@ function __battle_audio_stop_handle(_h){
 // Returns an audio channel/handle when possible, otherwise undefined.
 // Play a sound resource using the best runtime API available. Returns
 // an audio handle/channel when possible, otherwise undefined.
-function __battle_sound_play_safe(_res){
+function __battle_sound_play_safe(_res, _loop = false){
     try {
         if (is_undefined(_res)) return undefined;
         // Prefer audio_play_sound (modern runtime) which may return a channel id.
         if (!is_undefined(audio_play_sound)){
-            // For resources intended as BGM, callers may want looping; here we
-            // default to loop=true when the resource name suggests bgm (caller
-            // may still handle looping via audio APIs). Use loop=false by default
-            // to be conservative unless caller previously set a loop handle.
             var _ret = undefined;
-            try { _ret = audio_play_sound(_res, 1, true); } catch (e_ap) { try { _ret = audio_play_sound(_res, 1, false); } catch (e2) { _ret = undefined; } }
+            try { _ret = audio_play_sound(_res, 1, _loop); } catch (e_ap) { _ret = undefined; }
             if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_play_sound called for res=" + string(_res) + " ret=" + string(_ret));
             return _ret;
         }
@@ -295,7 +287,7 @@ function __battle_sound_play_safe(_res){
             try { stream = audio_create_stream(_res); } catch (e_cs) { stream = undefined; }
             if (!is_undefined(stream)){
                 var ch = undefined;
-                try { ch = audio_play_sound(stream, 1, true); } catch (e_ch) { ch = undefined; }
+                try { ch = audio_play_sound(stream, 1, _loop); } catch (e_ch) { ch = undefined; }
                 if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_create_stream+play returned " + string(ch));
                 return ch;
             }
@@ -579,13 +571,19 @@ function battle_open(_a0 = undefined, _a1 = undefined, _a2 = undefined, _a3 = un
     // previous-audio unset.
     _B._prev_audio = undefined;
 
-    // Stop all other audio before starting battle music so nothing overlaps
-    try { if (!is_undefined(audio_stop_all)) { audio_stop_all(); if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] called audio_stop_all() before starting battle music"); } } catch (e_stop_all) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_stop_all() failed: " + string(e_stop_all)); }
+    // Stop the configured region music before battle music starts, but avoid a
+    // global audio stop so one-shot SFX and unrelated channels are left alone.
+    try {
+        if (variable_global_exists("_REGIONMUSIC") && !is_undefined(global._REGIONMUSIC) && !is_undefined(audio_stop_sound)) {
+            audio_stop_sound(global._REGIONMUSIC);
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] stopped region music before battle start");
+        }
+    } catch (e_stop_region) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] region music stop failed: " + string(e_stop_region)); }
 
     // Start background battle music (looped) if available
     if (!is_undefined(_B._battle_music)){
         try {
-            var _bh = __battle_sound_play_safe(_B._battle_music);
+            var _bh = __battle_sound_play_safe(_B._battle_music, true);
             variable_struct_set(_B, "_bgm_handle", _bh);
             if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] played bgm="+string(_B._battle_music)+" handle="+string(_bh));
         } catch (e) { variable_struct_set(_B, "_bgm_handle", undefined); if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to play bgm="+string(_B._battle_music)); }
@@ -1308,15 +1306,9 @@ function battle_close(_pid){
     } catch (e2) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to stop defeated handle: " + string(e2)); }
     try {
         var _bm_res = (variable_struct_exists(_B, "_battle_music") ? variable_struct_get(_B, "_battle_music") : undefined);
-        if (!is_undefined(_bm_res)){
-            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] stopping battle_music resource: " + string(_bm_res));
-            try { if (!is_undefined(audio_stop_sound)) audio_stop_sound(_bm_res); else __battle_audio_stop_handle(_bm_res); } catch (ee) {}
-        }
+        if (!is_undefined(_bm_res) && variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] battle_music resource configured: " + string(_bm_res));
         var _bdm = (variable_struct_exists(_B, "_battle_defeated_music") ? variable_struct_get(_B, "_battle_defeated_music") : undefined);
-        if (!is_undefined(_bdm)){
-            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] stopping defeated_music resource: " + string(_bdm));
-            try { if (!is_undefined(audio_stop_sound)) audio_stop_sound(_bdm); else __battle_audio_stop_handle(_bdm); } catch (ee2) {}
-        }
+        if (!is_undefined(_bdm) && variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] defeated_music resource configured: " + string(_bdm));
     } catch (e3) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to call sound_stop: " + string(e3)); }
     _B.sys_open = false;
     try { variable_struct_set(_B, "_area_type", undefined); } catch (e_area_clear) {}
@@ -1372,15 +1364,9 @@ function battle_close(_pid){
         var _bh_local2 = (variable_struct_exists(_B, "_bgm_handle") ? variable_struct_get(_B, "_bgm_handle") : undefined);
         if (!is_undefined(_stop_bgm_res_local)){
             try {
-                if (!is_undefined(audio_stop_sound)){
-                    audio_stop_sound(_stop_bgm_res_local);
-                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_stop_sound called on battle_res=" + string(_stop_bgm_res_local));
-                    } else if (!is_undefined(_bh_local2)){
+                if (!is_undefined(_bh_local2)){
                     __battle_audio_stop_handle(_bh_local2);
                     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] __battle_audio_stop_handle called on bgm_handle=" + string(_bh_local2));
-                } else if (!is_undefined(audio_stop_all)){
-                    audio_stop_all();
-                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] fallback audio_stop_all() called to stop battle music");
                 }
             } catch (e_stop_b) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed stopping battle music: " + string(e_stop_b)); }
         }
@@ -1391,15 +1377,9 @@ function battle_close(_pid){
     var _stop_res = (variable_struct_exists(_B, "_battle_defeated_music") ? variable_struct_get(_B, "_battle_defeated_music") : undefined);
         if (!is_undefined(_stop_res)){
             try {
-                if (!is_undefined(audio_stop_sound)){
-                    audio_stop_sound(_stop_res);
-                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_stop_sound called on defeated_res=" + string(_stop_res));
-                    } else if (!is_undefined(_def_handle_local)){
+                if (!is_undefined(_def_handle_local)){
                     __battle_audio_stop_handle(_def_handle_local);
                     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] __battle_audio_stop_handle called on defeated_handle=" + string(_def_handle_local));
-                } else if (!is_undefined(audio_stop_all)){
-                    audio_stop_all();
-                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] fallback audio_stop_all() called to stop defeated music");
                 }
             } catch (e_stop_d) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed stopping defeated music: " + string(e_stop_d)); }
         }
@@ -2888,6 +2868,7 @@ function __battle_step_turn_if_ready(_pid){
             // so we apply ticks exactly once until the battle progresses.
             var _already = (variable_struct_exists(_B, "_statuses_ticked") ? variable_struct_get(_B, "_statuses_ticked") : false);
             if (!_already){
+                try { __battle_tick_delayed_hits(_pid); } catch (e_delayed_hits) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][delayed_hit] tick failed: " + string(e_delayed_hits)); }
                 // Tick statuses on both actors if status system is available
                 if (!is_undefined(status_system_tick_statuses)){
                     if (is_struct(A0)) status_system_tick_statuses(A0, undefined);
@@ -3210,7 +3191,7 @@ function __battle_step_turn_if_ready(_pid){
                     if (!is_struct(_a_locked)) continue;
                     try {
                         var _lm = (variable_struct_exists(_a_locked, "_locked_move") ? variable_struct_get(_a_locked, "_locked_move") : undefined);
-                        if (is_struct(_lm) && variable_struct_exists(_lm, "move_id") && (variable_struct_get(_lm, "move_id") == 37 || variable_struct_get(_lm, "move_id") == 205) && is_real(variable_struct_get(_lm, "remaining"))){
+                        if (is_struct(_lm) && variable_struct_exists(_lm, "force_reuse") && variable_struct_get(_lm, "force_reuse") == true && variable_struct_exists(_lm, "move_id") && is_real(variable_struct_get(_lm, "remaining"))){
                             var rem = floor(variable_struct_get(_lm, "remaining"));
                             // Only decrement the lock if the actor actually executed the locked move this turn
                             var executed = false;
@@ -3237,10 +3218,45 @@ function __battle_step_turn_if_ready(_pid){
                                 try { if (variable_struct_exists(_a_locked, "_rollout_mul")) variable_struct_set(_a_locked, "_rollout_mul", 1); } catch (e_roll_reset) {}
                             }
                         }
+                        try {
+                            if (variable_struct_exists(_a_locked, "active_turns") && is_real(variable_struct_get(_a_locked, "active_turns"))) variable_struct_set(_a_locked, "active_turns", max(0, floor(variable_struct_get(_a_locked, "active_turns")) + 1));
+                            else variable_struct_set(_a_locked, "active_turns", 1);
+                        } catch (e_active_turns) {}
+                        var _enc = (variable_struct_exists(_a_locked, "_encore_state") ? variable_struct_get(_a_locked, "_encore_state") : undefined);
+                        if (is_struct(_enc) && variable_struct_exists(_enc, "remaining") && is_real(variable_struct_get(_enc, "remaining"))){
+                            var _enc_rem = max(0, floor(variable_struct_get(_enc, "remaining")) - 1);
+                            if (_enc_rem <= 0) variable_struct_set(_a_locked, "_encore_state", undefined);
+                            else {
+                                variable_struct_set(_enc, "remaining", _enc_rem);
+                                variable_struct_set(_a_locked, "_encore_state", _enc);
+                            }
+                        }
+                        var _taunt = (variable_struct_exists(_a_locked, "_taunt_state") ? variable_struct_get(_a_locked, "_taunt_state") : undefined);
+                        if (is_struct(_taunt) && variable_struct_exists(_taunt, "remaining") && is_real(variable_struct_get(_taunt, "remaining"))){
+                            var _taunt_rem = max(0, floor(variable_struct_get(_taunt, "remaining")) - 1);
+                            if (_taunt_rem <= 0) variable_struct_set(_a_locked, "_taunt_state", undefined);
+                            else {
+                                variable_struct_set(_taunt, "remaining", _taunt_rem);
+                                variable_struct_set(_a_locked, "_taunt_state", _taunt);
+                            }
+                        }
                     } catch (e_lm) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][thrash] locked processing failed: " + string(e_lm)); }
                 }
             }
         } catch (e_pl) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][thrash] post-turn locked handling failed: " + string(e_pl)); }
+
+    try {
+        var _uproar_active = __battle_slot_has_active_uproar(_pid);
+        variable_struct_set(_B, "_uproar_active", _uproar_active);
+        if (_uproar_active && variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor")) && !is_undefined(status_system_has_status) && !is_undefined(status_system_clear_status)){
+            var _uproar_actors = variable_struct_get(_B, "actor");
+            for (var _uproar_i = 0; _uproar_i < array_length(_uproar_actors); ++_uproar_i){
+                var _uproar_actor = _uproar_actors[_uproar_i];
+                if (!is_struct(_uproar_actor)) continue;
+                if (status_system_has_status(_uproar_actor, "sleep")) status_system_clear_status(_uproar_actor, "sleep");
+            }
+        }
+    } catch (e_uproar_tick) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][uproar] post-turn handling failed: " + string(e_uproar_tick)); }
 
     // After ticking/animations, decrement per-turn weather durations and expire when necessary
     try {
@@ -3377,18 +3393,14 @@ function __battle_step_turn_if_ready(_pid){
                             if (_isPlaying_ep){
                                 try {
                                     var _stop_res_ep = (variable_struct_exists(_B, "_battle_music") ? variable_struct_get(_B, "_battle_music") : undefined);
-                                    if (!is_undefined(audio_stop_sound) && !is_undefined(_stop_res_ep)) audio_stop_sound(_stop_res_ep);
-                                    else {
-                                        var _bh_ep = (variable_struct_exists(_B, "_bgm_handle") ? variable_struct_get(_B, "_bgm_handle") : undefined);
-                                        if (!is_undefined(_bh_ep)) __battle_audio_stop_handle(_bh_ep);
-                                        else if (!is_undefined(audio_stop_all)) audio_stop_all();
-                                    }
+                                                var _bh_ep = (variable_struct_exists(_B, "_bgm_handle") ? variable_struct_get(_B, "_bgm_handle") : undefined);
+                                                if (!is_undefined(_bh_ep)) __battle_audio_stop_handle(_bh_ep);
                                 } catch (e_s_ep) {}
                             }
                         }
                     } catch (e_top_ep) {}
                     try {
-                        var _dh_ep = __battle_sound_play_safe(_def_res_ep);
+                        var _dh_ep = __battle_sound_play_safe(_def_res_ep, true);
                         variable_struct_set(_B, "_defeated_handle", _dh_ep);
                     } catch (e_play_ep) {}
                 }
@@ -3596,18 +3608,10 @@ function __battle_step_turn_if_ready(_pid){
                     try {
                         var _stop_res = (variable_struct_exists(_B, "_battle_music") ? variable_struct_get(_B, "_battle_music") : undefined);
                         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] stopping _stop_res=" + string(_stop_res));
-                        if (!is_undefined(audio_stop_sound) && !is_undefined(_stop_res)){
-                            audio_stop_sound(_stop_res);
-                            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_stop_sound called on _stop_res");
-                        } else {
-                            var _bh = (variable_struct_exists(_B, "_bgm_handle") ? variable_struct_get(_B, "_bgm_handle") : undefined);
-                            if (!is_undefined(_bh)){
-                                __battle_audio_stop_handle(_bh);
-                                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] __battle_audio_stop_handle called on bgm_handle");
-                            } else if (!is_undefined(audio_stop_all)){
-                                audio_stop_all();
-                                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] audio_stop_all() fallback called to stop bgm");
-                            }
+                        var _bh = (variable_struct_exists(_B, "_bgm_handle") ? variable_struct_get(_B, "_bgm_handle") : undefined);
+                        if (!is_undefined(_bh)){
+                            __battle_audio_stop_handle(_bh);
+                            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] __battle_audio_stop_handle called on bgm_handle");
                         }
                     } catch (e_s) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to stop bgm: " + string(e_s)); }
                 }
@@ -3615,7 +3619,7 @@ function __battle_step_turn_if_ready(_pid){
         } catch (e_top) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] error checking audio_is_playing: " + string(e_top)); }
 
         try {
-            var _dh = __battle_sound_play_safe(_def_res);
+            var _dh = __battle_sound_play_safe(_def_res, true);
             variable_struct_set(_B, "_defeated_handle", _dh);
             if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] played defeated_res="+string(_def_res)+" handle="+string(_dh));
         } catch (e) {
@@ -3762,7 +3766,19 @@ function __battle_step_turn_if_ready(_pid){
     // If we're at the start of a new turn (turn index 0), clear the status-tick guard
     // so statuses will be ticked at that turn's end. This ensures ticks happen once
     // per full turn rather than being suppressed across rounds.
-    try { if (is_real(_B.turn_i) && _B.turn_i == 0) { variable_struct_set(_B, "_statuses_ticked", false); } } catch (e_stres) {}
+    try {
+        if (is_real(_B.turn_i) && _B.turn_i == 0) {
+            variable_struct_set(_B, "_statuses_ticked", false);
+            if (variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor"))){
+                var _turn_actors = variable_struct_get(_B, "actor");
+                for (var _turn_ai = 0; _turn_ai < array_length(_turn_actors); ++_turn_ai){
+                    var _turn_actor = _turn_actors[_turn_ai];
+                    if (!is_struct(_turn_actor)) continue;
+                    variable_struct_set(_turn_actor, "_was_hit_this_turn", false);
+                }
+            }
+        }
+    } catch (e_stres) {}
     // Also clear any per-turn pledge tracking at the start of a new turn
     try { if (is_real(_B.turn_i) && _B.turn_i == 0) { variable_struct_set(_B, "_pledges_this_turn", undefined); variable_struct_set(_B, "_pledge_combo_effects", undefined); variable_struct_set(_B, "_pledge_reverts", undefined); } } catch (e_ptc) {}
 
@@ -3892,9 +3908,69 @@ function __battle_move_name(_code){
     }
     return "--";
 }
+function __battle_queue_delayed_hit(_pid, _packet){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !is_struct(_packet)) return false;
+    var _queued = (variable_struct_exists(_B, "_pending_delayed_hits") && is_array(variable_struct_get(_B, "_pending_delayed_hits"))) ? variable_struct_get(_B, "_pending_delayed_hits") : [];
+    var _next = [];
+    var _pkt_move = (variable_struct_exists(_packet, "move_id") ? variable_struct_get(_packet, "move_id") : undefined);
+    var _pkt_side = (variable_struct_exists(_packet, "source_side") ? variable_struct_get(_packet, "source_side") : undefined);
+    for (var _qi = 0; _qi < array_length(_queued); ++_qi){
+        var _old = _queued[_qi];
+        if (!is_struct(_old)) continue;
+        var _old_move = (variable_struct_exists(_old, "move_id") ? variable_struct_get(_old, "move_id") : undefined);
+        var _old_side = (variable_struct_exists(_old, "source_side") ? variable_struct_get(_old, "source_side") : undefined);
+        if (is_real(_pkt_move) && is_real(_old_move) && is_real(_pkt_side) && is_real(_old_side) && _pkt_move == _old_move && _pkt_side == _old_side) continue;
+        array_push(_next, _old);
+    }
+    array_push(_next, _packet);
+    variable_struct_set(_B, "_pending_delayed_hits", _next);
+    return true;
+}
+function __battle_tick_delayed_hits(_pid){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B)) return false;
+    var _queued = (variable_struct_exists(_B, "_pending_delayed_hits") && is_array(variable_struct_get(_B, "_pending_delayed_hits"))) ? variable_struct_get(_B, "_pending_delayed_hits") : [];
+    if (!is_array(_queued) || array_length(_queued) <= 0) return false;
+    var _next = [];
+    var _triggered = false;
+    for (var _qi = 0; _qi < array_length(_queued); ++_qi){
+        var _pkt = _queued[_qi];
+        if (!is_struct(_pkt)) continue;
+        var _rem = (variable_struct_exists(_pkt, "turns_remaining") && is_real(variable_struct_get(_pkt, "turns_remaining"))) ? floor(variable_struct_get(_pkt, "turns_remaining")) - 1 : 0;
+        if (_rem > 0){
+            variable_struct_set(_pkt, "turns_remaining", _rem);
+            array_push(_next, _pkt);
+            continue;
+        }
+        var _tidx = (variable_struct_exists(_pkt, "target_index") ? variable_struct_get(_pkt, "target_index") : 1);
+        var _dmg = (variable_struct_exists(_pkt, "damage") && is_real(variable_struct_get(_pkt, "damage"))) ? max(1, floor(variable_struct_get(_pkt, "damage"))) : 0;
+        var _move_id = (variable_struct_exists(_pkt, "move_id") ? variable_struct_get(_pkt, "move_id") : undefined);
+        var _target = (variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor")) && is_real(_tidx) && _tidx >= 0 && _tidx < array_length(variable_struct_get(_B, "actor"))) ? variable_struct_get(_B, "actor")[_tidx] : undefined;
+        if (!is_struct(_target) || !is_real(_dmg) || _dmg <= 0 || __battle_hp_now(_target) <= 0) continue;
+        _triggered = true;
+        var _move_name = (is_real(_move_id) ? __battle_move_name(_move_id) : "The delayed attack");
+        var _target_name = (variable_struct_exists(_target, "name") ? string(variable_struct_get(_target, "name")) : "the target");
+        try { dialog2p_show_now(_pid, _move_name + " struck " + _target_name + "!"); } catch (e_dh_msg) { try { dialog2p_enqueue(_pid, _move_name + " struck " + _target_name + "!"); } catch (e_dh_q) {} }
+        try { __battle_request_animation_safe(_pid, { type: "move_hit", target_index: _tidx, move_id: _move_id }); } catch (e_dh_anim) {}
+        try { __battle_apply_damage(_pid, _tidx, _dmg, 1.0); } catch (e_dh_apply) {}
+    }
+    variable_struct_set(_B, "_pending_delayed_hits", (array_length(_next) > 0) ? _next : undefined);
+    return _triggered;
+}
 function __battle_move_power(_code, _A, _D){
+    try {
+        if (variable_global_exists("_battle_impls") && is_struct(global._battle_impls) && variable_struct_exists(global._battle_impls, "__battle_move_power_impl")){
+            var _impl_power = variable_struct_get(global._battle_impls, "__battle_move_power_impl");
+            if (!is_undefined(_impl_power)) return _impl_power(_code, _A, _D);
+        }
+    } catch (e_impl_power) {}
     if (is_real(_code) && _code >= 0){
         if (!is_undefined(scr_move_power_by_id)){
+            if (_code == 237){
+                var _hp_power = __battle_variable_move_power(_code, _A, _D);
+                if (is_real(_hp_power) && _hp_power > 0) return _hp_power;
+            }
             var p = scr_move_power_by_id(_code);
             // If the data-layer returns a positive numeric power, use it.
             // If it returns 0 it usually means 'unspecified / variable power' in the dataset;
@@ -3989,6 +4065,54 @@ function __battle_variable_move_power(_move_id, _A, _D){
     var aw = __battle_entity_weight(_A);
     var dw = __battle_entity_weight(_D);
 
+    // Beat Up (id 251): approximate one strike per usable party member by
+    // scaling the per-hit power to the attacker's available party count.
+    if (mid == 251){
+        try {
+            var count = 0;
+            if (is_struct(_A) && variable_struct_exists(_A, "party") && is_array(variable_struct_get(_A, "party"))) count = array_length(variable_struct_get(_A, "party"));
+            else if (is_struct(_A) && variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon")) && variable_struct_exists(variable_struct_get(_A, "mon"), "party") && is_array(variable_struct_get(variable_struct_get(_A, "mon"), "party"))) count = array_length(variable_struct_get(variable_struct_get(_A, "mon"), "party"));
+            if (count <= 0) count = 1;
+            return clamp(count * 10, 10, 200);
+        } catch (e_bu_early){ return 10; }
+    }
+
+    if (mid == 237){
+        try {
+            var _iv_src = undefined;
+            if (is_struct(_A) && variable_struct_exists(_A, "iv") && is_struct(variable_struct_get(_A, "iv"))) _iv_src = variable_struct_get(_A, "iv");
+            else if (is_struct(_A) && variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon")) && variable_struct_exists(variable_struct_get(_A, "mon"), "iv") && is_struct(variable_struct_get(variable_struct_get(_A, "mon"), "iv"))) _iv_src = variable_struct_get(variable_struct_get(_A, "mon"), "iv");
+            if (!is_struct(_iv_src)) return 60;
+            var _iv_hp = (variable_struct_exists(_iv_src, "hp") && is_real(variable_struct_get(_iv_src, "hp"))) ? floor(variable_struct_get(_iv_src, "hp")) : 0;
+            var _iv_atk = (variable_struct_exists(_iv_src, "atk") && is_real(variable_struct_get(_iv_src, "atk"))) ? floor(variable_struct_get(_iv_src, "atk")) : 0;
+            var _iv_def = (variable_struct_exists(_iv_src, "def") && is_real(variable_struct_get(_iv_src, "def"))) ? floor(variable_struct_get(_iv_src, "def")) : 0;
+            var _iv_spe = (variable_struct_exists(_iv_src, "spe") && is_real(variable_struct_get(_iv_src, "spe"))) ? floor(variable_struct_get(_iv_src, "spe")) : 0;
+            var _iv_spa = (variable_struct_exists(_iv_src, "spa") && is_real(variable_struct_get(_iv_src, "spa"))) ? floor(variable_struct_get(_iv_src, "spa")) : 0;
+            var _iv_spd = (variable_struct_exists(_iv_src, "spd") && is_real(variable_struct_get(_iv_src, "spd"))) ? floor(variable_struct_get(_iv_src, "spd")) : 0;
+            var _power_value = ((_iv_hp & 2) >> 1) + (((_iv_atk & 2) >> 1) << 1) + (((_iv_def & 2) >> 1) << 2) + (((_iv_spe & 2) >> 1) << 3) + (((_iv_spa & 2) >> 1) << 4) + (((_iv_spd & 2) >> 1) << 5);
+            return 30 + floor(_power_value * 40 / 63);
+        } catch (e_hidden_power) { return 60; }
+    }
+
+    // Flail/Reversal: stronger as the user's HP gets lower.
+    if (mid == 175 || mid == 179){
+        try {
+            var cA_early = 0; var mA_early = 1;
+            if (is_struct(_A)){
+                if (variable_struct_exists(_A, "hp_now")) cA_early = variable_struct_get(_A, "hp_now"); else if (variable_struct_exists(_A, "hp")) cA_early = variable_struct_get(_A, "hp");
+                if (variable_struct_exists(_A, "hp_max")) mA_early = variable_struct_get(_A, "hp_max"); else if (variable_struct_exists(_A, "maxhp")) mA_early = variable_struct_get(_A, "maxhp"); else if (variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon")) && variable_struct_exists(variable_struct_get(_A, "mon"), "hp_max")) mA_early = variable_struct_get(variable_struct_get(_A, "mon"), "hp_max");
+            }
+            if (mA_early <= 0) return 0;
+            var pctA_early = clamp(cA_early / mA_early, 0.0, 1.0);
+            if (pctA_early <= 1/48) return 200;
+            else if (pctA_early <= 1/16) return 150;
+            else if (pctA_early <= 1/8) return 100;
+            else if (pctA_early <= 1/4) return 80;
+            else if (pctA_early <= 1/2) return 40;
+            else return 20;
+        } catch (e_fr_early) { return 0; }
+    }
+
     // If both weights missing, cannot compute here
     if ((aw <= 0 || is_undefined(aw)) && (dw <= 0 || is_undefined(dw))) return 0;
 
@@ -4037,8 +4161,10 @@ function __battle_variable_move_power(_move_id, _A, _D){
     if (mid == 69){ if (is_struct(_A) && variable_struct_exists(_A, "level") && is_real(variable_struct_get(_A, "level"))) return floor(variable_struct_get(_A, "level")); return 0; }
     // Night Shade: damage equal to attacker's level
     if (mid == 101){ if (is_struct(_A) && variable_struct_exists(_A, "level") && is_real(variable_struct_get(_A, "level"))) return floor(variable_struct_get(_A, "level")); return 0; }
-    // Super Fang / similar special-case moves have their own damage semantics implemented in the damage application path.
-    if (mid == 162) return 1; // placeholder positive value so the resolver will call the damage path
+    // Psywave uses custom fixed-damage semantics in the damage application path.
+    if (mid == 149) return 1;
+    // Super Fang / Nature's Madness have their own damage semantics implemented in the damage application path.
+    if (mid == 162 || mid == 717) return 1; // placeholder positive value so the resolver will call the damage path
     // False Swipe: keep power but special effect handled after damage (we still allow data power to apply)
     if (mid == 206) return 40;
 
@@ -4118,6 +4244,18 @@ function __battle_variable_move_power(_move_id, _A, _D){
         } catch (e_fr) { return 0; }
     }
 
+    // Bide: releasing strike uses stored incoming damage and doubles it.
+    if (mid == 117){
+        try {
+            if (is_struct(_A) && variable_struct_exists(_A, "_bide_state") && is_struct(variable_struct_get(_A, "_bide_state"))){
+                var _bide_state = variable_struct_get(_A, "_bide_state");
+                var _bide_damage = (variable_struct_exists(_bide_state, "damage") && is_real(variable_struct_get(_bide_state, "damage"))) ? floor(variable_struct_get(_bide_state, "damage")) : 0;
+                if (_bide_damage > 0) return max(1, _bide_damage * 2);
+            }
+        } catch (e_bide_power) {}
+        return 1;
+    }
+
     // Magnitude: random magnitude level -> power mapping (id 222)
     if (mid == 222){
         // Classic Gen mapping: magnitude has levels 4..10 with powers roughly [10,30,50,70,90,110,150]
@@ -4134,20 +4272,6 @@ function __battle_variable_move_power(_move_id, _A, _D){
         }
     }
 
-    // Beat Up (id 251): one hit per non-sent-out party member; approximate by using the attacker's party length
-    if (mid == 251){
-        // If attacker carries a party list, count its members and return a small per-member power.
-        try {
-            var count = 0;
-            if (is_struct(_A) && variable_struct_exists(_A, "party") && is_array(variable_struct_get(_A, "party"))) count = array_length(variable_struct_get(_A, "party"));
-            // Fallback: if inner mon has party info
-            else if (is_struct(_A) && variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon")) && variable_struct_exists(variable_struct_get(_A, "mon"), "party") && is_array(variable_struct_get(variable_struct_get(_A, "mon"), "party"))) count = array_length(variable_struct_get(variable_struct_get(_A, "mon"), "party"));
-            if (count <= 0) count = 1;
-            // Beat Up in older gens: each member deals a small hit, we approximate by scaling total power to count*10
-            return clamp(count * 10, 10, 200);
-        } catch (e_bu){ return 0; }
-    }
-
     return 0;
 }
 function __battle_move_accuracy(_code){
@@ -4162,6 +4286,7 @@ function __battle_move_accuracy(_code){
 // Determine whether a move hits considering accuracy/evasion stages
 function __battle_can_hit_target(_A, _D, _move_id){
     try {
+        if (variable_global_exists("DEV_FORCE_ACCURACY_HIT") && global.DEV_FORCE_ACCURACY_HIT == true) return true;
         if (!is_undefined(__battle_should_ignore_accuracy)){
             if (__battle_should_ignore_accuracy(_A, _D, _move_id)) return true;
         }
@@ -4590,6 +4715,8 @@ function __battle_actor_from_party_mon(_M){
 
         // Provide a `.mon` alias pointing to itself so code that checks for `.mon` continues to work
         if (!variable_struct_exists(A, "mon")) A.mon = A;
+        if (!variable_struct_exists(A, "active_turns") || !is_real(variable_struct_get(A, "active_turns"))) variable_struct_set(A, "active_turns", 0);
+        if (!variable_struct_exists(A, "_was_hit_this_turn")) variable_struct_set(A, "_was_hit_this_turn", false);
 
         // Ensure `species` is the numeric id used by lookup tables. If a name string was stored in
         // `species`, prefer the numeric `species_id` when available to avoid runtime conversion errors.
@@ -4628,6 +4755,22 @@ function __battle_actor_from_party_mon(_M){
     };
     _actor.mon = { species_id:_sid, shiny:false, level:_lvl, hp:_hpNow, hp_max:_hpMax };
     return _actor;
+}
+
+function __battle_slot_has_active_uproar(_pid){
+    try {
+        var _B = __battle_ensure_slot(_pid);
+        if (!is_struct(_B) || !variable_struct_exists(_B, "actor") || !is_array(variable_struct_get(_B, "actor"))) return false;
+        var _actors = variable_struct_get(_B, "actor");
+        for (var _ai = 0; _ai < array_length(_actors); ++_ai){
+            var _actor = _actors[_ai];
+            if (!is_struct(_actor) || !variable_struct_exists(_actor, "_locked_move")) continue;
+            var _lock = variable_struct_get(_actor, "_locked_move");
+            if (!is_struct(_lock)) continue;
+            if (variable_struct_exists(_lock, "wake_field_sleepers") && variable_struct_get(_lock, "wake_field_sleepers") == true && variable_struct_exists(_lock, "remaining") && is_real(variable_struct_get(_lock, "remaining")) && variable_struct_get(_lock, "remaining") > 0) return true;
+        }
+    } catch (e_uproar_scan) {}
+    return false;
 }
 
 function __battle_actor_from_species_level(_sp,_lvl){
@@ -5161,8 +5304,26 @@ function __battle_calc_damage(_A, _D, _move_id, _power){
     var variance = 0.85 + random(0.15);
     var dmg = floor(base * variance);
 
-    // crit ~ 1/24
-    var crit = (irandom(23) == 0);
+    var _crit_stage = 0;
+    try {
+        var _crit_eid = undefined;
+        if (variable_global_exists("_moves") && is_array(global._moves) && is_real(_move_id) && _move_id >= 0 && _move_id < array_length(global._moves)){
+            var _crit_mv = global._moves[_move_id];
+            if (is_struct(_crit_mv) && variable_struct_exists(_crit_mv, "effect_id") && is_real(variable_struct_get(_crit_mv, "effect_id"))) _crit_eid = floor(variable_struct_get(_crit_mv, "effect_id"));
+        }
+        if (is_real(_crit_eid) && _crit_eid == 44) _crit_stage += 1;
+        if (is_struct(_A) && variable_struct_exists(_A, "_focus_energy_level") && is_real(variable_struct_get(_A, "_focus_energy_level"))) _crit_stage += max(0, floor(variable_struct_get(_A, "_focus_energy_level")) + 1);
+    } catch (e_crit_stage) { _crit_stage = 0; }
+    _crit_stage = clamp(_crit_stage, 0, 3);
+    var _crit_table = [4.167, 12.5, 50, 100];
+    var _crit_chance = _crit_table[_crit_stage];
+    var _crit_roll = random(100);
+    try {
+        if (variable_global_exists("DEV_FORCE_CRIT_ROLL_100") && is_real(global.DEV_FORCE_CRIT_ROLL_100) && global.DEV_FORCE_CRIT_ROLL_100 >= 0){
+            _crit_roll = real(global.DEV_FORCE_CRIT_ROLL_100);
+        }
+    } catch (e_crit_force) {}
+    var crit = (_crit_roll < _crit_chance);
     var critMul = crit ? 1.5 : 1.0;
     dmg = floor(dmg * critMul);
 
