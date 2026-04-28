@@ -495,6 +495,39 @@ function scr_move_type_id_by_id(_mid, _A = undefined) {
         }
         return 1;
     }
+    if (is_real(_mid) && floor(_mid) == 311){
+        try {
+            var _pid_weather_ball = undefined;
+            if (!is_undefined(__status_find_battle_pid)) _pid_weather_ball = __status_find_battle_pid(_A);
+            if (is_real(_pid_weather_ball) && !is_undefined(__battle_get_weather)){
+                var _wb_weather = __battle_get_weather(_pid_weather_ball);
+                if (is_struct(_wb_weather) && variable_struct_exists(_wb_weather, "active") && variable_struct_get(_wb_weather, "active") == true){
+                    var _wb_id = "";
+                    if (variable_struct_exists(_wb_weather, "id")) _wb_id = string_lower(string(variable_struct_get(_wb_weather, "id")));
+                    switch (_wb_id){
+                        case "sun":
+                        case "harsh-sun":
+                            return 10;
+                        case "rain":
+                            return 11;
+                        case "sandstorm":
+                            return 6;
+                        case "hail":
+                        case "snow":
+                            return 15;
+                    }
+                }
+            }
+        } catch (e_weather_ball_type) {}
+    }
+    if (is_real(_mid) && floor(_mid) == 363){
+        try {
+            if (!is_undefined(__battle_get_natural_gift_profile)){
+                var _gift_profile = __battle_get_natural_gift_profile(_A);
+                if (is_struct(_gift_profile) && variable_struct_exists(_gift_profile, "type_id") && is_real(variable_struct_get(_gift_profile, "type_id"))) return variable_struct_get(_gift_profile, "type_id");
+            }
+        } catch (e_natural_gift_type) {}
+    }
     var mv = (is_array(global._moves) && is_real(_mid) && _mid >= 0 && _mid < array_length(global._moves))
              ? global._moves[_mid] : undefined;
     if (is_struct(mv) && variable_struct_exists(mv, "type_id") && is_real(variable_struct_get(mv, "type_id"))) {

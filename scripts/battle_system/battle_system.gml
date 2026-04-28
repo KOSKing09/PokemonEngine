@@ -2230,6 +2230,7 @@ function battle_update(_pid){
                             }
                             if (!is_undefined(__fn_entry_haz_player)) __fn_entry_haz_player(_pid, 0);
                         } catch (e_eh) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][hazards] apply entry hazards error: " + string(e_eh)); }
+                        try { __battle_apply_pending_healing_wish_to_actor(_pid, 0, _B.actor[0]); } catch (e_hw_player) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][healing-wish] player apply failed: " + string(e_hw_player)); }
                     }
                 }
                 _B._switch_applied = true;
@@ -2998,7 +2999,7 @@ function __battle_step_turn_if_ready(_pid){
                             if (_bnext > 0) __battle_field_set_barrier(_pid, _side_tick, _bkey, _bnext);
                             else __battle_field_clear_barrier(_pid, _side_tick, _bkey);
                         }
-                        var _side_status_keys = ["mist", "safeguard"];
+                        var _side_status_keys = ["mist", "safeguard", "tailwind"];
                         for (var _ssk = 0; _ssk < array_length(_side_status_keys); ++_ssk){
                             var _skey = _side_status_keys[_ssk];
                             var _sturns = __battle_field_get_side_status_or(_pid, _side_tick, _skey, 0);
@@ -3007,6 +3008,73 @@ function __battle_step_turn_if_ready(_pid){
                             if (_snext > 0) __battle_field_set_side_status(_pid, _side_tick, _skey, _snext);
                             else __battle_field_clear_side_status(_pid, _side_tick, _skey);
                         }
+                    }
+                    var _mud_turns = __battle_field_get_status_or(_pid, "mud_sport", 0);
+                    if (is_real(_mud_turns) && _mud_turns > 0){
+                        var _mud_next = _mud_turns - 1;
+                        if (_mud_next > 0) __battle_field_set_status(_pid, "mud_sport", _mud_next);
+                        else __battle_field_clear_status(_pid, "mud_sport");
+                    }
+                    var _water_turns = __battle_field_get_status_or(_pid, "water_sport", 0);
+                    if (is_real(_water_turns) && _water_turns > 0){
+                        var _water_next = _water_turns - 1;
+                        if (_water_next > 0) __battle_field_set_status(_pid, "water_sport", _water_next);
+                        else __battle_field_clear_status(_pid, "water_sport");
+                    }
+                    var _gravity_turns_tick = __battle_field_get_status_or(_pid, "gravity", 0);
+                    if (is_real(_gravity_turns_tick) && _gravity_turns_tick > 0){
+                        var _gravity_next = _gravity_turns_tick - 1;
+                        if (_gravity_next > 0) __battle_field_set_status(_pid, "gravity", _gravity_next);
+                        else {
+                            __battle_field_clear_status(_pid, "gravity");
+                            try { dialog2p_show_now(_pid, "Gravity returned to normal!"); } catch (e_gravity_msg) { try { dialog2p_enqueue(_pid, "Gravity returned to normal!"); } catch (e_gravity_msg2) {} }
+                        }
+                    }
+                    if (variable_struct_exists(_B, "_pending_wishes") && is_array(variable_struct_get(_B, "_pending_wishes"))){
+                        var _wish_arr_tick = variable_struct_get(_B, "_pending_wishes");
+                        var _wish_next_arr = [];
+                        for (var _wi = 0; _wi < array_length(_wish_arr_tick); ++_wi){
+                            var _wish_entry = _wish_arr_tick[_wi];
+                            if (!is_struct(_wish_entry)) continue;
+                            var _wish_remaining = (variable_struct_exists(_wish_entry, "remaining") && is_real(variable_struct_get(_wish_entry, "remaining"))) ? floor(variable_struct_get(_wish_entry, "remaining")) - 1 : 0;
+                            var _wish_side_tick = (variable_struct_exists(_wish_entry, "side") && is_real(variable_struct_get(_wish_entry, "side"))) ? floor(variable_struct_get(_wish_entry, "side")) : 0;
+                            if (_wish_remaining > 0){
+                                variable_struct_set(_wish_entry, "remaining", _wish_remaining);
+                                array_push(_wish_next_arr, _wish_entry);
+                                continue;
+                            }
+                            var _wish_target = undefined;
+                            if (variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor"))){
+                                var _wish_actors = variable_struct_get(_B, "actor");
+                                for (var _wa = 0; _wa < array_length(_wish_actors); ++_wa){
+                                    var _wish_actor = _wish_actors[_wa];
+                                    if (!is_struct(_wish_actor)) continue;
+                                    if (__battle_field_side_index_for_actor(_wa) != _wish_side_tick) continue;
+                                    _wish_target = _wish_actor;
+                                    break;
+                                }
+                            }
+                            if (is_struct(_wish_target)){
+                                var _wish_before = __battle_hp_now(_wish_target);
+                                var _wish_max = max(1, __battle_hp_max(_wish_target));
+                                var _wish_amount = (variable_struct_exists(_wish_entry, "amount") && is_real(variable_struct_get(_wish_entry, "amount"))) ? max(1, floor(variable_struct_get(_wish_entry, "amount"))) : floor(_wish_max * 0.5);
+                                var _wish_after = min(_wish_max, _wish_before + _wish_amount);
+                                if (_wish_after > _wish_before){
+                                    __battle_set_hp_now(_wish_target, _wish_after);
+                                    try { __battle_clear_fainted_if_healed(_wish_target); } catch (e_wish_clear) {}
+                                    try {
+                                        variable_struct_set(_wish_target, "_hp_lerp_from", _wish_before);
+                                        variable_struct_set(_wish_target, "_hp_lerp_to", _wish_after);
+                                        variable_struct_set(_wish_target, "_hp_lerp_start_ms", current_time);
+                                        variable_struct_set(_wish_target, "_hp_lerp_dur", 400);
+                                        variable_struct_set(_wish_target, "_hp_lerp_active", true);
+                                    } catch (e_wish_lerp) {}
+                                    try { __battle_request_animation_safe(_pid, { type: "heal", actor: _wish_target, target_index: (variable_struct_exists(_wish_target, "actor_index") ? variable_struct_get(_wish_target, "actor_index") : _wish_side_tick), amount: (_wish_after - _wish_before) }); } catch (e_wish_anim) {}
+                                    try { dialog2p_show_now(_pid, (variable_struct_exists(_wish_target, "name") ? string(variable_struct_get(_wish_target, "name")) : "The target") + "'s wish came true!"); } catch (e_wish_msg) { try { dialog2p_enqueue(_pid, (variable_struct_exists(_wish_target, "name") ? string(variable_struct_get(_wish_target, "name")) : "The target") + "'s wish came true!"); } catch (e_wish_msg2) {} }
+                                }
+                            }
+                        }
+                        variable_struct_set(_B, "_pending_wishes", _wish_next_arr);
                     }
                 } catch (e_side_tick) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][field] side-state tick failed: " + string(e_side_tick)); }
                 // mark that we've ticked statuses for this end-of-turn so we don't repeat
@@ -3971,6 +4039,10 @@ function __battle_move_power(_code, _A, _D){
                 var _hp_power = __battle_variable_move_power(_code, _A, _D);
                 if (is_real(_hp_power) && _hp_power > 0) return _hp_power;
             }
+            if (_code == 363 && !is_undefined(__battle_get_natural_gift_profile)){
+                var _gift_profile = __battle_get_natural_gift_profile(_A);
+                if (is_struct(_gift_profile) && variable_struct_exists(_gift_profile, "power") && is_real(variable_struct_get(_gift_profile, "power"))) return variable_struct_get(_gift_profile, "power");
+            }
             var p = scr_move_power_by_id(_code);
             // If the data-layer returns a positive numeric power, use it.
             // If it returns 0 it usually means 'unspecified / variable power' in the dataset;
@@ -4045,6 +4117,14 @@ function __battle_weight_to_kg(_raw){
 function __battle_variable_move_power(_move_id, _A, _D){
     if (!is_real(_move_id)) return 0;
     var mid = floor(_move_id);
+    var _move_entry = undefined;
+    var _effect_id = undefined;
+    try {
+        if (variable_global_exists("_moves") && is_array(global._moves) && mid >= 0 && mid < array_length(global._moves)){
+            _move_entry = global._moves[mid];
+            if (is_struct(_move_entry) && variable_struct_exists(_move_entry, "effect_id") && is_real(variable_struct_get(_move_entry, "effect_id"))) _effect_id = floor(variable_struct_get(_move_entry, "effect_id"));
+        }
+    } catch (e_move_lookup) { _move_entry = undefined; _effect_id = undefined; }
     var _friendship_value = function(_actor){
         var _scan = function(_ent){
             if (!is_struct(_ent)) return undefined;
@@ -4111,6 +4191,86 @@ function __battle_variable_move_power(_move_id, _A, _D){
             else if (pctA_early <= 1/2) return 40;
             else return 20;
         } catch (e_fr_early) { return 0; }
+    }
+
+    // Eruption / Water Spout: power scales with the user's current HP.
+    if (is_real(_effect_id) && _effect_id == 191){
+        try {
+            var cA_hp = 0;
+            var mA_hp = 1;
+            if (is_struct(_A)){
+                if (variable_struct_exists(_A, "hp_now")) cA_hp = variable_struct_get(_A, "hp_now");
+                else if (variable_struct_exists(_A, "hp")) cA_hp = variable_struct_get(_A, "hp");
+                if (variable_struct_exists(_A, "hp_max")) mA_hp = variable_struct_get(_A, "hp_max");
+                else if (variable_struct_exists(_A, "maxhp")) mA_hp = variable_struct_get(_A, "maxhp");
+                else if (variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon"))){
+                    var _Amon_hp = variable_struct_get(_A, "mon");
+                    if (variable_struct_exists(_Amon_hp, "hp_now")) cA_hp = variable_struct_get(_Amon_hp, "hp_now");
+                    else if (variable_struct_exists(_Amon_hp, "hp")) cA_hp = variable_struct_get(_Amon_hp, "hp");
+                    if (variable_struct_exists(_Amon_hp, "hp_max")) mA_hp = variable_struct_get(_Amon_hp, "hp_max");
+                    else if (variable_struct_exists(_Amon_hp, "maxhp")) mA_hp = variable_struct_get(_Amon_hp, "maxhp");
+                }
+            }
+            cA_hp = max(0, real(cA_hp));
+            mA_hp = max(1, real(mA_hp));
+            if (cA_hp <= 0) return 1;
+            return max(1, floor((150 * cA_hp) / mA_hp));
+        } catch (e_eruption) { return 1; }
+    }
+
+    // Weather Ball: doubles in power while weather is active.
+    if (mid == 311 || (is_real(_effect_id) && _effect_id == 204)){
+        try {
+            var _pid_wb = undefined;
+            if (!is_undefined(__status_find_battle_pid)) _pid_wb = __status_find_battle_pid(_A);
+            if (is_real(_pid_wb) && !is_undefined(__battle_get_weather)){
+                var _wb_weather = __battle_get_weather(_pid_wb);
+                if (is_struct(_wb_weather) && variable_struct_exists(_wb_weather, "active") && variable_struct_get(_wb_weather, "active") == true){
+                    var _wb_id = "";
+                    if (variable_struct_exists(_wb_weather, "id")) _wb_id = string_lower(string(variable_struct_get(_wb_weather, "id")));
+                    if (string_length(_wb_id) > 0) return 100;
+                }
+            }
+        } catch (e_weather_ball_power) {}
+        return 50;
+    }
+
+    // Wake-Up Slap: doubles power against sleeping targets.
+    if (mid == 358 || (is_real(_effect_id) && _effect_id == 218)){
+        var _wake_asleep = false;
+        try {
+            if (!is_undefined(status_system_has_status) && is_struct(_D)){
+                _wake_asleep = status_system_has_status(_D, "sleep");
+                if (!_wake_asleep && variable_struct_exists(_D, "mon") && is_struct(variable_struct_get(_D, "mon"))) _wake_asleep = status_system_has_status(variable_struct_get(_D, "mon"), "sleep");
+            }
+        } catch (e_wake_power) { _wake_asleep = false; }
+        return (_wake_asleep ? 120 : 60);
+    }
+
+    // Brine: doubles power against targets at half HP or lower.
+    if (mid == 362 || (is_real(_effect_id) && _effect_id == 222)){
+        try {
+            var _d_hp = max(0, real(__battle_hp_now(_D)));
+            var _d_max = max(1, real(__battle_hp_max(_D)));
+            if ((_d_hp * 2) <= _d_max) return 130;
+        } catch (e_brine_power) {}
+        return 65;
+    }
+
+    // Revenge: double power if the user was damaged by the target this turn.
+    if (is_real(_effect_id) && _effect_id == 186){
+        try {
+            var _revenge_hit = false;
+            var _revenge_from = undefined;
+            if (is_struct(_A)){
+                _revenge_hit = variable_struct_exists(_A, "_was_hit_this_turn") && variable_struct_get(_A, "_was_hit_this_turn") == true;
+                if (_revenge_hit && variable_struct_exists(_A, "_last_received_damage") && is_real(variable_struct_get(_A, "_last_received_damage"))) _revenge_hit = variable_struct_get(_A, "_last_received_damage") > 0;
+                if (variable_struct_exists(_A, "_last_received_from_actor_index")) _revenge_from = variable_struct_get(_A, "_last_received_from_actor_index");
+            }
+            var _target_idx = (is_struct(_D) && variable_struct_exists(_D, "actor_index")) ? variable_struct_get(_D, "actor_index") : undefined;
+            if (_revenge_hit && is_real(_revenge_from) && is_real(_target_idx) && floor(_revenge_from) == floor(_target_idx)) return 120;
+        } catch (e_revenge) {}
+        return 60;
     }
 
     // If both weights missing, cannot compute here
@@ -4306,6 +4466,10 @@ function __battle_can_hit_target(_A, _D, _move_id){
         var eff_acc = base_acc * (acc_mul / max(0.0001, eva_mul));
         eff_acc = clamp(floor(eff_acc), 0, 100);
         var _pid_weather = __battle_resolve_pid_for_actor(_A);
+        try {
+            var _gravity_turns = __battle_field_get_status_or(_pid_weather, "gravity", 0);
+            if (is_real(_gravity_turns) && _gravity_turns > 0) eff_acc = clamp(floor(eff_acc * 5 / 3), 0, 100);
+        } catch (e_gravity_acc) {}
         var _weather_acc = __battle_get_weather(_pid_weather);
         if (__battle_weather_is_active(_weather_acc)){
             var _wid_acc = __battle_weather_get_normalized_id(_weather_acc);
@@ -4354,6 +4518,51 @@ function __battle_try_escape(_pid){
 
 // __battle_stub_dialog removed: dialog dispatch is handled by the DialogSystem APIs
 // Use dialog2p_show_now(_pid, text) or dialog2p_enqueue_text/_enqueue for queued/gated messages.
+function __battle_apply_pending_healing_wish_to_actor(_pid, _side_index, _actor){
+    if (!is_struct(_actor)) return false;
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !variable_struct_exists(_B, "_pending_healing_wishes")) return false;
+    var _pending = variable_struct_get(_B, "_pending_healing_wishes");
+    if (!is_array(_pending) || array_length(_pending) <= 0) return false;
+
+    var _side = floor(_side_index);
+    var _keep = [];
+    var _applied = false;
+    for (var _hwi = 0; _hwi < array_length(_pending); ++_hwi){
+        var _entry = _pending[_hwi];
+        if (!is_struct(_entry)) continue;
+        var _entry_side = (variable_struct_exists(_entry, "side") && is_real(variable_struct_get(_entry, "side"))) ? floor(variable_struct_get(_entry, "side")) : 0;
+        if (!_applied && _entry_side == _side){
+            var _before = max(0, __battle_hp_now(_actor));
+            var _max = max(1, __battle_hp_max(_actor));
+            __battle_set_hp_now(_actor, _max);
+            try { __battle_clear_fainted_if_healed(_actor); } catch (e_hw_clear) {}
+            try {
+                if (!is_undefined(status_system_clear_status)){
+                    var _clear_ids = ["poison", "toxic", "burn", "freeze", "paralysis", "paralyze", "sleep", "nightmare", "yawn", "confusion"];
+                    for (var _hws = 0; _hws < array_length(_clear_ids); ++_hws){
+                        var _sid = _clear_ids[_hws];
+                        status_system_clear_status(_actor, _sid);
+                        if (variable_struct_exists(_actor, "mon") && is_struct(variable_struct_get(_actor, "mon"))) status_system_clear_status(variable_struct_get(_actor, "mon"), _sid);
+                    }
+                }
+            } catch (e_hw_status) {}
+            try { __battle_request_animation_safe(_pid, { type: "heal", actor: _actor, target_index: _side, amount: max(0, _max - _before) }); } catch (e_hw_anim) {}
+            try {
+                var _hw_name = (variable_struct_exists(_actor, "name") ? string(variable_struct_get(_actor, "name")) : "The Pokemon");
+                if (!is_undefined(dialog2p_enqueue)) dialog2p_enqueue(_pid, _hw_name + " was restored by Healing Wish!");
+                else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, _hw_name + " was restored by Healing Wish!", _hw_name + " was restored by Healing Wish!", "any");
+            } catch (e_hw_msg) {}
+            _applied = true;
+            continue;
+        }
+        array_push(_keep, _entry);
+    }
+
+    variable_struct_set(_B, "_pending_healing_wishes", _keep);
+    return _applied;
+}
+
 function __battle_play_switch_in(_pid){
     var _B = __battle_ensure_slot(_pid);
     if (!is_struct(_B) || !_B.sys_open) return;
@@ -5030,6 +5239,21 @@ function __battle_apply_party_moves(_A){
 
 // ===== Minimal stats & damage =====
 function __battle_stat_get(_A, _stat){
+    function __battle_stat_apply_speed_field_mod(_actor, _speed_value){
+        var _spd_out = _speed_value;
+        try {
+            if (!is_struct(_actor) || !is_real(_spd_out)) return _spd_out;
+            var _pid_speed = undefined;
+            if (!is_undefined(__status_find_battle_pid)) _pid_speed = __status_find_battle_pid(_actor);
+            if (!is_real(_pid_speed)) return _spd_out;
+            var _side_speed = 0;
+            if (variable_struct_exists(_actor, "actor_index") && is_real(variable_struct_get(_actor, "actor_index"))) _side_speed = __battle_field_side_index_for_actor(variable_struct_get(_actor, "actor_index"));
+            var _tailwind_turns = __battle_field_get_side_status_or(_pid_speed, _side_speed, "tailwind", 0);
+            if (is_real(_tailwind_turns) && _tailwind_turns > 0) _spd_out *= 2;
+        } catch (e_speed_field) {}
+        return _spd_out;
+    }
+
     // Pull from mon if present, else derive from level
     var lvl = (is_struct(_A) && is_real(_A.level)) ? _A.level : 5;
     // Only check exact assigned fields. For speed, use `spe` only (actor then mon).
@@ -5048,6 +5272,7 @@ function __battle_stat_get(_A, _stat){
                         }
                     }
                 } catch (e_p) {}
+                _val = __battle_stat_apply_speed_field_mod(_A, _val);
                 return _val;
             }
         } else if (_stat == "atk"){
@@ -5074,6 +5299,7 @@ function __battle_stat_get(_A, _stat){
                         if (status_system_has_status(m, "paralysis") || status_system_has_status(m, "paralyze")) _spv = floor(_spv / 2);
                     }
                 } catch (e_p2) {}
+                _spv = __battle_stat_apply_speed_field_mod(_A, _spv);
                 return _spv;
             }
         }
@@ -5108,7 +5334,11 @@ function __battle_stat_get(_A, _stat){
             // reuse existing logic: attempt to get raw base stat from actor/mon
             if (variable_struct_exists(_A, _stat) && is_real(variable_struct_get(_A, _stat))) basev = variable_struct_get(_A, _stat);
             else if (is_struct(m) && variable_struct_exists(m, _stat) && is_real(variable_struct_get(m, _stat))) basev = variable_struct_get(m, _stat);
-            if (basev > 0) return floor(basev * mult);
+            if (basev > 0){
+                var _staged_val = floor(basev * mult);
+                if (_stat == "spd" || _stat == "spe") _staged_val = __battle_stat_apply_speed_field_mod(_A, _staged_val);
+                return _staged_val;
+            }
         }
     }
 
@@ -5311,7 +5541,7 @@ function __battle_calc_damage(_A, _D, _move_id, _power){
             var _crit_mv = global._moves[_move_id];
             if (is_struct(_crit_mv) && variable_struct_exists(_crit_mv, "effect_id") && is_real(variable_struct_get(_crit_mv, "effect_id"))) _crit_eid = floor(variable_struct_get(_crit_mv, "effect_id"));
         }
-        if (is_real(_crit_eid) && _crit_eid == 44) _crit_stage += 1;
+        if (is_real(_crit_eid) && (_crit_eid == 44 || _crit_eid == 201 || _crit_eid == 210)) _crit_stage += 1;
         if (is_struct(_A) && variable_struct_exists(_A, "_focus_energy_level") && is_real(variable_struct_get(_A, "_focus_energy_level"))) _crit_stage += max(0, floor(variable_struct_get(_A, "_focus_energy_level")) + 1);
     } catch (e_crit_stage) { _crit_stage = 0; }
     _crit_stage = clamp(_crit_stage, 0, 3);
@@ -5719,8 +5949,10 @@ function __battle_trainer_update_switch_anim(_pid){
                     if (variable_global_exists("__battle_apply_entry_hazards")) __fn_entry_haz_sw = variable_global_get("__battle_apply_entry_hazards");
                     if (!is_undefined(__fn_entry_haz_sw)) __fn_entry_haz_sw(_pid, 1);
                 } catch (e_haz_sw) {}
+                try { __battle_apply_pending_healing_wish_to_actor(_pid, 1, new_actor); } catch (e_hw_enemy_anim) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][healing-wish] enemy anim apply failed: " + string(e_hw_enemy_anim)); }
                 try {
                     variable_struct_set(_B, "_cry_played_enemy", false);
+                try { __battle_apply_pending_healing_wish_to_actor(_pid, 1, new_actor); } catch (e_hw_enemy_pending) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][healing-wish] enemy pending apply failed: " + string(e_hw_enemy_pending)); }
                     variable_struct_set(_B, "_cry_play_start_ms_enemy", current_time);
                 } catch (e_cry_sw) {}
             }
@@ -5983,6 +6215,7 @@ if (is_undefined(__battle_trainer_perform_switch_action)){
                 }
                 if (!is_undefined(__fn_entry_haz_trainer)) __fn_entry_haz_trainer(_pid, 1);
             } catch (e_haz) {}
+            try { __battle_apply_pending_healing_wish_to_actor(_pid, 1, new_actor); } catch (e_hw_enemy_direct) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][healing-wish] enemy direct apply failed: " + string(e_hw_enemy_direct)); }
             try {
                 variable_struct_set(_B, "_cry_played_enemy", false);
                 variable_struct_set(_B, "_cry_play_start_ms_enemy", current_time);

@@ -133,12 +133,12 @@ function __status_smoke_queue_turn(_pid, _player_slot, _enemy_move_id){
     if (!is_real(_player_slot) || _player_slot < 0) return false;
     var _enemy_slot = __status_smoke_find_slot(_enemy, _enemy_move_id);
     if (_enemy_move_id > 0 && _enemy_slot < 0) return false;
-    _B.turn_action_player = { slot: _player_slot, move_id: _player.moves[_player_slot], actor_index: 0, target_index: 1 };
-    _B.turn_action_enemy = (_enemy_slot >= 0) ? { slot: _enemy_slot, move_id: _enemy_move_id, actor_index: 1, target_index: 0 } : undefined;
-    _B.turn_queue = __battle_build_turn_actions(_pid);
-    _B.turn_i = 0;
+    variable_struct_set(_B, "turn_action_player", { slot: _player_slot, move_id: _player.moves[_player_slot], actor_index: 0, target_index: 1 });
+    variable_struct_set(_B, "turn_action_enemy", ((_enemy_slot >= 0) ? { slot: _enemy_slot, move_id: _enemy_move_id, actor_index: 1, target_index: 0 } : undefined));
+    variable_struct_set(_B, "turn_queue", __battle_build_turn_actions(_pid));
+    variable_struct_set(_B, "turn_i", 0);
     try { variable_struct_set(_B, "_action_active", true); } catch (e_smoke_act) {}
-    _B.phase = "turn";
+    variable_struct_set(_B, "phase", "turn");
     show_debug_message("[smoke][status] queued turn player_slot=" + string(_player_slot) + " enemy_move=" + string(_enemy_move_id));
     return true;
 }
@@ -1394,7 +1394,9 @@ function test_battle_effect_131_155_smoke_start(_auto_close = false){
     var _future_queue_ok = (is_array(variable_struct_get(_B, "_pending_delayed_hits")) && array_length(variable_struct_get(_B, "_pending_delayed_hits")) == 1 && __battle_hp_now(_D) == _before);
     var _replacement = __effect_smoke_mon(25, 30, 180, [150, -1, -1, -1]);
     variable_struct_set(_replacement, "actor_index", 1);
-    _B.actor[1] = _replacement;
+    var _replacement_actors = variable_struct_get(_B, "actor");
+    _replacement_actors[1] = _replacement;
+    variable_struct_set(_B, "actor", _replacement_actors);
     var _replacement_before = __battle_hp_now(_replacement);
     __battle_tick_delayed_hits(_pid);
     __battle_tick_delayed_hits(_pid);
@@ -1412,6 +1414,16 @@ function test_battle_effect_131_155_smoke_start(_auto_close = false){
     __battle_perform_action_impl(_pid, { slot: 0, move_id: 16, actor_index: 0, target_index: 1 });
     _after = __battle_hp_now(_D);
     __status_smoke_assert(_S, _after < _before, "effect 150 Gust hit airborne target");
+
+    // 208 Sky Uppercut can hit Fly/Bounce-style targets.
+    _A = __effect_smoke_mon(133, 30, 120, [327, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 160, [150, -1, -1, -1]);
+    variable_struct_set(_D, "_semi_invuln", "fly");
+    __effect_smoke_slot(_pid, _A, _D);
+    _before = __battle_hp_now(_D);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 327, actor_index: 0, target_index: 1 });
+    _after = __battle_hp_now(_D);
+    __status_smoke_assert(_S, _after < _before, "effect 208 Sky Uppercut hit airborne target");
 
     // 151 Stomp doubles damage against minimized targets.
     _A = __effect_smoke_mon(133, 30, 120, [23, -1, -1, -1]);
@@ -1617,6 +1629,840 @@ function test_battle_effect_159_176_smoke_start(_auto_close = false){
 }
 
 function test_battle_effect_159_176_smoke_update(_pid = 0){
+    // Direct smoke completes synchronously in start().
+}
+
+function test_battle_effect_item_ability_smoke_start(_auto_close = false){
+    var _pid = 0;
+    var _S = {
+        pid: _pid,
+        tag: "effect-item-ability",
+        global_name: "DEV_EFFECT_ITEM_ABILITY_SMOKE",
+        auto_close: (_auto_close == true),
+        state: "running",
+        turn_counter: 0,
+        pass_count: 0,
+        fail_count: 0,
+        started_ms: current_time
+    };
+    global.DEV_EFFECT_ITEM_ABILITY_SMOKE = _S;
+    show_debug_message("[smoke][effect-item-ability] starting direct item/ability smoke");
+
+    var _A;
+    var _D;
+
+    // Trick swaps held items.
+    _A = __effect_smoke_mon(133, 30, 120, [271, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 120, [150, -1, -1, -1]);
+    variable_struct_set(_A, "held_item_id", 1);
+    variable_struct_set(_A, "held_item_real_name", "master-ball");
+    variable_struct_set(_D, "held_item_id", 2);
+    variable_struct_set(_D, "held_item_real_name", "ultra-ball");
+    __effect_smoke_slot(_pid, _A, _D);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 271, actor_index: 0, target_index: 1 });
+    __status_smoke_assert(_S,
+        variable_struct_get(_A, "held_item_id") == 2 && variable_struct_get(_D, "held_item_id") == 1,
+        "item family Trick swapped both held items");
+
+    // Role Play copies the target ability.
+    _A = __effect_smoke_mon(133, 30, 120, [272, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 120, [150, -1, -1, -1]);
+    variable_struct_set(_A, "ability", "run-away");
+    variable_struct_set(_A, "ability_id", 50);
+    variable_struct_set(_D, "ability", "intimidate");
+    variable_struct_set(_D, "ability_id", 22);
+    __effect_smoke_slot(_pid, _A, _D);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 272, actor_index: 0, target_index: 1 });
+    __status_smoke_assert(_S,
+        string(variable_struct_get(_A, "ability")) == "intimidate" && variable_struct_get(_A, "ability_id") == 22,
+        "item family Role Play copied the target ability");
+
+    // Skill Swap exchanges abilities.
+    _A = __effect_smoke_mon(133, 30, 120, [285, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 120, [150, -1, -1, -1]);
+    variable_struct_set(_A, "ability", "synchronize");
+    variable_struct_set(_A, "ability_id", 28);
+    variable_struct_set(_D, "ability", "levitate");
+    variable_struct_set(_D, "ability_id", 26);
+    __effect_smoke_slot(_pid, _A, _D);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 285, actor_index: 0, target_index: 1 });
+    __status_smoke_assert(_S,
+        string(variable_struct_get(_A, "ability")) == "levitate" && string(variable_struct_get(_D, "ability")) == "synchronize",
+        "item family Skill Swap exchanged both abilities");
+
+    // Knock Off removes the target item and Recycle restores it.
+    _A = __effect_smoke_mon(133, 30, 120, [282, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 180, [278, -1, -1, -1]);
+    variable_struct_set(_D, "held_item_id", 3);
+    variable_struct_set(_D, "held_item_real_name", "great-ball");
+    __effect_smoke_slot(_pid, _A, _D);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 282, actor_index: 0, target_index: 1 });
+    var _knock_ok = (variable_struct_get(_D, "held_item_id") <= 0)
+        && variable_struct_exists(_D, "_last_lost_item_id")
+        && variable_struct_get(_D, "_last_lost_item_id") == 3;
+    __status_smoke_assert(_S, _knock_ok, "item family Knock Off removed and recorded the target item");
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 278, actor_index: 1, target_index: 1 });
+    __status_smoke_assert(_S,
+        variable_struct_get(_D, "held_item_id") == 3 && string(variable_struct_get(_D, "held_item_real_name")) == "great-ball",
+        "item family Recycle restored the last lost item");
+
+    var _fails = variable_struct_get(_S, "fail_count");
+    __status_smoke_finish(_pid, _S, (_fails == 0) ? "completed" : "failed");
+    return (_fails == 0);
+}
+
+function test_battle_effect_item_ability_smoke_update(_pid = 0){
+    // Direct smoke completes synchronously in start().
+}
+
+function test_battle_effect_200_204_smoke_start(_auto_close = false){
+    var _pid = 0;
+    var _S = {
+        pid: _pid,
+        tag: "effect-200-204",
+        global_name: "DEV_EFFECT_200_204_SMOKE",
+        auto_close: (_auto_close == true),
+        state: "running",
+        turn_counter: 0,
+        pass_count: 0,
+        fail_count: 0,
+        started_ms: current_time
+    };
+    global.DEV_EFFECT_200_204_SMOKE = _S;
+    show_debug_message("[smoke][effect-200-204] starting direct battle-effect smoke");
+
+    var _A;
+    var _D;
+    var _before;
+    var _after;
+
+    global.DEV_FORCE_ACCURACY_HIT = true;
+    global.DEV_FORCE_BURN_CHANCE = 100;
+    global.DEV_FORCE_TOXIC_CHANCE = 100;
+
+    // 200 Teeter Dance: confuses nearby battlers.
+    _A = __effect_smoke_mon(133, 30, 120, [298, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 120, [1, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 298, actor_index: 0, target_index: 1 });
+    __status_smoke_assert(_S, status_system_has_status(_D, "confusion"), "effect 200 Teeter Dance confused the opposing battler");
+
+    // 201 Blaze Kick: uses boosted crit stage and can burn.
+    global.DEV_FORCE_CRIT_ROLL_100 = 10;
+    _A = __effect_smoke_mon(133, 30, 120, [299, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 180, [1, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 299, actor_index: 0, target_index: 1 });
+    var _blaze_crit_ok = false;
+    try { _blaze_crit_ok = variable_struct_get(__battle_ensure_slot(_pid), "_last_crit") == true; } catch (e_blaze_crit) { _blaze_crit_ok = false; }
+    __status_smoke_assert(_S, _blaze_crit_ok && status_system_has_status(_D, "burn"), "effect 201 Blaze Kick used the boosted crit stage and applied burn");
+    global.DEV_FORCE_CRIT_ROLL_100 = -1;
+
+    // 203 Poison Fang: can badly poison after a successful hit.
+    _A = __effect_smoke_mon(133, 30, 120, [305, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 180, [1, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 305, actor_index: 0, target_index: 1 });
+    __status_smoke_assert(_S, status_system_has_status(_D, "toxic"), "effect 203 Poison Fang applied toxic poison");
+
+    // 204 Weather Ball: changes type and doubles in power while weather is active.
+    _A = __effect_smoke_mon(133, 30, 120, [311, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 180, [1, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    var _wb_base_type = scr_move_type_id_by_id(311, _A);
+    var _wb_base_power = __battle_move_power(311, _A, _D);
+    __battle_set_weather(_pid, "rain", { source: _A, duration: 5 });
+    var _wb_rain_type = scr_move_type_id_by_id(311, _A);
+    var _wb_rain_power = __battle_move_power(311, _A, _D);
+    __status_smoke_assert(_S, _wb_base_type == 1 && _wb_base_power == 50 && _wb_rain_type == 11 && _wb_rain_power == 100, "effect 204 Weather Ball changed type and doubled power in weather");
+
+    global.DEV_FORCE_ACCURACY_HIT = false;
+    global.DEV_FORCE_BURN_CHANCE = -1;
+    global.DEV_FORCE_TOXIC_CHANCE = -1;
+    var _fails = variable_struct_get(_S, "fail_count");
+    __status_smoke_finish(_pid, _S, (_fails == 0) ? "completed" : "failed");
+    return (_fails == 0);
+}
+
+function test_battle_effect_200_204_smoke_update(_pid = 0){
+    // Direct smoke completes synchronously in start().
+}
+
+function test_battle_effect_210_smoke_start(_auto_close = false){
+    var _pid = 0;
+    var _S = {
+        pid: _pid,
+        tag: "effect-210",
+        global_name: "DEV_EFFECT_210_SMOKE",
+        auto_close: (_auto_close == true),
+        state: "running",
+        turn_counter: 0,
+        pass_count: 0,
+        fail_count: 0,
+        started_ms: current_time
+    };
+    global.DEV_EFFECT_210_SMOKE = _S;
+    show_debug_message("[smoke][effect-210] starting direct battle-effect smoke");
+
+    var _A;
+    var _D;
+
+    global.DEV_FORCE_ACCURACY_HIT = true;
+    global.DEV_FORCE_POISON_CHANCE = 100;
+    global.DEV_FORCE_CRIT_ROLL_100 = 10;
+
+    // 210 Poison Tail: boosted crit stage and poison chance.
+    _A = __effect_smoke_mon(133, 30, 120, [342, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 180, [1, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 342, actor_index: 0, target_index: 1 });
+    var _pt_crit_ok = false;
+    try { _pt_crit_ok = variable_struct_get(__battle_ensure_slot(_pid), "_last_crit") == true; } catch (e_pt_crit) { _pt_crit_ok = false; }
+    __status_smoke_assert(_S, _pt_crit_ok && status_system_has_status(_D, "poison"), "effect 210 Poison Tail used the boosted crit stage and applied poison");
+
+    // 210 Cross Poison: same family hook should apply here too.
+    _A = __effect_smoke_mon(133, 30, 120, [440, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 180, [1, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 440, actor_index: 0, target_index: 1 });
+    var _cp_crit_ok = false;
+    try { _cp_crit_ok = variable_struct_get(__battle_ensure_slot(_pid), "_last_crit") == true; } catch (e_cp_crit) { _cp_crit_ok = false; }
+    __status_smoke_assert(_S, _cp_crit_ok && status_system_has_status(_D, "poison"), "effect 210 Cross Poison used the boosted crit stage and applied poison");
+
+    global.DEV_FORCE_ACCURACY_HIT = false;
+    global.DEV_FORCE_POISON_CHANCE = -1;
+    global.DEV_FORCE_CRIT_ROLL_100 = -1;
+    var _fails = variable_struct_get(_S, "fail_count");
+    __status_smoke_finish(_pid, _S, (_fails == 0) ? "completed" : "failed");
+    return (_fails == 0);
+}
+
+function test_battle_effect_210_smoke_update(_pid = 0){
+    // Direct smoke completes synchronously in start().
+}
+
+function test_battle_effect_173_177_224_smoke_start(_auto_close = false){
+    var _pid = 0;
+    var _S = {
+        pid: _pid,
+        tag: "effect-173-177-224",
+        global_name: "DEV_EFFECT_173_177_224_SMOKE",
+        auto_close: (_auto_close == true),
+        state: "running",
+        turn_counter: 0,
+        pass_count: 0,
+        fail_count: 0,
+        started_ms: current_time
+    };
+    global.DEV_EFFECT_173_177_224_SMOKE = _S;
+    show_debug_message("[smoke][effect-173-177-224] starting direct battle-effect smoke");
+
+    var _A;
+    var _D;
+    var _before;
+    var _after;
+
+    global.DEV_FORCE_ACCURACY_HIT = true;
+
+    // 173 Follow Me: explicit singles handling should fail without setting redirect state.
+    _A = __effect_smoke_mon(133, 30, 120, [266, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 120, [1, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 266, actor_index: 0, target_index: 0 });
+    var _follow_fail_ok = true;
+    try { _follow_fail_ok = !variable_struct_exists(_A, "_follow_me_active") || variable_struct_get(_A, "_follow_me_active") != true; } catch (e_follow_smoke) { _follow_fail_ok = true; }
+    __status_smoke_assert(_S, _follow_fail_ok, "effect 173 Follow Me fails cleanly in the current singles battle setup");
+
+    // 177 Helping Hand: explicit singles handling should fail without setting an ally boost.
+    _A = __effect_smoke_mon(133, 30, 120, [270, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 120, [1, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 270, actor_index: 0, target_index: 0 });
+    var _help_fail_ok = true;
+    try { _help_fail_ok = !variable_struct_exists(_A, "_helping_hand_bonus"); } catch (e_help_smoke) { _help_fail_ok = true; }
+    __status_smoke_assert(_S, _help_fail_ok, "effect 177 Helping Hand fails cleanly in the current singles battle setup");
+
+    // 184 Magic Coat: targeted status move is bounced back to the attacker.
+    _A = __effect_smoke_mon(133, 30, 120, [281, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 120, [277, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 277, actor_index: 1, target_index: 1 });
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 281, actor_index: 0, target_index: 1 });
+    __status_smoke_assert(_S, status_system_has_status(_A, "yawn") && !status_system_has_status(_D, "yawn"), "effect 184 Magic Coat bounced Yawn back to the attacker");
+
+    // 196 Snatch: steals a self-targeted support move for the snatching battler.
+    _A = __effect_smoke_mon(133, 30, 120, [289, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 120, [287, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    status_system_apply_status(_A, "poison", { source: _D });
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 289, actor_index: 0, target_index: 0 });
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 287, actor_index: 1, target_index: 1 });
+    __status_smoke_assert(_S, !status_system_has_status(_A, "poison") && !status_system_has_status(_A, "toxic"), "effect 196 Snatch stole Refresh and applied it to the snatching battler");
+
+    // 224 Feint: bypasses Protect and lands damage.
+    _A = __effect_smoke_mon(133, 30, 120, [364, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 160, [182, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 182, actor_index: 1, target_index: 1 });
+    _before = __battle_hp_now(_D);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 364, actor_index: 0, target_index: 1 });
+    _after = __battle_hp_now(_D);
+    var _feint_cleared = false;
+    try { _feint_cleared = variable_struct_get(_D, "sys_protected") != true; } catch (e_feint_clear) { _feint_cleared = true; }
+    __status_smoke_assert(_S, _feint_cleared && _after < _before, "effect 224 Feint broke through Protect and dealt damage");
+
+    global.DEV_FORCE_ACCURACY_HIT = false;
+    var _fails = variable_struct_get(_S, "fail_count");
+    __status_smoke_finish(_pid, _S, (_fails == 0) ? "completed" : "failed");
+    return (_fails == 0);
+}
+
+function test_battle_effect_173_177_224_smoke_update(_pid = 0){
+    // Direct smoke completes synchronously in start().
+}
+
+function test_battle_effect_174_198_smoke_start(_auto_close = false){
+    var _pid = 0;
+    var _S = {
+        pid: _pid,
+        tag: "effect-174-198",
+        global_name: "DEV_EFFECT_174_198_SMOKE",
+        auto_close: (_auto_close == true),
+        state: "running",
+        turn_counter: 0,
+        pass_count: 0,
+        fail_count: 0,
+        started_ms: current_time
+    };
+    global.DEV_EFFECT_174_198_SMOKE = _S;
+    show_debug_message("[smoke][effect-174-198] starting direct battle-effect smoke");
+
+    var _A;
+    var _D;
+    var _before;
+    var _after;
+
+    global.DEV_FORCE_ACCURACY_HIT = true;
+    global.DEV_FORCE_PARALYSIS_CHANCE = 100;
+    global.DEV_FORCE_SLEEP_CHANCE = 100;
+
+    // 174 Nature Power: Electric Terrain maps to Thunderbolt in the current terrain family.
+    _A = __effect_smoke_mon(133, 30, 120, [267, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 180, [1, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    __battle_field_set_terrain(_pid, "electric", { source: _A, turns: 5 });
+    _before = __battle_hp_now(_D);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 267, actor_index: 0, target_index: 1 });
+    _after = __battle_hp_now(_D);
+    __status_smoke_assert(_S, _after < _before && status_system_has_status(_D, "paralysis"), "effect 174 Nature Power mapped Electric Terrain to a damaging Thunderbolt-family hit");
+
+    // 198 Secret Power: Grassy Terrain maps to a sleep-style secondary effect in the current terrain family.
+    _A = __effect_smoke_mon(133, 30, 120, [290, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 180, [1, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    __battle_field_set_terrain(_pid, "grassy", { source: _A, turns: 5 });
+    _before = __battle_hp_now(_D);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 290, actor_index: 0, target_index: 1 });
+    _after = __battle_hp_now(_D);
+    __status_smoke_assert(_S, _after < _before && status_system_has_status(_D, "sleep"), "effect 198 Secret Power used the current terrain family for its secondary effect");
+
+    global.DEV_FORCE_ACCURACY_HIT = false;
+    global.DEV_FORCE_PARALYSIS_CHANCE = -1;
+    global.DEV_FORCE_SLEEP_CHANCE = -1;
+    var _fails = variable_struct_get(_S, "fail_count");
+    __status_smoke_finish(_pid, _S, (_fails == 0) ? "completed" : "failed");
+    return (_fails == 0);
+}
+
+function test_battle_effect_174_198_smoke_update(_pid = 0){
+    // Direct smoke completes synchronously in start().
+}
+
+function test_battle_effect_215_smoke_start(_auto_close = false){
+    var _pid = 0;
+    var _S = {
+        pid: _pid,
+        tag: "effect-215",
+        global_name: "DEV_EFFECT_215_SMOKE",
+        auto_close: (_auto_close == true),
+        state: "running",
+        turn_counter: 0,
+        pass_count: 0,
+        fail_count: 0,
+        started_ms: current_time
+    };
+    global.DEV_EFFECT_215_SMOKE = _S;
+    show_debug_message("[smoke][effect-215] starting direct battle-effect smoke");
+
+    var _A = __effect_smoke_mon(16, 30, 120, [355, -1, -1, -1]);
+    var _D = __effect_smoke_mon(133, 30, 120, [150, -1, -1, -1]);
+    var _flying_id = undefined;
+    try {
+        if (variable_global_exists("TYPE_ID_BY_NAME")){
+            var _type_map = variable_global_get("TYPE_ID_BY_NAME");
+            if (ds_exists(_type_map, ds_type_map)) _flying_id = ds_map_find_value(_type_map, "flying");
+        }
+    } catch (e_roost_type) { _flying_id = undefined; }
+
+    __effect_smoke_slot(_pid, _A, _D);
+    __effect_smoke_set_hp(_A, 60);
+
+    var _had_flying_before = false;
+    try {
+        if (is_real(_flying_id)){
+            if (variable_struct_exists(_A, "type1") && is_real(variable_struct_get(_A, "type1")) && variable_struct_get(_A, "type1") == _flying_id) _had_flying_before = true;
+            if (!_had_flying_before && variable_struct_exists(_A, "type2") && is_real(variable_struct_get(_A, "type2")) && variable_struct_get(_A, "type2") == _flying_id) _had_flying_before = true;
+            if (!_had_flying_before && variable_struct_exists(_A, "types") && is_array(variable_struct_get(_A, "types"))){
+                var _roost_before_types = variable_struct_get(_A, "types");
+                for (var _rbi = 0; _rbi < array_length(_roost_before_types); ++_rbi){
+                    if (is_real(_roost_before_types[_rbi]) && _roost_before_types[_rbi] == _flying_id) { _had_flying_before = true; break; }
+                }
+            }
+        }
+    } catch (e_roost_before) { _had_flying_before = false; }
+
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 355, actor_index: 0, target_index: 1 });
+    var _healed_ok = (__battle_hp_now(_A) == 120);
+    var _grounded_now = true;
+    try {
+        if (is_real(_flying_id)){
+            if (variable_struct_exists(_A, "type1") && is_real(variable_struct_get(_A, "type1")) && variable_struct_get(_A, "type1") == _flying_id) _grounded_now = false;
+            if (_grounded_now && variable_struct_exists(_A, "type2") && is_real(variable_struct_get(_A, "type2")) && variable_struct_get(_A, "type2") == _flying_id) _grounded_now = false;
+            if (_grounded_now && variable_struct_exists(_A, "types") && is_array(variable_struct_get(_A, "types"))){
+                var _roost_ground_types = variable_struct_get(_A, "types");
+                for (var _rgi = 0; _rgi < array_length(_roost_ground_types); ++_rgi){
+                    if (is_real(_roost_ground_types[_rgi]) && _roost_ground_types[_rgi] == _flying_id) { _grounded_now = false; break; }
+                }
+            }
+        }
+    } catch (e_roost_ground) { _grounded_now = false; }
+    __status_smoke_assert(_S, _had_flying_before && _healed_ok && _grounded_now, "effect 215 Roost healed half max HP and temporarily removed Flying typing");
+
+    var _B = __battle_ensure_slot(_pid);
+    variable_struct_set(_B, "turn_i", 1);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 150, actor_index: 1, target_index: 0 });
+    var _flying_restored = false;
+    try {
+        if (is_real(_flying_id)){
+            if (variable_struct_exists(_A, "type1") && is_real(variable_struct_get(_A, "type1")) && variable_struct_get(_A, "type1") == _flying_id) _flying_restored = true;
+            if (!_flying_restored && variable_struct_exists(_A, "type2") && is_real(variable_struct_get(_A, "type2")) && variable_struct_get(_A, "type2") == _flying_id) _flying_restored = true;
+            if (!_flying_restored && variable_struct_exists(_A, "types") && is_array(variable_struct_get(_A, "types"))){
+                var _roost_restore_types = variable_struct_get(_A, "types");
+                for (var _rri = 0; _rri < array_length(_roost_restore_types); ++_rri){
+                    if (is_real(_roost_restore_types[_rri]) && _roost_restore_types[_rri] == _flying_id) { _flying_restored = true; break; }
+                }
+            }
+        }
+    } catch (e_roost_restore) { _flying_restored = false; }
+    __status_smoke_assert(_S, _flying_restored, "effect 215 Roost restored Flying typing after the turn expired");
+
+    var _fails = variable_struct_get(_S, "fail_count");
+    __status_smoke_finish(_pid, _S, (_fails == 0) ? "completed" : "failed");
+    return (_fails == 0);
+}
+
+function test_battle_effect_215_smoke_update(_pid = 0){
+    // Direct smoke completes synchronously in start().
+}
+
+function test_battle_effect_216_smoke_start(_auto_close = false){
+    var _pid = 0;
+    var _S = {
+        pid: _pid,
+        tag: "effect-216",
+        global_name: "DEV_EFFECT_216_SMOKE",
+        auto_close: (_auto_close == true),
+        state: "running",
+        turn_counter: 0,
+        pass_count: 0,
+        fail_count: 0,
+        started_ms: current_time
+    };
+    global.DEV_EFFECT_216_SMOKE = _S;
+    show_debug_message("[smoke][effect-216] starting direct battle-effect smoke");
+
+    var _A = __effect_smoke_mon(133, 30, 120, [356, -1, -1, -1]);
+    var _D = __effect_smoke_mon(10, 30, 120, [150, -1, -1, -1]);
+    variable_struct_set(_D, "ability", "levitate");
+    variable_struct_set(_D, "_semi_invuln", "fly");
+    variable_struct_set(_D, "_charging_move", { move_id: 19, target_index: 0 });
+    __effect_smoke_slot(_pid, _A, _D);
+
+    var _before_grounded = __actor_is_grounded(_D);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 356, actor_index: 0, target_index: 1 });
+    var _gravity_turns = __battle_field_get_status_or(_pid, "gravity", 0);
+    var _after_grounded = __actor_is_grounded(_D);
+    var _semi_cleared = (!variable_struct_exists(_D, "_semi_invuln") || is_undefined(variable_struct_get(_D, "_semi_invuln")));
+    var _charge_cleared = (!variable_struct_exists(_D, "_charging_move") || is_undefined(variable_struct_get(_D, "_charging_move")));
+    __status_smoke_assert(_S, (!_before_grounded) && is_real(_gravity_turns) && _gravity_turns == 5 && _after_grounded && _semi_cleared && _charge_cleared, "effect 216 Gravity set a field duration, grounded Levitate targets, and cleared airborne charge state");
+
+    _A = __effect_smoke_mon(16, 30, 120, [19, -1, -1, -1]);
+    _D = __effect_smoke_mon(133, 30, 120, [150, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    __battle_field_set_status(_pid, "gravity", 5);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 19, actor_index: 0, target_index: 1 });
+    var _blocked_charge = (!variable_struct_exists(_A, "_charging_move") || is_undefined(variable_struct_get(_A, "_charging_move")));
+    __status_smoke_assert(_S, _blocked_charge, "effect 216 Gravity blocked Fly from entering its charging state");
+
+    var _fails = variable_struct_get(_S, "fail_count");
+    __status_smoke_finish(_pid, _S, (_fails == 0) ? "completed" : "failed");
+    return (_fails == 0);
+}
+
+function test_battle_effect_216_smoke_update(_pid = 0){
+    // Direct smoke completes synchronously in start().
+}
+
+function test_battle_effect_225_smoke_start(_auto_close = false){
+    var _pid = 0;
+    var _S = {
+        pid: _pid,
+        tag: "effect-225",
+        global_name: "DEV_EFFECT_225_SMOKE",
+        auto_close: (_auto_close == true),
+        state: "running",
+        turn_counter: 0,
+        pass_count: 0,
+        fail_count: 0,
+        started_ms: current_time
+    };
+    global.DEV_EFFECT_225_SMOKE = _S;
+    show_debug_message("[smoke][effect-225] starting direct battle-effect smoke");
+
+    var _A = __effect_smoke_mon(133, 30, 120, [365, -1, -1, -1]);
+    var _D = __effect_smoke_mon(10, 30, 180, [150, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    __effect_smoke_set_hp(_A, 80);
+    variable_struct_set(_D, "held_item_id", 132);
+    variable_struct_set(_D, "held_item_real_name", "oran-berry");
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 365, actor_index: 0, target_index: 1 });
+    var _pluck_healed = (__battle_hp_now(_A) > 80);
+    var _pluck_removed = (variable_struct_get(_D, "held_item_id") <= 0);
+    __status_smoke_assert(_S, _pluck_healed && _pluck_removed, "effect 225 Pluck consumed the target berry and applied its effect to the user");
+
+    _A = __effect_smoke_mon(133, 30, 120, [450, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 180, [150, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    __effect_smoke_set_hp(_A, 80);
+    variable_struct_set(_D, "held_item_id", 132);
+    variable_struct_set(_D, "held_item_real_name", "oran-berry");
+    status_system_apply_status(_A, "embargo", { duration: 5, source: _D });
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 450, actor_index: 0, target_index: 1 });
+    var _bug_bite_hp = __battle_hp_now(_A);
+    var _bug_bite_removed = (variable_struct_get(_D, "held_item_id") <= 0);
+    __status_smoke_assert(_S, _bug_bite_hp == 80 && _bug_bite_removed, "effect 225 destroyed the target berry without using it while the attacker was under Embargo");
+
+    var _fails = variable_struct_get(_S, "fail_count");
+    __status_smoke_finish(_pid, _S, (_fails == 0) ? "completed" : "failed");
+    return (_fails == 0);
+}
+
+function test_battle_effect_225_smoke_update(_pid = 0){
+    // Direct smoke completes synchronously in start().
+}
+
+function test_battle_effect_221_smoke_start(_auto_close = false){
+    var _pid = 0;
+    var _S = {
+        pid: _pid,
+        tag: "effect-221",
+        global_name: "DEV_EFFECT_221_SMOKE",
+        auto_close: (_auto_close == true),
+        state: "running",
+        turn_counter: 0,
+        pass_count: 0,
+        fail_count: 0,
+        started_ms: current_time
+    };
+    global.DEV_EFFECT_221_SMOKE = _S;
+    show_debug_message("[smoke][effect-221] starting direct battle-effect smoke");
+
+    var _A = __effect_smoke_mon(133, 30, 120, [361, -1, -1, -1]);
+    var _D = __effect_smoke_mon(10, 30, 180, [150, -1, -1, -1]);
+    var _B = __effect_smoke_slot(_pid, _A, _D);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 361, actor_index: 0, target_index: 1 });
+
+    var _pending_ok = false;
+    if (variable_struct_exists(_B, "_pending_healing_wishes") && is_array(variable_struct_get(_B, "_pending_healing_wishes"))){
+        var _pending_hw = variable_struct_get(_B, "_pending_healing_wishes");
+        _pending_ok = (array_length(_pending_hw) == 1);
+        if (_pending_ok){
+            var _entry_hw = _pending_hw[0];
+            _pending_ok = is_struct(_entry_hw) && variable_struct_exists(_entry_hw, "side") && variable_struct_get(_entry_hw, "side") == 0;
+        }
+    }
+    __status_smoke_assert(_S, __battle_hp_now(_A) <= 0 && _pending_ok, "effect 221 queued a pending restore for the user's side and self-KOed the user");
+
+    var _R = __effect_smoke_mon(16, 30, 120, [1, -1, -1, -1]);
+    variable_struct_set(_R, "actor_index", 0);
+    __effect_smoke_set_hp(_R, 24);
+    status_system_apply_status(_R, "burn", { source: _D });
+    var _applied = __battle_apply_pending_healing_wish_to_actor(_pid, 0, _R);
+    var _restored = (__battle_hp_now(_R) == __battle_hp_max(_R));
+    var _status_cleared = !__effect_smoke_has_status(_R, "burn");
+    var _pending_cleared = (variable_struct_exists(_B, "_pending_healing_wishes") && is_array(variable_struct_get(_B, "_pending_healing_wishes")) && array_length(variable_struct_get(_B, "_pending_healing_wishes")) == 0);
+    __status_smoke_assert(_S, _applied && _restored && _status_cleared && _pending_cleared, "effect 221 restored the next ally switch-in to full HP, cured status, and consumed the pending wish");
+
+    var _fails = variable_struct_get(_S, "fail_count");
+    __status_smoke_finish(_pid, _S, (_fails == 0) ? "completed" : "failed");
+    return (_fails == 0);
+}
+
+function test_battle_effect_221_smoke_update(_pid = 0){
+    // Direct smoke completes synchronously in start().
+}
+
+function test_battle_effect_217_smoke_start(_auto_close = false){
+    var _pid = 0;
+    var _S = {
+        pid: _pid,
+        tag: "effect-217",
+        global_name: "DEV_EFFECT_217_SMOKE",
+        auto_close: (_auto_close == true),
+        state: "running",
+        turn_counter: 0,
+        pass_count: 0,
+        fail_count: 0,
+        started_ms: current_time
+    };
+    global.DEV_EFFECT_217_SMOKE = _S;
+    show_debug_message("[smoke][effect-217] starting direct battle-effect smoke");
+
+    var _A = __effect_smoke_mon(133, 30, 120, [357, 93, -1, -1]);
+    var _D = __effect_smoke_mon(197, 30, 120, [104, -1, -1, -1]);
+    var _B = __effect_smoke_slot(_pid, _A, _D);
+    variable_struct_set(_A, "type1", 14);
+    variable_struct_set(_A, "type2", -1);
+    variable_struct_set(_A, "types", [14]);
+    variable_struct_set(_D, "type1", 17);
+    variable_struct_set(_D, "type2", -1);
+    variable_struct_set(_D, "types", [17]);
+    variable_struct_set(_A, "_stages", { accuracy: -6 });
+    variable_struct_set(_D, "_stages", { evasion: 6 });
+
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 357, actor_index: 0, target_index: 1 });
+    var _miracle_applied = variable_struct_exists(_D, "_miracle_eye_active") && variable_struct_get(_D, "_miracle_eye_active") == true;
+    var _evasion_reset = variable_struct_exists(_D, "_stages") && is_struct(variable_struct_get(_D, "_stages")) && variable_struct_get(variable_struct_get(_D, "_stages"), "evasion") == 0;
+    __status_smoke_assert(_S, _miracle_applied && _evasion_reset, "effect 217 landed through accuracy/evasion modifiers and reset the target's evasion stage");
+
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 104, actor_index: 1, target_index: 1 });
+    var _evasion_blocked = variable_struct_exists(_D, "_stages") && is_struct(variable_struct_get(_D, "_stages")) && variable_struct_get(variable_struct_get(_D, "_stages"), "evasion") == 0;
+    __status_smoke_assert(_S, _evasion_blocked, "effect 217 prevented the identified target from raising evasion");
+
+    __effect_smoke_set_hp(_D, 120);
+    var _before_dark = __battle_hp_now(_D);
+    __battle_perform_action_impl(_pid, { slot: 1, move_id: 93, actor_index: 0, target_index: 1 });
+    var _after_dark = __battle_hp_now(_D);
+    __status_smoke_assert(_S, _after_dark < _before_dark, "effect 217 let Psychic-type damage hit the identified Dark-type target");
+
+    var _fails = variable_struct_get(_S, "fail_count");
+    __status_smoke_finish(_pid, _S, (_fails == 0) ? "completed" : "failed");
+    return (_fails == 0);
+}
+
+function test_battle_effect_217_smoke_update(_pid = 0){
+    // Direct smoke completes synchronously in start().
+}
+
+function test_battle_effect_195_smoke_start(_auto_close = false){
+    var _pid = 0;
+    var _S = {
+        pid: _pid,
+        tag: "effect-195",
+        global_name: "DEV_EFFECT_195_SMOKE",
+        auto_close: (_auto_close == true),
+        state: "running",
+        turn_counter: 0,
+        pass_count: 0,
+        fail_count: 0,
+        started_ms: current_time
+    };
+    global.DEV_EFFECT_195_SMOKE = _S;
+    show_debug_message("[smoke][effect-195] starting direct battle-effect smoke");
+
+    var _A = __effect_smoke_mon(92, 30, 60, [288, -1, -1, -1]);
+    var _D = __effect_smoke_mon(133, 30, 120, [89, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    __effect_smoke_set_hp(_A, 30);
+
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 288, actor_index: 0, target_index: 1 });
+    var _grudge_armed = variable_struct_exists(_A, "_grudge_active") && variable_struct_get(_A, "_grudge_active") == true;
+    __status_smoke_assert(_S, _grudge_armed, "effect 195 armed Grudge on the user until its next action");
+
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 89, actor_index: 1, target_index: 0 });
+    var _enemy_slot = __status_smoke_find_slot(_D, 89);
+    var _enemy_pp_zero = is_real(_enemy_slot) && _enemy_slot >= 0 && variable_struct_exists(_D, "pps") && is_array(variable_struct_get(_D, "pps")) && variable_struct_get(_D, "pps")[_enemy_slot] == 0;
+    var _user_fainted = (__battle_hp_now(_A) <= 0) && variable_struct_exists(_A, "_fainted") && variable_struct_get(_A, "_fainted") == true;
+    __status_smoke_assert(_S, _user_fainted && _enemy_pp_zero, "effect 195 zeroed the fainting move's PP when the Grudge user was KO'd by direct move damage");
+
+    var _fails = variable_struct_get(_S, "fail_count");
+    __status_smoke_finish(_pid, _S, (_fails == 0) ? "completed" : "failed");
+    return (_fails == 0);
+}
+
+function test_battle_effect_195_smoke_update(_pid = 0){
+    // Direct smoke completes synchronously in start().
+}
+
+function test_battle_effect_211_229_smoke_start(_auto_close = false){
+    var _pid = 0;
+    var _S = {
+        pid: _pid,
+        tag: "effect-211-229",
+        global_name: "DEV_EFFECT_211_229_SMOKE",
+        auto_close: (_auto_close == true),
+        state: "running",
+        turn_counter: 0,
+        pass_count: 0,
+        fail_count: 0,
+        started_ms: current_time
+    };
+    global.DEV_EFFECT_211_229_SMOKE = _S;
+    show_debug_message("[smoke][effect-211-229] starting direct battle-effect smoke");
+
+    var _A;
+    var _D;
+    var _before;
+    var _after;
+
+    // 211 Water Sport weakens Fire damage.
+    _A = __effect_smoke_mon(133, 30, 120, [346, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 180, [299, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 346, actor_index: 0, target_index: 1 });
+    var _water_flag_ok = (__battle_field_get_status_or(_pid, "water_sport", 0) == 5);
+    _before = __battle_hp_now(_A);
+    __battle_apply_move_damage(_pid, 0, _D, _A, 299, 85);
+    var _water_damage = _before - __battle_hp_now(_A);
+    _A = __effect_smoke_mon(133, 30, 120, [1, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 180, [299, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    _before = __battle_hp_now(_A);
+    __battle_apply_move_damage(_pid, 0, _D, _A, 299, 85);
+    var _base_fire_damage = _before - __battle_hp_now(_A);
+    __status_smoke_assert(_S, _water_flag_ok && _water_damage > 0 && _water_damage < _base_fire_damage, "effect 211 Water Sport weakened Fire damage battlefield-wide");
+
+    // 214 Camouflage changes type based on terrain.
+    _A = __effect_smoke_mon(133, 30, 120, [293, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 120, [1, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    __battle_field_set_terrain(_pid, "electric", { source: _A, turns: 5 });
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 293, actor_index: 0, target_index: 1 });
+    __status_smoke_assert(_S, variable_struct_get(_A, "type1") == 13, "effect 214 Camouflage adopted the current terrain type");
+
+    // 218 Wake-Up Slap doubles into sleep and cures it after damage.
+    _A = __effect_smoke_mon(133, 30, 120, [358, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 180, [1, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    status_system_apply_status(_D, "sleep", { duration: 2, source: _A });
+    var _wake_power = __battle_move_power(358, _A, _D);
+    _before = __battle_hp_now(_D);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 358, actor_index: 0, target_index: 1 });
+    _after = __battle_hp_now(_D);
+    __status_smoke_assert(_S, _wake_power == 120 && _after < _before && !status_system_has_status(_D, "sleep"), "effect 218 Wake-Up Slap doubled into sleep and woke the target");
+
+    // 220 Gyro Ball scales with speed ratio.
+    _A = __effect_smoke_mon(133, 30, 120, [360, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 120, [1, -1, -1, -1]);
+    variable_struct_set(_A, "spe", 40);
+    variable_struct_set(_D, "spe", 160);
+    __effect_smoke_slot(_pid, _A, _D);
+    __status_smoke_assert(_S, __battle_move_power(360, _A, _D) >= 100, "effect 220 Gyro Ball used the shared speed-ratio power resolver");
+
+    // 222 Brine doubles on low-HP targets.
+    _A = __effect_smoke_mon(133, 30, 120, [362, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 200, [1, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    var _brine_base = __battle_move_power(362, _A, _D);
+    __effect_smoke_set_hp(_D, 80);
+    var _brine_low = __battle_move_power(362, _A, _D);
+    __status_smoke_assert(_S, _brine_base == 65 && _brine_low == 130, "effect 222 Brine doubled power against low-HP targets");
+
+    // 223 Natural Gift derives type and power from the held berry and consumes it.
+    _A = __effect_smoke_mon(133, 30, 120, [363, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 180, [1, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    __battle_set_held_item_snapshot(_A, 158, "watmel-berry");
+    var _natural_fire_id = 10;
+    try {
+        if (variable_global_exists("TYPE_ID_BY_NAME")){
+            var _natural_type_map = variable_global_get("TYPE_ID_BY_NAME");
+            if (ds_exists(_natural_type_map, ds_type_map) && ds_map_exists(_natural_type_map, "fire")) _natural_fire_id = ds_map_find_value(_natural_type_map, "fire");
+        }
+    } catch (e_natural_type_id) { _natural_fire_id = 10; }
+    var _natural_power = __battle_move_power(363, _A, _D);
+    var _natural_type = scr_move_type_id_by_id(363, _A);
+    _before = __battle_hp_now(_D);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 363, actor_index: 0, target_index: 1 });
+    _after = __battle_hp_now(_D);
+    var _natural_consumed = (variable_struct_exists(_A, "held_item_id") && variable_struct_get(_A, "held_item_id") <= 0);
+    __status_smoke_assert(_S, _natural_power == 100 && _natural_type == _natural_fire_id && _after < _before && _natural_consumed, "effect 223 Natural Gift used the held berry's type and power, dealt damage, and consumed the berry");
+
+    _A = __effect_smoke_mon(133, 30, 120, [363, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 180, [1, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    _before = __battle_hp_now(_D);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 363, actor_index: 0, target_index: 1 });
+    _after = __battle_hp_now(_D);
+    __status_smoke_assert(_S, _after == _before, "effect 223 Natural Gift failed without a usable berry");
+
+    // 226 Tailwind doubles allied Speed through a side status.
+    _A = __effect_smoke_mon(133, 30, 120, [366, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 120, [1, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    var _tailwind_base_speed = __battle_stat_get(_A, "spd");
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 366, actor_index: 0, target_index: 0 });
+    var _tailwind_turns = __battle_field_get_side_status_or(_pid, 0, "tailwind", 0);
+    var _tailwind_boosted_speed = __battle_stat_get(_A, "spd");
+    __status_smoke_assert(_S, _tailwind_turns == 4 && _tailwind_boosted_speed == (_tailwind_base_speed * 2), "effect 226 Tailwind set a side status and doubled allied Speed");
+
+    // 227 Acupressure sharply raises a random eligible stat.
+    _A = __effect_smoke_mon(133, 30, 120, [367, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 120, [1, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 367, actor_index: 0, target_index: 0 });
+    var _acu_ok = false;
+    try {
+        var _acu_map = variable_struct_get(_A, "_stages");
+        var _acu_keys = ["atk", "def", "spa", "spd", "spe", "accuracy", "evasion"];
+        for (var _ak = 0; _ak < array_length(_acu_keys); ++_ak){
+            var _akey = _acu_keys[_ak];
+            if (variable_struct_exists(_acu_map, _akey) && variable_struct_get(_acu_map, _akey) >= 2){ _acu_ok = true; break; }
+        }
+    } catch (e_acu_smoke) { _acu_ok = false; }
+    __status_smoke_assert(_S, _acu_ok, "effect 227 Acupressure sharply raised a random stat");
+
+    // 228 Metal Burst reflects 1.5x the last received damage.
+    _A = __effect_smoke_mon(133, 30, 120, [368, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 120, [1, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    variable_struct_set(_A, "_last_received_damage", 20);
+    variable_struct_set(_A, "_last_received_from_actor_index", 1);
+    _before = __battle_hp_now(_D);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 368, actor_index: 0, target_index: 1 });
+    _after = __battle_hp_now(_D);
+    __status_smoke_assert(_S, (_before - _after) == 30, "effect 228 Metal Burst reflected 1.5x the last received damage");
+
+    // 229 U-turn / Volt Switch open the player's swap flow after a successful hit.
+    var _P_ut = party_ensure(_pid);
+    var _ut_active = __effect_smoke_mon(133, 30, 120, [369, -1, -1, -1]);
+    var _ut_reserve = __effect_smoke_mon(25, 30, 120, [1, -1, -1, -1]);
+    _P_ut.mons = [_ut_active, _ut_reserve];
+    global.PARTY[_pid] = _P_ut;
+    _D = __effect_smoke_mon(10, 30, 180, [1, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _ut_active, _D);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 369, actor_index: 0, target_index: 1 });
+    var _ut_party = party_ensure(_pid);
+    var _ut_ok = party_is_open(_pid) && variable_struct_exists(_ut_party, "_battle_swap_mode") && variable_struct_get(_ut_party, "_battle_swap_mode") == true;
+    __status_smoke_assert(_S, _ut_ok, "effect 229 U-turn opened the player's battle swap flow after a hit");
+    try { party_close(_pid); } catch (e_ut_close) {}
+
+    var _fails = variable_struct_get(_S, "fail_count");
+    __status_smoke_finish(_pid, _S, (_fails == 0) ? "completed" : "failed");
+    return (_fails == 0);
+}
+
+function test_battle_effect_211_229_smoke_update(_pid = 0){
     // Direct smoke completes synchronously in start().
 }
 

@@ -131,7 +131,7 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
             var _allow_hit = false;
 
             if (_phase == "fly" || _phase == "bounce" || _phase == "skydrop"){
-                if (string_pos("gust", _move_name_lower) > 0 || string_pos("twister", _move_name_lower) > 0){
+                if (string_pos("gust", _move_name_lower) > 0 || string_pos("twister", _move_name_lower) > 0 || string_pos("sky uppercut", _move_name_lower) > 0 || string_pos("sky-uppercut", _move_name_lower) > 0){
                     _allow_hit = true;
                     _semi_mult = 2.0;
                 }
@@ -280,6 +280,19 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
         if (!is_undefined(scr_move_type_id_by_id)) atk_type = scr_move_type_id_by_id(_move_id, _A);
         if (is_real(atk_type) && atk_type >= 0 && variable_global_exists("BATTLE_TYPE_EFFICACY")){
             var _tmp_bte = variable_global_get("BATTLE_TYPE_EFFICACY");
+            var _miracle_eye_psychic = false;
+            try {
+                var _psy_id = 14;
+                var _dark_id = 17;
+                if (variable_global_exists("TYPE_ID_BY_NAME")){
+                    var _miracle_type_map = variable_global_get("TYPE_ID_BY_NAME");
+                    if (ds_exists(_miracle_type_map, ds_type_map)){
+                        if (ds_map_exists(_miracle_type_map, "psychic")) _psy_id = ds_map_find_value(_miracle_type_map, "psychic");
+                        if (ds_map_exists(_miracle_type_map, "dark")) _dark_id = ds_map_find_value(_miracle_type_map, "dark");
+                    }
+                }
+                _miracle_eye_psychic = (atk_type == _psy_id) && is_struct(_D) && variable_struct_exists(_D, "_miracle_eye_active") && variable_struct_get(_D, "_miracle_eye_active") == true;
+            } catch (e_miracle_type) { _miracle_eye_psychic = false; }
             var dt = [];
             // Collect defender type ids from wrapper or inner mon
             if (variable_struct_exists(_D, "types") && is_array(variable_struct_get(_D, "types"))) for (var _ti=0; _ti<array_length(variable_struct_get(_D, "types")); ++_ti) array_push(dt, variable_struct_get(_D, "types")[_ti]);
@@ -309,6 +322,16 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
                 if (ds_map_exists(_tmp_bte, key)){
                     var mval = ds_map_find_value(_tmp_bte, key);
                     if (is_real(mval)){
+                        if (_miracle_eye_psychic){
+                            var _dark_id_apply = 17;
+                            try {
+                                if (variable_global_exists("TYPE_ID_BY_NAME")){
+                                    var _dark_map_apply = variable_global_get("TYPE_ID_BY_NAME");
+                                    if (ds_exists(_dark_map_apply, ds_type_map) && ds_map_exists(_dark_map_apply, "dark")) _dark_id_apply = ds_map_find_value(_dark_map_apply, "dark");
+                                }
+                            } catch (e_dark_lookup_apply) { _dark_id_apply = 17; }
+                            if (def_t == _dark_id_apply && mval <= 0) mval = 1.0;
+                        }
                         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][eff_debug] found key=" + string(key) + ", mval=" + string(mval));
                         prod *= mval;
                     }
@@ -496,6 +519,24 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
                     try { if (variable_global_exists("TYPE_ID_BY_NAME")){ var _tmap2 = variable_global_get("TYPE_ID_BY_NAME"); if (ds_exists(_tmap2, ds_type_map)) drag_id = ds_map_find_value(_tmap2, "dragon"); } } catch (e_td) { drag_id = -1; }
                     if (is_real(drag_id) && mv_type == drag_id){ dmg = floor(dmg * 0.5); if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][terrain] Misty Terrain halved Dragon move id=" + string(_move_id)); }
                 }
+                var _mud_sport_turns = __battle_field_get_status_or(_pid, "mud_sport", 0);
+                if (is_real(_mud_sport_turns) && _mud_sport_turns > 0 && is_real(mv_type)){
+                    var ele_field_id = -1;
+                    try { if (variable_global_exists("TYPE_ID_BY_NAME")){ var _tmap_mud = variable_global_get("TYPE_ID_BY_NAME"); if (ds_exists(_tmap_mud, ds_type_map)) ele_field_id = ds_map_find_value(_tmap_mud, "electric"); } } catch (e_tmud) { ele_field_id = -1; }
+                    if (is_real(ele_field_id) && mv_type == ele_field_id){
+                        dmg = max(1, floor(dmg * 0.5));
+                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][field] Mud Sport halved Electric move id=" + string(_move_id));
+                    }
+                }
+                var _water_sport_turns = __battle_field_get_status_or(_pid, "water_sport", 0);
+                if (is_real(_water_sport_turns) && _water_sport_turns > 0 && is_real(mv_type)){
+                    var fire_field_id = 10;
+                    try { if (variable_global_exists("TYPE_ID_BY_NAME")){ var _tmap_water = variable_global_get("TYPE_ID_BY_NAME"); if (ds_exists(_tmap_water, ds_type_map)) fire_field_id = ds_map_find_value(_tmap_water, "fire"); } } catch (e_twater) { fire_field_id = 10; }
+                    if (is_real(fire_field_id) && mv_type == fire_field_id){
+                        dmg = max(1, floor(dmg * 0.5));
+                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][field] Water Sport halved Fire move id=" + string(_move_id));
+                    }
+                }
             }
         } catch (e_terr) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][terrain] damage adjust failed: " + string(e_terr)); }
 
@@ -598,7 +639,20 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
     } catch (e_sub_block) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][substitute] damage intercept failed: " + string(e_sub_block)); }
 
     // Apply damage (this will update hp_now). Pass effectiveness multiplier so SFX choice can match.
+    var _Bdamage_src = __battle_ensure_slot(_pid);
+    try {
+        if (is_struct(_Bdamage_src)){
+            variable_struct_set(_Bdamage_src, "_pending_damage_source", {
+                attacker: _A,
+                move_id: _move_id,
+                move_slot: (is_struct(_A) && variable_struct_exists(_A, "_last_selected_move_slot") ? variable_struct_get(_A, "_last_selected_move_slot") : undefined)
+            });
+        }
+    } catch (e_damage_src_stamp) {}
     __battle_apply_damage(_pid, _target_index, dmg, mult);
+    try {
+        if (is_struct(_Bdamage_src)) variable_struct_set(_Bdamage_src, "_pending_damage_source", undefined);
+    } catch (e_damage_src_clear) {}
     var after = __battle_hp_now(_D);
 
     if (_snipe_bypassed_guard && is_struct(_D)){

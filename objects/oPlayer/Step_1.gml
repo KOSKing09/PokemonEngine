@@ -104,6 +104,54 @@ if (variable_global_exists("DEV_AUTO_EFFECT_9_112_SMOKE") && global.DEV_AUTO_EFF
     global.DEV_AUTO_EFFECT_9_112_SMOKE = false;
     test_battle_effect_9_112_smoke_start(true);
 }
+if (variable_global_exists("DEV_AUTO_EFFECT_ITEM_ABILITY_SMOKE") && global.DEV_AUTO_EFFECT_ITEM_ABILITY_SMOKE) {
+    global.DEV_AUTO_EFFECT_ITEM_ABILITY_SMOKE = false;
+    test_battle_effect_item_ability_smoke_start(true);
+}
+if (variable_global_exists("DEV_AUTO_EFFECT_200_204_SMOKE") && global.DEV_AUTO_EFFECT_200_204_SMOKE) {
+    global.DEV_AUTO_EFFECT_200_204_SMOKE = false;
+    test_battle_effect_200_204_smoke_start(true);
+}
+if (variable_global_exists("DEV_AUTO_EFFECT_173_177_224_SMOKE") && global.DEV_AUTO_EFFECT_173_177_224_SMOKE) {
+    global.DEV_AUTO_EFFECT_173_177_224_SMOKE = false;
+    test_battle_effect_173_177_224_smoke_start(true);
+}
+if (variable_global_exists("DEV_AUTO_EFFECT_174_198_SMOKE") && global.DEV_AUTO_EFFECT_174_198_SMOKE) {
+    global.DEV_AUTO_EFFECT_174_198_SMOKE = false;
+    test_battle_effect_174_198_smoke_start(true);
+}
+if (variable_global_exists("DEV_AUTO_EFFECT_215_SMOKE") && global.DEV_AUTO_EFFECT_215_SMOKE) {
+    global.DEV_AUTO_EFFECT_215_SMOKE = false;
+    test_battle_effect_215_smoke_start(true);
+}
+if (variable_global_exists("DEV_AUTO_EFFECT_216_SMOKE") && global.DEV_AUTO_EFFECT_216_SMOKE) {
+    global.DEV_AUTO_EFFECT_216_SMOKE = false;
+    test_battle_effect_216_smoke_start(true);
+}
+if (variable_global_exists("DEV_AUTO_EFFECT_225_SMOKE") && global.DEV_AUTO_EFFECT_225_SMOKE) {
+    global.DEV_AUTO_EFFECT_225_SMOKE = false;
+    test_battle_effect_225_smoke_start(true);
+}
+if (variable_global_exists("DEV_AUTO_EFFECT_221_SMOKE") && global.DEV_AUTO_EFFECT_221_SMOKE) {
+    global.DEV_AUTO_EFFECT_221_SMOKE = false;
+    test_battle_effect_221_smoke_start(true);
+}
+if (variable_global_exists("DEV_AUTO_EFFECT_217_SMOKE") && global.DEV_AUTO_EFFECT_217_SMOKE) {
+    global.DEV_AUTO_EFFECT_217_SMOKE = false;
+    test_battle_effect_217_smoke_start(true);
+}
+if (variable_global_exists("DEV_AUTO_EFFECT_195_SMOKE") && global.DEV_AUTO_EFFECT_195_SMOKE) {
+    global.DEV_AUTO_EFFECT_195_SMOKE = false;
+    test_battle_effect_195_smoke_start(true);
+}
+if (variable_global_exists("DEV_AUTO_EFFECT_210_SMOKE") && global.DEV_AUTO_EFFECT_210_SMOKE) {
+    global.DEV_AUTO_EFFECT_210_SMOKE = false;
+    test_battle_effect_210_smoke_start(true);
+}
+if (variable_global_exists("DEV_AUTO_EFFECT_211_229_SMOKE") && global.DEV_AUTO_EFFECT_211_229_SMOKE) {
+    global.DEV_AUTO_EFFECT_211_229_SMOKE = false;
+    test_battle_effect_211_229_smoke_start(true);
+}
 
 test_battle_status_smoke_update(0);
 test_battle_heal_block_smoke_update(0);
@@ -119,6 +167,17 @@ test_battle_effect_159_176_smoke_update(0);
 test_battle_effect_27_42_smoke_update(0);
 test_battle_effect_76_94_smoke_update(0);
 test_battle_effect_9_112_smoke_update(0);
+test_battle_effect_item_ability_smoke_update(0);
+test_battle_effect_200_204_smoke_update(0);
+test_battle_effect_173_177_224_smoke_update(0);
+test_battle_effect_174_198_smoke_update(0);
+test_battle_effect_215_smoke_update(0);
+test_battle_effect_216_smoke_update(0);
+test_battle_effect_225_smoke_update(0);
+test_battle_effect_221_smoke_update(0);
+test_battle_effect_217_smoke_update(0);
+test_battle_effect_210_smoke_update(0);
+test_battle_effect_211_229_smoke_update(0);
 
 // detect closing edge: if it was open last frame and now not
 if (!variable_instance_exists(id,"_dlg_was")) _dlg_was = false;

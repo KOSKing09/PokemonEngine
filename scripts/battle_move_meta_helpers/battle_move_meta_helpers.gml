@@ -694,7 +694,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                     if (!is_struct(_actor) || !is_array(_sc_array)) return;
                     var _overlay_changes = {};
                     var _overlay_any = false;
-                        for (var _si2 = 0; _si2 < array_length(_sc_array); ++_si2){ var _rec2 = _sc_array[_si2]; if (!is_struct(_rec2)) continue; var _sid2 = (variable_struct_exists(_rec2, "stat_id") ? variable_struct_get(_rec2, "stat_id") : undefined); var _chg2 = (variable_struct_exists(_rec2, "change") ? variable_struct_get(_rec2, "change") : undefined); if (!is_real(_sid2) || !is_real(_chg2)) continue; var _sk2 = __stat_key_by_id_local(_sid2); if (is_undefined(_sk2)) continue; if (!variable_struct_exists(_actor, "_stages") || !is_struct(variable_struct_get(_actor, "_stages"))) variable_struct_set(_actor, "_stages", {}); var _stobj = variable_struct_get(_actor, "_stages"); var _prev = (variable_struct_exists(_stobj, _sk2) && is_real(variable_struct_get(_stobj, _sk2))) ? variable_struct_get(_stobj, _sk2) : 0; var _next = clamp(_prev + floor(_chg2), -6, 6); var _apply_change = true; if (_chg2 < 0){ try { var _mist_side_idx = __battle_field_side_index_for_actor(_actor_idx); var _mist_turns = __battle_field_get_side_status_or(_pid_local, _mist_side_idx, "mist", 0); if (is_real(_mist_turns) && _mist_turns > 0) { _apply_change = false; _next = _prev; } } catch (e_mist_block) { _apply_change = true; } } if (_apply_change) variable_struct_set(_stobj, _sk2, _next); variable_struct_set(_actor, "_stages", _stobj);
+                        for (var _si2 = 0; _si2 < array_length(_sc_array); ++_si2){ var _rec2 = _sc_array[_si2]; if (!is_struct(_rec2)) continue; var _sid2 = (variable_struct_exists(_rec2, "stat_id") ? variable_struct_get(_rec2, "stat_id") : undefined); var _chg2 = (variable_struct_exists(_rec2, "change") ? variable_struct_get(_rec2, "change") : undefined); if (!is_real(_sid2) || !is_real(_chg2)) continue; var _sk2 = __stat_key_by_id_local(_sid2); if (is_undefined(_sk2)) continue; if (!variable_struct_exists(_actor, "_stages") || !is_struct(variable_struct_get(_actor, "_stages"))) variable_struct_set(_actor, "_stages", {}); var _stobj = variable_struct_get(_actor, "_stages"); var _prev = (variable_struct_exists(_stobj, _sk2) && is_real(variable_struct_get(_stobj, _sk2))) ? variable_struct_get(_stobj, _sk2) : 0; var _next = clamp(_prev + floor(_chg2), -6, 6); var _apply_change = true; if (_chg2 < 0){ try { var _mist_side_idx = __battle_field_side_index_for_actor(_actor_idx); var _mist_turns = __battle_field_get_side_status_or(_pid_local, _mist_side_idx, "mist", 0); if (is_real(_mist_turns) && _mist_turns > 0) { _apply_change = false; _next = _prev; } } catch (e_mist_block) { _apply_change = true; } } if (_chg2 > 0 && _sk2 == "evasion"){ try { if (variable_struct_exists(_actor, "_miracle_eye_active") && variable_struct_get(_actor, "_miracle_eye_active") == true) { _apply_change = false; _next = _prev; } } catch (e_miracle_block) { _apply_change = _apply_change; } } if (_apply_change) variable_struct_set(_stobj, _sk2, _next); variable_struct_set(_actor, "_stages", _stobj);
                         var _delta_stage = _next - _prev;
                         if (_delta_stage != 0){
                             variable_struct_set(_overlay_changes, _sk2, _delta_stage);
@@ -747,6 +747,14 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                     if (!is_struct(_actor)) return false;
                     // If an explicit grounded flag is present, prefer it (kept up to date by factory/demo/actor-builders)
                     try { if (variable_struct_exists(_actor, "grounded") && is_bool(variable_struct_get(_actor, "grounded"))) return variable_struct_get(_actor, "grounded"); } catch (e_exp) {}
+                    try {
+                        var _gravity_pid = undefined;
+                        if (!is_undefined(__battle_resolve_pid_for_actor)) _gravity_pid = __battle_resolve_pid_for_actor(_actor);
+                        if (!is_undefined(_gravity_pid)){
+                            var _gravity_turns = __battle_field_get_status_or(_gravity_pid, "gravity", 0);
+                            if (is_real(_gravity_turns) && _gravity_turns > 0) return true;
+                        }
+                    } catch (e_gravity_grounded) {}
                     // Check for flying-type membership
                     var flying_id = undefined;
                     try { if (variable_global_exists("TYPE_ID_BY_NAME")){ var _tmp = variable_global_get("TYPE_ID_BY_NAME"); if (ds_exists(_tmp, ds_type_map)) flying_id = ds_map_find_value(_tmp, string_lower("flying")); } } catch (e) { flying_id = undefined; }

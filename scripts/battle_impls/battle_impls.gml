@@ -364,7 +364,14 @@ function __battle_has_perfect_target_lock(_attacker, _defender){
 }
 
 function __battle_should_ignore_accuracy(_attacker, _defender, _move_id){
-    return __battle_has_perfect_target_lock(_attacker, _defender);
+    if (__battle_has_perfect_target_lock(_attacker, _defender)) return true;
+    try {
+        if (is_real(_move_id) && variable_global_exists("_moves") && is_array(global._moves) && _move_id >= 0 && _move_id < array_length(global._moves)){
+            var _move_entry = global._moves[_move_id];
+            if (is_struct(_move_entry) && variable_struct_exists(_move_entry, "effect_id") && is_real(variable_struct_get(_move_entry, "effect_id")) && floor(variable_struct_get(_move_entry, "effect_id")) == 217) return true;
+        }
+    } catch (e_miracle_acc) {}
+    return false;
 }
 
 function __battle_should_ignore_invuln_state(_attacker, _defender, _move_id){
@@ -613,6 +620,16 @@ function __battle_apply_damage_impl(_pid, _target_index, _dmg, _mult){
         }
     } catch (e_prot){ if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][protect] guard error: " + string(e_prot)); }
 
+    function __battle_find_move_slot_by_id(_actor, _move_id){
+        if (!is_struct(_actor) || !is_real(_move_id)) return -1;
+        if (!variable_struct_exists(_actor, "moves") || !is_array(variable_struct_get(_actor, "moves"))) return -1;
+        var _moves = variable_struct_get(_actor, "moves");
+        for (var _msi = 0; _msi < array_length(_moves); ++_msi){
+            if (_moves[_msi] == _move_id) return _msi;
+        }
+        return -1;
+    }
+
     var cur_hp = __battle_hp_now(T);
     var newhp = max(0, cur_hp - max(0, round(_dmg * (is_real(_mult) ? _mult : 1))));
     try {
@@ -651,6 +668,25 @@ function __battle_apply_damage_impl(_pid, _target_index, _dmg, _mult){
                 }
                 variable_struct_set(__mi_f, "_fainted", true);
             }
+            try {
+                var _grudge_active = (is_struct(T) && variable_struct_exists(T, "_grudge_active") && variable_struct_get(T, "_grudge_active") == true);
+                if (_grudge_active && is_struct(_B) && variable_struct_exists(_B, "_pending_damage_source") && is_struct(variable_struct_get(_B, "_pending_damage_source"))){
+                    var _grudge_src = variable_struct_get(_B, "_pending_damage_source");
+                    var _grudge_attacker = (variable_struct_exists(_grudge_src, "attacker") ? variable_struct_get(_grudge_src, "attacker") : undefined);
+                    var _grudge_move_id = (variable_struct_exists(_grudge_src, "move_id") ? variable_struct_get(_grudge_src, "move_id") : undefined);
+                    var _grudge_slot = (variable_struct_exists(_grudge_src, "move_slot") ? variable_struct_get(_grudge_src, "move_slot") : undefined);
+                    if (!is_real(_grudge_slot)) _grudge_slot = __battle_find_move_slot_by_id(_grudge_attacker, _grudge_move_id);
+                    if (is_struct(_grudge_attacker) && is_real(_grudge_slot) && variable_struct_exists(_grudge_attacker, "pps") && is_array(variable_struct_get(_grudge_attacker, "pps")) && _grudge_slot >= 0 && _grudge_slot < array_length(variable_struct_get(_grudge_attacker, "pps"))){
+                        var _grudge_pps = variable_struct_get(_grudge_attacker, "pps");
+                        _grudge_pps[_grudge_slot] = 0;
+                        variable_struct_set(_grudge_attacker, "pps", _grudge_pps);
+                        dialog_queue((variable_struct_exists(_grudge_attacker, "name") ? string(variable_struct_get(_grudge_attacker, "name")) : "The attacker") + "'s move lost all its PP due to Grudge!");
+                    }
+                }
+            } catch (e_grudge_apply) {}
+            try {
+                if (is_struct(T) && variable_struct_exists(T, "_grudge_active")) variable_struct_set(T, "_grudge_active", false);
+            } catch (e_grudge_clear_faint) {}
             // Sync trainer party entry (when present) so follow-up alive checks see the fainted state.
             try {
                 var _B_sync = __battle_ensure_slot(_pid);
@@ -747,6 +783,32 @@ function __battle_move_name_impl(_code){
 function __battle_move_power_impl(_code, _A, _D){
     if (is_real(_code) && _code >= 0){
         if (!is_undefined(scr_move_power_by_id)){
+            if (_code == 237){
+                var _hp_power_impl = __battle_variable_move_power(_code, _A, _D);
+                if (is_real(_hp_power_impl) && _hp_power_impl > 0) return _hp_power_impl;
+            }
+            if (_code == 358 || _code == 362){
+                var _var_power_impl = __battle_variable_move_power(_code, _A, _D);
+                if (is_real(_var_power_impl) && _var_power_impl > 0) return _var_power_impl;
+            }
+            if (_code == 360){
+                var _gyro_aspeed = 0;
+                var _gyro_dspeed = 0;
+                try {
+                    if (is_struct(_A) && variable_struct_exists(_A, "spe") && is_real(variable_struct_get(_A, "spe"))) _gyro_aspeed = variable_struct_get(_A, "spe");
+                    else if (is_struct(_A) && variable_struct_exists(_A, "speed") && is_real(variable_struct_get(_A, "speed"))) _gyro_aspeed = variable_struct_get(_A, "speed");
+                    if (is_struct(_D) && variable_struct_exists(_D, "spe") && is_real(variable_struct_get(_D, "spe"))) _gyro_dspeed = variable_struct_get(_D, "spe");
+                    else if (is_struct(_D) && variable_struct_exists(_D, "speed") && is_real(variable_struct_get(_D, "speed"))) _gyro_dspeed = variable_struct_get(_D, "speed");
+                } catch (e_gyro_power_impl) { _gyro_aspeed = 0; _gyro_dspeed = 0; }
+                if (_gyro_aspeed > 0 && _gyro_dspeed > 0){
+                    var _gyro_ratio = _gyro_dspeed / max(1, _gyro_aspeed);
+                    return clamp(floor(25 * _gyro_ratio), 1, 150);
+                }
+            }
+            if (_code == 363 && !is_undefined(__battle_get_natural_gift_profile)){
+                var _gift_profile_impl = __battle_get_natural_gift_profile(_A);
+                if (is_struct(_gift_profile_impl) && variable_struct_exists(_gift_profile_impl, "power") && is_real(variable_struct_get(_gift_profile_impl, "power"))) return variable_struct_get(_gift_profile_impl, "power");
+            }
             var p = scr_move_power_by_id(_code);
             if (is_real(p) && p > 0){
                 var _power = max(0, real(p));
@@ -1239,9 +1301,11 @@ function __battle_apply_move(_pid, _user, _target, _move){
     try { if (is_struct(_target) && variable_struct_exists(_target, "sys_protected") && variable_struct_get(_target, "sys_protected") == true) _t_protected = true; } catch (e_tp) { _t_protected = false; }
     if (_t_protected){
         try {
-            if (is_real(_move) && (_move == 467 || _move == 566)){
+            if (is_real(_move) && (_move == 364 || _move == 467 || _move == 566)){
                 _t_protected = false;
                 try { variable_struct_set(_target, "sys_protected", false); } catch (e_bp) {}
+                try { variable_struct_set(_target, "_protected", false); } catch (e_bp2) {}
+                try { variable_struct_set(_target, "sys_protected_turn", undefined); } catch (e_bp3) {}
             }
         } catch (e_pf) {}
     }

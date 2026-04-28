@@ -380,3 +380,32 @@ function __battle_field_set_side_status(_pid, _side_index, _name, _value){
 function __battle_field_clear_side_status(_pid, _side_index, _name){
     return __battle_field_set_side_status(_pid, _side_index, _name, 0);
 }
+
+function __battle_field_get_status(_pid, _name){
+    var field = __battle_field_ensure(_pid);
+    if (!is_struct(field) || !variable_struct_exists(field, "statuses") || !is_struct(variable_struct_get(field, "statuses"))) return undefined;
+    var statuses = variable_struct_get(field, "statuses");
+    var name = string_lower(string(_name));
+    if (!variable_struct_exists(statuses, name)) return undefined;
+    return variable_struct_get(statuses, name);
+}
+
+function __battle_field_get_status_or(_pid, _name, _default){
+    var sv = __battle_field_get_status(_pid, _name);
+    if (is_undefined(sv)) return _default;
+    return sv;
+}
+
+function __battle_field_set_status(_pid, _name, _value){
+    var field = __battle_field_ensure(_pid);
+    if (!is_struct(field)) return undefined;
+    if (!variable_struct_exists(field, "statuses") || !is_struct(variable_struct_get(field, "statuses"))) variable_struct_set(field, "statuses", {});
+    var statuses = variable_struct_get(field, "statuses");
+    var name = string_lower(string(_name));
+    variable_struct_set(statuses, name, _value);
+    return _value;
+}
+
+function __battle_field_clear_status(_pid, _name){
+    return __battle_field_set_status(_pid, _name, 0);
+}
