@@ -38,9 +38,16 @@ if (is_undefined(__battle_apply_move_meta_effects)){
             var A_max = max(1, real(get_hp_max(_A)));
             var _move_rec_status = undefined;
             var _eid_status = undefined;
+            var _is_swagger = false;
+            var _called_swagger_self = false;
             try {
                 if (variable_global_exists("_moves") && is_array(global._moves) && is_real(_move_id) && _move_id >= 0 && _move_id < array_length(global._moves)) _move_rec_status = global._moves[_move_id];
                 if (is_struct(_move_rec_status) && variable_struct_exists(_move_rec_status, "effect_id") && is_real(variable_struct_get(_move_rec_status, "effect_id"))) _eid_status = variable_struct_get(_move_rec_status, "effect_id");
+                var _ident_swagger = (is_struct(_move_rec_status) && variable_struct_exists(_move_rec_status, "identifier")) ? string_lower(string(variable_struct_get(_move_rec_status, "identifier"))) : "";
+                if (_ident_swagger == "swagger" || (is_real(_move_id) && floor(_move_id) == 207) || (is_real(_eid_status) && floor(_eid_status) == 119)) _is_swagger = true;
+                if (is_struct(_A) && variable_struct_exists(_A, "_called_move_active") && variable_struct_get(_A, "_called_move_active") == true){
+                    if (_is_swagger) _called_swagger_self = true;
+                }
             } catch (e_move_meta_effect) { _eid_status = undefined; }
 
             // Process drain (positive = heal attacker; negative = recoil to attacker)
@@ -684,8 +691,10 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                 }
 
                 // Helper: apply a list of stat_changes (array of {stat_id,change}) to a single actor
-                function __apply_stat_changes_to_actor(_pid_local, _actor, _actor_idx, _sc_array){
+                function __apply_stat_changes_to_actor(_pid_local, _actor, _actor_idx, _sc_array, _visual_actor = undefined, _visual_actor_idx = undefined){
                     if (!is_struct(_actor) || !is_array(_sc_array)) return;
+                    if (!is_struct(_visual_actor)) _visual_actor = _actor;
+                    if (!is_real(_visual_actor_idx)) _visual_actor_idx = _actor_idx;
                     var _overlay_changes = {};
                     var _overlay_any = false;
                         for (var _si2 = 0; _si2 < array_length(_sc_array); ++_si2){ var _rec2 = _sc_array[_si2]; if (!is_struct(_rec2)) continue; var _sid2 = (variable_struct_exists(_rec2, "stat_id") ? variable_struct_get(_rec2, "stat_id") : undefined); var _chg2 = (variable_struct_exists(_rec2, "change") ? variable_struct_get(_rec2, "change") : undefined); if (!is_real(_sid2) || !is_real(_chg2)) continue; var _sk2 = __stat_key_by_id_local(_sid2); if (is_undefined(_sk2)) continue; if (!variable_struct_exists(_actor, "_stages") || !is_struct(variable_struct_get(_actor, "_stages"))) variable_struct_set(_actor, "_stages", {}); var _stobj = variable_struct_get(_actor, "_stages"); var _prev = (variable_struct_exists(_stobj, _sk2) && is_real(variable_struct_get(_stobj, _sk2))) ? variable_struct_get(_stobj, _sk2) : 0; var _next = clamp(_prev + floor(_chg2), -6, 6); var _apply_change = true; if (_chg2 < 0){ try { var _mist_side_idx = __battle_field_side_index_for_actor(_actor_idx); var _mist_turns = __battle_field_get_side_status_or(_pid_local, _mist_side_idx, "mist", 0); if (is_real(_mist_turns) && _mist_turns > 0) { _apply_change = false; _next = _prev; } } catch (e_mist_block) { _apply_change = true; } } if (_chg2 > 0 && _sk2 == "evasion"){ try { if (variable_struct_exists(_actor, "_miracle_eye_active") && variable_struct_get(_actor, "_miracle_eye_active") == true) { _apply_change = false; _next = _prev; } } catch (e_miracle_block) { _apply_change = _apply_change; } } if (_apply_change) variable_struct_set(_stobj, _sk2, _next); variable_struct_set(_actor, "_stages", _stobj);
@@ -695,7 +704,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                             _overlay_any = true;
                         }
                         // Request animation and enqueue dialog for this actor (use pid param)
-                        try { __battle_request_animation_safe(_pid_local, { type: "stat_change", target_index: _actor_idx, stat: _sk2, from: _prev, to: _next }); } catch (e_reqg) {}
+                        try { __battle_request_animation_safe(_pid_local, { type: "stat_change", target_index: _visual_actor_idx, stat: _sk2, from: _prev, to: _next }); } catch (e_reqg) {}
                         // Note: SFX for stat changes is played when the dialog is shown; do not play here.
                         try {
                             var _scm = __stat_change_dialog_text_local(_actor, _sk2, _delta_stage, _chg2);
@@ -712,9 +721,9 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                             if (is_struct(_B3)){
                                 if (!variable_struct_exists(_B3, "_pending_stat_overlays") || !is_array(variable_struct_get(_B3, "_pending_stat_overlays"))) variable_struct_set(_B3, "_pending_stat_overlays", []);
                                 var _po = variable_struct_get(_B3, "_pending_stat_overlays");
-                                array_push(_po, { actor: _actor, actor_idx: _actor_idx, overlay_changes: _overlay_changes });
+                                array_push(_po, { actor: _visual_actor, actor_idx: _visual_actor_idx, overlay_changes: _overlay_changes });
                                 // Debug: log overlay enqueue
-                                try { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][stat_overlay] enqueued pid=" + string(_pid_local) + ", actor_idx=" + string(_actor_idx) + ", changes=" + string(_overlay_changes)); } catch (e_dbg) {}
+                                try { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][stat_overlay] enqueued pid=" + string(_pid_local) + ", actor_idx=" + string(_visual_actor_idx) + ", changes=" + string(_overlay_changes)); } catch (e_dbg) {}
                                 variable_struct_set(_B3, "_pending_stat_overlays", _po);
                             }
                         } catch (e_po) {}
@@ -1429,6 +1438,8 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                         break;
                                 }
                             }
+                            if (_is_swagger) _generic_targets_user = true;
+                            if (_called_swagger_self) _generic_targets_user = true;
                             if (_generic_targets_user){
                                 __apply_stat_changes_to_actor(_pid, _A, _attacker_idx_generic, _scarr);
                                 return undefined;
@@ -1444,7 +1455,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                 case 8:
                                 case 10:
                                 case 16:
-                                    if (is_struct(_D)) __apply_stat_changes_to_actor(_pid, _D, (variable_struct_exists(_D, "actor_index") && is_real(variable_struct_get(_D, "actor_index"))) ? floor(variable_struct_get(_D, "actor_index")) : undefined, _scarr);
+                                    if (is_struct(_D)) __apply_stat_changes_to_actor(_pid, _D, (variable_struct_exists(_D, "actor_index") && is_real(variable_struct_get(_D, "actor_index"))) ? floor(variable_struct_get(_D, "actor_index")) : undefined, _scarr, _A, _attacker_idx_generic);
                                     return undefined;
 
                                 case 11:
@@ -1453,7 +1464,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                         var _gt_actor = _actors[_gt_i];
                                         if (!is_struct(_gt_actor) || _gt_actor == _A) continue;
                                         if (is_real(_attacker_side_generic) && __battle_field_side_index_for_actor(_gt_i) == _attacker_side_generic) continue;
-                                        __apply_stat_changes_to_actor(_pid, _gt_actor, _gt_i, _scarr);
+                                        __apply_stat_changes_to_actor(_pid, _gt_actor, _gt_i, _scarr, _A, _attacker_idx_generic);
                                     }
                                     return undefined;
 
@@ -1462,7 +1473,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                         var _ga_actor = _actors[_ga_i];
                                         if (!is_struct(_ga_actor)) continue;
                                         if (is_real(_attacker_side_generic) && __battle_field_side_index_for_actor(_ga_i) != _attacker_side_generic) continue;
-                                        __apply_stat_changes_to_actor(_pid, _ga_actor, _ga_i, _scarr);
+                                        __apply_stat_changes_to_actor(_pid, _ga_actor, _ga_i, _scarr, _A, _attacker_idx_generic);
                                     }
                                     return undefined;
 
@@ -1471,7 +1482,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                         var _gal_actor = _actors[_gal_i];
                                         if (!is_struct(_gal_actor) || _gal_actor == _A) continue;
                                         if (is_real(_attacker_side_generic) && __battle_field_side_index_for_actor(_gal_i) != _attacker_side_generic) continue;
-                                        __apply_stat_changes_to_actor(_pid, _gal_actor, _gal_i, _scarr);
+                                        __apply_stat_changes_to_actor(_pid, _gal_actor, _gal_i, _scarr, _A, _attacker_idx_generic);
                                     }
                                     return undefined;
 
@@ -1479,12 +1490,12 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                     for (var _go_i = 0; _go_i < array_length(_actors); ++_go_i){
                                         var _go_actor = _actors[_go_i];
                                         if (!is_struct(_go_actor) || _go_actor == _A) continue;
-                                        __apply_stat_changes_to_actor(_pid, _go_actor, _go_i, _scarr);
+                                        __apply_stat_changes_to_actor(_pid, _go_actor, _go_i, _scarr, _A, _attacker_idx_generic);
                                     }
                                     return undefined;
 
                                 case 5:
-                                    if (is_struct(_D)) __apply_stat_changes_to_actor(_pid, _D, (variable_struct_exists(_D, "actor_index") && is_real(variable_struct_get(_D, "actor_index"))) ? floor(variable_struct_get(_D, "actor_index")) : undefined, _scarr);
+                                    if (is_struct(_D)) __apply_stat_changes_to_actor(_pid, _D, (variable_struct_exists(_D, "actor_index") && is_real(variable_struct_get(_D, "actor_index"))) ? floor(variable_struct_get(_D, "actor_index")) : undefined, _scarr, _A, _attacker_idx_generic);
                                     else __apply_stat_changes_to_actor(_pid, _A, _attacker_idx_generic, _scarr);
                                     return undefined;
                             }
@@ -1551,6 +1562,8 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                     var scs = variable_struct_get(_mm, "stat_changes");
                     var _fallback_target = _A;
                     var _fallback_actor_idx = (is_struct(_A) && variable_struct_exists(_A, "actor_index") && is_real(variable_struct_get(_A, "actor_index"))) ? variable_struct_get(_A, "actor_index") : undefined;
+                    var _fallback_visual_actor = _A;
+                    var _fallback_visual_actor_idx = _fallback_actor_idx;
                     var _fallback_step_target_idx = (is_struct(_step) && variable_struct_exists(_step, "target_index") && is_real(variable_struct_get(_step, "target_index"))) ? floor(variable_struct_get(_step, "target_index")) : undefined;
                     var _fallback_move_rec = undefined;
                     if (variable_global_exists("_moves") && is_array(global._moves) && is_real(_move_id) && _move_id >= 0 && _move_id < array_length(global._moves)) _fallback_move_rec = global._moves[_move_id];
@@ -1601,7 +1614,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                             try { variable_struct_set(_fb_overlay_changes, sk, applied_amt); _fb_overlay_any = true; } catch (e_fb) {}
                         }
                         // Request stat-change animation for user
-                        try { __battle_request_animation_safe(_pid, { type: "stat_change", target_index: _fallback_actor_idx, stat: sk, from: prev, to: next }); } catch (e_req) {}
+                        try { __battle_request_animation_safe(_pid, { type: "stat_change", target_index: _fallback_visual_actor_idx, stat: sk, from: prev, to: next }); } catch (e_req) {}
                         // Note: SFX for stat changes is played when the dialog is shown; do not play here.
                         try {
                             var sc_msg = __stat_change_dialog_text_local(_fallback_target, sk, applied_amt, change);
@@ -1617,8 +1630,8 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                             if (is_struct(_Bslot)){
                                 if (!variable_struct_exists(_Bslot, "_pending_stat_overlays") || !is_array(variable_struct_get(_Bslot, "_pending_stat_overlays"))) variable_struct_set(_Bslot, "_pending_stat_overlays", []);
                                 var _po2 = variable_struct_get(_Bslot, "_pending_stat_overlays");
-                                array_push(_po2, { actor: _fallback_target, actor_idx: _fallback_actor_idx, overlay_changes: _fb_overlay_changes });
-                                try { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][stat_overlay] enqueued (fallback) pid=" + string(_pid) + ", actor_idx=" + string(is_real(_fallback_actor_idx) ? _fallback_actor_idx : -1) + ", target_id=" + string(_fallback_target_id) + ", changes=" + string(_fb_overlay_changes)); } catch (e_dbgf) {}
+                                array_push(_po2, { actor: _fallback_visual_actor, actor_idx: _fallback_visual_actor_idx, overlay_changes: _fb_overlay_changes });
+                                try { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][stat_overlay] enqueued (fallback) pid=" + string(_pid) + ", actor_idx=" + string(is_real(_fallback_visual_actor_idx) ? _fallback_visual_actor_idx : -1) + ", target_id=" + string(_fallback_target_id) + ", changes=" + string(_fb_overlay_changes)); } catch (e_dbgf) {}
                                 variable_struct_set(_Bslot, "_pending_stat_overlays", _po2);
                             }
                         } catch (e_pof) {}

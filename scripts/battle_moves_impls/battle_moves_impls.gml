@@ -38,13 +38,20 @@ function __battle_perform_action_impl(_pid, _step){
     // Also stamps the actor with last_move_dialog id/ts so other paths can de-dup their own messages.
     // Accept explicit parameters to avoid closure/scope issues with the static analyser.
     function __battle_impl_return_used(_pid_in, _A_in, _mv_name_in, _mid_in){
+        var _actor_name = "The user";
+        try {
+            if (is_struct(_A_in) && variable_struct_exists(_A_in, "name")) _actor_name = string(variable_struct_get(_A_in, "name"));
+            if (is_struct(_A_in) && variable_struct_exists(_A_in, "actor_index") && is_real(variable_struct_get(_A_in, "actor_index")) && floor(variable_struct_get(_A_in, "actor_index")) == 1){
+                if (string_copy(_actor_name, 1, 4) != "Foe ") _actor_name = "Foe " + _actor_name;
+            }
+        } catch (e_actor_name) {}
         try {
             var _Bslot_rr = __battle_ensure_slot(_pid_in);
             if (is_struct(_Bslot_rr) && variable_struct_exists(_Bslot_rr, "_last_ohko_miss") && variable_struct_get(_Bslot_rr, "_last_ohko_miss") == true){
                 // Log consumption explicitly so it stands out in noisy logs
                 if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[OHKO] performer consuming _last_ohko_miss for pid=" + string(_pid_in) + " move=" + string(_mv_name_in));
                 try { variable_struct_set(_Bslot_rr, "_last_ohko_miss", undefined); } catch (e_clr) {}
-                return string((variable_struct_exists(_A_in,"name")?variable_struct_get(_A_in,"name"):"The user")) + "'s attack missed!";
+                return _actor_name + "'s attack missed!";
             }
         } catch (e_ru) {}
         // Best-effort: stamp last_move_dialog fields so inner enqueuers can skip duplicates
@@ -56,7 +63,19 @@ function __battle_perform_action_impl(_pid, _step){
                 }
             }
         } catch (e_stamp) {}
-        return string((variable_struct_exists(_A_in,"name")?variable_struct_get(_A_in,"name"):"The user")) + " used " + string(_mv_name_in) + "!";
+        return _actor_name + " used " + string(_mv_name_in) + "!";
+    }
+
+    function __battle_consume_damage_miss(_pid_in){
+        var _missed = false;
+        try {
+            var _Bslot_miss = __battle_ensure_slot(_pid_in);
+            if (is_struct(_Bslot_miss) && variable_struct_exists(_Bslot_miss, "_last_damage_move_missed")){
+                _missed = (variable_struct_get(_Bslot_miss, "_last_damage_move_missed") == true);
+                variable_struct_set(_Bslot_miss, "_last_damage_move_missed", false);
+            }
+        } catch (e_consume_miss) { _missed = false; }
+        return _missed;
     }
 
     function __battle_record_move_usage(_pid_in, _user_in, _target_in, _move_in, _skip_target_record){
@@ -119,6 +138,19 @@ function __battle_perform_action_impl(_pid, _step){
             }
         } catch (e_np) {}
         return string(_name) + " has no PP left!";
+    }
+
+    function __battle_apply_called_move(_pid_in, _caller_in, _target_in, _source_move_in, _called_move_in){
+        if (!is_struct(_caller_in) || !is_real(_called_move_in)) return;
+        try {
+            variable_struct_set(_caller_in, "_called_move_source_id", _source_move_in);
+            variable_struct_set(_caller_in, "_called_move_active", true);
+            variable_struct_set(_caller_in, "_suppress_called_move_dialog", true);
+        } catch (e_ctx_set) {}
+        try { __battle_apply_move(_pid_in, _caller_in, _target_in, _called_move_in); } catch (e_ctx_apply) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][called-move] apply failed: " + string(e_ctx_apply)); }
+        try { variable_struct_set(_caller_in, "_called_move_source_id", undefined); } catch (e_ctx_clear1) {}
+        try { variable_struct_set(_caller_in, "_called_move_active", false); } catch (e_ctx_clear2) {}
+        try { variable_struct_set(_caller_in, "_suppress_called_move_dialog", false); } catch (e_ctx_clear3) {}
     }
     function __battle_get_held_item_snapshot(_actor){
         if (!is_struct(_actor)) return { id: -1, name: "" };
@@ -800,8 +832,7 @@ function __battle_perform_action_impl(_pid, _step){
             // Announce and replay the picked move
             try { variable_struct_set(A, "_suppress_last_move_record", true); } catch (e_sup) {}
             try { __battle_request_animation_safe(A, { type: "metronome" }); } catch (e_ma) {}
-            // Apply the picked move and let the core apply path enqueue its own "used" message
-            try { __battle_apply_move(_pid, A, D, pick); } catch (e_rp) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][metronome] apply failed: " + string(e_rp)); }
+            __battle_apply_called_move(_pid, A, D, move_id, pick);
             try { variable_struct_set(A, "_suppress_last_move_record", false); } catch (e_sup2) {}
             return "";
         }
@@ -828,7 +859,7 @@ function __battle_perform_action_impl(_pid, _step){
             if (array_length(ally_moves) == 0) return __battle_impl_return_used(_pid, A, __battle_move_name(move_id), move_id);
             var pick2 = ally_moves[irandom(array_length(ally_moves)-1)];
         try { variable_struct_set(A, "_suppress_last_move_record", true); } catch (e_sup3) {}
-            try { __battle_apply_move(_pid, A, D, pick2); } catch (e_ap) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][assist] apply failed: " + string(e_ap)); }
+            __battle_apply_called_move(_pid, A, D, move_id, pick2);
             try { variable_struct_set(A, "_suppress_last_move_record", false); } catch (e_sup4) {}
             return "";
         }
@@ -845,7 +876,7 @@ function __battle_perform_action_impl(_pid, _step){
             } catch (e_mi) { cand = undefined; }
             if (!is_real(cand)) return __battle_impl_return_used(_pid, A, __battle_move_name(move_id), move_id);
             try { variable_struct_set(A, "_suppress_last_move_record", true); } catch (e_su) {}
-            try { __battle_apply_move(_pid, A, D, cand); } catch (e_ca) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][mimic] failed: " + string(e_ca)); }
+            __battle_apply_called_move(_pid, A, D, move_id, cand);
             try { variable_struct_set(A, "_suppress_last_move_record", false); } catch (e_su2) {}
             return "";
         }
@@ -862,7 +893,7 @@ function __battle_perform_action_impl(_pid, _step){
             } catch (e_mm2) { cand2 = undefined; }
             if (!is_real(cand2)) return __battle_impl_return_used(_pid, A, __battle_move_name(move_id), move_id);
             try { variable_struct_set(A, "_suppress_last_move_record", true); } catch (e_su3) {}
-            try { __battle_apply_move(_pid, A, D, cand2); } catch (e_mr) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][mirror-move] failed: " + string(e_mr)); }
+            __battle_apply_called_move(_pid, A, D, move_id, cand2);
             try { variable_struct_set(A, "_suppress_last_move_record", false); } catch (e_su4) {}
             return "";
         }
@@ -927,7 +958,7 @@ function __battle_perform_action_impl(_pid, _step){
             } catch (e_mf) { mf = undefined; }
             if (!is_real(mf)) return __battle_impl_return_used(_pid, A, __battle_move_name(move_id), move_id);
             try { variable_struct_set(A, "_suppress_last_move_record", true); } catch (e_su5) {}
-            try { __battle_apply_move(_pid, A, D, mf); } catch (e_mf2) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][me-first] apply failed: " + string(e_mf2)); }
+            __battle_apply_called_move(_pid, A, D, move_id, mf);
             try { variable_struct_set(A, "_suppress_last_move_record", false); } catch (e_su6) {}
             return __battle_impl_return_used(_pid, A, __battle_move_name(mf), mf);
         }
@@ -942,7 +973,7 @@ function __battle_perform_action_impl(_pid, _step){
                 return __battle_impl_return_used(_pid, A, __battle_move_name(move_id), move_id);
             }
             try { variable_struct_set(A, "_suppress_last_move_record", true); } catch (e_surp) {}
-            try { __battle_apply_move(_pid, A, D, _copied); } catch (e_cfail) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][copycat] replay failed: " + string(e_cfail)); }
+            __battle_apply_called_move(_pid, A, D, move_id, _copied);
             try { variable_struct_set(A, "_suppress_last_move_record", false); } catch (e_surp2) {}
             return "";
         }
@@ -1754,9 +1785,11 @@ function __battle_perform_action_impl(_pid, _step){
             if (is_real(_sleep_talk_power) && _sleep_talk_power > 0){
                 var _sleep_talk_res = __battle_apply_move_damage(_pid, target_idx, A, D, _sleep_talk_pick, _sleep_talk_power);
                 var _sleep_talk_dmg = (is_array(_sleep_talk_res) ? _sleep_talk_res[0] : 0);
-                try { __battle_apply_move_meta_effects(_pid, { move_id: _sleep_talk_pick }, A, D, _sleep_talk_pick, _sleep_talk_dmg, __battle_get_move_meta(_sleep_talk_pick)); } catch (e_st_meta) {}
+                if (!__battle_consume_damage_miss(_pid)){
+                    try { __battle_apply_move_meta_effects(_pid, { move_id: _sleep_talk_pick }, A, D, _sleep_talk_pick, _sleep_talk_dmg, __battle_get_move_meta(_sleep_talk_pick)); } catch (e_st_meta) {}
+                }
             } else {
-                __battle_apply_move(_pid, A, D, _sleep_talk_pick);
+                __battle_apply_called_move(_pid, A, D, move_id, _sleep_talk_pick);
             }
         } catch (e_sleep_talk_apply) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][sleep-talk] apply failed: " + string(e_sleep_talk_apply)); }
         try { variable_struct_set(A, "_suppress_last_move_record", false); } catch (e_st_sup2) {}
@@ -1858,10 +1891,12 @@ function __battle_perform_action_impl(_pid, _step){
             if (is_real(_nature_power) && _nature_power > 0){
                 var _nature_res = __battle_apply_move_damage(_pid, target_idx, A, D, _nature_pick, _nature_power);
                 var _nature_dmg = (is_array(_nature_res) ? _nature_res[0] : 0);
-                try { __battle_apply_move_meta_effects(_pid, { move_id: _nature_pick }, A, D, _nature_pick, _nature_dmg, __battle_get_move_meta(_nature_pick)); } catch (e_nature_meta) {}
+                if (!__battle_consume_damage_miss(_pid)){
+                    try { __battle_apply_move_meta_effects(_pid, { move_id: _nature_pick }, A, D, _nature_pick, _nature_dmg, __battle_get_move_meta(_nature_pick)); } catch (e_nature_meta) {}
+                }
             } else {
                 try { variable_struct_set(A, "_suppress_last_move_record", true); } catch (e_nature_sup1) {}
-                try { __battle_apply_move(_pid, A, D, _nature_pick); } catch (e_nature_apply) {}
+                __battle_apply_called_move(_pid, A, D, move_id, _nature_pick);
                 try { variable_struct_set(A, "_suppress_last_move_record", false); } catch (e_nature_sup2) {}
             }
         } catch (e_nature_power) { dialog_queue("But it failed!"); }
@@ -2497,7 +2532,10 @@ function __battle_perform_action_impl(_pid, _step){
             return "";
         }
         var dmgh = (is_array(resf) ? resf[0] : 0);
-        try { __battle_apply_move_meta_effects(_pid, _step, A, D, move_id, dmgh, mm_local); } catch (e_meta) {}
+        var _damage_move_missed = __battle_consume_damage_miss(_pid);
+        if (!_damage_move_missed){
+            try { __battle_apply_move_meta_effects(_pid, _step, A, D, move_id, dmgh, mm_local); } catch (e_meta) {}
+        }
         try {
             if (is_real(move_id) && move_id == 280 && is_real(dmgh) && dmgh > 0){
                 var _brick_side_hit = __battle_field_side_index_for_actor(target_idx);
@@ -2755,7 +2793,7 @@ function __battle_perform_action_impl(_pid, _step){
         } catch (e_roll) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][rollout] multiplier update failed: " + string(e_roll)); }
 
         // If multiple hits, schedule the rest into the battle slot for per-hit processing
-        if (is_real(total_hits) && total_hits > 1){
+        if (!_damage_move_missed && is_real(total_hits) && total_hits > 1){
             try {
                 var _pm = { move_id: move_id, actor_index: actor_idx, target_index: target_idx, mv_power: mv_power, remaining: max(0, total_hits - 1), total_hits: total_hits };
                 var _B = __battle_ensure_slot(_pid);

@@ -68,6 +68,11 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
     }
     _pid = _pid_local;
 
+    try {
+        var _Bmiss_reset = __battle_ensure_slot(_pid);
+        if (is_struct(_Bmiss_reset)) variable_struct_set(_Bmiss_reset, "_last_damage_move_missed", false);
+    } catch (e_miss_reset) {}
+
     var _move_rec = undefined;
     var _eid = undefined;
     try {
@@ -163,7 +168,10 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
                 else if (!is_undefined(dialog2p_show_now)) try { dialog2p_show_now(_pid, _miss_msg); } catch (e_msg2) {}
                 try {
                     var _Bsemi_flag = __battle_ensure_slot(_pid);
-                    if (is_struct(_Bsemi_flag)) variable_struct_set(_Bsemi_flag, "__semi_guard_blocked", true);
+                    if (is_struct(_Bsemi_flag)){
+                        variable_struct_set(_Bsemi_flag, "__semi_guard_blocked", true);
+                        variable_struct_set(_Bsemi_flag, "_last_damage_move_missed", true);
+                    }
                 } catch (e_flag) {}
                 var _hp_guard = __battle_hp_now(_D);
                 return [0, _hp_guard, _hp_guard];
@@ -177,6 +185,10 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
             if (!__battle_can_hit_target(_A, _D, _move_id)){
                 var _miss_name = (is_struct(_A) && variable_struct_exists(_A, "name") ? string(variable_struct_get(_A, "name")) : "The attacker");
                 dialog_queue(_miss_name + "'s attack missed!");
+                try {
+                    var _Bmiss_flag = __battle_ensure_slot(_pid);
+                    if (is_struct(_Bmiss_flag)) variable_struct_set(_Bmiss_flag, "_last_damage_move_missed", true);
+                } catch (e_miss_flag) {}
                 var _hp_now_miss = __battle_hp_now(_D);
                 return [0, _hp_now_miss, _hp_now_miss];
             }
@@ -189,6 +201,10 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
             if (!__battle_can_hit_target(_A, _D, _move_id)){
                 var _present_miss_name = (is_struct(_A) && variable_struct_exists(_A, "name") ? string(variable_struct_get(_A, "name")) : "The attacker");
                 dialog_queue(_present_miss_name + "'s attack missed!");
+                try {
+                    var _Bpresent_miss = __battle_ensure_slot(_pid);
+                    if (is_struct(_Bpresent_miss)) variable_struct_set(_Bpresent_miss, "_last_damage_move_missed", true);
+                } catch (e_present_miss_flag) {}
                 var _hp_now_present_miss = __battle_hp_now(_D);
                 return [0, _hp_now_present_miss, _hp_now_present_miss];
             }

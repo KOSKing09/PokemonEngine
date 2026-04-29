@@ -8,6 +8,126 @@ function __battle_panel_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn){
     draw_set_color(_t.col_panel);   draw_rectangle(_bx+1,_by+1,_bx+_bw-1,_by+_bh-1,false);
 }
 
+function __battle_draw_levelup_panel(_pid){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !variable_struct_exists(_B, "_levelup_panel")) return;
+
+    var _panel = variable_struct_get(_B, "_levelup_panel");
+    if (!is_struct(_panel) || !variable_struct_exists(_panel, "active") || !_panel.active) return;
+
+    var _rows = (variable_struct_exists(_panel, "rows") && is_array(variable_struct_get(_panel, "rows"))) ? variable_struct_get(_panel, "rows") : [];
+    var _actor_idx = (variable_struct_exists(_panel, "actor_index") && is_real(variable_struct_get(_panel, "actor_index"))) ? clamp(floor(variable_struct_get(_panel, "actor_index")), 0, 1) : 0;
+    var _center = !is_undefined(__battle_anim_queue_actor_center) ? __battle_anim_queue_actor_center(_pid, _actor_idx) : [__bxu(_pid, 64), __byu(_pid, 112)];
+    var _elapsed = max(0, current_time - (variable_struct_exists(_panel, "start_ms") ? variable_struct_get(_panel, "start_ms") : current_time));
+    var _slide_dur = max(1, (variable_struct_exists(_panel, "slide_dur") ? variable_struct_get(_panel, "slide_dur") : 220));
+    var _count_dur = max(1, (variable_struct_exists(_panel, "count_dur") ? variable_struct_get(_panel, "count_dur") : 320));
+    var _current_row = (variable_struct_exists(_panel, "current_row") && is_real(variable_struct_get(_panel, "current_row"))) ? floor(variable_struct_get(_panel, "current_row")) : -1;
+    var _row_anim_start = (variable_struct_exists(_panel, "row_anim_start_ms") && is_real(variable_struct_get(_panel, "row_anim_start_ms"))) ? variable_struct_get(_panel, "row_anim_start_ms") : -1;
+    var _close_ready = (variable_struct_exists(_panel, "close_ready") && variable_struct_get(_panel, "close_ready"));
+    var _slide_t = clamp(_elapsed / _slide_dur, 0, 1);
+    var _slide_e = 1 - power(1 - _slide_t, 3);
+
+    var _pw = __bwu(_pid, 104);
+    var _ph = __bhu(_pid, 82);
+    var _target_x = clamp(_center[0] + __bwu(_pid, 18), __bxu(_pid, 96), __bxu(_pid, 240 - 104 - 8));
+    var _target_y = clamp(_center[1] - __bhu(_pid, 60), __byu(_pid, 8), __byu(_pid, 160 - 82 - 8));
+    var _panel_x = lerp(__bxu(_pid, 248), _target_x, _slide_e);
+    var _panel_y = _target_y;
+    var _header_h = __bhu(_pid, 14);
+    var _footer_y = _panel_y + _ph - __bhu(_pid, 10);
+
+    draw_set_alpha(0.25);
+    draw_set_color(c_black);
+    draw_rectangle(_panel_x + __bwu(_pid, 2), _panel_y + __bhu(_pid, 2), _panel_x + _pw + __bwu(_pid, 2), _panel_y + _ph + __bhu(_pid, 2), false);
+    draw_set_alpha(1);
+
+    draw_set_color(make_color_rgb(72, 112, 64));
+    draw_rectangle(_panel_x, _panel_y, _panel_x + _pw, _panel_y + _ph, false);
+    draw_set_color(make_color_rgb(232, 248, 216));
+    draw_rectangle(_panel_x + 1, _panel_y + 1, _panel_x + _pw - 1, _panel_y + _ph - 1, false);
+    draw_set_color(make_color_rgb(112, 168, 96));
+    draw_rectangle(_panel_x + 1, _panel_y + 1, _panel_x + _pw - 1, _panel_y + _header_h, false);
+
+    var _title_font = variable_global_exists("FNT_POKEMON") ? global.FNT_POKEMON : -1;
+    var _small_font = variable_global_exists("FNT_POKEMON_SMALL") ? global.FNT_POKEMON_SMALL : _title_font;
+    var _title_col = make_color_rgb(252, 248, 188);
+    var _name_col = make_color_rgb(84, 96, 156);
+    var _label_col = make_color_rgb(92, 108, 176);
+    var _value_col = make_color_rgb(232, 132, 84);
+    var _delta_col = make_color_rgb(104, 196, 120);
+    var _prompt_col = make_color_rgb(248, 180, 92);
+
+    draw_set_font(_title_font);
+    draw_set_color(_title_col);
+    draw_set_halign(fa_center);
+    draw_set_valign(fa_top);
+    draw_text(_panel_x + (_pw * 0.5), _panel_y + __bhu(_pid, 3), "LEVEL UP");
+
+    var _level_txt = "Lv" + string(variable_struct_exists(_panel, "level") ? variable_struct_get(_panel, "level") : 1);
+    draw_set_halign(fa_right);
+    draw_set_color(_title_col);
+    draw_text(_panel_x + _pw - __bwu(_pid, 6), _panel_y + __bhu(_pid, 3), _level_txt);
+
+    draw_set_font(_small_font);
+    draw_set_halign(fa_left);
+    var _name_max_w = _pw - __bwu(_pid, 12);
+    var _name_txt = string(variable_struct_exists(_panel, "mon_name") ? variable_struct_get(_panel, "mon_name") : "");
+    if (!is_undefined(__battle_text_fit_ellipsis)) _name_txt = __battle_text_fit_ellipsis(_pid, _name_txt, _name_max_w);
+    draw_set_color(_name_col);
+    draw_text(_panel_x + __bwu(_pid, 6), _panel_y + _header_h + __bhu(_pid, 3), _name_txt);
+
+    var _row_y = _panel_y + _header_h + __bhu(_pid, 12);
+    var _row_count = array_length(_rows);
+    var _row_limit_y = _footer_y - __bhu(_pid, 8);
+    var _row_gap = __bhu(_pid, 9);
+    if (_row_count > 1){
+        var _gap_cap = floor(max(0, _row_limit_y - _row_y) / (_row_count - 1));
+        _row_gap = clamp(_gap_cap, __bhu(_pid, 6), __bhu(_pid, 9));
+    }
+    for (var _i = 0; _i < array_length(_rows); ++_i){
+        if (_i > _current_row) continue;
+        var _row = _rows[_i];
+        if (!is_struct(_row)) continue;
+
+        var _from = (variable_struct_exists(_row, "from") && is_real(variable_struct_get(_row, "from"))) ? real(variable_struct_get(_row, "from")) : 0;
+        var _to = (variable_struct_exists(_row, "to") && is_real(variable_struct_get(_row, "to"))) ? real(variable_struct_get(_row, "to")) : _from;
+        var _row_t = 1;
+        if (_i == _current_row && _row_anim_start > 0) _row_t = clamp((current_time - _row_anim_start) / _count_dur, 0, 1);
+        var _row_e = 1 - power(1 - _row_t, 2);
+        var _value = round(lerp(_from, _to, _row_e));
+        var _delta = floor(_to - _from);
+        var _y = _row_y + (_i * _row_gap);
+
+        draw_set_halign(fa_left);
+        draw_set_color(_label_col);
+        draw_text(_panel_x + __bwu(_pid, 6), _y, string(variable_struct_exists(_row, "label") ? variable_struct_get(_row, "label") : ""));
+
+        draw_set_halign(fa_right);
+        draw_set_color(_value_col);
+        draw_text(_panel_x + _pw - __bwu(_pid, 6), _y, string(_value));
+
+        if (_delta > 0 && _row_t > 0){
+            draw_set_halign(fa_left);
+            draw_set_color(_delta_col);
+            draw_text(_panel_x + __bwu(_pid, 60), _y, "+" + string(_delta));
+        }
+    }
+
+    var _prompt = "A NEXT";
+    if (_close_ready) _prompt = "A CLOSE";
+    else if (_current_row < 0) _prompt = "A START";
+    draw_set_font(_small_font);
+    draw_set_halign(fa_right);
+    draw_set_color(_prompt_col);
+    draw_text(_panel_x + _pw - __bwu(_pid, 6), _footer_y, _prompt);
+
+    draw_set_color(c_white);
+    draw_set_alpha(1);
+    draw_set_halign(fa_left);
+    draw_set_valign(fa_top);
+    if (variable_global_exists("FNT_POKEMON")) draw_set_font(global.FNT_POKEMON);
+}
+
 function __battle_stage_counter_parts(_A){
     var _out = [];
     if (!is_struct(_A) || !variable_struct_exists(_A, "_stages") || !is_struct(variable_struct_get(_A, "_stages"))) return _out;
@@ -261,7 +381,8 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
             vis1 = __battle_text_fit_ellipsis(_pid, vis1, maxW);
 
             if (variable_global_exists("FNT_POKEMON")) draw_set_font(global.FNT_POKEMON);
-            draw_set_color(_t.col_text);
+            var _dialog_col = (variable_struct_exists(_t, "col_dialog_text") ? variable_struct_get(_t, "col_dialog_text") : _t.col_text);
+            draw_set_color(_dialog_col);
             var _fh = (!is_undefined(__dlg_font_h) ? __dlg_font_h() : 8);
             draw_text(_bx + __bwu(_pid,8), _by + __bhu(_pid,6), vis0);
             draw_text(_bx + __bwu(_pid,8), _by + __bhu(_pid,6) + __bhu(_pid, _fh + 2), vis1);
@@ -322,6 +443,11 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
         }
     }
 
+    if (variable_struct_exists(_B, "_levelup_panel")){
+        var _lp_tmp = variable_struct_get(_B, "_levelup_panel");
+        if (is_struct(_lp_tmp) && variable_struct_exists(_lp_tmp, "active") && _lp_tmp.active) return;
+    }
+
     // FIGHT submenu
     if (string(_B.sys_ui.menu) == "fight"){
         var restoreFont = -1;
@@ -369,7 +495,8 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
             var label = nm + "  " + (is_real(pp) ? string(pp) : "0") + " PP";
             label = __battle_text_fit_ellipsis(_pid, label, cellW);
 
-            draw_set_color(hilite ? c_yellow : _t.col_text);
+            var _fight_col = (hilite && variable_struct_exists(_t, "col_ui_highlight")) ? variable_struct_get(_t, "col_ui_highlight") : ((variable_struct_exists(_t, "col_ui_text") ? variable_struct_get(_t, "col_ui_text") : _t.col_text));
+            draw_set_color(_fight_col);
             draw_text(tx, ty, label);
         }
 
@@ -389,7 +516,8 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
         var ty2 = _by + __bhu(_pid,6)  + (floor(j / 2) * (_bh * 0.5));
         var hilite2 = (_selX == (j % 2)) && (_selY == floor(j / 2));
         var lbl = __battle_text_fit_ellipsis(_pid, labels[j], rootCellW);
-        draw_set_color(hilite2 ? c_yellow : _t.col_text);
+        var _root_col = (hilite2 && variable_struct_exists(_t, "col_ui_highlight")) ? variable_struct_get(_t, "col_ui_highlight") : ((variable_struct_exists(_t, "col_ui_text") ? variable_struct_get(_t, "col_ui_text") : _t.col_text));
+        draw_set_color(_root_col);
         draw_text(tx2, ty2, lbl);
     }
     if (restoreFont2 != -1) draw_set_font(restoreFont2);

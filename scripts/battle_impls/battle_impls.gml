@@ -1137,6 +1137,12 @@ function __battle_apply_move(_pid, _user, _target, _move){
     } catch (e_me) { _moveEntry = undefined; }
     var _moveIdent = "";
     try { if (is_struct(_moveEntry) && variable_struct_exists(_moveEntry, "identifier")) _moveIdent = string_lower(string(variable_struct_get(_moveEntry, "identifier"))); } catch (e_ident) { _moveIdent = ""; }
+    var _called_move_active = false;
+    var _suppress_called_dialog = false;
+    try {
+        if (is_struct(_user) && variable_struct_exists(_user, "_called_move_active") && variable_struct_get(_user, "_called_move_active") == true) _called_move_active = true;
+        if (_called_move_active && is_struct(_user) && variable_struct_exists(_user, "_suppress_called_move_dialog") && variable_struct_get(_user, "_suppress_called_move_dialog") == true) _suppress_called_dialog = true;
+    } catch (e_called_ctx) { _called_move_active = false; _suppress_called_dialog = false; }
 
     var _is_disable_move = (is_real(_move) && _move == 50) || (_moveIdent == "disable");
     var _is_protect_like = (is_real(_move) && (_move == 182 || _move == 197));
@@ -1229,7 +1235,7 @@ function __battle_apply_move(_pid, _user, _target, _move){
             var _last_ts = (variable_struct_exists(_user, "_last_move_dialog_ts") ? variable_struct_get(_user, "_last_move_dialog_ts") : -9999999);
             if (is_real(_last_id) && _last_id == _move && is_real(_last_ts) && abs(_last_ts - current_time) < 500) _should_enqueue_used = false;
         } catch (e_dup) { _should_enqueue_used = true; }
-        if (_should_enqueue_used) {
+        if (_should_enqueue_used && !_suppress_called_dialog) {
             dialog_queue(_user.name + " used " + _moveName + "!");
             try { variable_struct_set(_user, "_last_move_dialog_id", _move); variable_struct_set(_user, "_last_move_dialog_ts", current_time); } catch (e_setd) {}
         }

@@ -639,6 +639,9 @@ function battle_open(_a0 = undefined, _a1 = undefined, _a2 = undefined, _a3 = un
         col_hp_yell:  make_color_rgb(248,208,56),
         col_hp_red:   make_color_rgb(232,72,56),
         col_text:     c_white,
+        col_dialog_text: make_color_rgb(36, 52, 40),
+        col_ui_text: make_color_rgb(36, 52, 40),
+        col_ui_highlight: make_color_rgb(72, 88, 80),
         platform_enemy_sprite: spr_opponentplatform,
         platform_enemy_index: 3,
         platform_enemy_scale: 1,
@@ -976,6 +979,36 @@ function battle_open(_a0 = undefined, _a1 = undefined, _a2 = undefined, _a3 = un
         return { x: curr_x, y: curr_y };
     }
 
+    function __battle_theme_luma(_col){
+        return (color_get_red(_col) * 0.299) + (color_get_green(_col) * 0.587) + (color_get_blue(_col) * 0.114);
+    }
+
+    function __battle_theme_blend(_a, _b, _amt){
+        return merge_color(_a, _b, clamp(_amt, 0, 1));
+    }
+
+    function __battle_theme_refresh_text_colors(_theme){
+        if (!is_struct(_theme)) return;
+        var _panel = (variable_struct_exists(_theme, "col_panel") ? variable_struct_get(_theme, "col_panel") : c_white);
+        var _outline = (variable_struct_exists(_theme, "col_outline") ? variable_struct_get(_theme, "col_outline") : c_black);
+        var _panel_luma = __battle_theme_luma(_panel);
+        var _is_light_panel = (_panel_luma >= 160);
+
+        var _ui_text = _outline;
+        var _ui_highlight = _outline;
+        if (_is_light_panel){
+            _ui_text = __battle_theme_blend(_outline, c_black, 0.38);
+            _ui_highlight = _outline;
+        } else {
+            _ui_text = __battle_theme_blend(c_white, _panel, 0.18);
+            _ui_highlight = __battle_theme_blend(c_white, _outline, 0.28);
+        }
+
+        variable_struct_set(_theme, "col_dialog_text", _ui_text);
+        variable_struct_set(_theme, "col_ui_text", _ui_text);
+        variable_struct_set(_theme, "col_ui_highlight", _ui_highlight);
+    }
+
     function __battle_theme_area_preset(_area_key){
         var fallback_names = [
             "dark water", "rocks a", "light", "grassy", "rocks b",
@@ -1167,6 +1200,7 @@ function battle_open(_a0 = undefined, _a1 = undefined, _a2 = undefined, _a3 = un
             if (variable_struct_exists(preset, "col_panel")) theme.col_panel = variable_struct_get(preset, "col_panel");
             if (variable_struct_exists(preset, "col_outline")) theme.col_outline = variable_struct_get(preset, "col_outline");
             if (variable_struct_exists(preset, "col_text")) theme.col_text = variable_struct_get(preset, "col_text");
+            __battle_theme_refresh_text_colors(theme);
             var canonical = (variable_struct_exists(preset, "area_type") ? string(variable_struct_get(preset, "area_type")) : "");
             if (canonical != ""){
                 try { variable_struct_set(_B, "_area_type", canonical); } catch (e_canon) {}
@@ -1244,6 +1278,7 @@ function battle_open(_a0 = undefined, _a1 = undefined, _a2 = undefined, _a3 = un
                 theme.platform_enemy_offset = off_shared;
             }
         }
+        __battle_theme_refresh_text_colors(theme);
     }
 
 /// Close the current battle for a player.
@@ -1530,6 +1565,8 @@ function battle_update(_pid){
 
     // Advance any active slot animations (catch animation, etc.)
     if (!is_undefined(__battle_update_animations)) __battle_update_animations(_pid);
+    var _levelup_panel_active = false;
+    if (!is_undefined(__battle_update_levelup_panel)) _levelup_panel_active = __battle_update_levelup_panel(_pid);
 
     // If the Bag UI is open for this player, or a catch animation is active,
     // pause battle progression (turn resolution/input processing) so the
@@ -1781,6 +1818,11 @@ function battle_update(_pid){
         if (_B.phase == "intro_call"){
             _B.phase = "intro_player"; _B.phase_start_ms = now3;
         } else if (variable_struct_exists(_B, "_pending_close") && variable_struct_get(_B, "_pending_close")){
+            if (__battle_has_active_exp_sequence(_B)){
+                try { variable_struct_set(_B, "_closing", false); } catch (e_close_hold1) {}
+                try { variable_struct_set(_B, "_close_start_ms", undefined); } catch (e_close_hold2) {}
+                return;
+            }
             // If there are queued end-of-battle messages (e.g., defeat pages), show them BEFORE starting the fade
             // so they are not skipped by the close flow.
             try {
@@ -1875,6 +1917,11 @@ function battle_update(_pid){
         var __isPendingClose = (variable_struct_exists(_B, "_pending_close") && variable_struct_get(_B, "_pending_close"));
         var __isClosing = (variable_struct_exists(_B, "_closing") && variable_struct_get(_B, "_closing"));
         if (__isPendingClose || __isClosing){
+            if (__battle_has_active_exp_sequence(_B)){
+                try { variable_struct_set(_B, "_closing", false); } catch (e_close_hold3) {}
+                try { variable_struct_set(_B, "_close_start_ms", undefined); } catch (e_close_hold4) {}
+                return;
+            }
             // If we owe the player queued messages (e.g., defeat text), surface them before starting/resuming the fade
             try {
                 var _dlg_now_g = (is_undefined(dialog2p_is_open) ? false : dialog2p_is_open(_pid));
@@ -2083,6 +2130,8 @@ function battle_update(_pid){
         // the player returns to the same spot they had selected.
         // Individual code paths that need to force a reset should set
         // `_B.sys_ui.menu`/`selX`/`selY` explicitly.
+
+    if (_levelup_panel_active) return;
 
 
     // Phase timing (intros + switch)
@@ -2379,6 +2428,7 @@ function battle_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     }
     __battle_player_box_rect(_pid,112,104,128,48, _B.actor[0]);
     __battle_cmd_box_rect(_pid,   8,136,224,24,   _B.sys_ui.selX, _B.sys_ui.selY);
+    if (!is_undefined(__battle_draw_levelup_panel)) __battle_draw_levelup_panel(_pid);
 
     // Draw any active battle animations (status icons, damage popups)
     if (!is_undefined(__battle_anim_draw)) __battle_anim_draw(_pid);
@@ -2630,7 +2680,7 @@ function __battle_process_input(_pid){
                 _B.phase = "turn";
             } else {
                 // Queue the player's choice and kick off the turn
-                _B.turn_action_player = { slot: move_idx, move_id: mv };
+                _B.turn_action_player = { slot: move_idx, move_id: mv, actor_index: 0, target_index: 1 };
                 _B.turn_action_enemy  = __battle_enemy_choose_action(_pid); // {slot, move_id} or undefined
                 _B.turn_queue = __battle_build_turn_actions(_pid);
                 _B.turn_i = 0;
@@ -6407,6 +6457,133 @@ function __battle_draw_battlers(_pid, _B) {
     __battle_draw_player(_pid, _B, mx, my, tx, ty);
 }
 
+function __battle_begin_levelup_panel(_pid, _entry){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !is_struct(_entry)) return;
+
+    var _rows = (variable_struct_exists(_entry, "rows") && is_array(variable_struct_get(_entry, "rows"))) ? variable_struct_get(_entry, "rows") : [];
+    var _now = current_time;
+    var _slide_dur = 220;
+    var _count_dur = 320;
+    var _input_ready_ms = _now + 180;
+    try {
+        if (variable_struct_exists(_B, "_input_grace_until") && is_real(variable_struct_get(_B, "_input_grace_until"))){
+            _input_ready_ms = max(_input_ready_ms, variable_struct_get(_B, "_input_grace_until"));
+        }
+    } catch (e_levelup_grace) { _input_ready_ms = _now + 180; }
+
+    variable_struct_set(_B, "_levelup_panel", {
+        active: true,
+        actor_index: 0,
+        level: (variable_struct_exists(_entry, "level") ? variable_struct_get(_entry, "level") : 1),
+        mon_name: (variable_struct_exists(_entry, "mon_name") ? variable_struct_get(_entry, "mon_name") : ""),
+        rows: _rows,
+        start_ms: _now,
+        slide_dur: _slide_dur,
+        count_dur: _count_dur,
+        input_ready_ms: _input_ready_ms,
+        current_row: -1,
+        row_anim_start_ms: -1,
+        close_ready: (array_length(_rows) <= 0)
+    });
+}
+
+function __battle_resume_exp_after_levelup_panel(_pid){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !variable_struct_exists(_B, "_exp_anim")) return;
+
+    var _E = variable_struct_get(_B, "_exp_anim");
+    if (!is_struct(_E) || !variable_struct_exists(_E, "waiting_for_panel") || !_E.waiting_for_panel) return;
+
+    var _q = (variable_struct_exists(_E, "queue") ? variable_struct_get(_E, "queue") : []);
+    var _cur_idx = (variable_struct_exists(_E, "playing_index") ? floor(variable_struct_get(_E, "playing_index")) : 0);
+    var _next_idx = _cur_idx + 1;
+    if (_next_idx >= 0 && _next_idx < array_length(_q)){
+        var _next_step = _q[_next_idx];
+        _next_step.start_ms = current_time;
+        _q[_next_idx] = _next_step;
+        variable_struct_set(_E, "queue", _q);
+        variable_struct_set(_E, "playing_index", _next_idx);
+        variable_struct_set(_E, "waiting_for_panel", false);
+        if (variable_struct_exists(_next_step, "from")) variable_struct_set(_E, "cur", _next_step.from);
+        variable_struct_set(_B, "_exp_anim", _E);
+    } else {
+        variable_struct_set(_E, "active", false);
+        variable_struct_set(_E, "waiting_for_panel", false);
+        variable_struct_set(_B, "_exp_anim", _E);
+    }
+}
+
+function __battle_update_levelup_panel(_pid){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !variable_struct_exists(_B, "_levelup_panel")) return false;
+
+    var _panel = variable_struct_get(_B, "_levelup_panel");
+    if (!is_struct(_panel) || !variable_struct_exists(_panel, "active") || !_panel.active) return false;
+
+    var _now = current_time;
+    var _slide_dur = (variable_struct_exists(_panel, "slide_dur") && is_real(variable_struct_get(_panel, "slide_dur"))) ? max(1, variable_struct_get(_panel, "slide_dur")) : 220;
+    var _count_dur = (variable_struct_exists(_panel, "count_dur") && is_real(variable_struct_get(_panel, "count_dur"))) ? max(1, variable_struct_get(_panel, "count_dur")) : 320;
+    var _rows = (variable_struct_exists(_panel, "rows") && is_array(variable_struct_get(_panel, "rows"))) ? variable_struct_get(_panel, "rows") : [];
+    var _current_row = (variable_struct_exists(_panel, "current_row") && is_real(variable_struct_get(_panel, "current_row"))) ? floor(variable_struct_get(_panel, "current_row")) : -1;
+    var _row_anim_start = (variable_struct_exists(_panel, "row_anim_start_ms") && is_real(variable_struct_get(_panel, "row_anim_start_ms"))) ? variable_struct_get(_panel, "row_anim_start_ms") : -1;
+    var _close_ready = (variable_struct_exists(_panel, "close_ready") && variable_struct_get(_panel, "close_ready"));
+    var _input_ready_ms = (variable_struct_exists(_panel, "input_ready_ms") && is_real(variable_struct_get(_panel, "input_ready_ms"))) ? variable_struct_get(_panel, "input_ready_ms") : 0;
+    var _slide_done = (_now - (variable_struct_exists(_panel, "start_ms") ? variable_struct_get(_panel, "start_ms") : _now)) >= _slide_dur;
+    var _advance_pressed = false;
+    if (_slide_done && _now >= _input_ready_ms && !is_undefined(__battle_pressed)) _advance_pressed = (__battle_pressed(_pid, "A") || __battle_pressed(_pid, "B"));
+
+    if (_slide_done && _current_row >= 0 && _row_anim_start > 0 && (_now - _row_anim_start) >= _count_dur && (_current_row + 1) >= array_length(_rows)){
+        _close_ready = true;
+    }
+
+    if (_slide_done && _advance_pressed){
+        if (_close_ready){
+            variable_struct_set(_panel, "active", false);
+            variable_struct_set(_B, "_levelup_panel", _panel);
+            __battle_resume_exp_after_levelup_panel(_pid);
+            return false;
+        }
+
+        if (_current_row < 0 || (_row_anim_start > 0 && (_now - _row_anim_start) >= _count_dur)){
+            _current_row += 1;
+            variable_struct_set(_panel, "current_row", _current_row);
+            variable_struct_set(_panel, "row_anim_start_ms", _now);
+            if ((_current_row + 1) >= array_length(_rows)) variable_struct_set(_panel, "close_ready", false);
+        }
+    }
+
+    if (array_length(_rows) <= 0 && _slide_done && _advance_pressed){
+        variable_struct_set(_panel, "active", false);
+        variable_struct_set(_B, "_levelup_panel", _panel);
+        __battle_resume_exp_after_levelup_panel(_pid);
+        return false;
+    }
+
+    variable_struct_set(_B, "_levelup_panel", _panel);
+    return true;
+}
+
+function __battle_has_active_exp_sequence(_B){
+    if (!is_struct(_B)) return false;
+    try {
+        if (variable_struct_exists(_B, "_levelup_panel")){
+            var _panel = variable_struct_get(_B, "_levelup_panel");
+            if (is_struct(_panel) && variable_struct_exists(_panel, "active") && variable_struct_get(_panel, "active") == true) return true;
+        }
+    } catch (e_exp_panel) {}
+    try {
+        if (variable_struct_exists(_B, "_exp_anim")){
+            var _exp = variable_struct_get(_B, "_exp_anim");
+            if (is_struct(_exp)){
+                if (variable_struct_exists(_exp, "active") && variable_struct_get(_exp, "active") == true) return true;
+                if (variable_struct_exists(_exp, "waiting_for_panel") && variable_struct_get(_exp, "waiting_for_panel") == true) return true;
+            }
+        }
+    } catch (e_exp_anim) {}
+    return false;
+}
+
 // ===== Rewards: EXP & Level-Up (simple placeholders) =====
 function __battle_award_exp(_pid, _amount){
     var _B = __battle_ensure_slot(_pid);
@@ -6539,7 +6716,15 @@ function __battle_award_exp(_pid, _amount){
             var dsd = (variable_struct_get(T, "spd") - old_spd); if (dsd > 0) array_push(_deltas, ["SPDEF", dsd]);
             var dspc = (variable_struct_get(T, "spe") - old_spe); if (dspc > 0) array_push(_deltas, ["SPEED", dspc]);
             if (!variable_struct_exists(_B, "_level_stat_bumps_queue")) variable_struct_set(_B, "_level_stat_bumps_queue", []);
-            var _stepInfo = { level: T.level, deltas: _deltas };
+            var _step_rows = [
+                { label: "HP", from: old_hp, to: variable_struct_get(T, "hp_max") },
+                { label: "ATTACK", from: old_atk, to: variable_struct_get(T, "atk") },
+                { label: "DEFENSE", from: old_def, to: variable_struct_get(T, "def") },
+                { label: "SP.ATK", from: old_spa, to: variable_struct_get(T, "spa") },
+                { label: "SP.DEF", from: old_spd, to: variable_struct_get(T, "spd") },
+                { label: "SPEED", from: old_spe, to: variable_struct_get(T, "spe") }
+            ];
+            var _stepInfo = { level: T.level, deltas: _deltas, rows: _step_rows, mon_name: string(variable_struct_exists(T, "name") ? variable_struct_get(T, "name") : A0.name) };
             array_push(variable_struct_get(_B, "_level_stat_bumps_queue"), _stepInfo);
 
             // recompute next threshold for the new level
@@ -6571,26 +6756,8 @@ function __battle_award_exp(_pid, _amount){
         if (variable_struct_exists(T, "name")) A0.name = T.name;
     }
 
-    // Build dialog message and include any recorded stat bumps for UI
+    // Build dialog message for EXP gain; level-up details are shown in the side panel.
     var _msg = string(_gain) + " EXP gained!";
-    if (_ups > 0){
-        _msg += "\n" + string(A0.name) + " grew to Lv" + string(A0.level) + "!";
-
-        // If the battle slot collected stat deltas, append them line-by-line
-        if (variable_struct_exists(_B, "_level_stat_bumps") && is_array(variable_struct_get(_B, "_level_stat_bumps"))){
-            var _bumps = variable_struct_get(_B, "_level_stat_bumps");
-            for (var _bi = 0; _bi < array_length(_bumps); ++_bi){
-                var _entry = _bumps[_bi];
-                if (is_array(_entry) && array_length(_entry) >= 2){
-                    var _label = _entry[0];
-                    var _val = _entry[1];
-                    _msg += "\n" + string(_label) + " +" + string(_val);
-                }
-            }
-            // clear bumps after consuming so subsequent dialogs don't repeat them
-            variable_struct_set(_B, "_level_stat_bumps", []);
-        }
-    }
     try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, _msg); else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, _msg, _msg, "any"); } catch (e_) {}
 
     // Setup Emerald-style EXP animation queue: for each level-up that occurred, animate prev->1.0, then show level-up dialog,
@@ -6864,9 +7031,9 @@ function __battle_update_animations(_pid){
 
                 if (t >= 1){
                     // Step finished
-                    // If this step was a 'to_full' (level up), we must show the level-up dialog and pause progression
+                    // If this step was a 'to_full' (level up), show the side panel and pause progression.
                     if (variable_struct_exists(step, "type") && string(step.type) == "to_full"){
-                        // Pop the corresponding per-level bumps and prepare dialog
+                        // Pop the corresponding per-level bumps and prepare the level-up panel.
                         var _lvlq = (variable_struct_exists(_B, "_level_stat_bumps_queue") ? variable_struct_get(_B, "_level_stat_bumps_queue") : []);
                         if (array_length(_lvlq) > 0){
                             var _entry = _lvlq[0];
@@ -6875,22 +7042,10 @@ function __battle_update_animations(_pid){
                             for (var _jj = 1; _jj < array_length(_lvlq); ++_jj) array_push(_newlvlq, _lvlq[_jj]);
                             variable_struct_set(_B, "_level_stat_bumps_queue", _newlvlq);
 
-                            // Build dialog message showing the level-up and stat bumps
-                            var actorName = (is_struct(_B.actor[0]) && variable_struct_exists(_B.actor[0], "name")) ? string(_B.actor[0].name) : "";
-                            var _dlgtxt = string(actorName) + " grew to Lv" + string(_entry.level) + "!";
-                            if (is_array(_entry.deltas) && array_length(_entry.deltas) > 0){
-                                for (var _k2 = 0; _k2 < array_length(_entry.deltas); ++_k2){
-                                    var _e2 = _entry.deltas[_k2];
-                                    if (is_array(_e2) && array_length(_e2) >= 2){
-                                        _dlgtxt += "\n" + string(_e2[0]) + " +" + string(_e2[1]);
-                                    }
-                                }
-                            }
-                            // show the level-up dialog and pause progression until it closes
-                            try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, _dlgtxt); else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, _dlgtxt, _dlgtxt, "any"); } catch (e_) {}
-                            variable_struct_set(E, "waiting_for_dialog", true);
+                            __battle_begin_levelup_panel(_pid, _entry);
+                            variable_struct_set(E, "waiting_for_panel", true);
                             variable_struct_set(_B, "_exp_anim", E);
-                            // Do not advance playing_index here; we'll advance it when dialog closes
+                            // Do not advance playing_index here; we'll advance it when the panel finishes.
                         } else {
                             // no level-bump data; just advance
                             variable_struct_set(E, "playing_index", idx + 1);

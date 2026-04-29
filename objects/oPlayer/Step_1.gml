@@ -32,7 +32,7 @@ if (keyboard_check_pressed(vk_f1)){
         };
         battle_open_trainer(0, trainer_payload);
         */
-        battle_open(0, irandom_range(5,10), choose("dark water", "rocks a", "light", "grassy", "rocks b", 
+        battle_open(0, irandom_range(10,10), choose("dark water", "rocks a", "light", "grassy", "rocks b", 
         "dirt", "river", "snowy", "grassy snow", "ice", "forest", "ugly grass", "wood bridge", "man made paths"));
 	}else{
 		battle_close(0);
