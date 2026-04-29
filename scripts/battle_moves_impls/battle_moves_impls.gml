@@ -1784,7 +1784,16 @@ function __battle_perform_action_impl(_pid, _step){
 
     if (_is_guard_like){
         __battle_record_move_usage(_pid, A, D, move_id, false);
-        __battle_apply_status_move(_pid, A, D, move_id);
+        var _status_handled = false;
+        try { _status_handled = (__battle_apply_status_move(_pid, A, D, move_id) == true); } catch (e_status_apply) { _status_handled = false; }
+        try {
+            if (!is_undefined(__battle_get_move_meta)){
+                var _status_meta = __battle_get_move_meta(move_id);
+                if (is_struct(_status_meta)) __battle_apply_move_meta_effects(_pid, _step, A, D, move_id, 0, _status_meta);
+            }
+        } catch (e_status_meta_apply) {
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][impl] meta(status-early) error: " + string(e_status_meta_apply));
+        }
         return __battle_impl_return_used(_pid, A, mv_name, move_id);
     }
 
@@ -2763,6 +2772,8 @@ function __battle_perform_action_impl(_pid, _step){
                 return string((variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"The user")) + "'s attack missed!";
             }
         } catch (e_rr) {}
+        }
+
         // For non-damaging/status moves (mv_power <= 0), ensure meta effects run here
         // before returning the generic 'used' dialog (e.g., terrains, weather, setup moves).
         if (!(is_real(mv_power) && mv_power > 0)){
@@ -2787,22 +2798,6 @@ function __battle_perform_action_impl(_pid, _step){
 
         return __battle_impl_return_used(_pid, A, mv_name, move_id);
     }
-}
-    try { __battle_apply_move_meta_effects(_pid, _step, A, D, move_id, 0, __battle_get_move_meta(move_id)); } catch (e) {}
-    try {
-        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
-            show_debug_message("[battle][impl] applying meta for move_id=" + string(move_id) + ", power=" + string(mv_power));
-        }
-        __battle_apply_move_meta_effects(_pid, _step, A, D, move_id, 0, __battle_get_move_meta(move_id));
-    } catch (e) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][impl] meta apply error: " + string(e)); }
-    try {
-        var _Bslot_rr2 = __battle_ensure_slot(_pid);
-        if (is_struct(_Bslot_rr2) && variable_struct_exists(_Bslot_rr2, "_last_ohko_miss") && variable_struct_get(_Bslot_rr2, "_last_ohko_miss") == true){
-            try { variable_struct_set(_Bslot_rr2, "_last_ohko_miss", undefined); } catch (e_clr2) {}
-            return string((variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"The user")) + "'s attack missed!";
-        }
-    } catch (e_rr2) {}
-    return __battle_impl_return_used(_pid, A, mv_name, move_id);
 }
 
 // Ensure this impl is discoverable via the central registry

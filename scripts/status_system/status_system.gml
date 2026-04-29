@@ -289,7 +289,7 @@ function status_system_apply_status(mon, status_id, opts){
                 var _tmap_grass = variable_global_get("TYPE_ID_BY_NAME");
                 if (ds_exists(_tmap_grass, ds_type_map)) _grass_id_local = ds_map_find_value(_tmap_grass, "grass");
             }
-            if (!is_real(_grass_id_local)) _grass_id_local = 12;
+            if (!is_real(_grass_id_local) || _grass_id_local < 0) _grass_id_local = 12;
             var _leech_target = mon;
             if (!is_struct(_leech_target)) _leech_target = _target_mon;
             var _is_grass_target = false;
@@ -1098,28 +1098,7 @@ if (variable_global_exists("STATUS_SYS") && variable_struct_exists(global.STATUS
                 // Compute damage amount: floor(maxhp/8) min 1
                 var mh = (variable_struct_exists(mon, "hp_max") ? variable_struct_get(mon, "hp_max") : (is_struct(mon) && variable_struct_exists(mon, "mon") && variable_struct_exists(variable_struct_get(mon, "mon"), "hp_max") ? variable_struct_get(variable_struct_get(mon, "mon"), "hp_max") : undefined));
                 if (!is_real(mh) || mh <= 0) mh = 1;
-                var dmg = max(1, floor(real(mh) * 1.0/8.0));
-                var did = __status_apply_percent_damage(mon, 1.0/8.0, "trap");
-                if (did && is_struct(s) && variable_struct_exists(s, "source") && is_struct(variable_struct_get(s, "source"))){
-                    var src = variable_struct_get(s, "source");
-                    try {
-                        // Heal source by same amount using canonical helpers when possible
-                        if (!is_undefined(__battle_set_hp_now) && !is_undefined(__battle_hp_now)){
-                            var cur = __battle_hp_now(src);
-                            var cap = (variable_struct_exists(src, "hp_max") ? variable_struct_get(src, "hp_max") : cur);
-                            __battle_set_hp_now(src, min(cap, cur + dmg));
-                            if (!is_undefined(__battle_clear_fainted_if_healed)) __battle_clear_fainted_if_healed(src);
-                                // Play heal SFX for trap-source healing (one-shot)
-                                try { __battle_play_heal_once(snd_Heal); } catch (e_hs2) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][sound] trap heal SFX failed: " + string(e_hs2)); }
-                            // mark meta flag on the battle slot
-                            try { var _pid_s = __status_find_battle_pid(src); if (!is_undefined(_pid_s)){ var __Bf2 = __battle_ensure_slot(_pid_s); if (is_struct(__Bf2)) variable_struct_set(__Bf2, "_meta_effect_applied", true); } } catch(e_pf){}
-                        } else {
-                            if (variable_struct_exists(src, "hp_now") && variable_struct_exists(src, "hp_max")){
-                                var cur2 = variable_struct_get(src, "hp_now"); var cap2 = variable_struct_get(src, "hp_max"); variable_struct_set(src, "hp_now", min(cap2, cur2 + dmg));
-                            }
-                        }
-                    } catch (e_hs) {}
-                }
+                __status_apply_percent_damage(mon, 1.0/8.0, "trap");
             } catch (e_tick) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[status][trap] on_tick failed: " + string(e_tick)); }
         });
         // on_clear: request a cleared dialog

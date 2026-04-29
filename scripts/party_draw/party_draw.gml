@@ -235,14 +235,10 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         }
         if (_is_fainted){ draw_set_color(make_color_rgb(160,160,160)); } else { draw_set_color(c_white); }
         draw_text(_name_x_gui, _row_y_gui, _disp_name);
-        // Draw FNT marker for fainted mons
-        if (_is_fainted){
-            var _fnt_x = _OX + (_LIST_X + _LIST_W - 18) * _S;
-            // Draw faint marker in red so it's clearly visible
-            draw_set_color(make_color_rgb(232,64,48));
-            if (variable_global_exists("FNT_POKEMON")) draw_set_font(global.FNT_POKEMON_SMALL);
-            draw_text(_fnt_x, _row_y_gui, "FNT");
-            if (variable_global_exists("FNT_POKEMON")) draw_set_font(global.FNT_POKEMON);
+        var _row_status_x = _OX + (_LIST_X + _LIST_W - 42) * _S;
+        var _row_status_y = _row_y_gui + max(0, floor(1 * _S));
+        if (!is_undefined(__party_draw_status_ui)){
+            __party_draw_status_ui(_row_status_x, _row_status_y, _S * 0.8, _M, 40 * _S);
             draw_set_color(c_white);
         }
     }
@@ -298,12 +294,17 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         var _fill_w = floor(_bar_w * _ratio);
         draw_set_color(_hp_col); draw_rectangle(_bar_x, _bar_y, _bar_x + _fill_w, _bar_y + _bar_h, false);
 
+        var _status_draw_w = 0;
+        if (!is_undefined(__party_draw_status_ui)){
+            _status_draw_w = __party_draw_status_ui(_bar_x, _bar_y + _bar_h + (2 * _S), _S * 0.8, _L, floor(_bar_w * 0.55));
+        }
+
         var _hp_txt = string(_hp_cur) + " / " + string(_hp_max);
         var _hp_tx  = _bar_x + _bar_w - string_width(_hp_txt);
         var _hp_ty  = _bar_y + _bar_h + (2*_S) + 6;
 
         draw_set_color(c_white);
-        draw_text(_bar_x, _hp_ty, "Lv " + string(_lvl_val));
+        draw_text(_bar_x + _status_draw_w + ((_status_draw_w > 0) ? (2 * _S) : 0), _hp_ty, "Lv " + string(_lvl_val));
         draw_text(_hp_tx, _hp_ty, _hp_txt);
     }
 

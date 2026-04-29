@@ -309,6 +309,161 @@ function __battle_anim_queue_color_for_weather(_id){
 
 }
 
+function __battle_anim_move_effect_id(_move_id){
+    if (!is_real(_move_id)) return undefined;
+    try {
+        if (variable_global_exists("_moves") && is_array(global._moves) && _move_id >= 0 && _move_id < array_length(global._moves)){
+            var _mv = global._moves[_move_id];
+            if (is_struct(_mv) && variable_struct_exists(_mv, "effect_id") && is_real(variable_struct_get(_mv, "effect_id"))) return floor(variable_struct_get(_mv, "effect_id"));
+        }
+    } catch (e_move_eid) {}
+    return undefined;
+}
+
+function __battle_anim_move_meta(_move_id){
+    if (!is_real(_move_id)) return undefined;
+    try {
+        if (!is_undefined(__battle_get_move_meta)){
+            var _meta_fn = __battle_get_move_meta(_move_id);
+            if (is_struct(_meta_fn)) return _meta_fn;
+        }
+    } catch (e_move_meta) {}
+    try {
+        if (variable_global_exists("_move_meta") && is_array(global._move_meta) && _move_id >= 0 && _move_id < array_length(global._move_meta)){
+            var _meta = global._move_meta[_move_id];
+            if (is_struct(_meta)) return _meta;
+        }
+    } catch (e_move_meta_global) {}
+    return undefined;
+}
+
+function __battle_anim_color_for_family(_family){
+    var _fam = string_lower(string(_family));
+    switch (_fam){
+        case "damage": return make_color_rgb(255, 148, 124);
+        case "fixed_damage": return make_color_rgb(255, 208, 112);
+        case "status": return make_color_rgb(186, 146, 244);
+        case "trap": return make_color_rgb(214, 170, 92);
+        case "stat": return make_color_rgb(132, 224, 168);
+        case "heal": return make_color_rgb(118, 228, 152);
+        case "drain": return make_color_rgb(132, 208, 170);
+        case "recoil": return make_color_rgb(255, 124, 124);
+        case "counter": return make_color_rgb(255, 112, 168);
+        case "self_destruct": return make_color_rgb(255, 170, 96);
+        case "copy": return make_color_rgb(196, 170, 255);
+        case "transform": return make_color_rgb(156, 220, 255);
+        case "charge": return make_color_rgb(250, 226, 108);
+        case "guard": return make_color_rgb(164, 196, 255);
+        case "barrier": return make_color_rgb(154, 188, 255);
+        case "field": return make_color_rgb(196, 196, 216);
+        case "hazard": return make_color_rgb(194, 174, 150);
+        case "weather": return make_color_rgb(166, 198, 236);
+        case "terrain": return make_color_rgb(170, 220, 170);
+        case "switch": return make_color_rgb(238, 236, 176);
+        case "support": return make_color_rgb(160, 230, 205);
+        case "lock": return make_color_rgb(210, 156, 214);
+        default: return make_color_rgb(255, 255, 255);
+    }
+}
+
+function __battle_anim_family_for_move(_move_id){
+    var _eid = __battle_anim_move_effect_id(_move_id);
+    var _mm = __battle_anim_move_meta(_move_id);
+
+    if (is_real(_eid)){
+        switch (_eid){
+            case 8: return "self_destruct";
+            case 26: case 27: case 47: case 80: case 103: case 113: case 180: case 187: case 193: case 202: case 211: case 221: case 226: case 341: case 418: case 424: case 425: return "field";
+            case 29: case 128: case 129: case 154: case 173: case 177: case 229: return "switch";
+            case 36: case 66: case 125: return "barrier";
+            case 40: case 76: case 81: case 146: case 152: case 156: case 257: case 264: case 273: case 312: return "charge";
+            case 41: case 42: case 88: case 89: case 131: case 162: return "fixed_damage";
+            case 43: case 262: case 423: return "trap";
+            case 90: case 145: case 228: return "counter";
+            case 104: case 159: case 171: case 197: case 201: case 208: case 210: return "damage";
+            case 112: case 117: case 184: case 196: case 224: return "guard";
+            case 116: case 137: case 138: case 165: return "weather";
+            case 118: case 174: return "copy";
+            case 143: case 144: case 178: case 179: case 181: case 185: case 192: case 242: case 243: return "copy";
+            case 149: return "lock";
+            case 250: case 267: return "hazard";
+            case 280: case 325: case 326: case 327: case 340: case 351: case 352: case 353: case 367: case 369: case 392: case 395: case 415: return "terrain";
+        }
+    }
+
+    if (is_struct(_mm)){
+        if (variable_struct_exists(_mm, "healing") && is_real(variable_struct_get(_mm, "healing")) && real(variable_struct_get(_mm, "healing")) > 0) return "heal";
+        if (variable_struct_exists(_mm, "drain") && is_real(variable_struct_get(_mm, "drain"))){
+            var _drain = real(variable_struct_get(_mm, "drain"));
+            if (_drain > 0) return "drain";
+            if (_drain < 0) return "recoil";
+        }
+        if (variable_struct_exists(_mm, "stat_changes") && is_array(variable_struct_get(_mm, "stat_changes")) && array_length(variable_struct_get(_mm, "stat_changes")) > 0) return "stat";
+        if ((variable_struct_exists(_mm, "status") && string_length(string(variable_struct_get(_mm, "status"))) > 0)
+            || (variable_struct_exists(_mm, "infatuation") && variable_struct_get(_mm, "infatuation") == true)
+            || (variable_struct_exists(_mm, "imprison") && variable_struct_get(_mm, "imprison") == true)) return "status";
+    }
+
+    if (is_real(_eid)){
+        switch (_eid){
+            case 10: case 31: case 83: case 84: case 96: case 102: case 119: return "copy";
+            case 48: return "support";
+            case 50: case 91: case 160: case 166: case 176: case 188: case 195: return "lock";
+            case 58: return "transform";
+        }
+    }
+
+    return "damage";
+}
+
+function __battle_anim_duration_for_family(_family, _fallback){
+    var _dur = (is_real(_fallback) ? floor(_fallback) : 640);
+    switch (string_lower(string(_family))){
+        case "damage": return 520;
+        case "fixed_damage": return 560;
+        case "status": return 700;
+        case "trap": return 760;
+        case "stat": return 720;
+        case "heal":
+        case "drain":
+        case "support": return 680;
+        case "recoil":
+        case "counter":
+        case "self_destruct": return 640;
+        case "copy":
+        case "transform": return 760;
+        case "charge":
+        case "switch": return 780;
+        case "guard":
+        case "lock": return 700;
+        case "field":
+        case "hazard":
+        case "barrier":
+        case "weather":
+        case "terrain": return 960;
+        default: return _dur;
+    }
+}
+
+function __battle_anim_focus_index_for_family(_family, _actor_index, _target_index){
+    var _fam = string_lower(string(_family));
+    switch (_fam){
+        case "heal":
+        case "support":
+        case "copy":
+        case "transform":
+        case "charge":
+        case "guard":
+        case "switch":
+        case "self_destruct":
+            if (is_real(_actor_index)) return clamp(floor(_actor_index), 0, 1);
+            break;
+    }
+    if (is_real(_target_index)) return clamp(floor(_target_index), 0, 1);
+    if (is_real(_actor_index)) return clamp(floor(_actor_index), 0, 1);
+    return 0;
+}
+
 function __battle_anim_queue_resolve_target_index(_slot, _spec){
     if (!is_struct(_spec)) return undefined;
     if (variable_struct_exists(_spec, "target_index") && is_real(variable_struct_get(_spec, "target_index"))) return clamp(floor(variable_struct_get(_spec, "target_index")), 0, 1);
@@ -347,6 +502,22 @@ function __battle_anim_queue_normalize(_slot, _spec){
     var _out = { type: _type, channel: "primary", duration: __battle_anim_queue_default_duration(_type), raw: _spec };
 
     switch (_type){
+        case "move":
+            _out.channel = "primary";
+            _out.target_index = __battle_anim_queue_resolve_target_index(_slot, _spec);
+            if (variable_struct_exists(_spec, "actor")) _out.actor = variable_struct_get(_spec, "actor");
+            if (variable_struct_exists(_spec, "target")) _out.target = variable_struct_get(_spec, "target");
+            _out.move_id = (variable_struct_exists(_spec, "move_id") && is_real(variable_struct_get(_spec, "move_id"))) ? floor(variable_struct_get(_spec, "move_id")) : undefined;
+            _out.effect_id = __battle_anim_move_effect_id(_out.move_id);
+            _out.family = __battle_anim_family_for_move(_out.move_id);
+            _out.color = __battle_anim_color_for_family(_out.family);
+            var _actor_index_move = undefined;
+            if (variable_struct_exists(_spec, "actor") && is_struct(variable_struct_get(_spec, "actor")) && variable_struct_exists(variable_struct_get(_spec, "actor"), "actor_index") && is_real(variable_struct_get(variable_struct_get(_spec, "actor"), "actor_index"))){
+                _actor_index_move = variable_struct_get(variable_struct_get(_spec, "actor"), "actor_index");
+            }
+            _out.focus_index = __battle_anim_focus_index_for_family(_out.family, _actor_index_move, _out.target_index);
+            _out.duration = __battle_anim_duration_for_family(_out.family, _out.duration);
+            break;
         case "stat_change":
 
             _out.channel = "primary";
@@ -611,6 +782,44 @@ function __battle_anim_queue_build_draw_state(_pid, _slot, _entry){
     if (!is_struct(_entry)) return undefined;
     var _type = string(_entry.type);
     var _prog = clamp((variable_struct_exists(_entry, "progress") ? _entry.progress : 0), 0, 1);
+    if (_type == "move"){
+        var _family_mv = string_lower(string(variable_struct_exists(_entry, "family") ? variable_struct_get(_entry, "family") : "damage"));
+        var _focus_mv = (variable_struct_exists(_entry, "focus_index") && is_real(variable_struct_get(_entry, "focus_index"))) ? clamp(variable_struct_get(_entry, "focus_index"), 0, 1) : ((variable_struct_exists(_entry, "target_index") && is_real(variable_struct_get(_entry, "target_index"))) ? clamp(variable_struct_get(_entry, "target_index"), 0, 1) : 0);
+        var _color_mv = (variable_struct_exists(_entry, "color") ? variable_struct_get(_entry, "color") : __battle_anim_color_for_family(_family_mv));
+        switch (_family_mv){
+            case "field":
+            case "barrier":
+            case "terrain":
+                return { kind: "field_overlay", side: "full", color: _color_mv, alpha: 0.34 * (1 - _prog * 0.45), progress: _prog };
+            case "hazard":
+                return { kind: "hazard_overlay", side: "full", color: _color_mv, alpha: 0.48 * (1 - _prog * 0.35), progress: _prog };
+            case "weather":
+                return { kind: "weather_overlay", color: _color_mv, alpha: 0.34 * (1 - _prog * 0.35), progress: _prog };
+            case "damage":
+                return { kind: "actor_glow", target_index: _focus_mv, color: _color_mv, alpha: 0.28 * (1 - _prog * 0.5), radius: __battle_anim_queue_wu(_pid, 36), progress: _prog };
+            case "fixed_damage":
+                return { kind: "actor_glow", target_index: _focus_mv, color: _color_mv, alpha: 0.34 * (1 - _prog * 0.42), radius: __battle_anim_queue_wu(_pid, 40), progress: _prog };
+            case "status":
+            case "trap":
+            case "stat":
+            case "lock":
+                return { kind: "actor_glow", target_index: _focus_mv, color: _color_mv, alpha: 0.38 * (1 - _prog * 0.48), radius: __battle_anim_queue_wu(_pid, 42), progress: _prog };
+            case "heal":
+            case "drain":
+            case "support":
+                return { kind: "actor_glow", target_index: _focus_mv, color: _color_mv, alpha: 0.34 * (1 - _prog * 0.55), radius: __battle_anim_queue_wu(_pid, 40), progress: _prog };
+            case "recoil":
+            case "counter":
+            case "self_destruct":
+                return { kind: "actor_glow", target_index: _focus_mv, color: _color_mv, alpha: 0.42 * (1 - _prog * 0.42), radius: __battle_anim_queue_wu(_pid, 46), progress: _prog };
+            case "copy":
+            case "transform":
+            case "charge":
+            case "guard":
+            case "switch":
+                return { kind: "actor_glow", target_index: _focus_mv, color: _color_mv, alpha: 0.36 * (1 - _prog * 0.5), radius: __battle_anim_queue_wu(_pid, 44), progress: _prog };
+        }
+    }
     if (_type == "stat_overlay"){
         var _idx_so = (variable_struct_exists(_entry, "target_index") && is_real(_entry.target_index)) ? clamp(_entry.target_index, 0, 1) : 0;
         var _frame_so = (variable_struct_exists(_entry, "frame") && is_real(_entry.frame)) ? clamp(floor(_entry.frame), 0, 7) : 0;
@@ -815,6 +1024,27 @@ function __battle_anim_queue_draw_states(_pid, _states){
             var _spr_w_so = sprite_get_width(spr_stateffects);
             if (_spr_w_so > 0) _scale_so = __battle_anim_queue_wu(_pid, 32, 32) / _spr_w_so;
             var _color_so = (_darken_so ? make_color_rgb(96, 96, 96) : c_white);
+            var _delta_count_so = 1;
+            if (variable_struct_exists(_st, "stat_deltas") && is_struct(variable_struct_get(_st, "stat_deltas"))){
+                var _delta_obj_so = variable_struct_get(_st, "stat_deltas");
+                var _known_delta_keys = ["atk","def","spe","spa","spd","accuracy","evasion"];
+                var _delta_max_so = 0;
+                for (var _dsi = 0; _dsi < array_length(_known_delta_keys); ++_dsi){
+                    var _dk = _known_delta_keys[_dsi];
+                    if (!variable_struct_exists(_delta_obj_so, _dk)) continue;
+                    var _dv = variable_struct_get(_delta_obj_so, _dk);
+                    if (is_real(_dv)) _delta_max_so = max(_delta_max_so, abs(floor(_dv)));
+                }
+                if (_delta_max_so > 0) _delta_count_so = clamp(_delta_max_so, 1, 6);
+            }
+            var _delta_spacing_so = __battle_anim_queue_wu(_pid, 14, 14);
+            var _draw_stat_overlay_icons = function(_center_x, _center_y){
+                var _half_span = (_delta_count_so - 1) * 0.5;
+                for (var _icon_i = 0; _icon_i < _delta_count_so; ++_icon_i){
+                    var _icon_x = _center_x + ((_icon_i - _half_span) * _delta_spacing_so);
+                    draw_sprite_ext(spr_stateffects, _frame_so, _icon_x, _center_y + _yoff_so, _scale_so, _scale_so, 0, _color_so, _alpha_so);
+                }
+            };
             // If requested, draw a full-field tiled background using the same sprite frame.
             var _bg_flag = (variable_struct_exists(_st, "bg") && _st.bg);
             if (_bg_flag){
@@ -858,9 +1088,10 @@ function __battle_anim_queue_draw_states(_pid, _states){
                 gpu_set_blendmode(bm_normal);
                 draw_set_alpha(1);
                 draw_set_color(c_white);
+                _draw_stat_overlay_icons(_cx_so, _cy_so);
             } else {
                 gpu_set_blendmode(bm_normal);
-                draw_sprite_ext(spr_stateffects, _frame_so, _cx_so, _cy_so + _yoff_so, _scale_so, _scale_so, 0, _color_so, _alpha_so);
+                _draw_stat_overlay_icons(_cx_so, _cy_so);
                 gpu_set_blendmode(bm_normal);
                 draw_set_alpha(1);
                 draw_set_color(c_white);
@@ -1020,7 +1251,31 @@ function __battle_anim_queue_trigger_camera(_pid, _slot, _entry){
     if (!is_struct(_entry)) return;
     if (is_undefined(battle_cam_pan_to_side) || is_undefined(battle_cam_pan_to_offset) || is_undefined(battle_cam_shake)) return;
     var _type = string(_entry.type);
-    if (_type == "stat_change" || _type == "heal" || _type == "recoil" || _type == "guard_split" || _type == "imprison" || _type == "cure_party"){
+    if (_type == "move"){
+        var _family_mv = string_lower(string(variable_struct_exists(_entry, "family") ? variable_struct_get(_entry, "family") : "damage"));
+        var _focus_mv = (variable_struct_exists(_entry, "focus_index") && is_real(variable_struct_get(_entry, "focus_index"))) ? clamp(variable_struct_get(_entry, "focus_index"), 0, 1) : ((variable_struct_exists(_entry, "target_index") && is_real(variable_struct_get(_entry, "target_index"))) ? clamp(variable_struct_get(_entry, "target_index"), 0, 1) : 0);
+        switch (_family_mv){
+            case "field":
+            case "barrier":
+            case "hazard":
+            case "terrain":
+                battle_cam_pan_to_offset(_pid, 0, __battle_anim_queue_hu(_pid, -4, -4), 380);
+                break;
+            case "weather":
+                battle_cam_shake(_pid, __battle_anim_queue_wu(_pid, 2, 5), 18, 16, 0.9);
+                break;
+            case "recoil":
+            case "counter":
+            case "self_destruct":
+                battle_cam_pan_to_side(_pid, _focus_mv, max(5, __battle_anim_queue_wu(_pid, 8, 12)), 300);
+                battle_cam_shake(_pid, __battle_anim_queue_wu(_pid, 4, 8), 18, 14, 0.84);
+                break;
+            default:
+                battle_cam_pan_to_side(_pid, _focus_mv, max(3, __battle_anim_queue_wu(_pid, 5, 8)), 260);
+                battle_cam_shake(_pid, __battle_anim_queue_wu(_pid, 2, 4), 12, 14, 0.88);
+                break;
+        }
+    } else if (_type == "stat_change" || _type == "heal" || _type == "recoil" || _type == "guard_split" || _type == "imprison" || _type == "cure_party"){
         var _idx = (variable_struct_exists(_entry, "target_index") && is_real(_entry.target_index)) ? clamp(_entry.target_index, 0, 1) : 0;
         var _mag = max(4, __battle_anim_queue_wu(_pid, 6, 10));
         battle_cam_pan_to_side(_pid, _idx, _mag, 320);

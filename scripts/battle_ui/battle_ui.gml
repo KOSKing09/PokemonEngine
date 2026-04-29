@@ -8,6 +8,98 @@ function __battle_panel_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn){
     draw_set_color(_t.col_panel);   draw_rectangle(_bx+1,_by+1,_bx+_bw-1,_by+_bh-1,false);
 }
 
+function __battle_stage_counter_parts(_A){
+    var _out = [];
+    if (!is_struct(_A) || !variable_struct_exists(_A, "_stages") || !is_struct(variable_struct_get(_A, "_stages"))) return _out;
+
+    var _stages = variable_struct_get(_A, "_stages");
+    var _keys = ["atk", "def", "spa", "spd", "spe", "accuracy", "evasion"];
+    for (var _i = 0; _i < array_length(_keys); ++_i){
+        var _key = _keys[_i];
+        if (!variable_struct_exists(_stages, _key) || !is_real(variable_struct_get(_stages, _key))) continue;
+        var _stage = clamp(floor(variable_struct_get(_stages, _key)), -6, 6);
+        if (_stage == 0) continue;
+
+        var _label = string_upper(_key);
+        switch (_key){
+            case "atk": _label = "ATK"; break;
+            case "def": _label = "DEF"; break;
+            case "spa": _label = "SPA"; break;
+            case "spd": _label = "SPD"; break;
+            case "spe": _label = "SPE"; break;
+            case "accuracy": _label = "ACC"; break;
+            case "evasion": _label = "EVA"; break;
+        }
+
+        array_push(_out, {
+            text: _label + ((_stage > 0) ? "+" : "") + string(_stage),
+            positive: (_stage > 0)
+        });
+    }
+
+    return _out;
+}
+
+function __battle_draw_stage_counters(_x, _y, _A, _max_width = -1){
+    var _parts = __battle_stage_counter_parts(_A);
+    if (!is_array(_parts) || array_length(_parts) <= 0) return 0;
+
+    var _old_color = draw_get_color();
+    var _old_halign = draw_get_halign();
+    var _old_valign = draw_get_valign();
+    var _restore_font = undefined;
+    if (variable_global_exists("FNT_POKEMON")) _restore_font = global.FNT_POKEMON;
+    if (variable_global_exists("FNT_POKEMON_SMALL")) draw_set_font(global.FNT_POKEMON_SMALL);
+    draw_set_halign(fa_left);
+    draw_set_valign(fa_top);
+
+    var _cursor_x = _x;
+    var _drawn_w = 0;
+    var _gap = 2;
+    var _text_y = _y + 2;
+
+    for (var _i = 0; _i < array_length(_parts); ++_i){
+        var _part = _parts[_i];
+        var _text = variable_struct_get(_part, "text");
+        var _text_w = max(1, string_width(_text));
+        var _next_w = _text_w + ((_i > 0) ? _gap : 0);
+        if (is_real(_max_width) && _max_width > 0 && (_drawn_w + _next_w) > _max_width) break;
+        if (_i > 0) _cursor_x += _gap;
+        draw_set_color(variable_struct_get(_part, "positive") ? make_color_rgb(72, 168, 96) : make_color_rgb(216, 88, 72));
+        draw_text(_cursor_x, _text_y, _text);
+        _cursor_x += _text_w;
+        _drawn_w = _cursor_x - _x;
+    }
+
+    draw_set_color(_old_color);
+    draw_set_halign(_old_halign);
+    draw_set_valign(_old_valign);
+    if (!is_undefined(_restore_font)) draw_set_font(_restore_font);
+    return _drawn_w;
+}
+
+function __battle_measure_stage_counters(_A, _max_width = -1){
+    var _parts = __battle_stage_counter_parts(_A);
+    if (!is_array(_parts) || array_length(_parts) <= 0) return 0;
+
+    var _restore_font = undefined;
+    if (variable_global_exists("FNT_POKEMON")) _restore_font = global.FNT_POKEMON;
+    if (variable_global_exists("FNT_POKEMON_SMALL")) draw_set_font(global.FNT_POKEMON_SMALL);
+
+    var _drawn_w = 0;
+    var _gap = 2;
+    for (var _i = 0; _i < array_length(_parts); ++_i){
+        var _text = variable_struct_get(_parts[_i], "text");
+        var _text_w = max(1, string_width(_text));
+        var _next_w = _text_w + ((_i > 0) ? _gap : 0);
+        if (is_real(_max_width) && _max_width > 0 && (_drawn_w + _next_w) > _max_width) break;
+        _drawn_w += _next_w;
+    }
+
+    if (!is_undefined(_restore_font)) draw_set_font(_restore_font);
+    return _drawn_w;
+}
+
 function __battle_enemy_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_A){
     if (!is_struct(_A)) return;
 
@@ -50,6 +142,18 @@ function __battle_enemy_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_A){
     draw_set_color(c_black); draw_rectangle(_barX-1,_barY-1,_barX+_barW+1,_barY+_bh+1,false);
     var _hpcol = _t.col_hp_green; if (_pct<0.5) _hpcol=_t.col_hp_yell; if (_pct<0.2) _hpcol=_t.col_hp_red;
     draw_set_color(_hpcol); draw_rectangle(_barX,_barY,_barX+_barW*_pct,_barY+_bh,false);
+    var _statusX = _barX;
+    var _statusY = _barY + _bh + __bhu(_pid, 2);
+    var _statusW = 0;
+    if (!is_undefined(__party_draw_status_ui)){
+        _statusW = __party_draw_status_ui(_statusX, _statusY, 0.8, _A, _barW);
+    }
+    if (!is_undefined(__battle_draw_stage_counters)){
+        var _stageX = _statusX + _statusW;
+        if (_statusW > 0) _stageX += __bwu(_pid, 2);
+        var _stageMax = max(0, (_barX + _barW) - _stageX);
+        __battle_draw_stage_counters(_stageX, _statusY, _A, _stageMax);
+    }
 }
 
 function __battle_player_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_A){
@@ -76,10 +180,22 @@ function __battle_player_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_A){
     var _hpTextX = _barX + _barW - __bwu(_pid,6) - string_width(_hpText);
     draw_text(_hpTextX, _by+__bhu(_pid,18), _hpText);
 
-    // EXP bar (Emerald-style) drawn just under HP bar inside the player panel.
-    // Reserve right side for the numeric exp text so the bar doesn't overlap the command/menu box.
-    var _expBarY = _barY + _bh + __bhu(_pid,2); // place directly below hp bar with small padding
-    var _expBarH = __bhu(_pid,3); // slightly thinner
+    // Top row: status sprites and temporary stage counters.
+    var _topRowX = _bx + __bwu(_pid,8);
+    var _topRowY = _by + __bhu(_pid,13);
+    var _topRowMax = _bw - __bwu(_pid,16);
+    var _statusReserve = 0;
+    if (!is_undefined(__party_draw_status_ui)) _statusReserve = __party_draw_status_ui(_topRowX, _topRowY, 0.8, _A, _topRowMax);
+    if (!is_undefined(__battle_draw_stage_counters)){
+        var _stageTopX = _topRowX + _statusReserve;
+        if (_statusReserve > 0) _stageTopX += __bwu(_pid, 2);
+        var _stageTopMax = max(0, (_topRowX + _topRowMax) - _stageTopX);
+        __battle_draw_stage_counters(_stageTopX, _topRowY, _A, _stageTopMax);
+    }
+
+    var _expReserve = __bwu(_pid,64);
+    var _expBarY = _barY + _bh + __bhu(_pid,2);
+    var _expBarH = __bhu(_pid,3);
     var _expPct = 0;
     var _B = __battle_ensure_slot(_pid);
     // Note: command/menu suppression (dialog/cutscene/animations) should not
@@ -99,12 +215,12 @@ function __battle_player_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_A){
         }
     }
     // Make the EXP bar use the same width region as the HP bar but reserve the same right column used by the HP numeric text
-    var _expReserve = __bwu(_pid,64);
+    var _expBarX = _barX;
     var _expBarW = max(8, _barW - _expReserve - __bwu(_pid,8));
     // draw exp bar background and fill
-    draw_set_color(c_black); draw_rectangle(_barX-1, _expBarY-1, _barX + _expBarW + 1, _expBarY + _expBarH + 1, false);
+    draw_set_color(c_black); draw_rectangle(_expBarX-1, _expBarY-1, _expBarX + _expBarW + 1, _expBarY + _expBarH + 1, false);
     draw_set_color(make_color_rgb(56,120,232)); // blue-ish exp color
-    draw_rectangle(_barX, _expBarY, _barX + _expBarW * _expPct, _expBarY + _expBarH, false);
+    draw_rectangle(_expBarX, _expBarY, _expBarX + _expBarW * _expPct, _expBarY + _expBarH, false);
 
     // draw exp numeric to the right of the bar (clamped inside the panel)
     var _expText = "";

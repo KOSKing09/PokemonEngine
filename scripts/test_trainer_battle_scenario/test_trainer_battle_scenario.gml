@@ -1354,6 +1354,33 @@ function test_battle_effect_131_155_smoke_start(_auto_close = false){
     _after = __battle_hp_now(_D);
     __status_smoke_assert(_S, (_before - _after) == 40, "effect 145 Mirror Coat reflected double special damage");
 
+    // 141 Ancient Power: post-hit omni-boost applies to the user, not the target.
+    _A = __effect_smoke_mon(133, 30, 120, [246, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 160, [150, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    __battle_apply_move_meta_effects(_pid, { move_id: 246, actor_index: 0, target_index: 1 }, _A, _D, 246, 10, __battle_get_move_meta(246));
+    var _ancient_user_ok = false;
+    var _ancient_target_ok = true;
+    try {
+        var _ancient_user_stages = variable_struct_get(_A, "_stages");
+        _ancient_user_ok = variable_struct_get(_ancient_user_stages, "atk") == 1
+            && variable_struct_get(_ancient_user_stages, "def") == 1
+            && variable_struct_get(_ancient_user_stages, "spa") == 1
+            && variable_struct_get(_ancient_user_stages, "spd") == 1
+            && variable_struct_get(_ancient_user_stages, "spe") == 1;
+    } catch (e_ancient_user) { _ancient_user_ok = false; }
+    try {
+        if (variable_struct_exists(_D, "_stages") && is_struct(variable_struct_get(_D, "_stages"))){
+            var _ancient_target_stages = variable_struct_get(_D, "_stages");
+            _ancient_target_ok = !variable_struct_exists(_ancient_target_stages, "atk")
+                && !variable_struct_exists(_ancient_target_stages, "def")
+                && !variable_struct_exists(_ancient_target_stages, "spa")
+                && !variable_struct_exists(_ancient_target_stages, "spd")
+                && !variable_struct_exists(_ancient_target_stages, "spe");
+        }
+    } catch (e_ancient_target) { _ancient_target_ok = false; }
+    __status_smoke_assert(_S, _ancient_user_ok && _ancient_target_ok, "effect 141 Ancient Power boosted the user only");
+
     // 146 Skull Bash defense boost on charge.
     _A = __effect_smoke_mon(133, 30, 120, [130, -1, -1, -1]);
     _D = __effect_smoke_mon(10, 30, 120, [150, -1, -1, -1]);
@@ -2575,6 +2602,30 @@ function test_battle_effect_27_42_smoke_start(_auto_close = false){
     _after = __battle_hp_now(_D);
     __status_smoke_assert(_S, (_before - _after) == 40, "effect 42 Dragon Rage dealt exactly 40 damage");
 
+    // 43 Bind/Wrap/Clamp/Sand Tomb family: trap the player's active battler so voluntary switching is blocked.
+    _A = __effect_smoke_mon(133, 30, 120, [1, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 160, [20, -1, -1, -1]);
+    _B = __effect_smoke_slot(_pid, _A, _D);
+    var _P_trap = party_ensure(_pid);
+    variable_struct_set(_P_trap, "mons", [_A, __effect_smoke_mon(25, 30, 120, [1, -1, -1, -1])]);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 20, actor_index: 1, target_index: 0 });
+    var _trap_applied = __effect_smoke_has_status(_A, "trap");
+    variable_struct_set(_B, "phase", "command");
+    var _switch_ok_trap = battle_switch_to(_pid, 1, { auto_apply:true, consume_turn:true, forced:false });
+    var _switch_staged_trap = false;
+    try { _switch_staged_trap = variable_struct_exists(_B, "_switch_target_idx") && is_real(variable_struct_get(_B, "_switch_target_idx")); } catch (e_trap_stage) { _switch_staged_trap = false; }
+    __battle_set_hp_now(_D, 60);
+    var _trap_inst = undefined;
+    try { _trap_inst = status_system_get(_A, "trap"); } catch (e_trap_get) { _trap_inst = undefined; }
+    if (is_struct(_trap_inst) && variable_struct_exists(_trap_inst, "_skip_first_tick")) variable_struct_set(_trap_inst, "_skip_first_tick", undefined);
+    var _trap_src_before = __battle_hp_now(_D);
+    var _trap_tgt_before = __battle_hp_now(_A);
+    status_system_tick_statuses(_A, undefined);
+    var _trap_src_after = __battle_hp_now(_D);
+    var _trap_tgt_after = __battle_hp_now(_A);
+    var _trap_ok = _trap_applied && (!_switch_ok_trap) && (!_switch_staged_trap) && (_trap_tgt_after < _trap_tgt_before) && (_trap_src_after == _trap_src_before);
+    __status_smoke_assert(_S, _trap_ok, "effect 43 trap blocked switching, dealt residual damage, and did not heal the source");
+
     var _fails = variable_struct_get(_S, "fail_count");
     __status_smoke_finish(_pid, _S, (_fails == 0) ? "completed" : "failed");
     return (_fails == 0);
@@ -2604,6 +2655,52 @@ function test_battle_effect_76_94_smoke_start(_auto_close = false){
     var _D;
     var _before;
     var _after;
+    global.DEV_FORCE_ACCURACY_HIT = true;
+
+    // Regression guard for classic healing starters: Mega Drain keeps drain healing, Leech Seed keeps seed chip + source heal.
+    _A = __effect_smoke_mon(133, 30, 120, [72, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 160, [1, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    __effect_smoke_set_hp(_A, 40);
+    _before = __battle_hp_now(_D);
+    var _mega_before = __battle_hp_now(_A);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 72, actor_index: 0, target_index: 1 });
+    _after = __battle_hp_now(_D);
+    var _mega_anim_ok = false;
+    try { _mega_anim_ok = (__battle_anim_family_for_move(72) == "drain"); } catch (e_mega_anim) { _mega_anim_ok = false; }
+    __status_smoke_assert(_S, _after < _before && __battle_hp_now(_A) > _mega_before && _mega_anim_ok, "classic Mega Drain still healed the user and stayed in the drain animation family");
+
+    _A = __effect_smoke_mon(133, 30, 120, [73, -1, -1, -1]);
+    _D = {
+        species_id: 9999,
+        name: "seed-target",
+        hp_max: 160,
+        maxhp: 160,
+        hp_now: 160,
+        hp: 160,
+        atk: 70,
+        def: 70,
+        spa: 70,
+        spd: 70,
+        spe: 70,
+        type1: 999,
+        type2: -1,
+        types: [999],
+        moves: [1, -1, -1, -1],
+        statuses: {}
+    };
+    __effect_smoke_slot(_pid, _A, _D);
+    __effect_smoke_set_hp(_A, 60);
+    __battle_apply_move_meta_effects(_pid, { move_id: 73 }, _A, _D, 73, 0, __battle_get_move_meta(73));
+    var _leech_applied = __effect_smoke_has_status(_D, "leech-seed");
+    var _leech_anim_ok = false;
+    try { _leech_anim_ok = (__battle_anim_family_for_move(73) == "status"); } catch (e_leech_anim) { _leech_anim_ok = false; }
+    var _leech_src_before = __battle_hp_now(_A);
+    var _leech_tgt_before = __battle_hp_now(_D);
+    status_system_tick_statuses(_D, undefined);
+    var _leech_src_after = __battle_hp_now(_A);
+    var _leech_tgt_after = __battle_hp_now(_D);
+    __status_smoke_assert(_S, _leech_applied && _leech_anim_ok && _leech_tgt_after < _leech_tgt_before && _leech_src_after > _leech_src_before, "classic Leech Seed still chipped the target, healed the source, and stayed in the status family");
 
     // 76 Sky Attack: two-turn charge plus flinch meta.
     _A = __effect_smoke_mon(133, 30, 120, [143, -1, -1, -1]);
@@ -2735,6 +2832,8 @@ function test_battle_effect_76_94_smoke_start(_auto_close = false){
     } catch (e_c2) { _conv2_ok = false; }
     __status_smoke_assert(_S, _conv2_ok, "effect 94 Conversion 2 chose a resistant or immune type");
 
+    global.DEV_FORCE_ACCURACY_HIT = false;
+
     var _fails = variable_struct_get(_S, "fail_count");
     __status_smoke_finish(_pid, _S, (_fails == 0) ? "completed" : "failed");
     return (_fails == 0);
@@ -2841,6 +2940,18 @@ function test_battle_effect_9_112_smoke_start(_auto_close = false){
     var _flail_low_hp = __battle_move_power(175, _A, _D);
     var _reversal_low_hp = __battle_move_power(179, _A, _D);
     __status_smoke_assert(_S, _flail_high_hp > 0 && _flail_low_hp > _flail_high_hp && _reversal_low_hp == _flail_low_hp, "effect 100 Flail/Reversal low-HP power scaling worked");
+
+    // 24 Leer: target Defense drops by exactly one stage.
+    _A = __effect_smoke_mon(133, 30, 120, [43, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 160, [1, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 43, actor_index: 0, target_index: 1 });
+    var _leer_stage = 0;
+    try {
+        var _leer_stages = variable_struct_get(_D, "_stages");
+        _leer_stage = (variable_struct_exists(_leer_stages, "def") && is_real(variable_struct_get(_leer_stages, "def"))) ? variable_struct_get(_leer_stages, "def") : 0;
+    } catch (e_leer_stage) { _leer_stage = 0; }
+    __status_smoke_assert(_S, _leer_stage == -1, "effect 24 Leer lowered Defense by exactly one stage");
 
     // 112 Protect/Detect: guard status blocks incoming direct damage.
     _A = __effect_smoke_mon(133, 30, 120, [182, 197, -1, -1]);

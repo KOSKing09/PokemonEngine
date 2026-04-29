@@ -670,12 +670,6 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                     } catch (e_stat_name) {}
                     if (is_undefined(_display_name) && is_struct(_actor) && variable_struct_exists(_actor, "name") && is_string(variable_struct_get(_actor, "name")) && string_length(variable_struct_get(_actor, "name")) > 0) _display_name = variable_struct_get(_actor, "name");
                     if (is_undefined(_display_name) || !is_string(_display_name) || string_length(_display_name) <= 0) _display_name = "The Pokemon";
-                    try {
-                        var _actor_idx = undefined;
-                        if (is_struct(_actor) && variable_struct_exists(_actor, "actor_index") && is_real(variable_struct_get(_actor, "actor_index"))) _actor_idx = floor(variable_struct_get(_actor, "actor_index"));
-                        else if (is_struct(_target_ref) && variable_struct_exists(_target_ref, "actor_index") && is_real(variable_struct_get(_target_ref, "actor_index"))) _actor_idx = floor(variable_struct_get(_target_ref, "actor_index"));
-                        if (is_real(_actor_idx) && _actor_idx > 0) return "The opposing " + string(_display_name);
-                    } catch (e_stat_side) {}
                     return _display_name;
                 }
                 function __stat_change_dialog_text_local(_actor, _stat_key, _applied_delta, _requested_delta){
@@ -1405,6 +1399,97 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                             return undefined;
                         }
 
+                        var _generic_target_id = (is_struct(_move_rec) && variable_struct_exists(_move_rec, "target_id") && is_real(variable_struct_get(_move_rec, "target_id"))) ? floor(variable_struct_get(_move_rec, "target_id")) : undefined;
+                        if (is_real(_generic_target_id)){
+                            var _attacker_idx_generic = (is_struct(_A) && variable_struct_exists(_A, "actor_index") && is_real(variable_struct_get(_A, "actor_index"))) ? floor(variable_struct_get(_A, "actor_index")) : undefined;
+                            var _attacker_side_generic = is_real(_attacker_idx_generic) ? __battle_field_side_index_for_actor(_attacker_idx_generic) : undefined;
+                            var _generic_move_power = (is_struct(_move_rec) && variable_struct_exists(_move_rec, "power") && is_real(variable_struct_get(_move_rec, "power"))) ? floor(variable_struct_get(_move_rec, "power")) : 0;
+                            var _generic_has_positive = false;
+                            var _generic_has_negative = false;
+                            for (var _gsi = 0; _gsi < array_length(_scarr); ++_gsi){
+                                var _grec = _scarr[_gsi];
+                                if (!is_struct(_grec) || !variable_struct_exists(_grec, "change")) continue;
+                                var _gchange = variable_struct_get(_grec, "change");
+                                if (!is_real(_gchange)) continue;
+                                if (_gchange > 0) _generic_has_positive = true;
+                                if (_gchange < 0) _generic_has_negative = true;
+                            }
+                            var _generic_targets_user = false;
+                            if (_generic_move_power > 0 && _generic_has_positive && !_generic_has_negative) _generic_targets_user = true;
+                            if (is_real(_eid)){
+                                switch (floor(_eid)){
+                                    case 183:
+                                    case 205:
+                                    case 219:
+                                    case 230:
+                                    case 335:
+                                    case 360:
+                                    case 405:
+                                        _generic_targets_user = true;
+                                        break;
+                                }
+                            }
+                            if (_generic_targets_user){
+                                __apply_stat_changes_to_actor(_pid, _A, _attacker_idx_generic, _scarr);
+                                return undefined;
+                            }
+
+                            switch (_generic_target_id){
+                                case 7:
+                                    __apply_stat_changes_to_actor(_pid, _A, _attacker_idx_generic, _scarr);
+                                    return undefined;
+
+                                case 1:
+                                case 2:
+                                case 8:
+                                case 10:
+                                case 16:
+                                    if (is_struct(_D)) __apply_stat_changes_to_actor(_pid, _D, (variable_struct_exists(_D, "actor_index") && is_real(variable_struct_get(_D, "actor_index"))) ? floor(variable_struct_get(_D, "actor_index")) : undefined, _scarr);
+                                    return undefined;
+
+                                case 11:
+                                case 6:
+                                    for (var _gt_i = 0; _gt_i < array_length(_actors); ++_gt_i){
+                                        var _gt_actor = _actors[_gt_i];
+                                        if (!is_struct(_gt_actor) || _gt_actor == _A) continue;
+                                        if (is_real(_attacker_side_generic) && __battle_field_side_index_for_actor(_gt_i) == _attacker_side_generic) continue;
+                                        __apply_stat_changes_to_actor(_pid, _gt_actor, _gt_i, _scarr);
+                                    }
+                                    return undefined;
+
+                                case 13:
+                                    for (var _ga_i = 0; _ga_i < array_length(_actors); ++_ga_i){
+                                        var _ga_actor = _actors[_ga_i];
+                                        if (!is_struct(_ga_actor)) continue;
+                                        if (is_real(_attacker_side_generic) && __battle_field_side_index_for_actor(_ga_i) != _attacker_side_generic) continue;
+                                        __apply_stat_changes_to_actor(_pid, _ga_actor, _ga_i, _scarr);
+                                    }
+                                    return undefined;
+
+                                case 15:
+                                    for (var _gal_i = 0; _gal_i < array_length(_actors); ++_gal_i){
+                                        var _gal_actor = _actors[_gal_i];
+                                        if (!is_struct(_gal_actor) || _gal_actor == _A) continue;
+                                        if (is_real(_attacker_side_generic) && __battle_field_side_index_for_actor(_gal_i) != _attacker_side_generic) continue;
+                                        __apply_stat_changes_to_actor(_pid, _gal_actor, _gal_i, _scarr);
+                                    }
+                                    return undefined;
+
+                                case 9:
+                                    for (var _go_i = 0; _go_i < array_length(_actors); ++_go_i){
+                                        var _go_actor = _actors[_go_i];
+                                        if (!is_struct(_go_actor) || _go_actor == _A) continue;
+                                        __apply_stat_changes_to_actor(_pid, _go_actor, _go_i, _scarr);
+                                    }
+                                    return undefined;
+
+                                case 5:
+                                    if (is_struct(_D)) __apply_stat_changes_to_actor(_pid, _D, (variable_struct_exists(_D, "actor_index") && is_real(variable_struct_get(_D, "actor_index"))) ? floor(variable_struct_get(_D, "actor_index")) : undefined, _scarr);
+                                    else __apply_stat_changes_to_actor(_pid, _A, _attacker_idx_generic, _scarr);
+                                    return undefined;
+                            }
+                        }
+
                         // Some moves (effect_id 419) boost the user after damaging all opposing Pokémon.
                         // Implement a best-effort support: if effect_id==419 and stat_changes exist, apply stat_changes to the attacker (_A)
                         if (_eid == 419){
@@ -1464,6 +1549,32 @@ if (is_undefined(__battle_apply_move_meta_effects)){
             try {
                 if (variable_struct_exists(_mm, "stat_changes") && is_array(variable_struct_get(_mm, "stat_changes"))){
                     var scs = variable_struct_get(_mm, "stat_changes");
+                    var _fallback_target = _A;
+                    var _fallback_actor_idx = (is_struct(_A) && variable_struct_exists(_A, "actor_index") && is_real(variable_struct_get(_A, "actor_index"))) ? variable_struct_get(_A, "actor_index") : undefined;
+                    var _fallback_step_target_idx = (is_struct(_step) && variable_struct_exists(_step, "target_index") && is_real(variable_struct_get(_step, "target_index"))) ? floor(variable_struct_get(_step, "target_index")) : undefined;
+                    var _fallback_move_rec = undefined;
+                    if (variable_global_exists("_moves") && is_array(global._moves) && is_real(_move_id) && _move_id >= 0 && _move_id < array_length(global._moves)) _fallback_move_rec = global._moves[_move_id];
+                    var _fallback_target_id = (is_struct(_fallback_move_rec) && variable_struct_exists(_fallback_move_rec, "target_id") && is_real(variable_struct_get(_fallback_move_rec, "target_id"))) ? floor(variable_struct_get(_fallback_move_rec, "target_id")) : undefined;
+                    var _fallback_has_positive = false;
+                    var _fallback_has_negative = false;
+                    for (var _fsi = 0; _fsi < array_length(scs); ++_fsi){
+                        var _frec = scs[_fsi];
+                        if (!is_struct(_frec) || !variable_struct_exists(_frec, "change")) continue;
+                        var _fchange = variable_struct_get(_frec, "change");
+                        if (!is_real(_fchange)) continue;
+                        if (_fchange > 0) _fallback_has_positive = true;
+                        if (_fchange < 0) _fallback_has_negative = true;
+                    }
+                    if (is_struct(_D) && is_real(_fallback_step_target_idx) && !is_real(_fallback_target_id) && _fallback_has_negative && !_fallback_has_positive){
+                        var _attacker_idx_step = (is_struct(_A) && variable_struct_exists(_A, "actor_index") && is_real(variable_struct_get(_A, "actor_index"))) ? floor(variable_struct_get(_A, "actor_index")) : undefined;
+                        if (!is_real(_attacker_idx_step) || _fallback_step_target_idx != _attacker_idx_step){
+                            _fallback_target = _D;
+                            _fallback_actor_idx = (variable_struct_exists(_D, "actor_index") && is_real(variable_struct_get(_D, "actor_index"))) ? variable_struct_get(_D, "actor_index") : _fallback_actor_idx;
+                        }
+                    } else if (is_struct(_D) && is_real(_fallback_target_id) && _fallback_target_id != 7){
+                        _fallback_target = _D;
+                        _fallback_actor_idx = (variable_struct_exists(_D, "actor_index") && is_real(variable_struct_get(_D, "actor_index"))) ? variable_struct_get(_D, "actor_index") : _fallback_actor_idx;
+                    }
                     // Accumulate overlay changes so self-boosting moves (like Harden)
                     // also enqueue the stat overlay to be shown when the dialog appears.
                     var _fb_overlay_changes = {};
@@ -1477,24 +1588,24 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                         function __stat_key_by_id(_id){ switch(floor(_id)){ case 1: return "hp"; case 2: return "atk"; case 3: return "def"; case 4: return "spa"; case 5: return "spd"; case 6: return "spe"; case 7: return "accuracy"; case 8: return "evasion"; } return undefined; }
                         var sk = __stat_key_by_id(sid);
                         if (is_undefined(sk)) continue;
-                        // Target stages stored on user (_A)
-                        if (!variable_struct_exists(_A, "_stages") || !is_struct(variable_struct_get(_A, "_stages"))) variable_struct_set(_A, "_stages", {});
-                        var stobj = variable_struct_get(_A, "_stages");
+                        // Fallback target is self for self-target moves (target_id 7) and defender for opponent-target stat changes.
+                        if (!variable_struct_exists(_fallback_target, "_stages") || !is_struct(variable_struct_get(_fallback_target, "_stages"))) variable_struct_set(_fallback_target, "_stages", {});
+                        var stobj = variable_struct_get(_fallback_target, "_stages");
                         var prev = (variable_struct_exists(stobj, sk) && is_real(variable_struct_get(stobj, sk))) ? variable_struct_get(stobj, sk) : 0;
                         var next = clamp(prev + floor(change), -6, 6);
                         variable_struct_set(stobj, sk, next);
-                        variable_struct_set(_A, "_stages", stobj);
+                        variable_struct_set(_fallback_target, "_stages", stobj);
                         // compute applied amount and record overlay change for later consumption at dialog-show time
                         var applied_amt = next - prev;
                         if (applied_amt != 0){
                             try { variable_struct_set(_fb_overlay_changes, sk, applied_amt); _fb_overlay_any = true; } catch (e_fb) {}
                         }
                         // Request stat-change animation for user
-                        try { __battle_request_animation_safe(_pid, { type: "stat_change", target_index: variable_struct_exists(_A, "actor_index") ? variable_struct_get(_A, "actor_index") : (variable_struct_exists(_A, "slot") ? variable_struct_get(_A, "slot") : undefined), stat: sk, from: prev, to: next }); } catch (e_req) {}
+                        try { __battle_request_animation_safe(_pid, { type: "stat_change", target_index: _fallback_actor_idx, stat: sk, from: prev, to: next }); } catch (e_req) {}
                         // Note: SFX for stat changes is played when the dialog is shown; do not play here.
                         try {
-                            var sc_msg = __stat_change_dialog_text_local(_A, sk, applied_amt, change);
-                            var _target_mon_ref = __stat_target_ref_local(_A);
+                            var sc_msg = __stat_change_dialog_text_local(_fallback_target, sk, applied_amt, change);
+                            var _target_mon_ref = __stat_target_ref_local(_fallback_target);
                             if (!is_undefined(__status_request_dialog_for_mon)) __status_request_dialog_for_mon(_target_mon_ref, sc_msg, false);
                         } catch (e_msg) {}
                         try { var _B2 = __battle_ensure_slot(_pid); if (is_struct(_B2)) variable_struct_set(_B2, "_meta_effect_applied", true); } catch (e_b2) {}
@@ -1506,8 +1617,8 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                             if (is_struct(_Bslot)){
                                 if (!variable_struct_exists(_Bslot, "_pending_stat_overlays") || !is_array(variable_struct_get(_Bslot, "_pending_stat_overlays"))) variable_struct_set(_Bslot, "_pending_stat_overlays", []);
                                 var _po2 = variable_struct_get(_Bslot, "_pending_stat_overlays");
-                                array_push(_po2, { actor: _A, actor_idx: (variable_struct_exists(_A, "actor_index") ? variable_struct_get(_A, "actor_index") : undefined), overlay_changes: _fb_overlay_changes });
-                                try { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][stat_overlay] enqueued (fallback) pid=" + string(_pid) + ", actor_idx=" + string((variable_struct_exists(_A, "actor_index") ? variable_struct_get(_A, "actor_index") : -1)) + ", changes=" + string(_fb_overlay_changes)); } catch (e_dbgf) {}
+                                array_push(_po2, { actor: _fallback_target, actor_idx: _fallback_actor_idx, overlay_changes: _fb_overlay_changes });
+                                try { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][stat_overlay] enqueued (fallback) pid=" + string(_pid) + ", actor_idx=" + string(is_real(_fallback_actor_idx) ? _fallback_actor_idx : -1) + ", target_id=" + string(_fallback_target_id) + ", changes=" + string(_fb_overlay_changes)); } catch (e_dbgf) {}
                                 variable_struct_set(_Bslot, "_pending_stat_overlays", _po2);
                             }
                         } catch (e_pof) {}

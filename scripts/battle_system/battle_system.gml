@@ -4694,6 +4694,34 @@ function battle_switch_to(_pid, _party_idx, _opts){
                 return false;
             }
         }
+        var _active_actor_trap = undefined;
+        if (variable_struct_exists(_B, "actor") && is_array(_B.actor) && array_length(_B.actor) > 0){
+            _active_actor_trap = _B.actor[0];
+        }
+        var _trap_active = false;
+        if (!is_undefined(status_system_has_status) && is_struct(_active_actor_trap)){
+            _trap_active = status_system_has_status(_active_actor_trap, "trap");
+            if (!_trap_active && variable_struct_exists(_active_actor_trap, "mon") && is_struct(variable_struct_get(_active_actor_trap, "mon"))){
+                _trap_active = status_system_has_status(variable_struct_get(_active_actor_trap, "mon"), "trap");
+            }
+        }
+        if (_trap_active){
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_switch_to] rejected: trap active (pid=" + string(_pid) + ")");
+            if (!is_undefined(__status_request_dialog_for_mon)){
+                var _dialog_target_trap = _active_actor_trap;
+                if (is_struct(_dialog_target_trap) && variable_struct_exists(_dialog_target_trap, "mon") && is_struct(variable_struct_get(_dialog_target_trap, "mon"))){
+                    _dialog_target_trap = variable_struct_get(_dialog_target_trap, "mon");
+                }
+                var _nm_trap = "The Pokemon";
+                if (is_struct(_dialog_target_trap) && variable_struct_exists(_dialog_target_trap, "name")){
+                    _nm_trap = variable_struct_get(_dialog_target_trap, "name");
+                } else if (is_struct(_active_actor_trap) && variable_struct_exists(_active_actor_trap, "name")){
+                    _nm_trap = variable_struct_get(_active_actor_trap, "name");
+                }
+                try { __status_request_dialog_for_mon(_dialog_target_trap, string(_nm_trap) + " is trapped and can't be switched out!", false); } catch (e_tdlg) {}
+            }
+            return false;
+        }
     }
 
     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){

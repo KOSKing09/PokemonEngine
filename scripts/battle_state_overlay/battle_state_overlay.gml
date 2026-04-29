@@ -49,7 +49,7 @@ function __battle_trigger_stat_overlay(_pid, _actor, _overlay_changes, _actor_id
     var _darken = false;
     if (variable_struct_exists(_overlay_changes, "darken")) _darken = variable_struct_get(_overlay_changes, "darken");
 
-    var payload = { type: "stat_overlay", frame: _frame_idx, darken: _darken, stat_keys: _stat_keys, stat_deltas: _stat_deltas, bg: true, direction: _direction };
+    var payload = { type: "stat_overlay", frame: _frame_idx, darken: _darken, stat_keys: _stat_keys, stat_deltas: _stat_deltas, bg: true, direction: _direction, target_index: _actor_idx, actor_index: _actor_idx };
     if (!is_undefined(_bg_loops)) payload.bg_loops = _bg_loops;
 
         try { battle_anim_queue_enqueue(_pid, payload); } catch (e_q) {}

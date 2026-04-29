@@ -570,6 +570,7 @@ function data_load_moves_structs(){
     // header-aware columns (optional)
     var ci_effect = __col_find_ci(g, "effect_id");
     var ci_effect_chance = __col_find_ci(g, "effect_chance");
+        var ci_target = __col_find_ci(g, "target_id");
     // size by max id
     var max_id = 0;
     for (var _r = 1; _r < H; _r++){
@@ -586,14 +587,15 @@ function data_load_moves_structs(){
         var _power= __to_int_safe(__grid(g,4,_r,0), 0);
         var _pp   = __to_int_safe(__grid(g,5,_r,0), 0);
         var _prio = __to_int_safe(__grid(g,7,_r,0), 0);
+            var _target = (ci_target >= 0) ? __to_int_safe(__grid(g, ci_target, _r, 0), 0) : __to_int_safe(__grid(g, 8, _r, 0), 0);
         var _dcls = __to_int_safe(__grid(g,8,_r,0), 0);
         // effect_id/effect_chance fallback: many dumps lack headers; use PokeAPI column indices if headers absent
         // PokeAPI moves.csv columns (0-based):
-        // 0=id, 1=identifier, 2=generation_id, 3=type_id, 4=power, 5=pp, 6=accuracy, 7=priority, 8=damage_class_id, 9=effect_id?, 10=effect_id, 11=effect_chance, ...
+            // 0=id, 1=identifier, 2=generation_id, 3=type_id, 4=power, 5=pp, 6=accuracy, 7=priority, 8=target_id, 9=damage_class_id, 10=effect_id, 11=effect_chance, ...
         // Some exports shift effect_id to index 10; use 10/11 as safe defaults when headers missing.
         var _eff  = (ci_effect >= 0) ? __to_int_safe(__grid(g, ci_effect, _r, 0), 0) : __to_int_safe(__grid(g, 10, _r, 0), 0);
         var _effc = (ci_effect_chance >= 0) ? __to_int_safe(__grid(g, ci_effect_chance, _r, 0), 0) : __to_int_safe(__grid(g, 11, _r, 0), 0);
-        global._moves[_id] = { id:_id, identifier:_ident, type_id:_type, power:_power, pp:_pp, priority:_prio, damage_class_id:_dcls, effect_id:_eff, effect_chance:_effc };
+            global._moves[_id] = { id:_id, identifier:_ident, type_id:_type, power:_power, pp:_pp, priority:_prio, target_id:_target, damage_class_id:_dcls, effect_id:_eff, effect_chance:_effc };
         _rows++;
     }
     data_debug("[DATA][moves] rows=" + string(_rows));

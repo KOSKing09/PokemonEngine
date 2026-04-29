@@ -46,6 +46,226 @@ function __party_impl_draw_shiny_sparkle(_x,_y,_S,_seed){
     draw_set_color(c_white);
 }
 
+function __party_status_ui_has_status(_subject, _base_mon, _status_id){
+    if (!is_string(_status_id) || string_length(_status_id) <= 0) return false;
+    try {
+        if (!is_undefined(status_system_has_status)){
+            if (is_struct(_subject) && status_system_has_status(_subject, _status_id)) return true;
+            if (is_struct(_base_mon) && _base_mon != _subject && status_system_has_status(_base_mon, _status_id)) return true;
+        }
+    } catch (e_status_ui_has) {}
+    try {
+        if (is_struct(_base_mon) && variable_struct_exists(_base_mon, "statuses")){
+            var _statuses = variable_struct_get(_base_mon, "statuses");
+            if (is_struct(_statuses) && variable_struct_exists(_statuses, _status_id) && !is_undefined(variable_struct_get(_statuses, _status_id))) return true;
+        }
+    } catch (e_status_ui_fallback) {}
+    return false;
+}
+
+function __party_status_ui_normalize_legacy(_raw){
+    if (is_undefined(_raw)) return "";
+    var _s = string_lower(string(_raw));
+    _s = string_trim(_s);
+    _s = string_replace_all(_s, "_", "-");
+    _s = string_replace_all(_s, " ", "-");
+    if (_s == "" || _s == "0" || _s == "none" || _s == "healthy" || _s == "ok" || _s == "false") return "";
+    if (_s == "freezing" || _s == "frozen") _s = "freeze";
+    if (_s == "burned") _s = "burn";
+    if (_s == "paralyzed") _s = "paralysis";
+    if (_s == "sleeping" || _s == "asleep" || _s == "drowsy") _s = "sleep";
+    if (_s == "bad-poison") _s = "toxic";
+
+    if (is_real(_raw)){
+        var _num = floor(real(_raw));
+        switch (_num){
+            case 1: return "sleep";
+            case 2: return "poison";
+            case 3: return "burn";
+            case 4: return "freeze";
+            case 5: return "paralysis";
+            case 6: return "toxic";
+            default: break;
+        }
+    }
+
+    return _s;
+}
+
+function __party_status_ui_matches_legacy(_subject, _base_mon, _status_ids){
+    var _legacy_keys = ["status", "status_name", "major_status"];
+    var _targets = [_base_mon, _subject];
+    for (var _ti = 0; _ti < array_length(_targets); ++_ti){
+        var _target = _targets[_ti];
+        if (!is_struct(_target)) continue;
+        for (var _ki = 0; _ki < array_length(_legacy_keys); ++_ki){
+            var _key = _legacy_keys[_ki];
+            try {
+                if (!variable_struct_exists(_target, _key)) continue;
+                var _normalized = __party_status_ui_normalize_legacy(variable_struct_get(_target, _key));
+                if (_normalized == "") continue;
+                for (var _si = 0; _si < array_length(_status_ids); ++_si){
+                    if (_normalized == _status_ids[_si]) return true;
+                }
+            } catch (e_status_ui_legacy) {}
+        }
+    }
+    return false;
+}
+
+function __party_status_ui_push_unique(_arr, _value){
+    if (!is_array(_arr) || !is_string(_value) || string_length(_value) <= 0) return;
+    for (var _i = 0; _i < array_length(_arr); ++_i){
+        if (_arr[_i] == _value) return;
+    }
+    array_push(_arr, _value);
+}
+
+function __party_status_ui_legacy_value(_subject, _base_mon){
+    var _legacy_keys = ["status", "status_name", "major_status"];
+    var _targets = [_base_mon, _subject];
+    for (var _ti = 0; _ti < array_length(_targets); ++_ti){
+        var _target = _targets[_ti];
+        if (!is_struct(_target)) continue;
+        for (var _ki = 0; _ki < array_length(_legacy_keys); ++_ki){
+            var _key = _legacy_keys[_ki];
+            try {
+                if (!variable_struct_exists(_target, _key)) continue;
+                var _normalized = __party_status_ui_normalize_legacy(variable_struct_get(_target, _key));
+                if (_normalized != "") return _normalized;
+            } catch (e_status_ui_legacy_value) {}
+        }
+    }
+    return "";
+}
+
+function __party_status_ui_collect(_mon_or_actor){
+    if (!is_struct(_mon_or_actor)) return [];
+
+    var _base_mon = _mon_or_actor;
+    if (variable_struct_exists(_mon_or_actor, "mon") && is_struct(variable_struct_get(_mon_or_actor, "mon"))) _base_mon = variable_struct_get(_mon_or_actor, "mon");
+
+    var _hp_now = undefined;
+    if (variable_struct_exists(_base_mon, "hp_now")) _hp_now = variable_struct_get(_base_mon, "hp_now");
+    else if (variable_struct_exists(_base_mon, "hp")) _hp_now = variable_struct_get(_base_mon, "hp");
+    else if (variable_struct_exists(_base_mon, "HP")) _hp_now = variable_struct_get(_base_mon, "HP");
+
+    var _is_fainted = false;
+    try {
+        if (variable_struct_exists(_mon_or_actor, "_fainted") && variable_struct_get(_mon_or_actor, "_fainted") == true) _is_fainted = true;
+        if (!_is_fainted && variable_struct_exists(_base_mon, "_fainted") && variable_struct_get(_base_mon, "_fainted") == true) _is_fainted = true;
+    } catch (e_status_ui_collect_faint) {}
+    if (_is_fainted || (is_real(_hp_now) && _hp_now <= 0)) return ["fnt"];
+
+    var _out = [];
+
+    var _legacy = __party_status_ui_legacy_value(_mon_or_actor, _base_mon);
+    if (_legacy != "") __party_status_ui_push_unique(_out, _legacy);
+
+    var _priority = [
+        "poison","toxic","paralysis","paralyze","sleep","freeze","burn",
+        "confusion","infatuation","trap","yawn","nightmare","disable","encore",
+        "taunt","torment","heal-block","embargo","leech-seed","ingrain","substitute",
+        "perish-song","uproar","imprison","magic-coat","snatch","miracle-eye",
+        "grudge","tailwind","gravity","roost","follow-me","helping-hand","dynamax"
+    ];
+
+    for (var _pi = 0; _pi < array_length(_priority); ++_pi){
+        var _sid = _priority[_pi];
+        if (__party_status_ui_has_status(_mon_or_actor, _base_mon, _sid)) __party_status_ui_push_unique(_out, _sid);
+    }
+
+    try {
+        if (variable_global_exists("STATUS_SYS") && is_array(global.STATUS_SYS.ids)){
+            var _ids = global.STATUS_SYS.ids;
+            for (var _gi = 0; _gi < array_length(_ids); ++_gi){
+                var _gid = string_lower(string(_ids[_gi]));
+                if (string_length(_gid) <= 0) continue;
+                if (__party_status_ui_has_status(_mon_or_actor, _base_mon, _gid)) __party_status_ui_push_unique(_out, _gid);
+            }
+        }
+    } catch (e_status_ui_collect_registry) {}
+
+    var _pkrs_keys = ["pkrs", "pokerus", "has_pkrs", "has_pokerus"];
+    for (var _pk_i = 0; _pk_i < array_length(_pkrs_keys); ++_pk_i){
+        var _pk_key = _pkrs_keys[_pk_i];
+        try {
+            if (!variable_struct_exists(_base_mon, _pk_key)) continue;
+            var _pk_val = variable_struct_get(_base_mon, _pk_key);
+            if ((is_bool(_pk_val) && _pk_val) || (is_real(_pk_val) && _pk_val > 0) || (is_string(_pk_val) && string_length(string_trim(_pk_val)) > 0 && string_lower(string_trim(_pk_val)) != "false" && string_trim(_pk_val) != "0")){
+                __party_status_ui_push_unique(_out, "pkrs");
+                break;
+            }
+        } catch (e_status_ui_collect_pkrs) {}
+    }
+
+    return _out;
+}
+
+function __party_status_ui_sprite_frame_for(_sid){
+    switch (string_lower(string(_sid))){
+        case "poison":
+        case "toxic": return 0;
+        case "paralysis":
+        case "paralyze": return 1;
+        case "sleep": return 2;
+        case "freeze": return 3;
+        case "burn": return 4;
+        case "pkrs": return 5;
+        case "fnt": return 6;
+    }
+    return -1;
+}
+
+function __party_status_ui_sprite_frames(_mon_or_actor){
+    var _statuses = __party_status_ui_collect(_mon_or_actor);
+    if (!is_array(_statuses) || array_length(_statuses) <= 0) return [];
+
+    var _frames = [];
+    for (var _i = 0; _i < array_length(_statuses); ++_i){
+        var _frame = __party_status_ui_sprite_frame_for(_statuses[_i]);
+        if (_frame >= 0) __party_status_ui_push_unique(_frames, string(_frame));
+    }
+
+    var _out = [];
+    for (var _j = 0; _j < array_length(_frames); ++_j){
+        array_push(_out, real(_frames[_j]));
+    }
+    return _out;
+}
+
+function __party_draw_status_ui(_x, _y, _scale, _mon_or_actor, _max_width = -1, _alpha = 1){
+    if (!sprite_exists(spr_statusUI)) return 0;
+
+    var _frames = __party_status_ui_sprite_frames(_mon_or_actor);
+    if (!is_array(_frames) || array_length(_frames) <= 0) return 0;
+
+    var _safe_scale = max(0.5, real(_scale));
+    var _old_alpha = draw_get_alpha();
+    var _old_color = draw_get_color();
+    var _sprite_w = max(1, sprite_get_width(spr_statusUI));
+    var _draw_step = max(1, floor(_sprite_w * _safe_scale));
+    var _gap = max(1, round(2 * _safe_scale));
+    var _cursor_x = _x;
+    var _drawn_w = 0;
+
+    draw_set_alpha(clamp(_alpha, 0, 1));
+    draw_set_color(c_white);
+
+    for (var _si = 0; _si < array_length(_frames); ++_si){
+        var _next_w = _draw_step + ((_si > 0) ? _gap : 0);
+        if (is_real(_max_width) && _max_width > 0 && (_drawn_w + _next_w) > _max_width) break;
+        if (_si > 0) _cursor_x += _gap;
+        draw_sprite_ext(spr_statusUI, _frames[_si], _cursor_x, _y, _safe_scale, _safe_scale, 0, c_white, clamp(_alpha, 0, 1));
+        _cursor_x += _draw_step;
+        _drawn_w = _cursor_x - _x;
+    }
+
+    draw_set_alpha(_old_alpha);
+    draw_set_color(_old_color);
+    return _drawn_w;
+}
+
 // Clean description text by removing control/newline characters and trimming.
 function __party_impl_desc_clean_local(_s){
     var _t = string(_s);
