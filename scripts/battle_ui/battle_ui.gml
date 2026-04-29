@@ -403,6 +403,68 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
     }
 
     var _B = __battle_ensure_slot(_pid);
+    if (is_struct(_B) && variable_struct_exists(_B, "_trainer_switch_prompt")){
+        var _prompt = variable_struct_get(_B, "_trainer_switch_prompt");
+        if (is_struct(_prompt) && variable_struct_exists(_prompt, "active") && _prompt.active){
+            var _phase_prompt = (variable_struct_exists(_prompt, "phase") ? string(variable_struct_get(_prompt, "phase")) : "prompt");
+            if (_phase_prompt == "prompt"){
+                var _font_main = variable_global_exists("FNT_POKEMON") ? global.FNT_POKEMON : -1;
+                var _font_small = variable_global_exists("FNT_POKEMON_SMALL") ? global.FNT_POKEMON_SMALL : _font_main;
+                if (_font_main != -1) draw_set_font(_font_main);
+
+                var _trainer_name = (variable_struct_exists(_prompt, "trainer_name") ? string(variable_struct_get(_prompt, "trainer_name")) : "Trainer");
+                var _mon_name = (variable_struct_exists(_prompt, "enemy_next_name") ? string(variable_struct_get(_prompt, "enemy_next_name")) : "Pokemon");
+                var _msg0 = __battle_text_fit_ellipsis(_pid, _trainer_name + " is about to use", _bw - __bwu(_pid, 18));
+                var _msg1 = __battle_text_fit_ellipsis(_pid, _mon_name + ". Change Pokemon?", _bw - __bwu(_pid, 18));
+                var _dialog_col2 = (variable_struct_exists(_t, "col_dialog_text") ? variable_struct_get(_t, "col_dialog_text") : _t.col_text);
+                draw_set_color(_dialog_col2);
+                draw_set_halign(fa_left);
+                draw_set_valign(fa_top);
+                draw_text(_bx + __bwu(_pid, 8), _by + __bhu(_pid, 6), _msg0);
+                draw_text(_bx + __bwu(_pid, 8), _by + __bhu(_pid, 18), _msg1);
+
+                var _menu_w = __bwu(_pid, 52);
+                var _menu_h = __bhu(_pid, 34);
+                var _menu_x = _bx + _bw - _menu_w - __bwu(_pid, 10);
+                var _menu_y = _by - _menu_h - __bhu(_pid, 4);
+                draw_set_alpha(0.2);
+                draw_set_color(c_black);
+                draw_rectangle(_menu_x + __bwu(_pid, 2), _menu_y + __bhu(_pid, 2), _menu_x + _menu_w + __bwu(_pid, 2), _menu_y + _menu_h + __bhu(_pid, 2), false);
+                draw_set_alpha(1);
+                draw_set_color(_t.col_outline);
+                draw_rectangle(_menu_x, _menu_y, _menu_x + _menu_w, _menu_y + _menu_h, false);
+                draw_set_color(_t.col_panel);
+                draw_rectangle(_menu_x + 1, _menu_y + 1, _menu_x + _menu_w - 1, _menu_y + _menu_h - 1, false);
+
+                if (_font_small != -1) draw_set_font(_font_small);
+                var _sel_prompt_ui = (variable_struct_exists(_prompt, "sel") && is_real(variable_struct_get(_prompt, "sel"))) ? floor(variable_struct_get(_prompt, "sel")) : 1;
+                var _opts = ["YES", "NO"];
+                var _row_box_h = __bhu(_pid, 11);
+                var _row_gap = __bhu(_pid, 3);
+                var _row_x1 = _menu_x + __bwu(_pid, 4);
+                var _row_x2 = _menu_x + _menu_w - __bwu(_pid, 4);
+                var _row_y0 = _menu_y + __bhu(_pid, 4);
+                draw_set_halign(fa_center);
+                    draw_set_valign(fa_top);
+                for (var _pi = 0; _pi < 2; ++_pi){
+                    var _row_y = _row_y0 + (_pi * (_row_box_h + _row_gap));
+                    var _hilite = (_pi == _sel_prompt_ui);
+                    if (_hilite){
+                        draw_set_color(_t.col_ui_highlight);
+                        draw_rectangle(_row_x1, _row_y, _row_x2, _row_y + _row_box_h, false);
+                    }
+                    draw_set_color(_hilite ? _t.col_panel : ((variable_struct_exists(_t, "col_ui_text") ? variable_struct_get(_t, "col_ui_text") : _t.col_text)));
+                        var _label_y = _row_y + max(0, floor((_row_box_h - string_height(_opts[_pi])) * 0.5)) + __bhu(_pid, 6);
+                        draw_text((_row_x1 + _row_x2) * 0.5, _label_y, _opts[_pi]);
+                }
+                draw_set_halign(fa_left);
+                draw_set_valign(fa_top);
+                return;
+            }
+            return;
+        }
+    }
+
     // Do not show the command/root menus during intro phases or while the
     // intro has not been marked completed. This prevents the brief flash of
     // the command UI between the "Go" dialog and the Pokémon cry/intro.

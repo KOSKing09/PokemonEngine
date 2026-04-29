@@ -18,7 +18,7 @@ This document summarizes the battle system architecture, public APIs, phases, st
 - `switch_in`: swap animation; may consume turn.
 
 ## Battle slot `_B` (selected fields)
-- `sys_open: bool`, `phase: string`, `phase_start_ms: int`, `phase_progress: real`, `phase_durs: struct`
+- `sys_open: bool`, `phase: string`, `phase_start_ms: int`, `phase_progress: real`, `phase_durs: struct` 
 - `actor: [playerActor, enemyActor]`
 - `sys_ui: { menu, selX, selY, msg_list }`, `_ui` (letterbox metrics), `theme`
 - Turn: `turn_queue: array`, `turn_i: int`, `turn_action_player`, `turn_action_enemy`
@@ -97,6 +97,18 @@ battle_draw_gui(0);
 - `__battle_trainer_apply_pending_send(pid)` — should be invoked from `battle_update()` when dialog gates clear and the pending send's `ready_ms` has passed; it displays the "sent out" dialog then replaces the enemy actor with the new mon and applies entry hazards.
 
 - `__battle_trainer_handle_defeat(pid)` — awards the trainer payout (uses `currency_add` if present or `global.PLAYER_MONEY`) and enqueues defeat/reward dialog lines to `_pending_status_msgs`.
+
+## Trainer About-To-Send Prompt
+
+- Trainer battles now pause after an enemy trainer Pokemon faints when another usable trainer mon remains.
+- The battle slot stores `_trainer_switch_prompt` with the pending enemy index/name, current `Yes/No` selection, optional player switch target, and a small internal phase string.
+- Flow:
+	- enemy trainer mon faints -> `_trainer_switch_prompt.phase = "prompt"`
+	- `No` or `Back` -> existing `__battle_trainer_schedule_next_mon` / `__battle_trainer_apply_pending_send` flow runs unchanged
+	- `Yes` -> party opens in a temporary pick mode that only accepts valid non-fainted, non-active mons
+	- canceling that party pick mode is treated the same as `No`
+	- trainer send-out resolves first, then any stored player switch runs through `battle_switch_to(..., { consume_turn:false, forced:true })`
+- Wild battle faint flow and trainer defeat flow stay unchanged.
 
 Implementation tips:
 - Place `__battle_trainer_apply_pending_send(pid)` calls inside safe phase boundaries (e.g., at the start of `battle_update()` when `phase` moves back to `command`) so sends don't interrupt animations or active turns.

@@ -65,6 +65,65 @@ function __party_impl_party_update(){
                 _P.scroll = clamp(_P.scroll, 0, max(0, _n - _ROWS));
                 if (_P.sel <  _P.scroll)        _P.scroll = _P.sel;
                 if (_P.sel >= _P.scroll + _ROWS) _P.scroll = max(0, _P.sel - _ROWS + 1);
+                var _trainer_prompt_pick = (is_struct(_P) && variable_struct_exists(_P, "_trainer_prompt_pick_mode") && variable_struct_get(_P, "_trainer_prompt_pick_mode") == true);
+                if (_trainer_prompt_pick){
+                    if (controls_pressed(_pid,"Interact") && _P.lock == 0){
+                        var _pick_idx = _P.sel;
+                        var _pick_mon = party_model_get_mon(_pid, _pick_idx);
+                        var _pick_hp = __battle_hp_now(_pick_mon);
+                        var _active_idx_pick = -1;
+                        try {
+                            var _Bpick = __battle_ensure_slot(_pid);
+                            if (is_struct(_Bpick) && variable_struct_exists(_Bpick, "actor") && is_array(variable_struct_get(_Bpick, "actor")) && array_length(variable_struct_get(_Bpick, "actor")) > 0){
+                                var _active_actor_pick = variable_struct_get(_Bpick, "actor")[0];
+                                var _active_mon_pick = (is_struct(_active_actor_pick) && variable_struct_exists(_active_actor_pick, "mon") && is_struct(variable_struct_get(_active_actor_pick, "mon"))) ? variable_struct_get(_active_actor_pick, "mon") : _active_actor_pick;
+                                for (var _pii = 0; _pii < _n; ++_pii){
+                                    var _cand_pick = _P.mons[_pii];
+                                    if (is_struct(_cand_pick) && (_cand_pick == _active_actor_pick || _cand_pick == _active_mon_pick)) { _active_idx_pick = _pii; break; }
+                                }
+                            }
+                        } catch (e_pick_active) { _active_idx_pick = -1; }
+
+                        if (!is_struct(_pick_mon) || !is_real(_pick_hp) || _pick_hp <= 0 || _pick_idx == _active_idx_pick){
+                            _P.lock = 6;
+                        } else {
+                            try {
+                                var _Bpick2 = __battle_ensure_slot(_pid);
+                                if (is_struct(_Bpick2) && variable_struct_exists(_Bpick2, "_trainer_switch_prompt")){
+                                    var _tpick = variable_struct_get(_Bpick2, "_trainer_switch_prompt");
+                                    if (is_struct(_tpick)){
+                                        variable_struct_set(_tpick, "player_choice", "yes");
+                                        variable_struct_set(_tpick, "player_switch_idx", _pick_idx);
+                                        variable_struct_set(_tpick, "phase", "queue_enemy_send");
+                                        variable_struct_set(_Bpick2, "_trainer_switch_prompt", _tpick);
+                                    }
+                                }
+                            } catch (e_pick_set) {}
+                            variable_struct_set(_P, "_trainer_prompt_pick_mode", false);
+                            _P.open = false;
+                            _P.lock = 2;
+                            continue;
+                        }
+                    }
+                    if (controls_pressed(_pid,"Run") && _P.lock == 0){
+                        try {
+                            var _Bpick_cancel = __battle_ensure_slot(_pid);
+                            if (is_struct(_Bpick_cancel) && variable_struct_exists(_Bpick_cancel, "_trainer_switch_prompt")){
+                                var _tcancel = variable_struct_get(_Bpick_cancel, "_trainer_switch_prompt");
+                                if (is_struct(_tcancel)){
+                                    variable_struct_set(_tcancel, "player_choice", "no");
+                                    variable_struct_set(_tcancel, "player_switch_idx", -1);
+                                    variable_struct_set(_tcancel, "phase", "queue_enemy_send");
+                                    variable_struct_set(_Bpick_cancel, "_trainer_switch_prompt", _tcancel);
+                                }
+                            }
+                        } catch (e_pick_cancel) {}
+                        variable_struct_set(_P, "_trainer_prompt_pick_mode", false);
+                        _P.open = false;
+                        _P.lock = 2;
+                        continue;
+                    }
+                }
                 if (controls_pressed(_pid,"Interact") && _P.lock == 0){
                     // List-mode Interact behavior:
                     // - If forced in-battle swap is active, Interact immediately selects the incoming mon.

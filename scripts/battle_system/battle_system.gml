@@ -624,6 +624,7 @@ function battle_open(_a0 = undefined, _a1 = undefined, _a2 = undefined, _a3 = un
     try {
         if (variable_struct_exists(_B, "_trainer_pending_send")) variable_struct_remove(_B, "_trainer_pending_send");
     } catch (e_trpend) {}
+    try { variable_struct_set(_B, "_trainer_switch_prompt", undefined); } catch (e_trprompt_clear) {}
 
     // Turn queue container (filled when a move is chosen)
     _B.turn_queue = undefined;
@@ -1622,6 +1623,8 @@ function battle_update(_pid){
         }
     } catch (e_cs) { /* ignore if CutsceneSystem not present or errors; continue */ }
 
+    if (!is_undefined(__battle_trainer_update_switch_prompt)) __battle_trainer_update_switch_prompt(_pid);
+
     if (!is_undefined(__battle_trainer_apply_pending_send)){
         var __mode_for_trainer = "wild";
         try {
@@ -2573,6 +2576,46 @@ function __battle_process_input(_pid){
             if (_cphase != "caught" && _cphase != "escape"){
                 _l = false; _r = false; _u = false; _d = false; _a = false; _b = false;
             }
+        }
+    }
+
+    if (is_struct(_B) && variable_struct_exists(_B, "_trainer_switch_prompt")){
+        var _tprompt = variable_struct_get(_B, "_trainer_switch_prompt");
+        if (is_struct(_tprompt) && variable_struct_exists(_tprompt, "active") && _tprompt.active){
+            var _tphase = (variable_struct_exists(_tprompt, "phase") ? string(variable_struct_get(_tprompt, "phase")) : "prompt");
+            if (_tphase == "prompt"){
+                if (_u || _d){
+                    var _sel_prompt = (variable_struct_exists(_tprompt, "sel") && is_real(variable_struct_get(_tprompt, "sel"))) ? floor(variable_struct_get(_tprompt, "sel")) : 1;
+                    _sel_prompt = 1 - clamp(_sel_prompt, 0, 1);
+                    variable_struct_set(_tprompt, "sel", _sel_prompt);
+                    variable_struct_set(_B, "_trainer_switch_prompt", _tprompt);
+                }
+                if (_b){
+                    variable_struct_set(_tprompt, "player_choice", "no");
+                    variable_struct_set(_tprompt, "player_switch_idx", -1);
+                    variable_struct_set(_tprompt, "phase", "queue_enemy_send");
+                    variable_struct_set(_B, "_trainer_switch_prompt", _tprompt);
+                } else if (_a){
+                    var _sel_confirm = (variable_struct_exists(_tprompt, "sel") && is_real(variable_struct_get(_tprompt, "sel"))) ? floor(variable_struct_get(_tprompt, "sel")) : 1;
+                    if (_sel_confirm == 0){
+                        variable_struct_set(_tprompt, "player_choice", "yes");
+                        variable_struct_set(_tprompt, "player_switch_idx", -1);
+                        variable_struct_set(_tprompt, "phase", "await_party");
+                        variable_struct_set(_B, "_trainer_switch_prompt", _tprompt);
+                        if (!__battle_trainer_open_switch_party(_pid)){
+                            variable_struct_set(_tprompt, "player_choice", "no");
+                            variable_struct_set(_tprompt, "phase", "queue_enemy_send");
+                            variable_struct_set(_B, "_trainer_switch_prompt", _tprompt);
+                        }
+                    } else {
+                        variable_struct_set(_tprompt, "player_choice", "no");
+                        variable_struct_set(_tprompt, "player_switch_idx", -1);
+                        variable_struct_set(_tprompt, "phase", "queue_enemy_send");
+                        variable_struct_set(_B, "_trainer_switch_prompt", _tprompt);
+                    }
+                }
+            }
+            return;
         }
     }
 
@@ -3665,9 +3708,9 @@ function __battle_step_turn_if_ready(_pid){
             }
             show_debug_message("[battle][trainer][post-faint] next_idx=" + string(next_idx));
             if (next_idx >= 0){
-                if (__battle_trainer_schedule_next_mon(_pid, next_idx)){
+                if (__battle_trainer_begin_switch_prompt(_pid, next_idx)){
                     if (_dbg_trainer){
-                        try { show_debug_message("[battle][trainer] scheduled next mon idx=" + string(next_idx)); } catch (e_dbg_sched) {}
+                        try { show_debug_message("[battle][trainer] prompt next mon idx=" + string(next_idx)); } catch (e_dbg_sched) {}
                     }
                     should_close_battle = false;
                 }
@@ -4776,6 +4819,12 @@ function battle_switch_to(_pid, _party_idx, _opts){
 
     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
         show_debug_message("[battle_switch_to] pid=" + string(_pid) + ", party_idx=" + string(_party_idx));
+    }
+
+    var _active_party_idx = __battle_find_player_party_active_index(_pid);
+    if (is_real(_active_party_idx) && floor(_active_party_idx) == floor(_party_idx)){
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_switch_to] rejected: target already active pid=" + string(_pid) + ", idx=" + string(_party_idx));
+        return false;
     }
 
     if (is_undefined(_opts)) _opts = {};
@@ -5909,6 +5958,148 @@ function __battle_trainer_schedule_next_mon(_pid, _next_idx){
     }
 
     try { variable_struct_set(_B, "_trainer_pending_send", pending); } catch (e_set) { return false; }
+    return true;
+}
+
+function __battle_find_player_party_active_index(_pid){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !variable_struct_exists(_B, "actor") || !is_array(variable_struct_get(_B, "actor"))) return -1;
+    var _actors = variable_struct_get(_B, "actor");
+    if (array_length(_actors) <= 0 || !is_struct(_actors[0])) return -1;
+    var _active_actor = _actors[0];
+    var _active_mon = (variable_struct_exists(_active_actor, "mon") && is_struct(variable_struct_get(_active_actor, "mon"))) ? variable_struct_get(_active_actor, "mon") : _active_actor;
+    var _mons = party_model_get_mons(_pid);
+    if (!is_array(_mons)) return -1;
+    for (var _i = 0; _i < array_length(_mons); ++_i){
+        var _mon = _mons[_i];
+        if (!is_struct(_mon)) continue;
+        if (_mon == _active_mon || _mon == _active_actor) return _i;
+    }
+    return -1;
+}
+
+function __battle_find_first_switchable_party_index(_pid){
+    var _mons = party_model_get_mons(_pid);
+    if (!is_array(_mons)) return -1;
+    var _active_idx = __battle_find_player_party_active_index(_pid);
+    for (var _i = 0; _i < array_length(_mons); ++_i){
+        if (_i == _active_idx) continue;
+        var _mon = _mons[_i];
+        if (!is_struct(_mon)) continue;
+        var _hp = __battle_hp_now(_mon);
+        if (is_real(_hp) && _hp > 0) return _i;
+    }
+    return -1;
+}
+
+function __battle_trainer_begin_switch_prompt(_pid, _next_idx){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !variable_struct_exists(_B, "_trainer_party")) return false;
+    var _party = variable_struct_get(_B, "_trainer_party");
+    if (!is_array(_party) || !is_real(_next_idx) || _next_idx < 0 || _next_idx >= array_length(_party)) return false;
+    var _mon = _party[_next_idx];
+    if (!is_struct(_mon) || !__battle_trainer_mon_is_alive(_mon)) return false;
+
+    var _next_name = (variable_struct_exists(_mon, "name") ? string(variable_struct_get(_mon, "name")) : "Pokemon");
+    var _trainer_name = __battle_trainer_get_name(_B);
+    var _prompt = {
+        active: true,
+        enemy_next_idx: floor(_next_idx),
+        enemy_next_name: _next_name,
+        trainer_name: _trainer_name,
+        sel: 1,
+        player_choice: "none",
+        player_switch_idx: -1,
+        phase: "prompt"
+    };
+    try { variable_struct_set(_B, "_trainer_switch_prompt", _prompt); } catch (e_prompt_set) { return false; }
+    try { variable_struct_set(_B, "_pending_close", false); } catch (e_pc_prompt) {}
+    try { variable_struct_set(_B, "_action_active", false); } catch (e_act_prompt) {}
+    _B.phase = "command";
+    return true;
+}
+
+function __battle_trainer_clear_switch_prompt(_pid){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B)) return;
+    try { variable_struct_set(_B, "_trainer_switch_prompt", undefined); } catch (e_clear_prompt) {}
+    try {
+        var _P = party_ensure(_pid);
+        if (is_struct(_P) && variable_struct_exists(_P, "_trainer_prompt_pick_mode")) variable_struct_set(_P, "_trainer_prompt_pick_mode", false);
+    } catch (e_clear_prompt_party) {}
+}
+
+function __battle_trainer_open_switch_party(_pid){
+    if (is_undefined(party_open) || is_undefined(party_ensure)) return false;
+    party_open(_pid);
+    var _P = party_ensure(_pid);
+    if (!is_struct(_P)) return false;
+    try { variable_struct_set(_P, "_trainer_prompt_pick_mode", true); } catch (e_pick_mode) {}
+    try { variable_struct_set(_P, "_battle_swap_mode", false); } catch (e_swap_mode) {}
+    try { variable_struct_set(_P, "_battle_swap_mode_forced", false); } catch (e_swap_forced) {}
+    try { variable_struct_set(_P, "mode", "list"); } catch (e_pick_list) {}
+    try { variable_struct_set(_P, "lock", 0); } catch (e_pick_lock) {}
+    var _pick_idx = __battle_find_first_switchable_party_index(_pid);
+    if (_pick_idx >= 0){
+        try { variable_struct_set(_P, "sel", _pick_idx); } catch (e_pick_sel) {}
+    }
+    return true;
+}
+
+function __battle_trainer_update_switch_prompt(_pid){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !variable_struct_exists(_B, "_trainer_switch_prompt")) return false;
+    var _prompt = variable_struct_get(_B, "_trainer_switch_prompt");
+    if (!is_struct(_prompt) || !variable_struct_exists(_prompt, "active") || !_prompt.active) return false;
+
+    var _phase = (variable_struct_exists(_prompt, "phase") ? string(variable_struct_get(_prompt, "phase")) : "prompt");
+    if (_phase == "await_party"){
+        var _party_open = (!is_undefined(party_is_open) && party_is_open(_pid));
+        if (!_party_open){
+            var _pick = (variable_struct_exists(_prompt, "player_switch_idx") && is_real(variable_struct_get(_prompt, "player_switch_idx"))) ? floor(variable_struct_get(_prompt, "player_switch_idx")) : -1;
+            if (_pick >= 0){
+                variable_struct_set(_prompt, "player_choice", "yes");
+            } else {
+                variable_struct_set(_prompt, "player_choice", "no");
+                variable_struct_set(_prompt, "player_switch_idx", -1);
+            }
+            variable_struct_set(_prompt, "phase", "queue_enemy_send");
+            variable_struct_set(_B, "_trainer_switch_prompt", _prompt);
+        }
+        return true;
+    }
+
+    if (_phase == "queue_enemy_send"){
+        if (!variable_struct_exists(_B, "_trainer_pending_send") || !is_struct(variable_struct_get(_B, "_trainer_pending_send"))){
+            var _next_idx = (variable_struct_exists(_prompt, "enemy_next_idx") ? variable_struct_get(_prompt, "enemy_next_idx") : -1);
+            if (__battle_trainer_schedule_next_mon(_pid, _next_idx)){
+                variable_struct_set(_prompt, "phase", "await_enemy_send");
+                variable_struct_set(_B, "_trainer_switch_prompt", _prompt);
+            } else {
+                __battle_trainer_clear_switch_prompt(_pid);
+            }
+        }
+        return true;
+    }
+
+    if (_phase == "await_enemy_send"){
+        var _dialog_open = (is_undefined(dialog2p_is_open) ? false : dialog2p_is_open(_pid));
+        var _send_pending = (variable_struct_exists(_B, "_trainer_pending_send") && is_struct(variable_struct_get(_B, "_trainer_pending_send")));
+        var _switch_anim = (variable_struct_exists(_B, "_trainer_switch") && is_struct(variable_struct_get(_B, "_trainer_switch")));
+        if (_dialog_open || _send_pending || _switch_anim) return true;
+
+        var _pick_idx2 = (variable_struct_exists(_prompt, "player_switch_idx") && is_real(variable_struct_get(_prompt, "player_switch_idx"))) ? floor(variable_struct_get(_prompt, "player_switch_idx")) : -1;
+        if (_pick_idx2 >= 0){
+            var _ok_switch = battle_switch_to(_pid, _pick_idx2, { auto_apply:true, consume_turn:false, forced:true });
+            if (_ok_switch){
+                __battle_trainer_clear_switch_prompt(_pid);
+                return true;
+            }
+        }
+        __battle_trainer_clear_switch_prompt(_pid);
+        return true;
+    }
+
     return true;
 }
 
