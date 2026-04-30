@@ -711,23 +711,14 @@ function __battle_apply_damage_impl(_pid, _target_index, _dmg, _mult){
             try {
                 var _B_sch = __battle_ensure_slot(_pid);
                 if (is_struct(_B_sch)){
-                    // Only open party UI for player's side (target_index == 0)
-                    if (is_real(_target_index) && _target_index == 0){
+                    var _player_side_faint = (is_real(_target_index) && (__battle_actor_side(_target_index) == 0));
+                    // Only open party UI for player's side faints.
+                    if (_player_side_faint){
                         variable_struct_set(_B_sch, "_pending_open_party", true);
                         try {
                             if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_impls] scheduled _pending_open_party for pid=" + string(_pid));
                         } catch (e_dbg_po) {}
                     }
-                    // Ensure the faint dialog has at least one frame to render before
-                    // the party UI may open: set a short delay marker the battle
-                    // update loop will honor.
-                    // Give the faint dialog a slightly longer window to render before
-                    // the party UI opens. Increase from 120ms to 300ms to reduce
-                    // chances the party menu occludes the faint message on slow
-                    // machines or when multiple UI updates occur in the same frame.
-                    try { variable_struct_set(_B_sch, "_pending_open_party_delay_until", current_time + 300);
-                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_impls] set _pending_open_party_delay_until=" + string(current_time + 300) + " pid=" + string(_pid));
-                    } catch (e_pd) {}
                     // Queue faint text to show last; do not open immediately.
                         try {
                             var _fnt_name = "(Unknown)";
@@ -736,26 +727,31 @@ function __battle_apply_damage_impl(_pid, _target_index, _dmg, _mult){
                             // Queue as a faint-gated dialog so it shows after other pending messages
                             if (!is_undefined(__battle_try_enqueue_faint_dialog)) __battle_try_enqueue_faint_dialog(_pid, _B_sch, string(_fnt_name) + " fainted!", string(_fnt_name) + " fainted!");
                         } catch (e_sd_local) {}
-                    // Do NOT set _faint_pending here; allow other messages to show before faint.
-                    // Store a reference to the fainted actor's inner mon (preferred) so selection
-                    // mapping can resolve correctly even after the party is reordered.
-                    var _refm = T;
-                    if (variable_struct_exists(T, "mon") && is_struct(variable_struct_get(T, "mon"))) _refm = variable_struct_get(T, "mon");
-                    variable_struct_set(_B_sch, "_pending_open_party_next_mon_ref", _refm);
-                    try { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){ var _nmref = "<unknown>"; try { if (is_struct(_refm) && variable_struct_exists(_refm, "name")) _nmref = string(variable_struct_get(_refm, "name")); } catch(e_){} show_debug_message("[battle_impls] _pending_open_party_next_mon_ref set for pid=" + string(_pid) + ", ref_preview=" + _nmref); } } catch(e_dbgref) {}
-                    // Preserve current UI menu/selection so we can restore it after forced swap
-                    try {
-                        if (variable_struct_exists(_B_sch, "sys_ui") && is_struct(variable_struct_get(_B_sch, "sys_ui"))){
-                            var _su = variable_struct_get(_B_sch, "sys_ui");
-                            // Save menu and selection coordinates
-                            if (variable_struct_exists(_su, "menu")) variable_struct_set(_B_sch, "_pending_open_party_prev_menu", variable_struct_get(_su, "menu"));
-                            if (variable_struct_exists(_su, "selX")) variable_struct_set(_B_sch, "_pending_open_party_prev_selX", variable_struct_get(_su, "selX"));
-                            if (variable_struct_exists(_su, "selY")) variable_struct_set(_B_sch, "_pending_open_party_prev_selY", variable_struct_get(_su, "selY"));
-                        }
-                    } catch (e_saveui) {}
-                    // Also clear any deferred turn resume so we don't accidentally continue
-                    // the turn while the party selection is pending.
-                    variable_struct_set(_B_sch, "_defer_turn_until_no_dialog", false);
+                    if (_player_side_faint){
+                        // Ensure the faint dialog has time to render before the party UI may open.
+                        try { variable_struct_set(_B_sch, "_pending_open_party_delay_until", current_time + 300);
+                            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_impls] set _pending_open_party_delay_until=" + string(current_time + 300) + " pid=" + string(_pid));
+                        } catch (e_pd) {}
+                        // Do NOT set _faint_pending here; allow other messages to show before faint.
+                        // Store a reference to the fainted actor's inner mon (preferred) so selection
+                        // mapping can resolve correctly even after the party is reordered.
+                        var _refm = T;
+                        if (variable_struct_exists(T, "mon") && is_struct(variable_struct_get(T, "mon"))) _refm = variable_struct_get(T, "mon");
+                        variable_struct_set(_B_sch, "_pending_open_party_next_mon_ref", _refm);
+                        try { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){ var _nmref = "<unknown>"; try { if (is_struct(_refm) && variable_struct_exists(_refm, "name")) _nmref = string(variable_struct_get(_refm, "name")); } catch(e_){} show_debug_message("[battle_impls] _pending_open_party_next_mon_ref set for pid=" + string(_pid) + ", ref_preview=" + _nmref); } } catch(e_dbgref) {}
+                        // Preserve current UI menu/selection so we can restore it after forced swap
+                        try {
+                            if (variable_struct_exists(_B_sch, "sys_ui") && is_struct(variable_struct_get(_B_sch, "sys_ui"))){
+                                var _su = variable_struct_get(_B_sch, "sys_ui");
+                                if (variable_struct_exists(_su, "menu")) variable_struct_set(_B_sch, "_pending_open_party_prev_menu", variable_struct_get(_su, "menu"));
+                                if (variable_struct_exists(_su, "selX")) variable_struct_set(_B_sch, "_pending_open_party_prev_selX", variable_struct_get(_su, "selX"));
+                                if (variable_struct_exists(_su, "selY")) variable_struct_set(_B_sch, "_pending_open_party_prev_selY", variable_struct_get(_su, "selY"));
+                            }
+                        } catch (e_saveui) {}
+                        // Also clear any deferred turn resume so we don't accidentally continue
+                        // the turn while the party selection is pending.
+                        variable_struct_set(_B_sch, "_defer_turn_until_no_dialog", false);
+                    }
                 }
             } catch (e_sch) {}
         }
@@ -923,7 +919,10 @@ function __battle_finalize_catch_impl(_B, _caught){
     var _caught_name = "Pokemon";
     if (is_struct(_mon) && variable_struct_exists(_mon, "name")) _caught_name = string(variable_struct_get(_mon, "name"));
     else if (is_struct(_mon) && variable_struct_exists(_mon, "nickname") && string_length(string(variable_struct_get(_mon, "nickname"))) > 0) _caught_name = string(variable_struct_get(_mon, "nickname"));
-    else if (is_array(_B.actor) && array_length(_B.actor) > 1 && is_struct(_B.actor[1]) && variable_struct_exists(_B.actor[1], "name")) _caught_name = string(variable_struct_get(_B.actor[1], "name"));
+    else if (!is_undefined(__battle_enemy_lead_index) && is_array(_B.actor)){
+        var _enemy_idx = __battle_enemy_lead_index(_pid);
+        if (_enemy_idx >= 0 && _enemy_idx < array_length(_B.actor) && is_struct(_B.actor[_enemy_idx]) && variable_struct_exists(_B.actor[_enemy_idx], "name")) _caught_name = string(variable_struct_get(_B.actor[_enemy_idx], "name"));
+    }
 
     var _msg = "Gotcha!\nYou caught " + _caught_name + "!";
     if (is_struct(_store) && variable_struct_exists(_store, "ok") && _store.ok){

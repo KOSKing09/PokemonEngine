@@ -86,6 +86,10 @@ function pkicons_set_missing_art(_spr){
 function pkicons_set_art96_base(_absDir){
     var p = string_replace_all(string(_absDir),"\\","/");
     if (string_length(p)>0 && string_copy(p,string_length(p),1)!="/") p+="/";
+    if (!variable_struct_exists(PKICONS, "art96_base") || PKICONS.art96_base != p){
+        PKICONS.art_cache = {};
+        PKICONS.art_meta = {};
+    }
     PKICONS.art96_base = p;
 }
 function pkicons_set_icon32_base(_absDir){
@@ -885,10 +889,26 @@ function pkicons_get_art96(_species){
     if (PKICONS.debug_crys) pkicons__log_cry("art96 sliced species="+string(_species)+" frame="+string(frameW)+"x"+string(frameH));
     return quad;
 }
+function pkicons__resolve_mon_species_id(_mon){
+    if (!is_struct(_mon)) return -1;
+
+    if (!is_undefined(party_model_resolve_species_id)){
+        var _resolved = party_model_resolve_species_id(_mon);
+        if (is_real(_resolved) && _resolved >= 0) return floor(_resolved);
+    }
+
+    if (variable_struct_exists(_mon,"species_id") && is_real(variable_struct_get(_mon, "species_id"))) return floor(variable_struct_get(_mon, "species_id"));
+    if (variable_struct_exists(_mon,"id") && is_real(variable_struct_get(_mon, "id"))) return floor(variable_struct_get(_mon, "id"));
+    if (variable_struct_exists(_mon,"species") && is_real(variable_struct_get(_mon, "species"))) return floor(variable_struct_get(_mon, "species"));
+
+    return -1;
+}
+
 function pkicons_get_art96_by_mon(_mon){
     if (!is_struct(_mon)) return PKICONS.missing_art96;
-    if (variable_struct_exists(_mon,"species_id") && is_real(_mon.species_id)) return pkicons_get_art96(_mon.species_id);
-    if (variable_struct_exists(_mon,"species")) return pkicons_get_art96(_mon.species);
+    var sid = pkicons__resolve_mon_species_id(_mon);
+    if (sid >= 0) return pkicons_get_art96(sid);
+    if (variable_struct_exists(_mon,"species")) return pkicons_get_art96(variable_struct_get(_mon, "species"));
     return PKICONS.missing_art96;
 }
 
@@ -905,8 +925,8 @@ function pkicons_get_art96_subimg(_species,_shiny,_back){
 function pkicons_get_art96_subimg_by_mon(_mon,_back){
     if (!is_struct(_mon)) return 0;
     var shiny = false; if (variable_struct_exists(_mon,"shiny")) shiny = (_mon.shiny == true);
-    var sid = -1;
-    if (variable_struct_exists(_mon,"species_id") && is_real(_mon.species_id)) sid = _mon.species_id; else if (variable_struct_exists(_mon,"species")) sid = _mon.species;
+    var sid = pkicons__resolve_mon_species_id(_mon);
+    if (sid < 0 && variable_struct_exists(_mon,"species") && is_real(variable_struct_get(_mon, "species"))) sid = variable_struct_get(_mon, "species");
     if (sid < 0) return 0;
     return pkicons_get_art96_subimg(sid, shiny, _back);
 }

@@ -83,6 +83,77 @@ battle_draw_gui(0);
 - The code defensively guards undefined symbols for portability between runtime editions.
 - If you add new state in `_B`, update this doc and add a brief docblock where it’s created.
 
+## Double Battle Foundation + Co-op Ownership
+- The battle slot now tracks `battle_type`, `battle_format`, `active_per_side`, `coop_enabled`, and `actor_owner_pid`.
+- Singles still use the existing active layout: `actor[0] = player`, `actor[1] = enemy`.
+- Doubles use the new shared layout: `actor[0] = player slot 0`, `actor[1] = player slot 1`, `actor[2] = enemy slot 0`, `actor[3] = enemy slot 1`.
+- `actor_owner_pid` records who owns each active slot so later command input can branch correctly for co-op battles.
+  - Normal single: `[player0, -1, -1, -1]`
+  - Normal double: `[player0, player0, -1, -1]`
+  - Co-op double: `[player0, player1, -1, -1]`
+- `battle_open(pid, level, opts)` now accepts:
+  - `battle_type: "wild" | "trainer"`
+  - `battle_format: "single" | "double"`
+  - `coop_enabled: bool`
+  - `player_pids: [pid0, pid1]` for co-op ownership routing
+- Opening rules in the current foundation pass:
+  - Normal double wild: player 0 sends the first two usable party mons; enemy side spawns two wild mons; falls back to single if player 0 has fewer than two usable mons.
+  - Co-op double wild: actor 0 comes from player 0, actor 1 comes from player 1, enemy side spawns two wild mons; falls back to normal player-0 double if player 1 has no usable mon, otherwise single.
+  - Normal/co-op double trainer: enemy side reads the first two usable entries from the provided trainer party.
+- New helper functions available to format-aware battle code:
+  - `__battle_actor_side(actorIndex)`
+  - `__battle_actor_slot(actorIndex)`
+  - `__battle_is_ally_index(aIndex, bIndex)`
+  - `__battle_is_enemy_index(aIndex, bIndex)`
+  - `__battle_actor_index_alive(pid, actorIndex)`
+  - `__battle_get_default_target_index(pid, actorIndex)`
+  - `__battle_actor_owner_pid(pid, actorIndex)`
+  - `__battle_actor_control_pid(pid, actorIndex)`
+- Current command simplification for doubles:
+  - The existing command UI still collects the primary player action from actor 0.
+  - Extra battlers use simple default-target actions so the shared turn executor can already run four active slots.
+  - Full per-actor command entry, target selection UI, doubles switch flow, and polished battler presentation remain future work.
+
+Copyable open examples:
+
+```gml
+// Double wild battle
+battle_open(0, 12, {
+  battle_type: "wild",
+  battle_format: "double"
+});
+
+// Co-op double wild battle
+battle_open(0, 12, {
+  battle_type: "wild",
+  battle_format: "double",
+  coop_enabled: true,
+  player_pids: [0, 1]
+});
+
+// Double trainer battle
+var trainer_party = [
+  pokemon_factory_create(133, 12, {}),
+  pokemon_factory_create(10, 12, {})
+];
+battle_open_trainer(0, {
+  battle_type: "trainer",
+  battle_format: "double",
+  enemy_party: trainer_party,
+  area_type: "forest"
+});
+
+// Co-op double trainer battle
+battle_open_trainer(0, {
+  battle_type: "trainer",
+  battle_format: "double",
+  coop_enabled: true,
+  player_pids: [0, 1],
+  enemy_party: trainer_party,
+  area_type: "forest"
+});
+```
+
 ## Trainer Battle — Entry Points (quick reference)
 
 - `battle_open_trainer(pid, trainer_payload)` — convenience wrapper to open a trainer battle. `trainer_payload` typically contains:

@@ -4,7 +4,7 @@ BASE_H = 160;
 scale  = 3;            // window scale (e.g., 3 => 720×480)
 pixel_snap = true;     // round to integers for crisp tiles
 
-window_set_size(BASE_W * scale, BASE_H * scale);
+//window_set_size(BASE_W * scale, BASE_H * scale);
 
 view_enabled    = true;
 view_visible[0] = true;

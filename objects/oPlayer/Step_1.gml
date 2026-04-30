@@ -13,6 +13,7 @@ if (battle_is_open(0)){
 
 if (keyboard_check_pressed(vk_f1)){
 	if (!battle_is_open(0)){
+    /* 
         var trainer_party = [];
         if (!is_undefined(pokemon_factory_create)){
             trainer_party = [
@@ -30,10 +31,33 @@ if (keyboard_check_pressed(vk_f1)){
             
         };
         battle_open_trainer(0, trainer_payload);
-       /*
-        battle_open(0, irandom_range(10,10), choose("dark water", "rocks a", "light", "grassy", "rocks b", 
-        "dirt", "river", "snowy", "grassy snow", "ice", "forest", "ugly grass", "wood bridge", "man made paths"));
-        */
+       */
+        var _debug_party = party_ensure(0);
+        if (is_struct(_debug_party) && variable_struct_exists(_debug_party, "mons") && is_array(_debug_party.mons)){
+            var _revived = 0;
+            for (var _pi = 0; _pi < array_length(_debug_party.mons) && _revived < 2; ++_pi){
+                var _mon = _debug_party.mons[_pi];
+                if (!is_struct(_mon)) continue;
+                var _max_hp = 1;
+                if (variable_struct_exists(_mon, "hp_max") && is_real(variable_struct_get(_mon, "hp_max"))) _max_hp = max(1, floor(variable_struct_get(_mon, "hp_max")));
+                else if (variable_struct_exists(_mon, "maxhp") && is_real(variable_struct_get(_mon, "maxhp"))) _max_hp = max(1, floor(variable_struct_get(_mon, "maxhp")));
+                else if (variable_struct_exists(_mon, "hp") && is_real(variable_struct_get(_mon, "hp"))) _max_hp = max(1, floor(variable_struct_get(_mon, "hp")));
+                variable_struct_set(_mon, "hp", _max_hp);
+                variable_struct_set(_mon, "hp_now", _max_hp);
+                if (!variable_struct_exists(_mon, "hp_max") || !is_real(variable_struct_get(_mon, "hp_max"))) variable_struct_set(_mon, "hp_max", _max_hp);
+                if (!variable_struct_exists(_mon, "maxhp") || !is_real(variable_struct_get(_mon, "maxhp"))) variable_struct_set(_mon, "maxhp", _max_hp);
+                _revived += 1;
+            }
+        }
+        battle_open(
+            0,
+            irandom_range(10,10),
+            choose("dark water", "rocks a", "light", "grassy", "rocks b", "dirt", "river", "snowy", "grassy snow", "ice", "forest", "ugly grass", "wood bridge", "man made paths"),
+            {
+                battle_type: "wild",
+                battle_format: "double"
+            }
+        );
 	}else{
 		battle_close(0);
 	}

@@ -220,15 +220,23 @@ function __battle_measure_stage_counters(_A, _max_width = -1){
     return _drawn_w;
 }
 
-function __battle_enemy_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_A){
+function __battle_enemy_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_A,_label,_compact){
     if (!is_struct(_A)) return;
+
+    var _is_compact = (!is_undefined(_compact) && _compact == true);
+    var _label_txt = (is_undefined(_label) ? "" : string(_label));
+    var _name_y = _is_compact ? 3 : 6;
+    var _bar_y = _is_compact ? 11 : 20;
+    var _bar_h = _is_compact ? 4 : 6;
+    var _status_y_off = _is_compact ? 16 : 28;
+    var _status_scale = _is_compact ? 0.6 : 0.8;
 
     var _t  = __battle_ensure_slot(_pid).theme;
     __battle_panel_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn);
     var _bx = __bxu(_pid,_rxIn), _by = __byu(_pid,_ryIn), _bw = __bwu(_pid,_rwIn);
     draw_set_color(_t.col_text);
 
-    var nameMax = _bw - __bwu(_pid, 48);
+    var nameMax = _bw - __bwu(_pid, _is_compact ? 34 : 48);
     var _name_raw = "???";
     if (variable_struct_exists(_A, "name")) _name_raw = string(variable_struct_get(_A, "name"));
     else if (variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon")) && variable_struct_exists(variable_struct_get(_A, "mon"), "name")){
@@ -247,75 +255,90 @@ function __battle_enemy_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_A){
             _name_raw = string(scr_poke_name_by_id(_species_probe));
         }
     }
+    if (string_length(_label_txt) > 0) _name_raw = _label_txt + " " + _name_raw;
     var nameTxt = __battle_text_fit_ellipsis(_pid, _name_raw, nameMax);
-    draw_text(_bx+__bwu(_pid,8), _by+__bhu(_pid,6), nameTxt);
+    draw_text(_bx+__bwu(_pid,6), _by+__bhu(_pid, _name_y), nameTxt);
 
     var _lvl_disp = 1;
     if (variable_struct_exists(_A, "level") && is_real(variable_struct_get(_A, "level"))) _lvl_disp = variable_struct_get(_A, "level");
     else if (variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon")) && variable_struct_exists(variable_struct_get(_A, "mon"), "level") && is_real(variable_struct_get(variable_struct_get(_A, "mon"), "level"))) _lvl_disp = variable_struct_get(variable_struct_get(_A, "mon"), "level");
-    draw_text(_bx+_bw-__bwu(_pid,29), _by+__bhu(_pid,6), "Lv"+string(_lvl_disp));
+    draw_text(_bx+_bw-__bwu(_pid, _is_compact ? 23 : 29), _by+__bhu(_pid, _name_y), "Lv"+string(_lvl_disp));
 
     var _vis_hp = __battle_hp_visual(_A);
     var _hp_max = __battle_hp_max(_A);
     var _pct = max(0, min(1, _vis_hp / max(1, _hp_max)));
-    var _barW = _bw-__bwu(_pid,32), _barX=_bx+__bwu(_pid,8), _barY=_by+__bhu(_pid,20), _bh=__bhu(_pid,6);
+    var _barW = _bw-__bwu(_pid,20), _barX=_bx+__bwu(_pid,6), _barY=_by+__bhu(_pid, _bar_y), _bh=__bhu(_pid, _bar_h);
     draw_set_color(c_black); draw_rectangle(_barX-1,_barY-1,_barX+_barW+1,_barY+_bh+1,false);
     var _hpcol = _t.col_hp_green; if (_pct<0.5) _hpcol=_t.col_hp_yell; if (_pct<0.2) _hpcol=_t.col_hp_red;
     draw_set_color(_hpcol); draw_rectangle(_barX,_barY,_barX+_barW*_pct,_barY+_bh,false);
     var _statusX = _barX;
-    var _statusY = _barY + _bh + __bhu(_pid, 2);
+    var _statusY = _by + __bhu(_pid, _status_y_off);
     var _statusW = 0;
     if (!is_undefined(__party_draw_status_ui)){
-        _statusW = __party_draw_status_ui(_statusX, _statusY, 0.8, _A, _barW);
+        _statusW = __party_draw_status_ui(_statusX, _statusY, _status_scale, _A, _barW);
     }
     if (!is_undefined(__battle_draw_stage_counters)){
         var _stageX = _statusX + _statusW;
-        if (_statusW > 0) _stageX += __bwu(_pid, 2);
+        if (_statusW > 0) _stageX += __bwu(_pid, _is_compact ? 1 : 2);
         var _stageMax = max(0, (_barX + _barW) - _stageX);
         __battle_draw_stage_counters(_stageX, _statusY, _A, _stageMax);
     }
 }
 
-function __battle_player_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_A){
+function __battle_player_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_A,_label,_compact){
+    if (!is_struct(_A)) return;
+
+    var _is_compact = (!is_undefined(_compact) && _compact == true);
+    var _label_txt = (is_undefined(_label) ? "" : string(_label));
+    var _name_y = _is_compact ? 3 : 6;
+    var _bar_y = _is_compact ? 11 : 20;
+    var _bar_h = _is_compact ? 4 : 6;
+    var _status_y_off = _is_compact ? 16 : 13;
+    var _status_scale = _is_compact ? 0.6 : 0.8;
     var _t  = __battle_ensure_slot(_pid).theme;
     __battle_panel_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn);
     var _bx = __bxu(_pid,_rxIn), _by = __byu(_pid,_ryIn), _bw = __bwu(_pid,_rwIn);
     draw_set_color(_t.col_text);
 
-    var nameMax = _bw - __bwu(_pid, 72);
-    var nameTxt = __battle_text_fit_ellipsis(_pid, string(_A.name), nameMax);
-    draw_text(_bx+__bwu(_pid,8), _by+__bhu(_pid,6), nameTxt);
+    var _name_raw = (variable_struct_exists(_A, "name") ? string(variable_struct_get(_A, "name")) : "Pokemon");
+    if (string_length(_label_txt) > 0) _name_raw = _label_txt + " " + _name_raw;
+    var nameMax = _bw - __bwu(_pid, _is_compact ? 34 : 72);
+    var nameTxt = __battle_text_fit_ellipsis(_pid, _name_raw, nameMax);
+    draw_text(_bx+__bwu(_pid,6), _by+__bhu(_pid, _name_y), nameTxt);
 
-    draw_text(_bx+_bw-__bwu(_pid,32), _by+__bhu(_pid,6), "Lv"+string(_A.level));
+    var _lvl_disp2 = (variable_struct_exists(_A, "level") ? string(variable_struct_get(_A, "level")) : "1");
+    draw_text(_bx+_bw-__bwu(_pid, _is_compact ? 23 : 32), _by+__bhu(_pid, _name_y), "Lv"+_lvl_disp2);
 
     var _vis_hp2 = __battle_hp_visual(_A);
     var _pct = max(0, min(1, _vis_hp2 / max(1, (variable_struct_exists(_A, "hp_max") ? variable_struct_get(_A, "hp_max") : 1))));
-    var _barW = _bw-__bwu(_pid,32), _barX=_bx+__bwu(_pid,8), _barY=_by+__bhu(_pid,20), _bh=__bhu(_pid,6);
+    var _barW = _bw-__bwu(_pid,20), _barX=_bx+__bwu(_pid,6), _barY=_by+__bhu(_pid, _bar_y), _bh=__bhu(_pid, _bar_h);
     draw_set_color(c_black); draw_rectangle(_barX-1,_barY-1,_barX+_barW+1,_barY+_bh+1,false);
     var _hpcol = _t.col_hp_green; if (_pct<0.5) _hpcol=_t.col_hp_yell; if (_pct<0.2) _hpcol=_t.col_hp_red;
     draw_set_color(_hpcol); draw_rectangle(_barX,_barY,_barX+_barW*_pct,_barY+_bh,false);
     // Show numeric using visual HP to smoothly animate numbers and align near bar end
-    var _vis_hp3 = __battle_hp_visual(_A);
-    var _hpText = string(_vis_hp3) + "/" + string((variable_struct_exists(_A, "hp_max") ? variable_struct_get(_A, "hp_max") : 0));
-    var _hpTextX = _barX + _barW - __bwu(_pid,6) - string_width(_hpText);
-    draw_text(_hpTextX, _by+__bhu(_pid,18), _hpText);
+    if (!_is_compact){
+        var _vis_hp3 = __battle_hp_visual(_A);
+        var _hpText = string(_vis_hp3) + "/" + string((variable_struct_exists(_A, "hp_max") ? variable_struct_get(_A, "hp_max") : 0));
+        var _hpTextX = _barX + _barW - __bwu(_pid,6) - string_width(_hpText);
+        draw_text(_hpTextX, _by+__bhu(_pid, 18), _hpText);
+    }
 
     // Top row: status sprites and temporary stage counters.
     var _topRowX = _bx + __bwu(_pid,8);
-    var _topRowY = _by + __bhu(_pid,13);
+    var _topRowY = _by + __bhu(_pid, _status_y_off);
     var _topRowMax = _bw - __bwu(_pid,16);
     var _statusReserve = 0;
-    if (!is_undefined(__party_draw_status_ui)) _statusReserve = __party_draw_status_ui(_topRowX, _topRowY, 0.8, _A, _topRowMax);
+    if (!is_undefined(__party_draw_status_ui)) _statusReserve = __party_draw_status_ui(_topRowX, _topRowY, _status_scale, _A, _topRowMax);
     if (!is_undefined(__battle_draw_stage_counters)){
         var _stageTopX = _topRowX + _statusReserve;
-        if (_statusReserve > 0) _stageTopX += __bwu(_pid, 2);
+        if (_statusReserve > 0) _stageTopX += __bwu(_pid, _is_compact ? 1 : 2);
         var _stageTopMax = max(0, (_topRowX + _topRowMax) - _stageTopX);
         __battle_draw_stage_counters(_stageTopX, _topRowY, _A, _stageTopMax);
     }
 
-    var _expReserve = __bwu(_pid,64);
-    var _expBarY = _barY + _bh + __bhu(_pid,2);
-    var _expBarH = __bhu(_pid,3);
+    var _expReserve = __bwu(_pid, _is_compact ? 0 : 64);
+    var _expBarY = _is_compact ? (_by + __bhu(_pid, 18)) : (_barY + _bh + __bhu(_pid,2));
+    var _expBarH = __bhu(_pid, _is_compact ? 2 : 3);
     var _expPct = 0;
     var _B = __battle_ensure_slot(_pid);
     // Note: command/menu suppression (dialog/cutscene/animations) should not
@@ -323,7 +346,7 @@ function __battle_player_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_A){
     // draw path, not here.
     if (is_struct(_B) && variable_struct_exists(_B, "_exp_anim")){
         var _ea = variable_struct_get(_B, "_exp_anim");
-        if (is_struct(_ea) && variable_struct_exists(_ea, "active") && _ea.active && variable_struct_exists(_ea, "cur")){
+        if (is_struct(_ea) && variable_struct_exists(_ea, "cur")){
             _expPct = max(0, min(1, real(variable_struct_get(_ea, "cur"))));
         }
     }
@@ -335,12 +358,14 @@ function __battle_player_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_A){
         }
     }
     // Make the EXP bar use the same width region as the HP bar but reserve the same right column used by the HP numeric text
-    var _expBarX = _barX;
-    var _expBarW = max(8, _barW - _expReserve - __bwu(_pid,8));
+    var _expBarX = _is_compact ? (_bx + __bwu(_pid, 3)) : _barX;
+    var _expBarW = _is_compact ? max(8, _bw - __bwu(_pid, 6)) : max(8, _barW - _expReserve - __bwu(_pid,8));
     // draw exp bar background and fill
     draw_set_color(c_black); draw_rectangle(_expBarX-1, _expBarY-1, _expBarX + _expBarW + 1, _expBarY + _expBarH + 1, false);
     draw_set_color(make_color_rgb(56,120,232)); // blue-ish exp color
     draw_rectangle(_expBarX, _expBarY, _expBarX + _expBarW * _expPct, _expBarY + _expBarH, false);
+
+    if (_is_compact) return;
 
     // draw exp numeric to the right of the bar (clamped inside the panel)
     var _expText = "";
@@ -354,12 +379,13 @@ function __battle_player_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_A){
 }
 
 function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
-    var _t  = __battle_ensure_slot(_pid).theme;
-    __battle_panel_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn);
+    var _B = __battle_ensure_slot(_pid);
+    var _t  = _B.theme;
     var _bx = __bxu(_pid,_rxIn), _by = __byu(_pid,_ryIn), _bw = __bwu(_pid,_rwIn), _bh = __bhu(_pid,_rhIn);
 
     // Dialog rendering (clamped)
     if (!is_undefined(dialog2p_is_open) && dialog2p_is_open(_pid)){
+        __battle_panel_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn);
         var d = global.DIALOG2P[_pid];
         if (is_struct(d)){
             var i0 = d.page_idx*2, i1 = i0+1;
@@ -402,7 +428,8 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
         return;
     }
 
-    var _B = __battle_ensure_slot(_pid);
+    if (variable_struct_exists(_B, "_pending_close") && variable_struct_get(_B, "_pending_close")) return;
+    __battle_panel_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn);
     if (is_struct(_B) && variable_struct_exists(_B, "_trainer_switch_prompt")){
         var _prompt = variable_struct_get(_B, "_trainer_switch_prompt");
         if (is_struct(_prompt) && variable_struct_exists(_prompt, "active") && _prompt.active){
@@ -472,9 +499,11 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
         if (variable_struct_exists(_B, "_intro_completed") && !variable_struct_get(_B, "_intro_completed")) return;
         var _ph = (variable_struct_exists(_B, "phase") ? string(variable_struct_get(_B, "phase")) : "");
         if (_ph == "transition_in" || _ph == "intro_enemy" || _ph == "intro_call" || _ph == "intro_player") return;
+        if (_ph == "turn") return;
         // If update code requested to wait until dialog fully closes before showing the
         // UI, hide the command box here as well to cover the exact frame of closure.
         if (variable_struct_exists(_B, "_suppress_wait_for_dialog_close") && variable_struct_get(_B, "_suppress_wait_for_dialog_close")) return;
+        if (variable_struct_exists(_B, "_action_active") && variable_struct_get(_B, "_action_active")) return;
     } catch (e_introguard) {}
     // If a closing fade is active, hide command UI entirely
     try { if (variable_struct_exists(_B, "_closing") && variable_struct_get(_B, "_closing")) return; } catch (e_closeguard) {}
@@ -510,13 +539,33 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
         if (is_struct(_lp_tmp) && variable_struct_exists(_lp_tmp, "active") && _lp_tmp.active) return;
     }
 
+    if (string(_B.sys_ui.menu) == "target"){
+        var _restore_font_target = -1;
+        if (variable_global_exists("FNT_POKEMON")) _restore_font_target = global.FNT_POKEMON;
+        if (variable_global_exists("FNT_POKEMON_SMALL")) draw_set_font(global.FNT_POKEMON_SMALL);
+        var _target_msg = "Choose a target";
+        var _actor_idx = (variable_struct_exists(_B, "_command_actor_index") && is_real(variable_struct_get(_B, "_command_actor_index"))) ? floor(variable_struct_get(_B, "_command_actor_index")) : 0;
+        if (variable_struct_exists(_B, "battle_format") && string(variable_struct_get(_B, "battle_format")) == "double") _target_msg = "P" + string(__battle_actor_slot(_actor_idx) + 1) + ": choose a target";
+        draw_set_color(variable_struct_exists(_t, "col_ui_text") ? variable_struct_get(_t, "col_ui_text") : _t.col_text);
+        draw_text(_bx + __bwu(_pid, 8), _by + __bhu(_pid, 8), _target_msg);
+        draw_text(_bx + __bwu(_pid, 8), _by + __bhu(_pid, 16), "Use arrows, A confirm, B back");
+        if (_restore_font_target != -1) draw_set_font(_restore_font_target);
+        return;
+    }
+
     // FIGHT submenu
     if (string(_B.sys_ui.menu) == "fight"){
         var restoreFont = -1;
         if (variable_global_exists("FNT_POKEMON")) restoreFont = global.FNT_POKEMON;
         if (variable_global_exists("FNT_POKEMON_SMALL")) draw_set_font(global.FNT_POKEMON_SMALL);
 
-        var A = _B.actor[0];
+        var _command_actor_idx = (variable_struct_exists(_B, "_command_actor_index") && is_real(variable_struct_get(_B, "_command_actor_index"))) ? floor(variable_struct_get(_B, "_command_actor_index")) : 0;
+        var A = _B.actor[_command_actor_idx];
+        if (variable_struct_exists(_B, "battle_format") && string(variable_struct_get(_B, "battle_format")) == "double"){
+            var _actor_label = "P" + string(__battle_actor_slot(_command_actor_idx) + 1);
+            draw_set_color(variable_struct_exists(_t, "col_ui_text") ? variable_struct_get(_t, "col_ui_text") : _t.col_text);
+            draw_text(_bx + _bw - __bwu(_pid, 24), _by + __bhu(_pid, 2), _actor_label);
+        }
         // NOTE: removed noisy DATA_DEBUG fight-menu spam. Re-enable only when
         // troubleshooting by setting DATA_DEBUG_VERBOSE = true and re-inserting
         // a single-shot debug print guarded by that flag.
@@ -571,6 +620,13 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
     var restoreFont2 = -1;
     if (variable_global_exists("FNT_POKEMON")) restoreFont2 = global.FNT_POKEMON;
     if (variable_global_exists("FNT_POKEMON_SMALL")) draw_set_font(global.FNT_POKEMON_SMALL);
+
+    if (variable_struct_exists(_B, "battle_format") && string(variable_struct_get(_B, "battle_format")) == "double"){
+        var _root_actor_idx = (variable_struct_exists(_B, "_command_actor_index") && is_real(variable_struct_get(_B, "_command_actor_index"))) ? floor(variable_struct_get(_B, "_command_actor_index")) : 0;
+        var _root_actor_label = "P" + string(__battle_actor_slot(_root_actor_idx) + 1);
+        draw_set_color(variable_struct_exists(_t, "col_ui_text") ? variable_struct_get(_t, "col_ui_text") : _t.col_text);
+        draw_text(_bx + _bw - __bwu(_pid, 24), _by + __bhu(_pid, 2), _root_actor_label);
+    }
 
     var rootCellW = (_bw * 0.5) - __bwu(_pid,16);
     for (var j=0; j<4; ++j){

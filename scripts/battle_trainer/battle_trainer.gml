@@ -106,11 +106,14 @@ function battle_open_trainer(_pid, _trainer_data){
         }
     }
 
-    var opts = { type:"trainer" };
+    var opts = { type:"trainer", battle_type:"trainer" };
     if (array_length(enemy_party) > 0) opts.enemy_party = enemy_party;
     if (is_struct(first_mon)) opts.enemy_mon = first_mon;
     if (!is_undefined(enemy_level)) opts.enemy_level = max(1, floor(enemy_level));
     if (!is_undefined(enemy_species)) opts.enemy_species = enemy_species;
+    if (is_struct(_trainer_data) && variable_struct_exists(_trainer_data, "battle_format")) opts.battle_format = string_lower(string(variable_struct_get(_trainer_data, "battle_format")));
+    if (is_struct(_trainer_data) && variable_struct_exists(_trainer_data, "coop_enabled")) opts.coop_enabled = (variable_struct_get(_trainer_data, "coop_enabled") == true);
+    if (is_struct(_trainer_data) && variable_struct_exists(_trainer_data, "player_pids") && is_array(variable_struct_get(_trainer_data, "player_pids"))) opts.player_pids = variable_struct_get(_trainer_data, "player_pids");
     var trainer_reward = undefined;
     if (is_struct(_trainer_data)){
         if (variable_struct_exists(_trainer_data, "trainer_reward") && is_real(variable_struct_get(_trainer_data, "trainer_reward"))){
@@ -136,9 +139,10 @@ function battle_open_trainer(_pid, _trainer_data){
     var _actors = undefined;
     if (variable_struct_exists(_B, "actor")) _actors = variable_struct_get(_B, "actor");
     var enemy_actor = undefined;
-    if (is_array(_actors) && array_length(_actors) > 1) enemy_actor = _actors[1];
+    var _enemy_lead_index = (!is_undefined(__battle_enemy_lead_index) ? __battle_enemy_lead_index(_pid) : 1);
+    if (is_array(_actors) && array_length(_actors) > _enemy_lead_index) enemy_actor = _actors[_enemy_lead_index];
     if (is_struct(enemy_actor)){
-        try { variable_struct_set(enemy_actor, "actor_index", 1); } catch (e_ai) {}
+        try { variable_struct_set(enemy_actor, "actor_index", _enemy_lead_index); } catch (e_ai) {}
         __battle_apply_party_moves(enemy_actor);
     }
 

@@ -1,6 +1,43 @@
 // Party model: data-only helpers for party manipulation and queries.
 // Keep this file free of UI, drawing, or input state.
 
+function party_model_resolve_species_id(_mon){
+    if (!is_struct(_mon)) return -1;
+
+    if (variable_struct_exists(_mon, "species_id") && is_real(variable_struct_get(_mon, "species_id"))) return floor(variable_struct_get(_mon, "species_id"));
+    if (variable_struct_exists(_mon, "id") && is_real(variable_struct_get(_mon, "id"))) return floor(variable_struct_get(_mon, "id"));
+    if (variable_struct_exists(_mon, "species") && is_real(variable_struct_get(_mon, "species"))) return floor(variable_struct_get(_mon, "species"));
+
+    var _probe_name = "";
+    if (variable_struct_exists(_mon, "species") && is_string(variable_struct_get(_mon, "species"))) _probe_name = string_lower(string_trim(variable_struct_get(_mon, "species")));
+    else if (variable_struct_exists(_mon, "name") && is_string(variable_struct_get(_mon, "name"))) _probe_name = string_lower(string_trim(variable_struct_get(_mon, "name")));
+
+    if (string_length(_probe_name) <= 0) return -1;
+    if (!(variable_global_exists("_pokemon") && is_array(global._pokemon))) return -1;
+
+    for (var _sid = 0; _sid < array_length(global._pokemon); ++_sid){
+        var _entry = global._pokemon[_sid];
+        if (!is_struct(_entry) || !variable_struct_exists(_entry, "name")) continue;
+        var _entry_name = string_lower(string_trim(string(variable_struct_get(_entry, "name"))));
+        if (_entry_name == _probe_name) return _sid;
+    }
+
+    return -1;
+}
+
+function party_model_ensure_species_id(_mon){
+    if (!is_struct(_mon)) return _mon;
+
+    var _sid = party_model_resolve_species_id(_mon);
+    if (_sid < 0) return _mon;
+
+    variable_struct_set(_mon, "species_id", _sid);
+    if (!variable_struct_exists(_mon, "id") || !is_real(variable_struct_get(_mon, "id"))) variable_struct_set(_mon, "id", _sid);
+    if (!variable_struct_exists(_mon, "species") || !is_real(variable_struct_get(_mon, "species"))) variable_struct_set(_mon, "species", _sid);
+
+    return _mon;
+}
+
 // Return the mons array for a player id, or an empty array when missing.
 // Params: _pid (int)
 // Returns: array of mon structs (may be empty)
@@ -39,6 +76,7 @@ function party_model_add_mon(_pid, _mon){
     var _mons = _P.mons;
     // Normalize HP fields to avoid hp_max < current HP issues
     if (is_struct(_mon)){
+        _mon = party_model_ensure_species_id(_mon);
         var cur_hp = 0;
         if (variable_struct_exists(_mon, "hp_now") && is_real(variable_struct_get(_mon, "hp_now"))) cur_hp = variable_struct_get(_mon, "hp_now");
         else if (variable_struct_exists(_mon, "hp") && is_real(variable_struct_get(_mon, "hp"))) cur_hp = variable_struct_get(_mon, "hp");

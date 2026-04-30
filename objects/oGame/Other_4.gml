@@ -6,6 +6,6 @@ wc_bind_layers(["WALL", "BLOCKS"]);
 wc_set_solids([noone]);
 
 if !(window_get_fullscreen()) {
-    window_set_position(0, 0);
-    window_set_size(display_get_width(), display_get_height());
+    //window_set_position(0, 0);
+    //window_set_size(display_get_width(), display_get_height());
 }
