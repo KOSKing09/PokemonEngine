@@ -152,14 +152,15 @@ function __party_impl_party_update(){
                             // Determine if forced (replacement after faint)
                             var _forced = (is_struct(_PtmpChk) && variable_struct_exists(_PtmpChk, "_battle_swap_mode_forced") && variable_struct_get(_PtmpChk, "_battle_swap_mode_forced") == true);
                             var _baton_pass = (is_struct(_PtmpChk) && variable_struct_exists(_PtmpChk, "_battle_baton_pass_mode") && variable_struct_get(_PtmpChk, "_battle_baton_pass_mode") == true);
+                            var _actor_index_swap = (is_struct(_PtmpChk) && variable_struct_exists(_PtmpChk, "_battle_swap_actor_index") && is_real(variable_struct_get(_PtmpChk, "_battle_swap_actor_index"))) ? floor(variable_struct_get(_PtmpChk, "_battle_swap_actor_index")) : -1;
                             var _consume = !_forced;
                             var ok = false;
                             if (variable_global_exists("cutscene_switch_to")){
                                 var _fn_sw = variable_global_get("cutscene_switch_to");
-                                if (!is_undefined(_fn_sw)) ok = _fn_sw(_pid, _dst, { auto_apply:true, consume_turn:_consume, forced:_forced, baton_pass:_baton_pass });
+                                if (!is_undefined(_fn_sw)) ok = _fn_sw(_pid, _dst, { auto_apply:true, consume_turn:_consume, forced:_forced, baton_pass:_baton_pass, actor_index:_actor_index_swap });
                             } else if (variable_global_exists("battle_switch_to")){
                                 var _fn_sw2 = variable_global_get("battle_switch_to");
-                                if (!is_undefined(_fn_sw2)) ok = _fn_sw2(_pid, _dst, { auto_apply:true, consume_turn:_consume, forced:_forced, baton_pass:_baton_pass });
+                                if (!is_undefined(_fn_sw2)) ok = _fn_sw2(_pid, _dst, { auto_apply:true, consume_turn:_consume, forced:_forced, baton_pass:_baton_pass, actor_index:_actor_index_swap });
                             }
                             if (ok){ if (!is_undefined(party_close)) party_close(_pid);
                     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party][input] party_close called after battle_switch_to ok pid=" + string(_pid) + ", dst=" + string(_dst));
@@ -324,14 +325,15 @@ function __party_impl_party_update(){
                         _P.lock = 6;
                     } else {
                         var _forced2 = (is_struct(_Ptmp2) && variable_struct_exists(_Ptmp2, "_battle_swap_mode_forced") && variable_struct_get(_Ptmp2, "_battle_swap_mode_forced") == true);
+                        var _actor_index_swap2 = (is_struct(_Ptmp2) && variable_struct_exists(_Ptmp2, "_battle_swap_actor_index") && is_real(variable_struct_get(_Ptmp2, "_battle_swap_actor_index"))) ? floor(variable_struct_get(_Ptmp2, "_battle_swap_actor_index")) : -1;
                         var _consume2 = !_forced2;
                         var ok2 = false;
                         if (variable_global_exists("cutscene_switch_to")){
                             var _fn_sw3 = variable_global_get("cutscene_switch_to");
-                            if (!is_undefined(_fn_sw3)) ok2 = _fn_sw3(_pid, _dst2, { auto_apply:true, consume_turn:_consume2, forced:_forced2 });
+                            if (!is_undefined(_fn_sw3)) ok2 = _fn_sw3(_pid, _dst2, { auto_apply:true, consume_turn:_consume2, forced:_forced2, actor_index:_actor_index_swap2 });
                         } else if (variable_global_exists("battle_switch_to")){
                             var _fn_sw4 = variable_global_get("battle_switch_to");
-                            if (!is_undefined(_fn_sw4)) ok2 = _fn_sw4(_pid, _dst2, { auto_apply:true, consume_turn:_consume2, forced:_forced2 });
+                            if (!is_undefined(_fn_sw4)) ok2 = _fn_sw4(_pid, _dst2, { auto_apply:true, consume_turn:_consume2, forced:_forced2, actor_index:_actor_index_swap2 });
                         }
                         if (ok2){ if (!is_undefined(party_close)) party_close(_pid);
                             try {
@@ -484,6 +486,7 @@ function __party_impl_party_update(){
                         if (_inBattleSwap && (variable_global_exists("cutscene_switch_to") || variable_global_exists("battle_switch_to"))){
                             // Determine whether this swap was opened due to a faint (forced)
                             var _forced = (is_struct(_Ptmp) && variable_struct_exists(_Ptmp, "_battle_swap_mode_forced") && variable_struct_get(_Ptmp, "_battle_swap_mode_forced") == true);
+                            var _actor_index_swap3 = (is_struct(_Ptmp) && variable_struct_exists(_Ptmp, "_battle_swap_actor_index") && is_real(variable_struct_get(_Ptmp, "_battle_swap_actor_index"))) ? floor(variable_struct_get(_Ptmp, "_battle_swap_actor_index")) : -1;
                             // For forced swaps (replacement after faint) the player's turn should NOT be consumed.
                             var _consume = !_forced;
                             // Prevent selecting a fainted Pokémon as the incoming target
@@ -503,10 +506,10 @@ function __party_impl_party_update(){
                                 var ok = false;
                                 if (variable_global_exists("cutscene_switch_to")){
                                     var _fn_sw5 = variable_global_get("cutscene_switch_to");
-                                    if (!is_undefined(_fn_sw5)) ok = _fn_sw5(_pid, _dst, { auto_apply:true, consume_turn:_consume, forced:_forced });
+                                    if (!is_undefined(_fn_sw5)) ok = _fn_sw5(_pid, _dst, { auto_apply:true, consume_turn:_consume, forced:_forced, actor_index:_actor_index_swap3 });
                                 } else if (variable_global_exists("battle_switch_to")){
                                     var _fn_sw6 = variable_global_get("battle_switch_to");
-                                    if (!is_undefined(_fn_sw6)) ok = _fn_sw6(_pid, _dst, { auto_apply:true, consume_turn:_consume, forced:_forced });
+                                    if (!is_undefined(_fn_sw6)) ok = _fn_sw6(_pid, _dst, { auto_apply:true, consume_turn:_consume, forced:_forced, actor_index:_actor_index_swap3 });
                                 }
                                 // Only close the party if the battle accepted the switch request.
                                 if (ok){

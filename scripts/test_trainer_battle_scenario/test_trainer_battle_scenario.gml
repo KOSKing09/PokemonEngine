@@ -92,7 +92,9 @@ function __status_smoke_finish(_pid, _state, _reason){
         var _fail_n = (variable_struct_exists(_state, "fail_count") ? variable_struct_get(_state, "fail_count") : 0);
         show_debug_message("[smoke][" + _tag + "] SUMMARY passes=" + string(_pass_n) + " fails=" + string(_fail_n) + " reason=" + string(_reason));
     }
-    try { if (battle_is_open(_pid)) battle_close(_pid); } catch (e_close) {}
+    if (_auto_close) {
+        try { if (battle_is_open(_pid)) battle_close(_pid); } catch (e_close) {}
+    }
     try { if (string_length(_global_name) > 0 && variable_global_exists(_global_name)) variable_global_set(_global_name, undefined); } catch (e_clear) {}
     if (_auto_close) {
         var _exit_game = false;

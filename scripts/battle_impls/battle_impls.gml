@@ -715,6 +715,7 @@ function __battle_apply_damage_impl(_pid, _target_index, _dmg, _mult){
                     // Only open party UI for player's side faints.
                     if (_player_side_faint){
                         variable_struct_set(_B_sch, "_pending_open_party", true);
+                        variable_struct_set(_B_sch, "_pending_open_party_fainted_actor_index", _target_index);
                         try {
                             if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_impls] scheduled _pending_open_party for pid=" + string(_pid));
                         } catch (e_dbg_po) {}
