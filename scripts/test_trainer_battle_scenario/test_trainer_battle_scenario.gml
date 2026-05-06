@@ -1519,6 +1519,225 @@ function test_battle_doubles_forced_player_switch_smoke_update(_pid = 0){
     }
 }
 
+function test_battle_doubles_enemy_faint_auto_send_smoke_start(_auto_close = false){
+    var _pid = 0;
+    if (battle_is_open(_pid)) battle_close(_pid);
+
+    var _party = party_ensure(_pid);
+    if (!is_struct(_party)){
+        show_debug_message("[smoke][doubles-enemy-faint-send] FAIL unable to ensure player party");
+        return false;
+    }
+
+    var _lead0 = pokemon_factory_create(133, 30, {});
+    var _lead1 = pokemon_factory_create(25, 30, {});
+    variable_struct_set(_lead0, "name", "Smoke Hero A");
+    variable_struct_set(_lead1, "name", "Smoke Hero B");
+    __dev_assign_moves_to_mon(_lead0, [370, -1, -1, -1]);
+    __dev_assign_moves_to_mon(_lead1, [150, -1, -1, -1]);
+    _party.mons[0] = _lead0;
+    _party.mons[1] = _lead1;
+    global.PARTY[_pid] = _party;
+
+    var _enemy0 = pokemon_factory_create(263, 24, {});
+    var _enemy1 = pokemon_factory_create(19, 24, {});
+    var _enemy2 = pokemon_factory_create(16, 24, {});
+    variable_struct_set(_enemy0, "name", "Faint Left");
+    variable_struct_set(_enemy1, "name", "Stay Right");
+    variable_struct_set(_enemy2, "name", "Bench Replace");
+    __dev_assign_moves_to_mon(_enemy0, [33, -1, -1, -1]);
+    __dev_assign_moves_to_mon(_enemy1, [33, -1, -1, -1]);
+    __dev_assign_moves_to_mon(_enemy2, [33, -1, -1, -1]);
+
+    battle_open(_pid, 24, "forest", {
+        type: "trainer",
+        battle_format: "double",
+        enemy_party: [_enemy0, _enemy1, _enemy2],
+        trainer_name: "Enemy Faint Smoke",
+        sprite: (variable_global_exists("spr_PokemonEmeraldTrainers") ? variable_global_get("spr_PokemonEmeraldTrainers") : undefined),
+        sprite_index: 12,
+        trainer_reward: 0
+    });
+
+    global.DEV_DOUBLES_ENEMY_FAINT_SEND_SMOKE = {
+        pid: _pid,
+        tag: "doubles-enemy-faint-send",
+        global_name: "DEV_DOUBLES_ENEMY_FAINT_SEND_SMOKE",
+        auto_close: (_auto_close == true),
+        state: "opening",
+        pass_count: 0,
+        fail_count: 0,
+        turn_counter: 0,
+        pending_window_checked: false,
+        replacement_name: "Bench Replace",
+        original_enemy_right_name: "Stay Right"
+    };
+    show_debug_message("[smoke][doubles-enemy-faint-send] starting doubles enemy faint auto-send smoke");
+    return true;
+}
+
+function test_battle_doubles_enemy_faint_auto_send_smoke_update(_pid = 0){
+    if (!variable_global_exists("DEV_DOUBLES_ENEMY_FAINT_SEND_SMOKE")) return;
+    var _S = global.DEV_DOUBLES_ENEMY_FAINT_SEND_SMOKE;
+    if (!is_struct(_S)) return;
+    if (_pid != variable_struct_get(_S, "pid")) return;
+
+    variable_struct_set(_S, "turn_counter", variable_struct_get(_S, "turn_counter") + 1);
+    if (variable_struct_get(_S, "turn_counter") > 5400){
+        __status_smoke_assert(_S, false, "timed out waiting for doubles enemy faint auto-send smoke to finish");
+        __status_smoke_finish(_pid, _S, "timeout");
+        return;
+    }
+    if (!battle_is_open(_pid)) return;
+
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !variable_struct_exists(_B, "actor") || !is_array(variable_struct_get(_B, "actor"))) return;
+    var _actors = variable_struct_get(_B, "actor");
+    if (array_length(_actors) < 4) return;
+
+    switch (string(variable_struct_get(_S, "state"))){
+        case "opening":
+            if (__status_smoke_advance_dialog(_pid, _S)) break;
+            if (!variable_struct_exists(_B, "phase") || variable_struct_get(_B, "phase") != "command") break;
+            try {
+                if (is_struct(_actors[2])){
+                    __battle_set_hp_now(_actors[2], 6);
+                    if (variable_struct_exists(_actors[2], "mon") && is_struct(variable_struct_get(_actors[2], "mon"))) __battle_set_hp_now(variable_struct_get(_actors[2], "mon"), 6);
+                }
+                variable_struct_set(_B, "_command_pending_action", { actor_index: 0, move_id: 370, target_index: 2 });
+                variable_struct_set(_B, "_target_pick_targets", [2, 3]);
+                variable_struct_set(_B, "_target_pick_index", 0);
+                if (variable_struct_exists(_B, "sys_ui") && is_struct(variable_struct_get(_B, "sys_ui"))) variable_struct_set(variable_struct_get(_B, "sys_ui"), "menu", "target");
+                var _queued = __status_smoke_queue_double_turn(_pid, [
+                    { slot: 0, move_id: 370, actor_index: 0, target_index: 2 },
+                    { actor_index: 1, target_index: 3, skip_turn: true, lock_action: true }
+                ]);
+                __status_smoke_assert(_S, _queued, "Queued a doubles turn that faints the left enemy slot");
+                if (_queued) variable_struct_set(_S, "state", "await_send");
+            } catch (e_queue_enemy_faint) {
+                __status_smoke_assert(_S, false, "Queued a doubles turn that faints the left enemy slot");
+                __status_smoke_finish(_pid, _S, "queue-failed");
+                return;
+            }
+            break;
+
+        case "await_send":
+            __status_smoke_advance_dialog(_pid, _S);
+            if (is_struct(_actors[2]) && variable_struct_exists(_actors[2], "name") && string(variable_struct_get(_actors[2], "name")) == string(variable_struct_get(_S, "replacement_name")) && is_struct(_actors[3]) && variable_struct_exists(_actors[3], "name") && string(variable_struct_get(_actors[3], "name")) == string(variable_struct_get(_S, "original_enemy_right_name")) && variable_struct_exists(_B, "phase") && variable_struct_get(_B, "phase") == "command"){
+                variable_struct_set(_S, "state", "verify_done");
+                break;
+            }
+            if (variable_struct_exists(_B, "_trainer_switch_prompt") && is_struct(variable_struct_get(_B, "_trainer_switch_prompt"))){
+                __status_smoke_assert(_S, false, "Doubles enemy faint did not open the singles trainer switch prompt");
+                __status_smoke_finish(_pid, _S, "unexpected-prompt");
+                return;
+            }
+
+            var _pending_send = (variable_struct_exists(_B, "_trainer_pending_send") && is_struct(variable_struct_get(_B, "_trainer_pending_send"))) ? variable_struct_get(_B, "_trainer_pending_send") : undefined;
+            if (is_struct(_pending_send) && !variable_struct_get(_S, "pending_window_checked")){
+                __status_smoke_assert(_S, variable_struct_exists(_pending_send, "actor_index") && floor(variable_struct_get(_pending_send, "actor_index")) == 2, "Doubles enemy faint queued the replacement into the fainted enemy slot");
+                __status_smoke_assert(_S, (!variable_struct_exists(_B, "_command_pending_action") || !is_struct(variable_struct_get(_B, "_command_pending_action"))) && (!variable_struct_exists(_B, "_target_pick_targets") || !is_array(variable_struct_get(_B, "_target_pick_targets"))), "Doubles enemy faint cleared stale pending target-pick state before the replacement arrived");
+                if (is_struct(_B.sys_ui)) __status_smoke_assert(_S, string(variable_struct_get(_B.sys_ui, "menu")) != "target", "Doubles enemy faint did not leave the command UI stuck on target selection");
+                variable_struct_set(_S, "pending_window_checked", true);
+            }
+            break;
+
+        case "verify_done":
+            __status_smoke_assert(_S, is_struct(_actors[2]) && variable_struct_exists(_actors[2], "name") && string(variable_struct_get(_actors[2], "name")) == string(variable_struct_get(_S, "replacement_name")), "Doubles enemy faint auto-sent the next trainer mon into the fainted enemy slot");
+            __status_smoke_assert(_S, is_struct(_actors[3]) && variable_struct_exists(_actors[3], "name") && string(variable_struct_get(_actors[3], "name")) == string(variable_struct_get(_S, "original_enemy_right_name")), "Doubles enemy faint left the other enemy slot unchanged");
+            __status_smoke_assert(_S, !variable_struct_exists(_B, "_trainer_switch_prompt") || !is_struct(variable_struct_get(_B, "_trainer_switch_prompt")), "Doubles enemy faint finished without leaving a trainer switch prompt behind");
+            __status_smoke_assert(_S, !variable_struct_exists(_B, "_trainer_pending_send") || !is_struct(variable_struct_get(_B, "_trainer_pending_send")), "Doubles enemy faint consumed the pending enemy send after the replacement entered");
+            __status_smoke_finish(_pid, _S, "completed");
+            break;
+    }
+}
+
+function test_battle_burn_poison_residual_smoke_start(_auto_close = false){
+    var _pid = 0;
+    if (battle_is_open(_pid)) battle_close(_pid);
+
+    var _S = {
+        pid: _pid,
+        tag: "burn-poison-residual",
+        global_name: "DEV_BURN_POISON_RESIDUAL_SMOKE",
+        auto_close: (_auto_close == true),
+        state: "running",
+        turn_counter: 0,
+        pass_count: 0,
+        fail_count: 0,
+        started_ms: current_time
+    };
+    global.DEV_BURN_POISON_RESIDUAL_SMOKE = _S;
+    show_debug_message("[smoke][burn-poison-residual] starting direct residual status smoke");
+
+    global.DEV_FORCE_ACCURACY_HIT = true;
+    global.DEV_FORCE_BURN_CHANCE = 100;
+    global.DEV_FORCE_POISON_CHANCE = 100;
+
+    var _burn_apply_a = __effect_smoke_mon(133, 30, 160, [261, -1, -1, -1]);
+    var _burn_apply_d = __effect_smoke_mon(10, 30, 160, [1, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _burn_apply_a, _burn_apply_d);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 261, actor_index: 0, target_index: 1 });
+    __status_smoke_assert(_S, __effect_smoke_has_status(_burn_apply_d, "burn"), "Will-O-Wisp still applies burn through move meta");
+
+    var _poison_apply_a = __effect_smoke_mon(133, 30, 160, [342, -1, -1, -1]);
+    var _poison_apply_d = __effect_smoke_mon(10, 30, 160, [1, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _poison_apply_a, _poison_apply_d);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 342, actor_index: 0, target_index: 1 });
+    __status_smoke_assert(_S, __effect_smoke_has_status(_poison_apply_d, "poison"), "Poison Tail still applies poison through move meta");
+
+    var _single = __effect_smoke_mon(133, 30, 160, [1, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _single, __effect_smoke_mon(10, 30, 160, [1, -1, -1, -1]));
+    status_system_apply_status(_single, "burn", {});
+    var _burn_inst = status_system_get(_single, "burn");
+    if (is_struct(_burn_inst) && variable_struct_exists(_burn_inst, "_skip_first_tick")) variable_struct_set(_burn_inst, "_skip_first_tick", undefined);
+    var _single_before = __battle_hp_now(_single);
+    status_system_tick_statuses(_single, undefined);
+    var _single_after = __battle_hp_now(_single);
+    __status_smoke_assert(_S, (_single_before - _single_after) == max(1, floor(__battle_hp_max(_single) / 8)), "Burn residual still deals one-eighth max HP through the shared HP path");
+
+    var _P0 = __effect_smoke_mon(133, 30, 160, [1, -1, -1, -1]);
+    var _P1 = __effect_smoke_mon(25, 30, 160, [1, -1, -1, -1]);
+    var _E0 = __effect_smoke_mon(263, 30, 160, [1, -1, -1, -1]);
+    var _E1 = __effect_smoke_mon(19, 30, 160, [1, -1, -1, -1]);
+    var _B = __effect_smoke_slot_double(_pid, _P0, _P1, _E0, _E1);
+    status_system_apply_status(_P1, "burn", { source: _E0 });
+    status_system_apply_status(_E1, "poison", { source: _P0 });
+    var _burn_double_inst = status_system_get(_P1, "burn");
+    var _poison_double_inst = status_system_get(_E1, "poison");
+    if (is_struct(_burn_double_inst) && variable_struct_exists(_burn_double_inst, "_skip_first_tick")) variable_struct_set(_burn_double_inst, "_skip_first_tick", undefined);
+    if (is_struct(_poison_double_inst) && variable_struct_exists(_poison_double_inst, "_skip_first_tick")) variable_struct_set(_poison_double_inst, "_skip_first_tick", undefined);
+
+    var _p0_before = __battle_hp_now(_P0);
+    var _p1_before = __battle_hp_now(_P1);
+    var _e0_before = __battle_hp_now(_E0);
+    var _e1_before = __battle_hp_now(_E1);
+    variable_struct_set(_B, "turn_queue", [{ skip_turn: true }]);
+    variable_struct_set(_B, "turn_i", 1);
+    variable_struct_set(_B, "phase", "turn");
+    variable_struct_set(_B, "_statuses_ticked", false);
+    __battle_step_turn_if_ready(_pid);
+    var _p0_after = __battle_hp_now(_P0);
+    var _p1_after = __battle_hp_now(_P1);
+    var _e0_after = __battle_hp_now(_E0);
+    var _e1_after = __battle_hp_now(_E1);
+    __status_smoke_assert(_S, _p1_after < _p1_before && (_p1_before - _p1_after) == max(1, floor(__battle_hp_max(_P1) / 8)), "Doubles end-of-turn still ticks burn on the second player battler");
+    __status_smoke_assert(_S, _e1_after < _e1_before && (_e1_before - _e1_after) == max(1, floor(__battle_hp_max(_E1) / 8)), "Doubles end-of-turn still ticks poison on the second enemy battler");
+    __status_smoke_assert(_S, _p0_after == _p0_before && _e0_after == _e0_before, "Residual status smoke left unaffected battlers unchanged");
+
+    global.DEV_FORCE_ACCURACY_HIT = false;
+    global.DEV_FORCE_BURN_CHANCE = -1;
+    global.DEV_FORCE_POISON_CHANCE = -1;
+
+    var _fails = variable_struct_get(_S, "fail_count");
+    __status_smoke_finish(_pid, _S, (_fails == 0) ? "completed" : "failed");
+    return (_fails == 0);
+}
+
+function test_battle_burn_poison_residual_smoke_update(_pid = 0){
+    // Direct smoke completes synchronously in start().
+}
+
 function test_battle_visual_target_smoke_start(_auto_close = false){
     var _pid = 0;
     if (battle_is_open(_pid)) battle_close(_pid);

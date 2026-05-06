@@ -685,21 +685,50 @@ function status_system_tick_statuses(mon, dt){
 
 function __status_apply_percent_damage(mon, pct, sid){
     if (!is_struct(mon)) return false;
-    var curKey = undefined; var maxKey = undefined;
-    if (variable_struct_exists(mon, "hp_now")) curKey = "hp_now";
-    else if (variable_struct_exists(mon, "hp_current")) curKey = "hp_current";
-    else if (variable_struct_exists(mon, "hp")) curKey = "hp";
-    if (variable_struct_exists(mon, "hp_max")) maxKey = "hp_max";
-    else if (variable_struct_exists(mon, "hp_total")) maxKey = "hp_total";
-    else if (variable_struct_exists(mon, "hp")) maxKey = "hp";
-    if (is_undefined(curKey) || is_undefined(maxKey)) return false;
-    var cur = variable_struct_get(mon, curKey);
-    var maxv = variable_struct_get(mon, maxKey);
+    var cur = undefined;
+    var maxv = undefined;
+    if (!is_undefined(__battle_hp_now)) cur = __battle_hp_now(mon);
+    if (!is_undefined(__battle_hp_max)) maxv = __battle_hp_max(mon);
+    if (!is_real(cur)){
+        if (variable_struct_exists(mon, "hp_now")) cur = variable_struct_get(mon, "hp_now");
+        else if (variable_struct_exists(mon, "hp_current")) cur = variable_struct_get(mon, "hp_current");
+        else if (variable_struct_exists(mon, "hp")) cur = variable_struct_get(mon, "hp");
+    }
+    if (!is_real(maxv)){
+        if (variable_struct_exists(mon, "hp_max")) maxv = variable_struct_get(mon, "hp_max");
+        else if (variable_struct_exists(mon, "hp_total")) maxv = variable_struct_get(mon, "hp_total");
+        else if (variable_struct_exists(mon, "maxhp")) maxv = variable_struct_get(mon, "maxhp");
+        else if (variable_struct_exists(mon, "hp")) maxv = variable_struct_get(mon, "hp");
+    }
     if (!is_real(cur) || !is_real(maxv) || maxv <= 0) return false;
     var dmg = max(1, floor(maxv * pct));
     var newcur = max(0, cur - dmg);
-    variable_struct_set(mon, curKey, newcur);
-        __battle_request_animation_safe(mon, { type: "status_tick_damage", status: "tick", amount: dmg });
+    if (!is_undefined(__battle_set_hp_now)) __battle_set_hp_now(mon, newcur);
+    else {
+        if (variable_struct_exists(mon, "hp_now")) variable_struct_set(mon, "hp_now", newcur);
+        if (variable_struct_exists(mon, "hp")) variable_struct_set(mon, "hp", newcur);
+        if (variable_struct_exists(mon, "mon") && is_struct(variable_struct_get(mon, "mon"))){
+            var _inner_mon = variable_struct_get(mon, "mon");
+            if (variable_struct_exists(_inner_mon, "hp_now")) variable_struct_set(_inner_mon, "hp_now", newcur);
+            if (variable_struct_exists(_inner_mon, "hp")) variable_struct_set(_inner_mon, "hp", newcur);
+        }
+    }
+    try {
+        variable_struct_set(mon, "_hp_lerp_from", cur);
+        variable_struct_set(mon, "_hp_lerp_to", newcur);
+        variable_struct_set(mon, "_hp_lerp_start_ms", current_time);
+        variable_struct_set(mon, "_hp_lerp_dur", 400);
+        variable_struct_set(mon, "_hp_lerp_active", true);
+        if (variable_struct_exists(mon, "mon") && is_struct(variable_struct_get(mon, "mon"))){
+            var _inner_lerp = variable_struct_get(mon, "mon");
+            variable_struct_set(_inner_lerp, "_hp_lerp_from", cur);
+            variable_struct_set(_inner_lerp, "_hp_lerp_to", newcur);
+            variable_struct_set(_inner_lerp, "_hp_lerp_start_ms", current_time);
+            variable_struct_set(_inner_lerp, "_hp_lerp_dur", 400);
+            variable_struct_set(_inner_lerp, "_hp_lerp_active", true);
+        }
+    } catch (e_lerp_tick) {}
+    __battle_request_animation_safe(mon, { type: "status_tick_damage", status: "tick", amount: dmg });
     // Also request a small in-battle dialog similar to Emerald: "Pikachu is hurt by poison!"
     try {
         var stname = (is_string(sid) && string_length(sid) > 0) ? sid : "";
