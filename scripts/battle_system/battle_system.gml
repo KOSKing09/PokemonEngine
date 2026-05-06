@@ -3108,8 +3108,8 @@ function battle_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     var _is_double = (variable_struct_exists(_B, "battle_format") && string(variable_struct_get(_B, "battle_format")) == "double");
     if (_draw_enemy_panel){
         if (_is_double){
-            __battle_enemy_box_rect(_pid, 6, 8, 88, 22, __battle_get_side_actor(_pid, 1, 0), "F1", true);
-            __battle_enemy_box_rect(_pid, 6, 28, 88, 22, __battle_get_side_actor(_pid, 1, 1), "F2", true);
+            __battle_enemy_box_rect(_pid, 4, 6, 100, 28, __battle_get_side_actor(_pid, 1, 0), "F1", true);
+            __battle_enemy_box_rect(_pid, 4, 36, 100, 28, __battle_get_side_actor(_pid, 1, 1), "F2", true);
         } else {
             __battle_enemy_box_rect(_pid, 16,16,112,40, __battle_get_side_actor(_pid, 1, 0), "", false);
         }
@@ -3121,8 +3121,8 @@ function battle_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
             var _ally_owner = __battle_actor_owner_pid(_pid, 1);
             if (is_real(_ally_owner)) _ally_label = "P" + string(_ally_owner + 1);
         }
-        __battle_player_box_rect(_pid, 152, 82, 88, 22, __battle_get_side_actor(_pid, 0, 1), _ally_label, true);
-        __battle_player_box_rect(_pid, 152, 106, 88, 22, __battle_get_side_actor(_pid, 0, 0), "P1", true);
+        __battle_player_box_rect(_pid, 140, 78, 100, 28, __battle_get_side_actor(_pid, 0, 1), _ally_label, true);
+        __battle_player_box_rect(_pid, 140, 108, 100, 28, __battle_get_side_actor(_pid, 0, 0), "P1", true);
     } else {
         __battle_player_box_rect(_pid,112,104,128,48, __battle_get_side_actor(_pid, 0, 0), "", false);
     }
