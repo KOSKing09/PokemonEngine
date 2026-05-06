@@ -40,6 +40,8 @@ This document summarizes the battle system architecture, public APIs, phases, st
 - `__battle_process_input(pid)` — command UI input.
 - `__battle_build_turn_actions(pid)` — construct action order.
 - `__battle_step_turn_if_ready(pid)` — resolve queued actions.
+- `battle_command_helpers.gml` — command queue, command actor, and target-pick helpers extracted from the main battle script.
+- `battle_theme_helpers.gml` — platform/theme resolution and battle UI text-color helpers extracted from the main battle script.
 - `__battle_enemy_choose_action(pid)` — simple enemy AI.
 - `__party_find_next_alive(pid)` — usable replacement index or -1.
 - `__battle_hp_now(ent)` — canonical HP lookup.

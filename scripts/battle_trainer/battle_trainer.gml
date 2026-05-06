@@ -234,6 +234,913 @@ function battle_open_trainer(_pid, _trainer_data){
     battle_intro_set_handlers(_pid, __battle_trainer_intro_update, __battle_trainer_intro_draw);
 }
 
+/// Resolve the trainer name stored on a battle slot or return a safe fallback.
+function __battle_trainer_get_name(_B){
+    if (!is_struct(_B)) return "The Trainer";
+    if (variable_struct_exists(_B, "_trainer_info")){
+        var info = variable_struct_get(_B, "_trainer_info");
+        if (is_struct(info) && variable_struct_exists(info, "name")){
+            return string(info.name);
+        }
+    }
+    if (variable_struct_exists(_B, "_battle_opts") && is_struct(variable_struct_get(_B, "_battle_opts"))){
+        var opts = variable_struct_get(_B, "_battle_opts");
+        if (variable_struct_exists(opts, "trainer_name")) return string(opts.trainer_name);
+    }
+    return "The Trainer";
+}
+
+/// Determine whether a trainer party entry should be treated as alive.
+function __battle_trainer_mon_is_alive(_mon){
+    if (!is_struct(_mon)) return false;
+    var _dbg_trainer = true;
+    try {
+        if (variable_global_exists("DATA_DEBUG_TRAINER")) _dbg_trainer = (global.DATA_DEBUG_TRAINER == true);
+        else if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) _dbg_trainer = true;
+    } catch (e_dbgflag_alive_mon) { _dbg_trainer = false; }
+    var hp = __battle_hp_now(_mon);
+    if (is_real(hp)){
+        if (hp > 0){
+            if (_dbg_trainer){
+                try {
+                    var _mon_name_true = "<unnamed>";
+                    if (variable_struct_exists(_mon, "name")) _mon_name_true = string(variable_struct_get(_mon, "name"));
+                    show_debug_message("[battle][trainer][alive-mon] " + _mon_name_true + " alive (hp=" + string(hp) + ")");
+                } catch (e_dbg_alive_true) {}
+            }
+            return true;
+        }
+        if (hp <= 0){
+            if (_dbg_trainer){
+                try {
+                    var _mon_name_zero = "<unnamed>";
+                    if (variable_struct_exists(_mon, "name")) _mon_name_zero = string(variable_struct_get(_mon, "name"));
+                    show_debug_message("[battle][trainer][alive-mon] " + _mon_name_zero + " flagged faint (hp=" + string(hp) + ")");
+                } catch (e_dbg_alive_zero) {}
+            }
+            return false;
+        }
+    }
+    var faint_flag = false;
+    try { if (variable_struct_exists(_mon, "_fainted") && variable_struct_get(_mon, "_fainted")) faint_flag = true; } catch (e_ff) { faint_flag = false; }
+    var has_hp_field = false;
+    try { has_hp_field = variable_struct_exists(_mon, "hp_now") || variable_struct_exists(_mon, "hp"); } catch (e_hpf) { has_hp_field = false; }
+    if (!has_hp_field && !faint_flag){
+        if (_dbg_trainer){
+            try {
+                var _mon_name_fallback = "<unnamed>";
+                if (variable_struct_exists(_mon, "name")) _mon_name_fallback = string(variable_struct_get(_mon, "name"));
+                show_debug_message("[battle][trainer][alive-mon] " + _mon_name_fallback + " treated alive (no hp fields, no faint flag)");
+            } catch (e_dbg_alive_fallback) {}
+        }
+        return true;
+    }
+    if (_dbg_trainer){
+        try {
+            var _mon_name_false = "<unnamed>";
+            if (variable_struct_exists(_mon, "name")) _mon_name_false = string(variable_struct_get(_mon, "name"));
+            show_debug_message("[battle][trainer][alive-mon] " + _mon_name_false + " treated faint (flag=" + string(faint_flag) + ", has_hp_field=" + string(has_hp_field) + ")");
+        } catch (e_dbg_alive_false) {}
+    }
+    return false;
+}
+
+/// Check whether any trainer party member other than the excluded reference is still alive.
+function __battle_trainer_has_alive_except(_B, _exclude){
+    if (!is_struct(_B) || !variable_struct_exists(_B, "_trainer_party")) return false;
+    var party = variable_struct_get(_B, "_trainer_party");
+    if (!is_array(party)) return false;
+    var _dbg_trainer = true;
+    try {
+        if (variable_global_exists("DATA_DEBUG_TRAINER")) _dbg_trainer = (global.DATA_DEBUG_TRAINER == true);
+        else if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) _dbg_trainer = true;
+    } catch (e_dbgflag_alive) { _dbg_trainer = false; }
+    for (var i = 0; i < array_length(party); ++i){
+        var mon = party[i];
+        if (!is_struct(mon)) continue;
+        if (!is_undefined(_exclude)){
+            if (mon == _exclude) continue;
+            if (is_struct(_exclude) && variable_struct_exists(_exclude, "mon") && mon == variable_struct_get(_exclude, "mon")) continue;
+            if (variable_struct_exists(mon, "mon") && is_struct(variable_struct_get(mon, "mon")) && variable_struct_get(mon, "mon") == _exclude) continue;
+        }
+        if (__battle_trainer_mon_is_alive(mon)){
+            if (_dbg_trainer){
+                try {
+                    var mon_name_alive = "<unnamed>";
+                    if (variable_struct_exists(mon, "name")) mon_name_alive = string(variable_struct_get(mon, "name"));
+                    show_debug_message("[battle][trainer][alive-check] idx=" + string(i) + " mon=" + mon_name_alive + " still alive");
+                } catch (e_dbg_alive_found) {}
+            }
+            return true;
+        }
+        if (_dbg_trainer){
+            try {
+                var mon_name = "<unnamed>";
+                if (variable_struct_exists(mon, "name")) mon_name = string(variable_struct_get(mon, "name"));
+                show_debug_message("[battle][trainer][alive-check] idx=" + string(i) + " mon=" + mon_name + " marked faint");
+            } catch (e_dbg_alive) {}
+        }
+    }
+    if (_dbg_trainer){
+        try { show_debug_message("[battle][trainer][alive-check] no living mons found"); } catch (e_dbg_alive_none) {}
+    }
+    return false;
+}
+
+function __battle_trainer_active_party_index_for_actor(_B, _actorIndex){
+    if (!is_struct(_B) || !is_real(_actorIndex)) return -1;
+    var _slot = floor(_actorIndex);
+    var _is_double = (variable_struct_exists(_B, "battle_format") && string(variable_struct_get(_B, "battle_format")) == "double");
+    if (_is_double && variable_struct_exists(_B, "_trainer_party_active_indices") && is_array(variable_struct_get(_B, "_trainer_party_active_indices"))){
+        var _active_indices = variable_struct_get(_B, "_trainer_party_active_indices");
+        var _enemy_slot = _slot - 2;
+        if (_enemy_slot >= 0 && _enemy_slot < array_length(_active_indices) && is_real(_active_indices[_enemy_slot])) return floor(_active_indices[_enemy_slot]);
+    }
+    if (variable_struct_exists(_B, "_trainer_party_active_idx") && is_real(variable_struct_get(_B, "_trainer_party_active_idx"))) return floor(variable_struct_get(_B, "_trainer_party_active_idx"));
+    return -1;
+}
+
+function __battle_trainer_next_alive_index_excluding(_B, _exclude_indices, _from_idx = undefined){
+    if (!is_struct(_B) || !variable_struct_exists(_B, "_trainer_party")) return -1;
+    var party = variable_struct_get(_B, "_trainer_party");
+    if (!is_array(party) || array_length(party) <= 0) return -1;
+
+    var len = array_length(party);
+    var anchor = (is_real(_from_idx) ? clamp(floor(_from_idx), -1, len - 1) : -1);
+    var _exclude = (is_array(_exclude_indices) ? _exclude_indices : []);
+
+    var start = max(anchor + 1, 0);
+    for (var i = start; i < len; ++i){
+        var _skip_i = false;
+        for (var _ei = 0; _ei < array_length(_exclude); ++_ei){
+            if (is_real(_exclude[_ei]) && floor(_exclude[_ei]) == i){
+                _skip_i = true;
+                break;
+            }
+        }
+        if (_skip_i) continue;
+        var mon = party[i];
+        if (is_struct(mon) && __battle_trainer_mon_is_alive(mon)) return i;
+    }
+
+    for (var j = 0; j < len && (anchor < 0 || j <= anchor); ++j){
+        var _skip_j = false;
+        for (var _ej = 0; _ej < array_length(_exclude); ++_ej){
+            if (is_real(_exclude[_ej]) && floor(_exclude[_ej]) == j){
+                _skip_j = true;
+                break;
+            }
+        }
+        if (_skip_j) continue;
+        var mon2 = party[j];
+        if (is_struct(mon2) && __battle_trainer_mon_is_alive(mon2)) return j;
+    }
+
+    return -1;
+}
+
+/// Return the next unfainted trainer party index, searching forward then wrapping to the start.
+function __battle_trainer_next_alive_index(_B, _from_idx){
+    if (!is_struct(_B) || !variable_struct_exists(_B, "_trainer_party")) return -1;
+    var party = variable_struct_get(_B, "_trainer_party");
+    if (!is_array(party) || array_length(party) <= 0) return -1;
+
+    var len = array_length(party);
+    var anchor = -1;
+    if (is_real(_from_idx)) anchor = clamp(floor(_from_idx), -1, len - 1);
+
+    var _dbg_trainer = true;
+    try {
+        if (variable_global_exists("DATA_DEBUG_TRAINER")) _dbg_trainer = (global.DATA_DEBUG_TRAINER == true);
+        else if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) _dbg_trainer = true;
+    } catch (e_dbgflag_next) { _dbg_trainer = false; }
+
+    var start = max(anchor + 1, 0);
+    for (var i = start; i < len; ++i){
+        if (i == anchor) continue;
+        var mon = party[i];
+        if (!is_struct(mon)) continue;
+        if (__battle_trainer_mon_is_alive(mon)) return i;
+        if (_dbg_trainer){
+            try {
+                var mon_name_fwd = "<unnamed>";
+                if (variable_struct_exists(mon, "name")) mon_name_fwd = string(variable_struct_get(mon, "name"));
+                show_debug_message("[battle][trainer][next] skip idx=" + string(i) + " mon=" + mon_name_fwd + " (fainted)");
+            } catch (e_dbg_next_fwd) {}
+        }
+    }
+
+    if (anchor >= 0){
+        for (var j = 0; j < len && j <= anchor; ++j){
+            if (j == anchor) continue;
+            var mon2 = party[j];
+            if (!is_struct(mon2)) continue;
+            if (__battle_trainer_mon_is_alive(mon2)) return j;
+            if (_dbg_trainer){
+                try {
+                    var mon_name_wrap = "<unnamed>";
+                    if (variable_struct_exists(mon2, "name")) mon_name_wrap = string(variable_struct_get(mon2, "name"));
+                    show_debug_message("[battle][trainer][next] wrap skip idx=" + string(j) + " mon=" + mon_name_wrap + " (fainted)");
+                } catch (e_dbg_next_wrap) {}
+            }
+        }
+    }
+
+    return -1;
+}
+
+/// Schedule the trainer's next Pokemon to enter after a faint; returns true when successfully queued.
+function __battle_trainer_schedule_next_mon(_pid, _next_idx, _actor_index = 1){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B)) return false;
+    if (!variable_struct_exists(_B, "_trainer_party")) return false;
+    var party = variable_struct_get(_B, "_trainer_party");
+    if (!is_array(party) || _next_idx < 0 || _next_idx >= array_length(party)) return false;
+    var mon = party[_next_idx];
+    if (!is_struct(mon) || !__battle_trainer_mon_is_alive(mon)) return false;
+
+    var trainer_name = __battle_trainer_get_name(_B);
+    var mon_name = (variable_struct_exists(mon, "name") ? string(mon.name) : "their Pokemon");
+
+    var pending = {
+        idx: _next_idx,
+        actor_index: (is_real(_actor_index) ? floor(_actor_index) : 1),
+        ready_ms: current_time + 420,
+        dialog_enqueued: false,
+        message: string(trainer_name) + " sent out " + string(mon_name) + "!"
+    };
+    if (__battle_dialog_debug_enabled()){
+        try { show_debug_message("[battle][trainer] schedule pending pid=" + string(_pid) + ", idx=" + string(_next_idx) + ", mon=" + string(mon_name)); } catch (e_dbg) {}
+    }
+
+    try { variable_struct_set(_B, "_trainer_pending_send", pending); } catch (e_set) { return false; }
+    return true;
+}
+
+function __battle_find_player_party_active_index(_pid, _actorIndex){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !variable_struct_exists(_B, "actor") || !is_array(variable_struct_get(_B, "actor"))) return -1;
+    var _actors = variable_struct_get(_B, "actor");
+    var _lookup_actor_index = is_real(_actorIndex) ? floor(_actorIndex) : 0;
+    if (_lookup_actor_index < 0 || _lookup_actor_index >= array_length(_actors) || !is_struct(_actors[_lookup_actor_index])) return -1;
+    var _active_actor = _actors[_lookup_actor_index];
+    var _active_mon = (variable_struct_exists(_active_actor, "mon") && is_struct(variable_struct_get(_active_actor, "mon"))) ? variable_struct_get(_active_actor, "mon") : _active_actor;
+    var _mons = party_model_get_mons(_pid);
+    if (!is_array(_mons)) return -1;
+    for (var _i = 0; _i < array_length(_mons); ++_i){
+        var _mon = _mons[_i];
+        if (!is_struct(_mon)) continue;
+        if (_mon == _active_mon || _mon == _active_actor) return _i;
+    }
+    return -1;
+}
+
+function __battle_is_player_party_index_active(_pid, _partyIndex){
+    if (!is_real(_partyIndex)) return false;
+    var _mons = party_model_get_mons(_pid);
+    var _idx = floor(_partyIndex);
+    if (!is_array(_mons) || _idx < 0 || _idx >= array_length(_mons)) return false;
+    var _want_mon = _mons[_idx];
+    if (!is_struct(_want_mon)) return false;
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !variable_struct_exists(_B, "actor") || !is_array(variable_struct_get(_B, "actor"))) return false;
+    var _actors = variable_struct_get(_B, "actor");
+    for (var _i = 0; _i < array_length(_actors); ++_i){
+        var _actor = _actors[_i];
+        if (!is_struct(_actor) || __battle_actor_side(_i) != 0) continue;
+        var _actor_mon = (variable_struct_exists(_actor, "mon") && is_struct(variable_struct_get(_actor, "mon"))) ? variable_struct_get(_actor, "mon") : _actor;
+        if (_actor == _want_mon || _actor_mon == _want_mon) return true;
+    }
+    return false;
+}
+
+function __battle_find_first_switchable_party_index(_pid){
+    var _mons = party_model_get_mons(_pid);
+    if (!is_array(_mons)) return -1;
+    var _active_idx = __battle_find_player_party_active_index(_pid, 0);
+    for (var _i = 0; _i < array_length(_mons); ++_i){
+        if (_i == _active_idx) continue;
+        var _mon = _mons[_i];
+        if (!is_struct(_mon)) continue;
+        var _hp = __battle_hp_now(_mon);
+        if (is_real(_hp) && _hp > 0) return _i;
+    }
+    return -1;
+}
+
+function __battle_collect_switchable_party_indexes(_pid, _actorIndex){
+    var _mons = party_model_get_mons(_pid);
+    if (!is_array(_mons)) return [];
+    var _active_idx = __battle_find_player_party_active_index(_pid, _actorIndex);
+    var _out = [];
+    for (var _i = 0; _i < array_length(_mons); ++_i){
+        if (_i == _active_idx) continue;
+        if (!__battle_party_index_is_usable(_pid, _i)) continue;
+        if (__battle_is_player_party_index_active(_pid, _i)) continue;
+        array_push(_out, _i);
+    }
+    return _out;
+}
+
+function __battle_pick_random_switchable_party_index(_pid, _actorIndex){
+    var _choices = __battle_collect_switchable_party_indexes(_pid, _actorIndex);
+    if (!is_array(_choices) || array_length(_choices) <= 0) return -1;
+    return _choices[irandom(array_length(_choices) - 1)];
+}
+
+function __battle_trainer_begin_switch_prompt(_pid, _next_idx){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !variable_struct_exists(_B, "_trainer_party")) return false;
+    var _party = variable_struct_get(_B, "_trainer_party");
+    if (!is_array(_party) || !is_real(_next_idx) || _next_idx < 0 || _next_idx >= array_length(_party)) return false;
+    var _mon = _party[_next_idx];
+    if (!is_struct(_mon) || !__battle_trainer_mon_is_alive(_mon)) return false;
+
+    var _next_name = (variable_struct_exists(_mon, "name") ? string(variable_struct_get(_mon, "name")) : "Pokemon");
+    var _trainer_name = __battle_trainer_get_name(_B);
+    var _prompt = {
+        active: true,
+        enemy_next_idx: floor(_next_idx),
+        enemy_next_name: _next_name,
+        trainer_name: _trainer_name,
+        sel: 1,
+        player_choice: "none",
+        player_switch_idx: -1,
+        phase: "prompt"
+    };
+    try { variable_struct_set(_B, "_trainer_switch_prompt", _prompt); } catch (e_prompt_set) { return false; }
+    try { variable_struct_set(_B, "_pending_close", false); } catch (e_pc_prompt) {}
+    try { variable_struct_set(_B, "_action_active", false); } catch (e_act_prompt) {}
+    variable_struct_set(_B, "phase", "command");
+    return true;
+}
+
+function __battle_trainer_clear_switch_prompt(_pid){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B)) return;
+    try { variable_struct_set(_B, "_trainer_switch_prompt", undefined); } catch (e_clear_prompt) {}
+    try {
+        var _P = party_ensure(_pid);
+        if (is_struct(_P) && variable_struct_exists(_P, "_trainer_prompt_pick_mode")) variable_struct_set(_P, "_trainer_prompt_pick_mode", false);
+    } catch (e_clear_prompt_party) {}
+}
+
+function __battle_trainer_open_switch_party(_pid){
+    if (is_undefined(party_open) || is_undefined(party_ensure)) return false;
+    party_open(_pid);
+    var _P = party_ensure(_pid);
+    if (!is_struct(_P)) return false;
+    try { variable_struct_set(_P, "_trainer_prompt_pick_mode", true); } catch (e_pick_mode) {}
+    try { variable_struct_set(_P, "_battle_swap_mode", false); } catch (e_swap_mode) {}
+    try { variable_struct_set(_P, "_battle_swap_mode_forced", false); } catch (e_swap_forced) {}
+    try { variable_struct_set(_P, "mode", "list"); } catch (e_pick_list) {}
+    try { variable_struct_set(_P, "lock", 0); } catch (e_pick_lock) {}
+    var _pick_idx = __battle_find_first_switchable_party_index(_pid);
+    if (_pick_idx >= 0){
+        try { variable_struct_set(_P, "sel", _pick_idx); } catch (e_pick_sel) {}
+    }
+    return true;
+}
+
+function __battle_trainer_update_switch_prompt(_pid){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !variable_struct_exists(_B, "_trainer_switch_prompt")) return false;
+    var _prompt = variable_struct_get(_B, "_trainer_switch_prompt");
+    if (!is_struct(_prompt) || !variable_struct_exists(_prompt, "active") || !_prompt.active) return false;
+
+    var _phase = (variable_struct_exists(_prompt, "phase") ? string(variable_struct_get(_prompt, "phase")) : "prompt");
+    if (_phase == "await_party"){
+        var _party_open = (!is_undefined(party_is_open) && party_is_open(_pid));
+        if (!_party_open){
+            var _pick = (variable_struct_exists(_prompt, "player_switch_idx") && is_real(variable_struct_get(_prompt, "player_switch_idx"))) ? floor(variable_struct_get(_prompt, "player_switch_idx")) : -1;
+            if (_pick >= 0){
+                variable_struct_set(_prompt, "player_choice", "yes");
+            } else {
+                variable_struct_set(_prompt, "player_choice", "no");
+                variable_struct_set(_prompt, "player_switch_idx", -1);
+            }
+            variable_struct_set(_prompt, "phase", "queue_enemy_send");
+            variable_struct_set(_B, "_trainer_switch_prompt", _prompt);
+        }
+        return true;
+    }
+
+    if (_phase == "queue_enemy_send"){
+        if (!variable_struct_exists(_B, "_trainer_pending_send") || !is_struct(variable_struct_get(_B, "_trainer_pending_send"))){
+            var _next_idx = (variable_struct_exists(_prompt, "enemy_next_idx") ? variable_struct_get(_prompt, "enemy_next_idx") : -1);
+            if (__battle_trainer_schedule_next_mon(_pid, _next_idx)){
+                variable_struct_set(_prompt, "phase", "await_enemy_send");
+                variable_struct_set(_B, "_trainer_switch_prompt", _prompt);
+            } else {
+                __battle_trainer_clear_switch_prompt(_pid);
+            }
+        }
+        return true;
+    }
+
+    if (_phase == "await_enemy_send"){
+        var _dialog_open = (is_undefined(dialog2p_is_open) ? false : dialog2p_is_open(_pid));
+        var _send_pending = (variable_struct_exists(_B, "_trainer_pending_send") && is_struct(variable_struct_get(_B, "_trainer_pending_send")));
+        var _switch_anim = (variable_struct_exists(_B, "_trainer_switch") && is_struct(variable_struct_get(_B, "_trainer_switch")));
+        if (_dialog_open || _send_pending || _switch_anim) return true;
+
+        var _pick_idx2 = (variable_struct_exists(_prompt, "player_switch_idx") && is_real(variable_struct_get(_prompt, "player_switch_idx"))) ? floor(variable_struct_get(_prompt, "player_switch_idx")) : -1;
+        if (_pick_idx2 >= 0){
+            var _ok_switch = battle_switch_to(_pid, _pick_idx2, { auto_apply:true, consume_turn:false, forced:true });
+            if (_ok_switch){
+                __battle_trainer_clear_switch_prompt(_pid);
+                return true;
+            }
+        }
+        __battle_trainer_clear_switch_prompt(_pid);
+        return true;
+    }
+
+    return true;
+}
+
+function __battle_trainer_start_switch_anim(_pid, _pending_actor, _pending_idx, _opts){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B)) return false;
+
+    var info = (variable_struct_exists(_B, "_trainer_info") ? variable_struct_get(_B, "_trainer_info") : undefined);
+    var throw_duration = 540;
+    var recall_duration = 220;
+    var materialize_duration = 180;
+    var pending_actor_index = 1;
+    var throw_height = 52;
+    var throw_origin_x = 210;
+    var throw_origin_y = 72;
+    var ball_sprite = undefined;
+    var ball_scale = 0.75;
+    if (is_struct(info)){
+        if (variable_struct_exists(info, "throw_duration") && is_real(variable_struct_get(info, "throw_duration"))) throw_duration = max(120, real(variable_struct_get(info, "throw_duration")));
+        if (variable_struct_exists(info, "throw_height") && is_real(variable_struct_get(info, "throw_height"))) throw_height = max(8, real(variable_struct_get(info, "throw_height")));
+        if (variable_struct_exists(info, "throw_origin_x") && is_real(variable_struct_get(info, "throw_origin_x"))) throw_origin_x = real(variable_struct_get(info, "throw_origin_x"));
+        if (variable_struct_exists(info, "throw_origin_y") && is_real(variable_struct_get(info, "throw_origin_y"))) throw_origin_y = real(variable_struct_get(info, "throw_origin_y"));
+        if (variable_struct_exists(info, "ball_sprite")) ball_sprite = variable_struct_get(info, "ball_sprite");
+        if (variable_struct_exists(info, "ball_scale") && is_real(variable_struct_get(info, "ball_scale"))) ball_scale = max(0.1, real(variable_struct_get(info, "ball_scale")));
+    }
+
+    var recall = true;
+    var old_actor = undefined;
+    if (variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor"))){
+        var _actors_sw = variable_struct_get(_B, "actor");
+        if (array_length(_actors_sw) > 1) old_actor = _actors_sw[1];
+    }
+    if (is_struct(_opts)){
+        if (variable_struct_exists(_opts, "recall") && variable_struct_get(_opts, "recall") == false) recall = false;
+        if (variable_struct_exists(_opts, "recall_duration") && is_real(variable_struct_get(_opts, "recall_duration"))) recall_duration = max(0, real(variable_struct_get(_opts, "recall_duration")));
+        if (variable_struct_exists(_opts, "actor_index") && is_real(variable_struct_get(_opts, "actor_index"))) pending_actor_index = floor(variable_struct_get(_opts, "actor_index"));
+    }
+
+    if (recall && is_struct(old_actor)){
+        var _old_hp = __battle_hp_now(old_actor);
+        if (!is_real(_old_hp) || _old_hp <= 0) recall = false;
+        try {
+            if (variable_struct_exists(old_actor, "fainted") && variable_struct_get(old_actor, "fainted") == true) recall = false;
+        } catch (e_old_fainted) {}
+    } else {
+        recall = false;
+    }
+
+    var anim = {
+        phase: (recall ? "recall" : "throw"),
+        phase_start_ms: current_time,
+        recall_duration: recall_duration,
+        throw_duration: throw_duration,
+        materialize_duration: materialize_duration,
+        throw_height: throw_height,
+        throw_origin_x: throw_origin_x,
+        throw_origin_y: throw_origin_y,
+        ball_sprite: ball_sprite,
+        ball_scale: ball_scale,
+        pending_actor: _pending_actor,
+        pending_idx: _pending_idx,
+        pending_actor_index: pending_actor_index,
+        applied: false,
+        active: true
+    };
+    try { variable_struct_set(_B, "_trainer_switch", anim); } catch (e_anim) { return false; }
+    try {
+        var _anim_until = current_time + recall_duration + throw_duration + materialize_duration;
+        if (!variable_struct_exists(_B, "_suppress_sys_ui_until") || !is_real(variable_struct_get(_B, "_suppress_sys_ui_until")) || variable_struct_get(_B, "_suppress_sys_ui_until") < _anim_until){
+            variable_struct_set(_B, "_suppress_sys_ui_until", _anim_until);
+        }
+    } catch (e_sup_anim) {}
+    return true;
+}
+
+function __battle_trainer_update_switch_anim(_pid){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !variable_struct_exists(_B, "_trainer_switch")) return false;
+    var anim = variable_struct_get(_B, "_trainer_switch");
+    if (!is_struct(anim)) return false;
+
+    var now = current_time;
+    var phase = (variable_struct_exists(anim, "phase") ? string(variable_struct_get(anim, "phase")) : "");
+    var phase_start = (variable_struct_exists(anim, "phase_start_ms") && is_real(variable_struct_get(anim, "phase_start_ms"))) ? real(variable_struct_get(anim, "phase_start_ms")) : now;
+
+    if (phase == "recall"){
+        var recall_duration = (variable_struct_exists(anim, "recall_duration") && is_real(variable_struct_get(anim, "recall_duration"))) ? max(1, real(variable_struct_get(anim, "recall_duration"))) : 220;
+        if (now - phase_start >= recall_duration){
+            variable_struct_set(anim, "phase", "throw");
+            variable_struct_set(anim, "phase_start_ms", now);
+            phase = "throw";
+            phase_start = now;
+        }
+    }
+
+    if (phase == "throw"){
+        var throw_duration = (variable_struct_exists(anim, "throw_duration") && is_real(variable_struct_get(anim, "throw_duration"))) ? max(1, real(variable_struct_get(anim, "throw_duration"))) : 540;
+        var throw_prog = clamp((now - phase_start) / throw_duration, 0, 1);
+
+        if (throw_prog >= 1){
+            variable_struct_set(anim, "phase", "materialize");
+            variable_struct_set(anim, "phase_start_ms", now);
+            phase = "materialize";
+            phase_start = now;
+        }
+    }
+
+    if (phase == "materialize"){
+        if ((!variable_struct_exists(anim, "applied") || variable_struct_get(anim, "applied") != true)){
+            var new_actor = (variable_struct_exists(anim, "pending_actor") ? variable_struct_get(anim, "pending_actor") : undefined);
+            var idx = (variable_struct_exists(anim, "pending_idx") ? variable_struct_get(anim, "pending_idx") : -1);
+            var actor_index = (variable_struct_exists(anim, "pending_actor_index") && is_real(variable_struct_get(anim, "pending_actor_index"))) ? floor(variable_struct_get(anim, "pending_actor_index")) : 1;
+            if (is_struct(new_actor)){
+                var _actors_live = variable_struct_get(_B, "actor");
+                _actors_live[actor_index] = new_actor;
+                variable_struct_set(_B, "actor", _actors_live);
+                try { variable_struct_set(new_actor, "actor_index", actor_index); } catch (e_ai_sw) {}
+                __battle_apply_party_moves(new_actor);
+                try {
+                    if (variable_struct_exists(_B, "battle_format") && string(variable_struct_get(_B, "battle_format")) == "double"){
+                        var _active_indices_sw = (variable_struct_exists(_B, "_trainer_party_active_indices") && is_array(variable_struct_get(_B, "_trainer_party_active_indices"))) ? variable_struct_get(_B, "_trainer_party_active_indices") : [];
+                        var _enemy_slot_sw = actor_index - 2;
+                        if (_enemy_slot_sw >= 0){
+                            while (array_length(_active_indices_sw) <= _enemy_slot_sw) array_push(_active_indices_sw, -1);
+                            _active_indices_sw[_enemy_slot_sw] = idx;
+                            variable_struct_set(_B, "_trainer_party_active_indices", _active_indices_sw);
+                        }
+                    } else {
+                        variable_struct_set(_B, "_trainer_party_active_idx", idx);
+                    }
+                } catch (e_idx_sw) {}
+                try {
+                    var __fn_entry_haz_sw = undefined;
+                    if (variable_global_exists("__battle_apply_entry_hazards")) __fn_entry_haz_sw = variable_global_get("__battle_apply_entry_hazards");
+                    if (!is_undefined(__fn_entry_haz_sw)) __fn_entry_haz_sw(_pid, actor_index);
+                } catch (e_haz_sw) {}
+                try { __battle_apply_pending_healing_wish_to_actor(_pid, actor_index, new_actor); } catch (e_hw_enemy_anim) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][healing-wish] enemy anim apply failed: " + string(e_hw_enemy_anim)); }
+                try {
+                    variable_struct_set(_B, "_cry_played_enemy", false);
+                    try { __battle_apply_pending_healing_wish_to_actor(_pid, actor_index, new_actor); } catch (e_hw_enemy_pending) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][healing-wish] enemy pending apply failed: " + string(e_hw_enemy_pending)); }
+                    variable_struct_set(_B, "_cry_play_start_ms_enemy", current_time);
+                } catch (e_cry_sw) {}
+            }
+            variable_struct_set(anim, "applied", true);
+        }
+
+        var materialize_duration = (variable_struct_exists(anim, "materialize_duration") && is_real(variable_struct_get(anim, "materialize_duration"))) ? max(1, real(variable_struct_get(anim, "materialize_duration"))) : 180;
+        var materialize_prog = clamp((now - phase_start) / materialize_duration, 0, 1);
+        if (materialize_prog >= 1){
+            try { variable_struct_remove(_B, "_trainer_switch"); } catch (e_done_sw) { variable_struct_set(_B, "_trainer_switch", undefined); }
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/// Apply any pending trainer send-out once dialog has cleared; returns true when the swap completes.
+function __battle_trainer_apply_pending_send(_pid){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !variable_struct_exists(_B, "_trainer_pending_send")) return false;
+    var pending = variable_struct_get(_B, "_trainer_pending_send");
+    if (!is_struct(pending)) return false;
+
+    var party = (variable_struct_exists(_B, "_trainer_party") ? variable_struct_get(_B, "_trainer_party") : undefined);
+    if (!is_array(party)) { if (variable_struct_exists(_B, "_trainer_pending_send")) variable_struct_remove(_B, "_trainer_pending_send"); return false; }
+
+    var idx = (variable_struct_exists(pending, "idx") ? pending.idx : -1);
+    var actor_index = (variable_struct_exists(pending, "actor_index") && is_real(variable_struct_get(pending, "actor_index"))) ? floor(variable_struct_get(pending, "actor_index")) : 1;
+    if (!is_real(idx) || idx < 0 || idx >= array_length(party)) { if (variable_struct_exists(_B, "_trainer_pending_send")) variable_struct_remove(_B, "_trainer_pending_send"); return false; }
+    var mon = party[idx];
+    if (!is_struct(mon)) { if (variable_struct_exists(_B, "_trainer_pending_send")) variable_struct_remove(_B, "_trainer_pending_send"); return false; }
+    if (!__battle_trainer_mon_is_alive(mon)){
+        try { if (variable_struct_exists(_B, "_trainer_pending_send")) variable_struct_remove(_B, "_trainer_pending_send"); } catch (e_drop_dead) {}
+        return false;
+    }
+
+    var now = current_time;
+    var dialog_open = (is_undefined(dialog2p_is_open) ? false : dialog2p_is_open(_pid));
+
+    if (!variable_struct_exists(pending, "dialog_enqueued") || !pending.dialog_enqueued){
+        if (!dialog_open){
+            var msg = (variable_struct_exists(pending, "message") ? string(pending.message) : "A Pokemon was sent out!");
+            try {
+                if (!is_undefined(dialog2p_enqueue)) dialog2p_enqueue(_pid, { text: msg, key: msg, gate: "trainer-send" });
+                else if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, msg);
+            } catch (e_msg) {}
+            pending.dialog_enqueued = true;
+            pending.ready_ms = now + 160;
+            try { variable_struct_set(_B, "_trainer_pending_send", pending); } catch (e_upd) {}
+            if (__battle_dialog_debug_enabled()){
+                try { show_debug_message("[battle][trainer] dialog enqueued pid=" + string(_pid) + ", msg=" + string(msg)); } catch (e_dbg3) {}
+            }
+        }
+        return false;
+    }
+
+    if (dialog_open) return false;
+    if (variable_struct_exists(pending, "ready_ms") && is_real(pending.ready_ms) && now < pending.ready_ms) return false;
+
+    var new_actor = __battle_actor_from_party_mon(mon);
+    var _anim_started = false;
+    try {
+        if (!is_undefined(__battle_trainer_start_switch_anim)) _anim_started = __battle_trainer_start_switch_anim(_pid, new_actor, idx, { recall: false, actor_index: actor_index });
+    } catch (e_anim_pending) { _anim_started = false; }
+    if (!_anim_started){
+        var _actors_send = variable_struct_get(_B, "actor");
+        _actors_send[actor_index] = new_actor;
+        variable_struct_set(_B, "actor", _actors_send);
+        try {
+            if (variable_struct_exists(_B, "battle_format") && string(variable_struct_get(_B, "battle_format")) == "double"){
+                var _active_indices = (variable_struct_exists(_B, "_trainer_party_active_indices") && is_array(variable_struct_get(_B, "_trainer_party_active_indices"))) ? variable_struct_get(_B, "_trainer_party_active_indices") : [];
+                var _enemy_slot = actor_index - 2;
+                if (_enemy_slot >= 0){
+                    while (array_length(_active_indices) <= _enemy_slot) array_push(_active_indices, -1);
+                    _active_indices[_enemy_slot] = idx;
+                    variable_struct_set(_B, "_trainer_party_active_indices", _active_indices);
+                }
+            } else {
+                variable_struct_set(_B, "_trainer_party_active_idx", idx);
+            }
+        } catch (e_act_idx) {}
+        if (is_struct(new_actor)){
+            try { variable_struct_set(new_actor, "actor_index", actor_index); } catch (e_ai) {}
+            __battle_apply_party_moves(new_actor);
+        }
+
+        try {
+            var __fn_entry_haz = undefined;
+            if (variable_global_exists("__battle_apply_entry_hazards")){
+                __fn_entry_haz = variable_global_get("__battle_apply_entry_hazards");
+            }
+            if (!is_undefined(__fn_entry_haz)) __fn_entry_haz(_pid, actor_index);
+        } catch (e_haz) {}
+        try { variable_struct_set(_B, "_cry_played_enemy", false); variable_struct_set(_B, "_cry_play_start_ms_enemy", current_time); } catch (e_cr) {}
+    }
+    try {
+        if (variable_struct_exists(_B, "_trainer_pending_send")) variable_struct_remove(_B, "_trainer_pending_send");
+    } catch (e_clr) {}
+
+    try {
+        var desired = current_time + 420;
+        var existing = (variable_struct_exists(_B, "_suppress_sys_ui_until") ? variable_struct_get(_B, "_suppress_sys_ui_until") : -1);
+        if (!is_real(existing) || existing < desired) variable_struct_set(_B, "_suppress_sys_ui_until", desired);
+    } catch (e_sup) {}
+
+    variable_struct_set(_B, "phase", "command");
+    try { variable_struct_set(_B, "_pending_close", false); } catch (e_pc) {}
+    try { variable_struct_set(_B, "_faint_pending", false); } catch (e_fp) {}
+    try { variable_struct_set(_B, "_faint_dialog_active", false); } catch (e_fdreset) {}
+    try { variable_struct_set(_B, "_command_pending_action", undefined); } catch (e_clear_send_action) {}
+    try { variable_struct_set(_B, "_target_pick_targets", undefined); } catch (e_clear_send_targets) {}
+    try { variable_struct_set(_B, "_target_pick_index", 0); } catch (e_clear_send_idx) {}
+    try {
+        var _sys_ui = (variable_struct_exists(_B, "sys_ui") ? variable_struct_get(_B, "sys_ui") : undefined);
+        if (is_struct(_sys_ui) && string(variable_struct_get(_sys_ui, "menu")) == "target"){
+            variable_struct_set(_sys_ui, "menu", "root");
+            variable_struct_set(_sys_ui, "selX", 0);
+            variable_struct_set(_sys_ui, "selY", 0);
+        }
+    } catch (e_clear_send_menu) {}
+
+    return true;
+}
+
+if (is_undefined(__battle_trainer_debug_force_switch)){
+    function __battle_trainer_debug_force_switch(_pid){
+        var _B = __battle_ensure_slot(_pid);
+        if (!is_struct(_B)) return false;
+        var __set_reason = function(_reason){
+            try { variable_struct_set(_B, "_debug_trainer_force_switch_reason", _reason); } catch (e_reason) {}
+        };
+        __set_reason(undefined);
+        var mode = "";
+        try {
+            if (variable_struct_exists(_B, "_battle_mode")) mode = string_lower(string(variable_struct_get(_B, "_battle_mode")));
+        } catch (e_mode) { mode = ""; }
+        if (mode != "trainer") { __set_reason("not_trainer"); return false; }
+        var party = (variable_struct_exists(_B, "_trainer_party") ? variable_struct_get(_B, "_trainer_party") : undefined);
+        if (!is_array(party)) { __set_reason("no_party"); return false; }
+        var active_idx = -1;
+        var enemy_actor = undefined;
+        if (variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor"))){
+            var _actors_dbg = variable_struct_get(_B, "actor");
+            if (array_length(_actors_dbg) > 1) enemy_actor = _actors_dbg[1];
+        }
+        try {
+            if (is_struct(enemy_actor)){
+                var __fn_jaw_block_dbg = undefined;
+                if (variable_global_exists("__battle_jaw_lock_is_blocked")){
+                    __fn_jaw_block_dbg = variable_global_get("__battle_jaw_lock_is_blocked");
+                }
+                if (!is_undefined(__fn_jaw_block_dbg) && __fn_jaw_block_dbg(enemy_actor)) { __set_reason("jaw_lock"); return false; }
+            }
+        } catch (e_jl_block) {}
+        if (is_struct(enemy_actor)){
+            try {
+                if (!is_undefined(status_system_has_status)){
+                    if (status_system_has_status(enemy_actor, "trap")) { __set_reason("trap"); return false; }
+                    if (variable_struct_exists(enemy_actor, "mon") && is_struct(variable_struct_get(enemy_actor, "mon"))){
+                        var _enemy_mon_dbg = variable_struct_get(enemy_actor, "mon");
+                        if (status_system_has_status(_enemy_mon_dbg, "trap")) { __set_reason("trap"); return false; }
+                    }
+                }
+            } catch (e_trap_chk) {}
+        }
+        try {
+            if (variable_struct_exists(_B, "_trainer_party_active_idx")) active_idx = variable_struct_get(_B, "_trainer_party_active_idx");
+        } catch (e_act) { active_idx = -1; }
+        if (!is_real(active_idx) || active_idx < 0 || active_idx >= array_length(party)) active_idx = -1;
+        var next_idx = __battle_trainer_next_alive_index(_B, active_idx);
+        if (!is_real(next_idx) || next_idx < 0 || next_idx >= array_length(party)) { __set_reason("no_next"); return false; }
+        if (active_idx == next_idx) { __set_reason("same_idx"); return false; }
+        try { variable_struct_set(_B, "_debug_trainer_force_switch_idx", next_idx); } catch (e_idx) { __set_reason("set_idx_fail"); return false; }
+        try {
+            var cur_actor = undefined;
+            if (variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor"))){
+                var _actors_dbg = variable_struct_get(_B, "actor");
+                if (array_length(_actors_dbg) > 1) cur_actor = _actors_dbg[1];
+            }
+            var from_name = undefined;
+            if (is_struct(cur_actor) && variable_struct_exists(cur_actor, "name")) from_name = string(variable_struct_get(cur_actor, "name"));
+            var next_mon = party[next_idx];
+            var to_name = undefined;
+            if (is_struct(next_mon) && variable_struct_exists(next_mon, "name")) to_name = string(variable_struct_get(next_mon, "name"));
+            variable_struct_set(_B, "_debug_trainer_force_switch_from", from_name);
+            variable_struct_set(_B, "_debug_trainer_force_switch_to", to_name);
+        } catch (e_meta) {}
+        __set_reason(undefined);
+        return true;
+    }
+}
+
+if (is_undefined(__battle_trainer_perform_switch_action)){
+    function __battle_trainer_perform_switch_action(_pid, _dst_idx, _step_meta){
+        var _B = __battle_ensure_slot(_pid);
+        if (!is_struct(_B)) return "But it failed!";
+        var party = (variable_struct_exists(_B, "_trainer_party") ? variable_struct_get(_B, "_trainer_party") : undefined);
+        if (!is_array(party)) return "But it failed!";
+        var idx = floor(_dst_idx);
+        if (!is_real(idx) || idx < 0 || idx >= array_length(party)) return "But it failed!";
+        var mon = party[idx];
+        if (!is_struct(mon) || !__battle_trainer_mon_is_alive(mon)) return "But it failed!";
+
+        var actors_arr = (variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor"))) ? variable_struct_get(_B, "actor") : [];
+        var old_actor = undefined;
+        if (array_length(actors_arr) > 1) old_actor = actors_arr[1];
+
+        var trainer_name = __battle_trainer_get_name(_B);
+        var from_name = (is_struct(old_actor) && variable_struct_exists(old_actor, "name")) ? string(variable_struct_get(old_actor, "name")) : "their Pokemon";
+        var to_name = (variable_struct_exists(mon, "name") ? string(variable_struct_get(mon, "name")) : "a Pokemon");
+        if (is_struct(_step_meta)){
+            try {
+                if (variable_struct_exists(_step_meta, "debug_from") && is_string(variable_struct_get(_step_meta, "debug_from"))){
+                    var _df = string(variable_struct_get(_step_meta, "debug_from"));
+                    if (string_length(_df) > 0) from_name = _df;
+                }
+                if (variable_struct_exists(_step_meta, "debug_to") && is_string(variable_struct_get(_step_meta, "debug_to"))){
+                    var _dt = string(variable_struct_get(_step_meta, "debug_to"));
+                    if (string_length(_dt) > 0) to_name = _dt;
+                }
+            } catch (e_dbg) {}
+        }
+
+        try {
+            var __fn_jaw_release_trainer = undefined;
+            if (variable_global_exists("__battle_jaw_lock_release")){
+                __fn_jaw_release_trainer = variable_global_get("__battle_jaw_lock_release");
+            }
+            if (!is_undefined(__fn_jaw_release_trainer)) __fn_jaw_release_trainer(old_actor);
+        } catch (e_jaw) {}
+        try {
+            if (!is_undefined(status_system_clear_status) && is_struct(old_actor)){
+                status_system_clear_status(old_actor, "trap");
+                status_system_clear_status(old_actor, "perish-song");
+                status_system_clear_status(old_actor, "infatuation");
+                if (variable_struct_exists(old_actor, "mon") && is_struct(variable_struct_get(old_actor, "mon"))){
+                    status_system_clear_status(variable_struct_get(old_actor, "mon"), "trap");
+                    status_system_clear_status(variable_struct_get(old_actor, "mon"), "perish-song");
+                    status_system_clear_status(variable_struct_get(old_actor, "mon"), "infatuation");
+                }
+                if (!is_undefined(status_system_has_status) && !is_undefined(status_system_get) && variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor"))){
+                    var _acts_inf_tr = variable_struct_get(_B, "actor");
+                    var _old_mon = (variable_struct_exists(old_actor, "mon") && is_struct(variable_struct_get(old_actor, "mon")) ? variable_struct_get(old_actor, "mon") : undefined);
+                    for (var _it_inf = 0; _it_inf < array_length(_acts_inf_tr); ++_it_inf){
+                        var _cand_inf_tr = _acts_inf_tr[_it_inf];
+                        if (!is_struct(_cand_inf_tr) || _cand_inf_tr == old_actor) continue;
+                        if (!status_system_has_status(_cand_inf_tr, "infatuation")) continue;
+                        var _inst_inf_tr = status_system_get(_cand_inf_tr, "infatuation");
+                        var _src_inf_tr = (is_struct(_inst_inf_tr) && variable_struct_exists(_inst_inf_tr, "source") ? variable_struct_get(_inst_inf_tr, "source") : undefined);
+                        var _clear_inf_tr = (_src_inf_tr == old_actor) || (!is_undefined(_old_mon) && _src_inf_tr == _old_mon);
+                        if (!_clear_inf_tr && is_struct(_src_inf_tr) && variable_struct_exists(_src_inf_tr, "mon") && !is_undefined(_old_mon)) _clear_inf_tr = (variable_struct_get(_src_inf_tr, "mon") == _old_mon);
+                        if (_clear_inf_tr){
+                            status_system_clear_status(_cand_inf_tr, "infatuation");
+                            if (variable_struct_exists(_cand_inf_tr, "mon") && is_struct(variable_struct_get(_cand_inf_tr, "mon"))) status_system_clear_status(variable_struct_get(_cand_inf_tr, "mon"), "infatuation");
+                        }
+                    }
+                }
+            }
+        } catch (e_trap) {}
+
+        var new_actor = __battle_actor_from_party_mon(mon);
+        var _anim_started = false;
+        try {
+            if (!is_undefined(__battle_trainer_start_switch_anim)) _anim_started = __battle_trainer_start_switch_anim(_pid, new_actor, idx, { recall: true });
+        } catch (e_anim) { _anim_started = false; }
+        if (!_anim_started){
+            if (array_length(actors_arr) <= 1) actors_arr[1] = new_actor;
+            else actors_arr[1] = new_actor;
+            try { variable_struct_set(_B, "actor", actors_arr); } catch (e_setarr) {}
+            try { variable_struct_set(_B, "_trainer_party_active_idx", idx); } catch (e_idxset) {}
+
+            if (is_struct(new_actor)){
+                try { variable_struct_set(new_actor, "actor_index", 1); } catch (e_ai) {}
+                if (!is_undefined(__battle_apply_party_moves)) __battle_apply_party_moves(new_actor);
+                try { __battle_apply_baton_pass_payload(_B, new_actor, 1); } catch (e_bp_apply_enemy) {}
+            }
+
+            try {
+                var __fn_entry_haz_trainer = undefined;
+                if (variable_global_exists("__battle_apply_entry_hazards")){
+                    __fn_entry_haz_trainer = variable_global_get("__battle_apply_entry_hazards");
+                }
+                if (!is_undefined(__fn_entry_haz_trainer)) __fn_entry_haz_trainer(_pid, 1);
+            } catch (e_haz) {}
+            try { __battle_apply_pending_healing_wish_to_actor(_pid, 1, new_actor); } catch (e_hw_enemy_direct) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][healing-wish] enemy direct apply failed: " + string(e_hw_enemy_direct)); }
+            try {
+                variable_struct_set(_B, "_cry_played_enemy", false);
+                variable_struct_set(_B, "_cry_play_start_ms_enemy", current_time);
+            } catch (e_cry) {}
+        }
+        try {
+            variable_struct_set(_B, "_debug_trainer_force_switch_idx", undefined);
+            variable_struct_set(_B, "_debug_trainer_force_switch_from", undefined);
+            variable_struct_set(_B, "_debug_trainer_force_switch_to", undefined);
+        } catch (e_clrdbg) {}
+
+        var msg = string(trainer_name) + " withdrew " + string(from_name) + "!";
+        msg += "\n" + string(trainer_name) + " sent out " + string(to_name) + "!";
+        return msg;
+    }
+}
+
+/// Award the trainer payout once and queue defeat dialogs for the status message pipeline.
+function __battle_trainer_handle_defeat(_pid){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B)) return;
+    if (variable_struct_exists(_B, "_trainer_reward_paid") && variable_struct_get(_B, "_trainer_reward_paid")) return;
+
+    var reward = 0;
+    if (variable_struct_exists(_B, "_trainer_reward") && is_real(variable_struct_get(_B, "_trainer_reward"))){
+        reward = max(0, floor(variable_struct_get(_B, "_trainer_reward")));
+    }
+
+    if (!is_undefined(currency_add)) currency_add(reward);
+    else {
+        if (!variable_global_exists("PLAYER_MONEY") || !is_real(global.PLAYER_MONEY)) global.PLAYER_MONEY = 0;
+        global.PLAYER_MONEY = max(0, floor(global.PLAYER_MONEY)) + reward;
+    }
+
+    var trainer_name = __battle_trainer_get_name(_B);
+    var pend = (variable_struct_exists(_B, "_pending_status_msgs") ? variable_struct_get(_B, "_pending_status_msgs") : []);
+    if (!is_array(pend)) pend = [];
+    var defeat_msg = string(trainer_name) + " was defeated!";
+    array_push(pend, defeat_msg);
+    if (__battle_dialog_debug_enabled()) show_debug_message("[battle][dialog] status pend enqueue pid=" + string(_pid) + ", text=" + defeat_msg);
+    if (reward > 0){
+        var reward_msg = "You got $" + string(reward) + " for winning!";
+        array_push(pend, reward_msg);
+        if (__battle_dialog_debug_enabled()) show_debug_message("[battle][dialog] status pend enqueue pid=" + string(_pid) + ", text=" + reward_msg);
+    }
+    try { variable_struct_set(_B, "_pending_status_msgs", pend); } catch (e_pend) {}
+    try { variable_struct_set(_B, "_trainer_reward_paid", true); } catch (e_paid) {}
+    var __vict_start2 = __battle_fetch_global_function("__battle_trainer_start_victory_slide");
+    if (!is_undefined(__vict_start2)) __vict_start2(_pid);
+    var _dbg_trainer = false;
+    try {
+        if (variable_global_exists("DATA_DEBUG_TRAINER")) _dbg_trainer = (global.DATA_DEBUG_TRAINER == true);
+        else if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) _dbg_trainer = true;
+    } catch (e_dbgflag_hand) { _dbg_trainer = false; }
+    if (_dbg_trainer){
+        try { show_debug_message("[battle][trainer] defeat handled reward=" + string(reward)); } catch (e_dbg_handle) {}
+    }
+}
+
 // Queue or immediately show trainer-intro dialog text during the trainer intro sequence.
 function __battle_trainer_intro_show_dialog(_pid, _text){
     var txt = string(_text);
