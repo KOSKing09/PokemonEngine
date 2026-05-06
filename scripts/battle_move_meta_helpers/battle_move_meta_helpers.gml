@@ -851,9 +851,14 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                             if (is_real(_tgt_idx_he) && _tgt_idx_he >= 0 && _tgt_idx_he < array_length(_actors_tmp)){
                                                 _target_idx_eff = _tgt_idx_he;
                                             } else {
-                                                // If attacker index exists, pick the other slot in common two-mon battles
-                                                if (is_real(_act_idx_local) && array_length(_actors_tmp) >= 2){
-                                                    if (_act_idx_local == 0) _target_idx_eff = 1; else if (_act_idx_local == 1) _target_idx_eff = 0; else _target_idx_eff = 1;
+                                                // Prefer explicit defender actor identity before any fallback.
+                                                if (is_struct(_D) && variable_struct_exists(_D, "actor_index") && is_real(variable_struct_get(_D, "actor_index"))){
+                                                    var _d_actor_idx = floor(variable_struct_get(_D, "actor_index"));
+                                                    if (_d_actor_idx >= 0 && _d_actor_idx < array_length(_actors_tmp)) _target_idx_eff = _d_actor_idx;
+                                                }
+                                                // If attacker index exists, resolve the live opposite-side target instead of hardcoding 0<->1.
+                                                if (!is_real(_target_idx_eff) && is_real(_act_idx_local) && array_length(_actors_tmp) >= 2){
+                                                    _target_idx_eff = __battle_get_default_target_index(_pid, _act_idx_local);
                                                 } else {
                                                     // Fallback: try to match by inner mon identity (name/species) if available
                                                     if (is_struct(_D) && variable_struct_exists(_D, "mon")){
@@ -1578,15 +1583,24 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                         if (_fchange > 0) _fallback_has_positive = true;
                         if (_fchange < 0) _fallback_has_negative = true;
                     }
-                    if (is_struct(_D) && is_real(_fallback_step_target_idx) && !is_real(_fallback_target_id) && _fallback_has_negative && !_fallback_has_positive){
+                    if (_fallback_has_positive && !_fallback_has_negative){
+                        _fallback_target = _A;
+                        _fallback_actor_idx = (is_struct(_A) && variable_struct_exists(_A, "actor_index") && is_real(variable_struct_get(_A, "actor_index"))) ? variable_struct_get(_A, "actor_index") : _fallback_actor_idx;
+                        _fallback_visual_actor = _fallback_target;
+                        _fallback_visual_actor_idx = _fallback_actor_idx;
+                    } else if (is_struct(_D) && is_real(_fallback_step_target_idx) && !is_real(_fallback_target_id) && _fallback_has_negative && !_fallback_has_positive){
                         var _attacker_idx_step = (is_struct(_A) && variable_struct_exists(_A, "actor_index") && is_real(variable_struct_get(_A, "actor_index"))) ? floor(variable_struct_get(_A, "actor_index")) : undefined;
                         if (!is_real(_attacker_idx_step) || _fallback_step_target_idx != _attacker_idx_step){
                             _fallback_target = _D;
                             _fallback_actor_idx = (variable_struct_exists(_D, "actor_index") && is_real(variable_struct_get(_D, "actor_index"))) ? variable_struct_get(_D, "actor_index") : _fallback_actor_idx;
+                            _fallback_visual_actor = _fallback_target;
+                            _fallback_visual_actor_idx = _fallback_actor_idx;
                         }
                     } else if (is_struct(_D) && is_real(_fallback_target_id) && _fallback_target_id != 7){
                         _fallback_target = _D;
                         _fallback_actor_idx = (variable_struct_exists(_D, "actor_index") && is_real(variable_struct_get(_D, "actor_index"))) ? variable_struct_get(_D, "actor_index") : _fallback_actor_idx;
+                        _fallback_visual_actor = _fallback_target;
+                        _fallback_visual_actor_idx = _fallback_actor_idx;
                     }
                     // Accumulate overlay changes so self-boosting moves (like Harden)
                     // also enqueue the stat overlay to be shown when the dialog appears.

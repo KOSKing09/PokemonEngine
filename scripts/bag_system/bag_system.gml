@@ -301,6 +301,8 @@ function bag_open_for_battle(_pid){
     _b.open = true;
     _b.mode = "battle";
     _b.lock = 6; // short lock to avoid immediate double-input from menu transition
+    _b.item_menu_open = false;
+    _b.item_menu_sel = 0;
     // Clear party-give flags if present
     if (variable_struct_exists(_b, "give_from_party")) { _b.give_from_party = false; _b.give_to_mon = undefined; }
 }
@@ -438,23 +440,24 @@ function bag__use_item_on_self(_pid, _row){
             try { dialog2p_show(_pid, out_txt); } catch (e_) {}
             return false;
         }
-        var _actor_arr = (variable_struct_exists(_B, "actor") ? variable_struct_get(_B, "actor") : undefined);
         var battle_mode = "wild";
-        if (variable_struct_exists(_B, "_battle_mode")) battle_mode = string_lower(string(variable_struct_get(_B, "_battle_mode")));
-        var A1 = (is_array(_actor_arr) && array_length(_actor_arr) > 1) ? _actor_arr[1] : undefined;
+        if (variable_struct_exists(_B, "battle_type")) battle_mode = string_lower(string(variable_struct_get(_B, "battle_type")));
+        else if (variable_struct_exists(_B, "_battle_mode")) battle_mode = string_lower(string(variable_struct_get(_B, "_battle_mode")));
+        var A1 = undefined;
+        if (!is_undefined(__battle_get_side_actor)) A1 = __battle_get_side_actor(_pid, 1, 0);
+        if (!is_struct(A1)){
+            var _actor_arr = (variable_struct_exists(_B, "actor") ? variable_struct_get(_B, "actor") : undefined);
+            A1 = (is_array(_actor_arr) && array_length(_actor_arr) > 1) ? _actor_arr[1] : undefined;
+        }
         if (!is_struct(A1)){
             out_txt += "\nBut nothing happened.";
             try { dialog2p_show(_pid, out_txt); } catch (e_) {}
             return false;
         }
 
-        // Determine if the opponent is a wild Pokémon. We consider the foe wild when
-        // its canonical `.mon` struct does not contain full party fields like `hp`.
+        // Wild-vs-trainer is tracked on the battle slot. Avoid inferring it from
+        // actor payload shape because wild battlers may also carry canonical mon fields.
         var is_wild = (battle_mode != "trainer");
-        if (variable_struct_exists(A1, "mon") && is_struct(variable_struct_get(A1, "mon")) && variable_struct_exists(variable_struct_get(A1, "mon"), "hp")){
-            // If the nested mon has `hp` it's likely a trainer-owned party mon -> not wild
-            is_wild = false;
-        }
 
         if (!is_wild){
             // Explicit feedback for unusable item in this context
@@ -463,22 +466,84 @@ function bag__use_item_on_self(_pid, _row){
             return false;
         }
 
-        // Delegate to battle system: start a throw animation and resolution will occur there
+        // Delegate to the battle turn system so the ball is consumed only when the
+        // action actually executes, and double wild battles can target a specific foe.
         var ball_mult = bag__get_ball_modifier(iid);
         if (true){
-            // Treat item use as the player's action for this turn. This ensures the enemy
-            // will still act afterwards instead of the bag stealing the flow.
-            var actP = { item_use: true, item_id: iid, ball_mult: ball_mult };
-            if (is_struct(_B)) variable_struct_set(_B, "turn_action_player", actP);
-            if (is_struct(_B)) variable_struct_set(_B, "turn_action_enemy", (is_undefined(__battle_enemy_choose_action) ? undefined : __battle_enemy_choose_action(_pid)));
-            if (is_struct(_B)) variable_struct_set(_B, "turn_queue", (is_undefined(__battle_build_turn_actions) ? undefined : __battle_build_turn_actions(_pid)));
-            // Ensure UI remains hidden while the throw/catch action plays
-            try { if (is_struct(_B)) variable_struct_set(_B, "_action_active", true); } catch (e_bagact) {}
-            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){ try { show_debug_message("[bag][dbg]_action_active set=true pid=" + string(_pid)); } catch (e_dbg_bag) {} }
-            if (is_struct(_B)) variable_struct_set(_B, "turn_i", 0);
-            if (is_struct(_B)) variable_struct_set(_B, "phase", "turn");
-            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[bag][debug] queued item as player turn pid=" + string(_pid) + ", iid=" + string(iid) + ", mult=" + string(ball_mult));
-            consumed = true;
+            var action_actor_index = 0;
+            if (variable_struct_exists(_B, "_command_actor_index") && is_real(variable_struct_get(_B, "_command_actor_index"))) action_actor_index = floor(variable_struct_get(_B, "_command_actor_index"));
+            if (!is_undefined(__battle_actor_side) && __battle_actor_side(action_actor_index) != 0) action_actor_index = 0;
+
+            var target_candidates = [];
+            var battle_format = (variable_struct_exists(_B, "battle_format") ? string_lower(string(variable_struct_get(_B, "battle_format"))) : "single");
+            if (battle_format == "double"){
+                var _actors = (variable_struct_exists(_B, "actor") ? variable_struct_get(_B, "actor") : undefined);
+                if (is_array(_actors) && !is_undefined(__battle_actor_side) && !is_undefined(__battle_actor_index_alive)){
+                    for (var _ai = 0; _ai < array_length(_actors); ++_ai){
+                        if (__battle_actor_side(_ai) != 1) continue;
+                        if (!__battle_actor_index_alive(_pid, _ai)) continue;
+                        array_push(target_candidates, _ai);
+                    }
+                }
+            } else {
+                if (is_undefined(__battle_actor_index_alive) || __battle_actor_index_alive(_pid, 1)) array_push(target_candidates, 1);
+            }
+            if (array_length(target_candidates) <= 0){
+                out_txt += "\nBut there was no wild target.";
+                try { dialog2p_show(_pid, out_txt); } catch (e_) {}
+                return false;
+            }
+
+            var default_target = target_candidates[0];
+            if (!is_undefined(__battle_get_default_target_index)) default_target = __battle_get_default_target_index(_pid, action_actor_index);
+            var _bag_return_state = undefined;
+            var _bag_state = bag_inventory_ensure(_pid);
+            if (is_struct(_bag_state)){
+                _bag_return_state = {
+                    page: (variable_struct_exists(_bag_state, "page") ? variable_struct_get(_bag_state, "page") : 0),
+                    sel: (variable_struct_exists(_bag_state, "sel") ? variable_struct_get(_bag_state, "sel") : 0),
+                    scroll: (variable_struct_exists(_bag_state, "scroll") ? variable_struct_get(_bag_state, "scroll") : 0),
+                    item_menu_row: (variable_struct_exists(_bag_state, "item_menu_row") ? variable_struct_get(_bag_state, "item_menu_row") : 0)
+                };
+            }
+            var actP = { item_use: true, item_id: iid, ball_mult: ball_mult, actor_index: action_actor_index, target_index: default_target, bag_return_state: _bag_return_state };
+
+            bag_close(_pid);
+
+            if (array_length(target_candidates) > 1 && !is_undefined(__battle_commit_player_action)){
+                if (!is_undefined(__battle_sort_target_candidates)) target_candidates = __battle_sort_target_candidates(_pid, action_actor_index, target_candidates);
+                variable_struct_set(_B, "_command_pending_action", actP);
+                variable_struct_set(_B, "_target_pick_targets", target_candidates);
+                var target_sel = 0;
+                if (!is_undefined(__battle_target_candidate_select_index)) target_sel = __battle_target_candidate_select_index(target_candidates, default_target);
+                variable_struct_set(_B, "_target_pick_index", target_sel);
+                try { variable_struct_set(_B, "_input_grace_until", current_time + 180); } catch (e_ball_target_grace) {}
+                if (is_struct(_B.sys_ui)){
+                    variable_struct_set(_B.sys_ui, "menu", "target");
+                    variable_struct_set(_B.sys_ui, "selX", target_sel mod 2);
+                    variable_struct_set(_B.sys_ui, "selY", target_sel div 2);
+                }
+                return true;
+            }
+
+            if (array_length(target_candidates) > 0){
+                var target_valid = false;
+                for (var _tc_i = 0; _tc_i < array_length(target_candidates); ++_tc_i){
+                    if (target_candidates[_tc_i] == default_target){ target_valid = true; break; }
+                }
+                if (!target_valid) variable_struct_set(actP, "target_index", target_candidates[0]);
+            }
+
+            if (!is_undefined(__battle_commit_player_action)) consumed = __battle_commit_player_action(_pid, actP);
+            else {
+                if (is_struct(_B)) variable_struct_set(_B, "turn_action_player", actP);
+                if (is_struct(_B)) variable_struct_set(_B, "turn_action_enemy", (is_undefined(__battle_enemy_choose_action) ? undefined : __battle_enemy_choose_action(_pid)));
+                if (is_struct(_B)) variable_struct_set(_B, "turn_queue", (is_undefined(__battle_build_turn_actions) ? undefined : __battle_build_turn_actions(_pid)));
+                if (is_struct(_B)) variable_struct_set(_B, "turn_i", 0);
+                if (is_struct(_B)) variable_struct_set(_B, "phase", "turn");
+                consumed = true;
+            }
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[bag][debug] queued item as player turn pid=" + string(_pid) + ", iid=" + string(iid) + ", mult=" + string(ball_mult) + ", target=" + string(variable_struct_get(actP, "target_index")));
         } else {
             // fallback: immediate chance resolution (legacy)
             var a1_hp_now = (variable_struct_exists(A1, "hp_now") ? variable_struct_get(A1, "hp_now") : (variable_struct_exists(A1, "hp") ? variable_struct_get(A1, "hp") : 0));
@@ -505,18 +570,7 @@ function bag__use_item_on_self(_pid, _row){
                 consumed = true;
             }
         }
-        // remove the item if consumed. If the project provides an item_flag_map
-        // then respect the explicit Consumable flag; otherwise fall back to
-        // legacy behavior and remove consumed items.
-        if (consumed){
-            if (is_array(flag_arr) && array_length(flag_arr) > 0){
-                if (is_consumable_flagged) bag_inventory_remove_item(_pid, iid, 1);
-            } else {
-                bag_inventory_remove_item(_pid, iid, 1);
-            }
-            bags_seed_from_items(_pid);
-        }
-        bag_close(_pid);
+        // Ball consumption now occurs when the queued battle action executes.
     // If we enqueued a catch on the battle slot (either via _queued_catch or by
     // setting turn_action_player with item_use), the battle system will show
     // the result dialog later. Avoid opening a duplicate dialog now.

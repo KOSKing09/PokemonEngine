@@ -256,6 +256,14 @@ function __battle_actor_control_pid(_pid, _actorIndex){
 }
 
 function __battle_enemy_lead_index(_pid){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !is_array(_B.actor)) return __battle_actor_index_for_side_slot(_pid, 1, 0);
+    var _lead = __battle_actor_index_for_side_slot(_pid, 1, 0);
+    if (is_real(_lead) && _lead >= 0 && _lead < array_length(_B.actor) && is_struct(_B.actor[_lead])) return _lead;
+    for (var _i = 0; _i < array_length(_B.actor); ++_i){
+        if (__battle_actor_side(_i) != 1) continue;
+        if (is_struct(_B.actor[_i])) return _i;
+    }
     return __battle_actor_index_for_side_slot(_pid, 1, 0);
 }
 
@@ -666,21 +674,28 @@ function __battle_sound_play_safe(_res, _loop = false){
 
             function __battle_move_target_mode(_move_id){
                 var _target = "";
+                var _target_id = undefined;
                 try {
                     if (!is_undefined(__battle_get_move_meta) && is_real(_move_id)){
                         var _mm = __battle_get_move_meta(_move_id);
                         if (is_struct(_mm) && variable_struct_exists(_mm, "target")) _target = string(variable_struct_get(_mm, "target"));
+                        if (is_struct(_mm) && variable_struct_exists(_mm, "target_id") && is_real(variable_struct_get(_mm, "target_id"))) _target_id = floor(variable_struct_get(_mm, "target_id"));
                     }
                 } catch (e_target_meta) {}
                 try {
-                    if (string_length(_target) <= 0 && variable_global_exists("_moves") && is_array(global._moves) && is_real(_move_id) && _move_id >= 0 && _move_id < array_length(global._moves)){
+                    if ((string_length(_target) <= 0 || !is_real(_target_id)) && variable_global_exists("_moves") && is_array(global._moves) && is_real(_move_id) && _move_id >= 0 && _move_id < array_length(global._moves)){
                         var _mv = global._moves[_move_id];
                         if (is_struct(_mv) && variable_struct_exists(_mv, "target")) _target = string(variable_struct_get(_mv, "target"));
+                        if (is_struct(_mv) && variable_struct_exists(_mv, "target_id") && is_real(variable_struct_get(_mv, "target_id"))) _target_id = floor(variable_struct_get(_mv, "target_id"));
                     }
                 } catch (e_target_moves) {}
                 _target = string_lower(_target);
                 if (string_pos("self", _target) > 0 || string_pos("user", _target) > 0 || string_pos("own", _target) > 0) return "self";
                 if (string_pos("ally", _target) > 0 || string_pos("friend", _target) > 0) return "ally";
+                if (is_real(_target_id)){
+                    if (_target_id == 7) return "self";
+                    if (_target_id == 3 || _target_id == 5 || _target_id == 13 || _target_id == 15) return "ally";
+                }
                 return "opponent";
             }
 
@@ -2166,7 +2181,7 @@ function battle_update(_pid){
             if (!is_undefined(__battle_try_catch)){
                 // Quiet: remove verbose queued-catch debug spam. Enable only when explicitly asked via DATA_DEBUG_VERBOSE.
                 if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][debug] processing queued catch pid=" + string(_pid) + ", iid=" + string((variable_struct_exists(_q, "item_id") ? variable_struct_get(_q, "item_id") : -1)) + ", mult=" + string(variable_struct_get(_q, "ball_mult")));
-                __battle_try_catch(_pid, variable_struct_get(_q, "ball_mult"), (variable_struct_exists(_q, "item_id") ? variable_struct_get(_q, "item_id") : undefined));
+                __battle_try_catch(_pid, variable_struct_get(_q, "ball_mult"), (variable_struct_exists(_q, "item_id") ? variable_struct_get(_q, "item_id") : undefined), (variable_struct_exists(_q, "target_index") ? variable_struct_get(_q, "target_index") : undefined));
             }
         }
         _B._queued_catch = undefined;
@@ -2703,7 +2718,8 @@ function battle_update(_pid){
             var _pi_temp = variable_struct_get(_B, "_pending_item_use");
             var _iid_temp = (variable_struct_exists(_pi_temp, "item_id") ? variable_struct_get(_pi_temp, "item_id") : undefined);
             var _mult_temp = (variable_struct_exists(_pi_temp, "ball_mult") ? variable_struct_get(_pi_temp, "ball_mult") : undefined);
-            if (!is_undefined(__battle_try_catch)) __battle_try_catch(_pid, _mult_temp, _iid_temp);
+            var _target_temp = (variable_struct_exists(_pi_temp, "target_index") ? variable_struct_get(_pi_temp, "target_index") : undefined);
+            if (!is_undefined(__battle_try_catch)) __battle_try_catch(_pid, _mult_temp, _iid_temp, _target_temp);
             _B._pending_item_use = undefined;
             // Let the animation run; __battle_step_turn_if_ready will pause execution while catch anim is active.
             return;
@@ -3389,11 +3405,29 @@ function __battle_process_input(_pid){
             }
         } else if (menu == "target"){
             var _pending = (variable_struct_exists(_B, "_command_pending_action") ? variable_struct_get(_B, "_command_pending_action") : undefined);
-            _B.sys_ui.menu = "fight";
+            var _return_to_bag = false;
+            if (is_struct(_pending) && variable_struct_exists(_pending, "item_use") && variable_struct_get(_pending, "item_use") == true && variable_struct_exists(_pending, "bag_return_state")){
+                var _bag_state = variable_struct_get(_pending, "bag_return_state");
+                if (is_struct(_bag_state) && !is_undefined(bag_open_for_battle) && !is_undefined(bag_inventory_ensure)){
+                    bag_open_for_battle(_pid);
+                    var _bag = bag_inventory_ensure(_pid);
+                    if (is_struct(_bag)){
+                        if (variable_struct_exists(_bag_state, "page") && is_real(variable_struct_get(_bag_state, "page"))) variable_struct_set(_bag, "page", floor(variable_struct_get(_bag_state, "page")));
+                        if (variable_struct_exists(_bag_state, "sel") && is_real(variable_struct_get(_bag_state, "sel"))) variable_struct_set(_bag, "sel", floor(variable_struct_get(_bag_state, "sel")));
+                        if (variable_struct_exists(_bag_state, "scroll") && is_real(variable_struct_get(_bag_state, "scroll"))) variable_struct_set(_bag, "scroll", floor(variable_struct_get(_bag_state, "scroll")));
+                        if (variable_struct_exists(_bag_state, "item_menu_row") && is_real(variable_struct_get(_bag_state, "item_menu_row"))) variable_struct_set(_bag, "item_menu_row", floor(variable_struct_get(_bag_state, "item_menu_row")));
+                        variable_struct_set(_bag, "item_menu_open", true);
+                        variable_struct_set(_bag, "item_menu_sel", 0);
+                        variable_struct_set(_bag, "lock", 6);
+                    }
+                    _return_to_bag = true;
+                }
+            }
+            _B.sys_ui.menu = (_return_to_bag ? "root" : "fight");
             variable_struct_set(_B, "_target_pick_targets", undefined);
             variable_struct_set(_B, "_command_pending_action", undefined);
             variable_struct_set(_B, "_target_pick_index", 0);
-            if (is_struct(_pending) && variable_struct_exists(_pending, "slot") && is_real(variable_struct_get(_pending, "slot"))){
+            if (!_return_to_bag && is_struct(_pending) && variable_struct_exists(_pending, "slot") && is_real(variable_struct_get(_pending, "slot"))){
                 var _slot_prev = floor(variable_struct_get(_pending, "slot"));
                 _B.sys_ui.selX = _slot_prev mod 2;
                 _B.sys_ui.selY = _slot_prev div 2;
@@ -3541,8 +3575,14 @@ function __battle_build_turn_actions(_pid){
     }
 
     // Default targets: single-target to the opposite side
-    if (is_struct(actP)){ variable_struct_set(actP, "actor_index", 0); variable_struct_set(actP, "target_index", 1); }
-    if (is_struct(actE)){ variable_struct_set(actE, "actor_index", 1); variable_struct_set(actE, "target_index", 0); }
+    if (is_struct(actP)){
+        variable_struct_set(actP, "actor_index", 0);
+        if (!variable_struct_exists(actP, "target_index") || !is_real(variable_struct_get(actP, "target_index"))) variable_struct_set(actP, "target_index", 1);
+    }
+    if (is_struct(actE)){
+        variable_struct_set(actE, "actor_index", 1);
+        if (!variable_struct_exists(actE, "target_index") || !is_real(variable_struct_get(actE, "target_index"))) variable_struct_set(actE, "target_index", 0);
+    }
 
     // Determine order by move priority first, then Speed (tie-break: random)
     var spP = __battle_stat_get(_B.actor[0], "spd");
@@ -4823,8 +4863,9 @@ function __battle_step_turn_if_ready(_pid){
                 var _cphase = (variable_struct_exists(_ca, "phase") ? string(_ca.phase) : "");
                 var _persist = (variable_struct_exists(_ca, "persistent") && _ca.persistent);
                 if (!(_cphase == "caught" && _persist)){
-                    // Don't advance turn_i; let battle_update loop (which also advances animations)
-                    // detect the active animation and pause progression until it's done.
+                    // Mark the item action as consumed before pausing on the catch animation.
+                    // Otherwise the same step will execute again once the animation clears.
+                    _B.turn_i += 1;
                     return;
                 }
             }
@@ -5500,6 +5541,7 @@ function __battle_apply_pending_healing_wish_to_actor(_pid, _side_index, _actor)
 function __battle_play_switch_in(_pid){
     var _B = __battle_ensure_slot(_pid);
     if (!is_struct(_B) || !_B.sys_open) return;
+    if (variable_struct_exists(_B, "_catch_anim")) _B._catch_anim = undefined;
     _B.phase = "switch_in";
     _B.phase_start_ms = current_time;
     _B.phase_progress = 0;
@@ -5725,6 +5767,7 @@ function battle_switch_to(_pid, _party_idx, _opts){
     }
 
     if (is_undefined(_opts)) _opts = {};
+    if (variable_struct_exists(_B, "_catch_anim")) _B._catch_anim = undefined;
     _B._switch_target_idx = _party_idx;
     _B._switch_opts = _opts;
     _B._switch_actor_index = _switch_actor_index;
@@ -7931,9 +7974,9 @@ function __battle_award_exp(_pid, _amount){
 
 
 // ===== Catch Flow (stub): success scales with foe HP% =====
-function __battle_try_catch(_pid, _ball_mult, _item_id){
+function __battle_try_catch(_pid, _ball_mult, _item_id, _target_index){
     var _B = __battle_ensure_slot(_pid);
-    if (!is_struct(_B)) return;
+    if (!is_struct(_B)) return false;
 
     // Block capture attempts outright during trainer battles. This guard covers any
     // code path that bypasses the bag validation and calls into the catch logic
@@ -7953,10 +7996,19 @@ function __battle_try_catch(_pid, _ball_mult, _item_id){
             try { variable_struct_set(_B, "_trainer_block_feedback_ms", now_block); } catch (e_set) {}
         }
         if (variable_struct_exists(_B, "_catch_anim")) variable_struct_set(_B, "_catch_anim", undefined);
-        return;
+        return false;
     }
 
-    var A1 = _B.actor[1]; if (!is_struct(A1)) return;
+    var target_idx = -1;
+    if (is_real(_target_index)) target_idx = floor(_target_index);
+    if (!is_array(_B.actor)) return false;
+    if (target_idx < 0 || target_idx >= array_length(_B.actor) || !__battle_actor_index_alive(_pid, target_idx) || __battle_actor_side(target_idx) != 1){
+        target_idx = __battle_get_default_target_index(_pid, 0);
+    }
+    if (!is_real(target_idx) || target_idx < 0 || target_idx >= array_length(_B.actor) || __battle_actor_side(target_idx) != 1) return false;
+
+    var A1 = _B.actor[target_idx];
+    if (!is_struct(A1)) return false;
     // compute chance as before but defer dialog/resolution to animation
     var hpPct = max(0, min(1, __battle_hp_now(A1) / max(1, (variable_struct_exists(A1, "hp_max") ? variable_struct_get(A1, "hp_max") : 1))));
     var baseChance = clamp(floor((1 - hpPct) * 70) + 20, 5, 95); // 20�90% typical
@@ -7980,6 +8032,38 @@ function __battle_try_catch(_pid, _ball_mult, _item_id){
         try { var s_try = pkicons_get_item_icon_by_id(floor(_item_id)); if (!is_undefined(s_try) && sprite_exists(s_try)) ball_spr = s_try; } catch (e) { ball_spr = undefined; }
     }
 
+    var land_x = undefined;
+    var land_y = undefined;
+    try {
+        if (!is_undefined(__battle_get_actor_scene_anchor)){
+            var _anchor = __battle_get_actor_scene_anchor(_pid, _B, target_idx);
+            if (is_struct(_anchor) && variable_struct_exists(_anchor, "battler")){
+                var _pt = variable_struct_get(_anchor, "battler");
+                if (is_array(_pt) && array_length(_pt) >= 2){
+                    var _ui_s = 1;
+                    if (variable_struct_exists(_B, "_ui")){
+                        var _ui = variable_struct_get(_B, "_ui");
+                        if (is_struct(_ui) && variable_struct_exists(_ui, "s") && is_real(variable_struct_get(_ui, "s"))) _ui_s = real(variable_struct_get(_ui, "s"));
+                    }
+                    var _spr_target = undefined;
+                    if (!is_undefined(pkicons_get_art96_by_mon) && is_struct(A1) && variable_struct_exists(A1, "mon")) _spr_target = pkicons_get_art96_by_mon(variable_struct_get(A1, "mon"));
+                    var _w = 64;
+                    var _h = 64;
+                    if (!is_undefined(_spr_target) && sprite_exists(_spr_target)){
+                        _w = sprite_get_width(_spr_target);
+                        _h = sprite_get_height(_spr_target);
+                    }
+                    var _scale_mult = (variable_struct_exists(_anchor, "scale_mult") && is_real(variable_struct_get(_anchor, "scale_mult"))) ? real(variable_struct_get(_anchor, "scale_mult")) : 1;
+                    var _draw_scale = _scale_mult * _ui_s;
+                    var _platform_bottom = _pt[1] + (_h * _draw_scale) * 0.5;
+                    var _shadow_h = max(2, floor((_w * _draw_scale) * 0.12));
+                    land_x = floor(_pt[0]);
+                    land_y = floor(_platform_bottom + _shadow_h * 0.8 + floor(15 * _ui_s));
+                }
+            }
+        }
+    } catch (e_land_calc) {}
+
     // Decide bounce/escape behavior:
     // - If capture success, require the ball to bounce 'hop_total' times before resolve.
     // - If capture fails, choose a random hop (1..hop_total) where the ball will break free.
@@ -7998,7 +8082,7 @@ function __battle_try_catch(_pid, _ball_mult, _item_id){
 
     // Delegate creation to modular animation helper
     if (!is_undefined(__battle_anim_create_catch)){
-        __battle_anim_create_catch(_B, _item_id, caught, { hop_total: hop_total, success: success, break_hop: break_hop, throw_dur:380, impact_dur:220, hop_dur:700, hop_pause:350 });
+        __battle_anim_create_catch(_B, _item_id, caught, { hop_total: hop_total, success: success, break_hop: break_hop, throw_dur:380, impact_dur:220, hop_dur:700, hop_pause:350, target_actor_index: target_idx, land_x: land_x, land_y: land_y });
     } else {
         // fallback to inline struct if helper missing (backcompat)
         _B._catch_anim = {
@@ -8022,13 +8106,17 @@ function __battle_try_catch(_pid, _ball_mult, _item_id){
             target_y: undefined,
             enemy_orig_scale: undefined,
             enemy_scale_now: undefined,
-            caught_struct: caught
+            caught_struct: caught,
+            target_actor_index: target_idx,
+            land_x: land_x,
+            land_y: land_y
         };
     }
 
     // mark that the battle slot has a pending non-dialog resolution; dialog will be opened by animation end
     if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][debug] _catch_anim created pid=" + string(_pid) + ", outcome=" + string(success));
     // don't immediately change _B.result here; do it after animation resolves.
+    return true;
 }
 
 // Progress and resolve per-slot animations (catch sequence)

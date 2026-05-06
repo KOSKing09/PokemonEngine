@@ -41,8 +41,11 @@ function __battle_perform_action_impl(_pid, _step){
         var _actor_name = "The user";
         try {
             if (is_struct(_A_in) && variable_struct_exists(_A_in, "name")) _actor_name = string(variable_struct_get(_A_in, "name"));
-            if (is_struct(_A_in) && variable_struct_exists(_A_in, "actor_index") && is_real(variable_struct_get(_A_in, "actor_index")) && floor(variable_struct_get(_A_in, "actor_index")) == 1){
-                if (string_copy(_actor_name, 1, 4) != "Foe ") _actor_name = "Foe " + _actor_name;
+            if (is_struct(_A_in) && variable_struct_exists(_A_in, "actor_index") && is_real(variable_struct_get(_A_in, "actor_index"))){
+                var _actor_idx_name = floor(variable_struct_get(_A_in, "actor_index"));
+                if (!is_undefined(__battle_actor_side) && __battle_actor_side(_actor_idx_name) == 1){
+                    if (string_copy(_actor_name, 1, 4) != "Foe ") _actor_name = "Foe " + _actor_name;
+                }
             }
         } catch (e_actor_name) {}
         try {
@@ -484,13 +487,22 @@ function __battle_perform_action_impl(_pid, _step){
     // item use shortcut (keeps prior behavior simple)
     if (is_struct(_step) && variable_struct_exists(_step, "item_use") && _step.item_use == true){
         var item_id = (variable_struct_exists(_step, "item_id") ? variable_struct_get(_step, "item_id") : undefined);
-        variable_struct_set(_B, "_pending_item_use", { item_id: item_id });
+        var ball_mult = (variable_struct_exists(_step, "ball_mult") ? variable_struct_get(_step, "ball_mult") : undefined);
+        var target_index = (variable_struct_exists(_step, "target_index") ? variable_struct_get(_step, "target_index") : undefined);
+        if (is_real(_pid) && is_real(item_id) && item_id > 0 && !is_undefined(bag_inventory_remove_item)){
+            bag_inventory_remove_item(_pid, item_id, 1);
+            if (!is_undefined(bags_seed_from_items)) bags_seed_from_items(_pid);
+        }
+
+        var started_catch = false;
+        if (!is_undefined(__battle_try_catch)) started_catch = __battle_try_catch(_pid, ball_mult, item_id, target_index);
+        if (started_catch) return "";
+
         var disp = "item";
         if (!is_undefined(variable_global_exists) && variable_global_exists("_items") && is_array(global._items) && is_real(item_id) && item_id >= 0 && item_id < array_length(global._items)){
             var it = global._items[item_id]; if (is_struct(it) && variable_struct_exists(it, "name")) disp = string(variable_struct_get(it, "name"));
         }
-        var trainer = (variable_global_exists("PLAYER_NAME") ? string(global.PLAYER_NAME) : "You");
-        return string(trainer) + " used a " + string(disp) + ".";
+        return "But nothing happened with " + string(disp) + ".";
     }
 
     var move_slot = (variable_struct_exists(_step, "slot") ? variable_struct_get(_step, "slot") : undefined);

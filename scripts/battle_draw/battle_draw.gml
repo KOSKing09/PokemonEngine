@@ -450,10 +450,15 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
     // anchored even when we temporarily move `fx` offscreen for the sprite.
     __battle_draw_platform(_pid, _B, "enemy", __orig_fx, platform_bottom, ui_s);
     var catchA = (variable_struct_exists(_B, "_catch_anim") ? _B._catch_anim : undefined);
+    var catch_affects_enemy = false;
+    if (is_struct(catchA) && variable_struct_exists(catchA, "active") && catchA.active){
+        var _catch_target_actor = (variable_struct_exists(catchA, "target_actor_index") && is_real(variable_struct_get(catchA, "target_actor_index"))) ? floor(variable_struct_get(catchA, "target_actor_index")) : 1;
+        catch_affects_enemy = (_actorIndex == _catch_target_actor);
+    }
     var fainting = false;
     var faint_prog = 0;
     var enemy_alpha = 1;
-    if (!(is_struct(catchA) && catchA.active)){
+    if (!catch_affects_enemy){
         var hp_now_enemy = undefined;
         if (!is_undefined(__battle_hp_now)){
             hp_now_enemy = __battle_hp_now(E);
@@ -650,15 +655,13 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
     // If a catch animation is active, allow it to modify the enemy scale and draw a pokéball
     var anchor_overridden = fainting;
     var ball_to_draw = undefined;
-    var catch_shadow_center_x = floor(draw_x + (w * drawScaleE) * 0.5);
+    // Use the actor anchor as the capture landing point so the ball settles on the
+    // selected target's bottom-center instead of a generic enemy-area midpoint.
+    var catch_shadow_center_x = floor(fx);
     var catch_shadow_h = max(2, floor((w * drawScaleE) * 0.12));
     var catch_shadow_center_y = 0;
-    if (typeof(_is_grounded_e) != "undefined" && !_is_grounded_e){
-        catch_shadow_center_y = floor(base_fy + (h * drawScaleE) * 0.5 + catch_shadow_h * 0.8 + floor(15 * ui_s));
-    } else {
-        catch_shadow_center_y = floor(draw_y + (h * drawScaleE) * 0.5 + catch_shadow_h * 0.8 + floor(15 * ui_s));
-    }
-    if (!fainting && is_struct(catchA) && catchA.active){
+    catch_shadow_center_y = floor(platform_bottom_local + catch_shadow_h * 0.8 + floor(15 * ui_s));
+    if (!fainting && catch_affects_enemy && is_struct(catchA) && catchA.active){
         var now = current_time;
         var since = now - (variable_struct_exists(catchA, "start_ms") ? catchA.start_ms : now);
         // Compute phases: throw -> impact -> shake -> resolve -> escape
@@ -780,7 +783,7 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
         }
     }
     // Debug: avoid spamming the console every frame. Only log on phase change or first missing sprite.
-    if (is_struct(catchA) && catchA.active){
+    if (catch_affects_enemy){
         var lastp = (variable_struct_exists(catchA, "_dbg_last_phase") ? string(catchA._dbg_last_phase) : "");
         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
             if (lastp != string(catchA.phase)){
@@ -825,7 +828,7 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
         }
     } catch (e_apply_nudge_e) {}
 
-    if (!anchor_overridden && is_struct(catchA) && catchA.active){
+    if (!anchor_overridden && catch_affects_enemy){
         var catch_phase_anchor = string(catchA.phase);
         if (catch_phase_anchor == "impact" || catch_phase_anchor == "shake" || catch_phase_anchor == "resolve" || catch_phase_anchor == "escape") anchor_overridden = true;
     }

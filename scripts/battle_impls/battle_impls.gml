@@ -913,6 +913,11 @@ function __battle_finalize_catch_impl(_B, _caught){
     if (!is_struct(_B)) return { ok:false, location:"none" };
 
     var _pid = __battle_find_pid_by_slot_impl(_B);
+    var _caught_target_idx = -1;
+    if (variable_struct_exists(_B, "_catch_anim") && is_struct(variable_struct_get(_B, "_catch_anim"))){
+        var _catch_state = variable_struct_get(_B, "_catch_anim");
+        if (variable_struct_exists(_catch_state, "target_actor_index") && is_real(variable_struct_get(_catch_state, "target_actor_index"))) _caught_target_idx = floor(variable_struct_get(_catch_state, "target_actor_index"));
+    }
     var _mon = __battle_prepare_caught_mon_impl(_pid, _caught);
     var _store = { ok:false, location:"none", mon:_mon };
     if (is_struct(_mon) && !is_undefined(party_model_store_caught_mon)) _store = party_model_store_caught_mon(_pid, _mon);
@@ -920,6 +925,7 @@ function __battle_finalize_catch_impl(_B, _caught){
     var _caught_name = "Pokemon";
     if (is_struct(_mon) && variable_struct_exists(_mon, "name")) _caught_name = string(variable_struct_get(_mon, "name"));
     else if (is_struct(_mon) && variable_struct_exists(_mon, "nickname") && string_length(string(variable_struct_get(_mon, "nickname"))) > 0) _caught_name = string(variable_struct_get(_mon, "nickname"));
+    else if (is_array(_B.actor) && _caught_target_idx >= 0 && _caught_target_idx < array_length(_B.actor) && is_struct(_B.actor[_caught_target_idx]) && variable_struct_exists(_B.actor[_caught_target_idx], "name")) _caught_name = string(variable_struct_get(_B.actor[_caught_target_idx], "name"));
     else if (!is_undefined(__battle_enemy_lead_index) && is_array(_B.actor)){
         var _enemy_idx = __battle_enemy_lead_index(_pid);
         if (_enemy_idx >= 0 && _enemy_idx < array_length(_B.actor) && is_struct(_B.actor[_enemy_idx]) && variable_struct_exists(_B.actor[_enemy_idx], "name")) _caught_name = string(variable_struct_get(_B.actor[_enemy_idx], "name"));
@@ -939,6 +945,63 @@ function __battle_finalize_catch_impl(_B, _caught){
         if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, _msg);
         else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, _msg, _msg, "any");
     } catch (e_msg) {}
+
+    if (is_array(_B.actor) && _caught_target_idx >= 0 && _caught_target_idx < array_length(_B.actor)){
+        _B.actor[_caught_target_idx] = undefined;
+    }
+
+    // Keep the remaining wild in the primary enemy slot so existing single-target
+    // battle flows continue to address the surviving opponent after a double catch.
+    if (is_array(_B.actor) && variable_struct_exists(_B, "battle_format") && string(variable_struct_get(_B, "battle_format")) == "double"){
+        var _enemy_lead_idx = __battle_actor_index_for_side_slot(_pid, 1, 0);
+        var _enemy_tail_idx = __battle_actor_index_for_side_slot(_pid, 1, 1);
+        if (_enemy_lead_idx >= 0 && _enemy_tail_idx >= 0 && _enemy_lead_idx < array_length(_B.actor) && _enemy_tail_idx < array_length(_B.actor)){
+            if (!is_struct(_B.actor[_enemy_lead_idx]) && is_struct(_B.actor[_enemy_tail_idx])){
+                _B.actor[_enemy_lead_idx] = _B.actor[_enemy_tail_idx];
+                _B.actor[_enemy_tail_idx] = undefined;
+                try { __battle_set_actor_runtime_fields(_B.actor[_enemy_lead_idx], _enemy_lead_idx, -1, -1, -1); } catch (e_reindex_enemy) {}
+            }
+        }
+    }
+
+    var _enemy_side_alive = false;
+    if (is_array(_B.actor)){
+        for (var _ai = 0; _ai < array_length(_B.actor); ++_ai){
+            if (!is_undefined(__battle_actor_side) && __battle_actor_side(_ai) != 1) continue;
+            var _enemy_actor = _B.actor[_ai];
+            if (!is_struct(_enemy_actor)) continue;
+            var _enemy_hp = 0;
+            if (!is_undefined(__battle_hp_now)) _enemy_hp = __battle_hp_now(_enemy_actor);
+            else if (variable_struct_exists(_enemy_actor, "hp_now")) _enemy_hp = variable_struct_get(_enemy_actor, "hp_now");
+            if (is_real(_enemy_hp) && _enemy_hp > 0){
+                _enemy_side_alive = true;
+                break;
+            }
+        }
+    }
+
+    if (_enemy_side_alive){
+        _B.result = "ongoing";
+        _B._pending_close = false;
+        try { variable_struct_set(_B, "_pending_open_party", false); } catch (e_po_continue) {}
+        try { variable_struct_set(_B, "_action_active", false); } catch (e_act_continue) {}
+        try { variable_struct_set(_B, "turn_action_player", undefined); } catch (e_tap_continue) {}
+        try { variable_struct_set(_B, "turn_action_enemy", undefined); } catch (e_tae_continue) {}
+        try { variable_struct_set(_B, "turn_queue", []); } catch (e_tq_continue) {}
+        try { variable_struct_set(_B, "_player_turn_actions", []); } catch (e_pta_continue) {}
+        try { variable_struct_set(_B, "_command_pending_action", undefined); } catch (e_cpa_continue) {}
+        try { variable_struct_set(_B, "_target_pick_targets", undefined); } catch (e_tpt_continue) {}
+        try { variable_struct_set(_B, "_target_pick_index", 0); } catch (e_tpi_continue) {}
+        try { variable_struct_set(_B, "turn_i", 0); } catch (e_ti_continue) {}
+        if (is_struct(_B.sys_ui)){
+            try { variable_struct_set(_B.sys_ui, "menu", "root"); } catch (e_menu_continue) {}
+            try { variable_struct_set(_B.sys_ui, "selX", 0); } catch (e_selx_continue) {}
+            try { variable_struct_set(_B.sys_ui, "selY", 0); } catch (e_sely_continue) {}
+        }
+        _B.phase = "command";
+        if (variable_struct_exists(_B, "_catch_anim")) _B._catch_anim = undefined;
+        return _store;
+    }
 
     _B.result = "caught";
     _B._pending_close = true;
