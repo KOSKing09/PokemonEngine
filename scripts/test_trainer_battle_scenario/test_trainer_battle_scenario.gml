@@ -179,6 +179,154 @@ function __status_smoke_advance_dialog(_pid, _state){
     return true;
 }
 
+function __status_smoke_dialog_text(_pid){
+    if (is_undefined(dialog2p_is_open) || !dialog2p_is_open(_pid)) return "";
+    if (!variable_global_exists("DIALOG2P") || !is_array(global.DIALOG2P) || array_length(global.DIALOG2P) <= _pid) return "";
+    var _d = global.DIALOG2P[_pid];
+    if (!is_struct(_d)) return "";
+
+    var _page_idx = (variable_struct_exists(_d, "page_idx") && is_real(variable_struct_get(_d, "page_idx"))) ? variable_struct_get(_d, "page_idx") : 0;
+    var _all_lines = (variable_struct_exists(_d, "all_lines") && is_array(variable_struct_get(_d, "all_lines"))) ? variable_struct_get(_d, "all_lines") : [];
+    var _i0 = _page_idx * 2;
+    var _i1 = _i0 + 1;
+    var _l0 = (_i0 < array_length(_all_lines)) ? string(_all_lines[_i0]) : "";
+    var _l1 = (_i1 < array_length(_all_lines)) ? string(_all_lines[_i1]) : "";
+    return _l0 + "\n" + _l1;
+}
+
+function __status_smoke_last_move_damage(_actor, _move_id){
+    if (!is_struct(_actor)) return 0;
+    try {
+        var _last_move = (variable_struct_exists(_actor, "_last_received_from_move") ? variable_struct_get(_actor, "_last_received_from_move") : undefined);
+        if (!is_real(_last_move) || floor(_last_move) != floor(_move_id)) return 0;
+        if (variable_struct_exists(_actor, "_last_received_from_move_damage") && is_real(variable_struct_get(_actor, "_last_received_from_move_damage"))) return max(0, variable_struct_get(_actor, "_last_received_from_move_damage"));
+        if (variable_struct_exists(_actor, "_last_received_damage") && is_real(variable_struct_get(_actor, "_last_received_damage"))) return max(0, variable_struct_get(_actor, "_last_received_damage"));
+    } catch (e_last_move) {}
+    return 0;
+}
+
+function __status_smoke_find_move_id(_identifiers, _required_effect_id = undefined){
+    if (!is_array(_identifiers) || !variable_global_exists("_moves") || !is_array(global._moves)) return -1;
+    for (var _mi = 0; _mi < array_length(global._moves); ++_mi){
+        var _move = global._moves[_mi];
+        if (!is_struct(_move) || !variable_struct_exists(_move, "identifier")) continue;
+        var _ident = string_lower(string(variable_struct_get(_move, "identifier")));
+        var _match = false;
+        for (var _ii = 0; _ii < array_length(_identifiers); ++_ii){
+            if (_ident == string_lower(string(_identifiers[_ii]))){ _match = true; break; }
+        }
+        if (!_match) continue;
+        if (is_real(_required_effect_id)){
+            var _effect_id = (variable_struct_exists(_move, "effect_id") && is_real(variable_struct_get(_move, "effect_id"))) ? floor(variable_struct_get(_move, "effect_id")) : undefined;
+            if (!is_real(_effect_id) || _effect_id != floor(_required_effect_id)) continue;
+        }
+        return _mi;
+    }
+    return -1;
+}
+
+function __status_smoke_reset_visual_actor(_actor){
+    if (!is_struct(_actor)) return;
+    try {
+        variable_struct_set(_actor, "_nudge_active", false);
+        variable_struct_set(_actor, "_nudge_start_ms", 0);
+        variable_struct_set(_actor, "_nudge_dur", 0);
+        variable_struct_set(_actor, "_nudge_mag", 0);
+        variable_struct_set(_actor, "_nudge_dir", 0);
+        variable_struct_set(_actor, "_last_received_from_move", -1);
+        variable_struct_set(_actor, "_last_received_from_move_damage", 0);
+        variable_struct_set(_actor, "_last_received_damage", 0);
+    } catch (e_reset_visual) {}
+}
+
+function __status_smoke_clear_anim_queue(_pid){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B)) return;
+    try {
+        if (!variable_struct_exists(_B, "_anim_queue") || !is_struct(variable_struct_get(_B, "_anim_queue"))) return;
+        var _aq = variable_struct_get(_B, "_anim_queue");
+        variable_struct_set(_aq, "pending", []);
+        variable_struct_set(_aq, "overlays", []);
+        variable_struct_set(_aq, "draw_states", []);
+        variable_struct_set(_aq, "current", undefined);
+        variable_struct_set(_B, "_anim_queue", _aq);
+    } catch (e_clear_anim) {}
+}
+
+function __status_smoke_count_hit_effect_overlays(_pid, _target_index = undefined, _sprite = undefined, _use_actor_sprite = undefined){
+    var _count = 0;
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !variable_struct_exists(_B, "_anim_queue") || !is_struct(variable_struct_get(_B, "_anim_queue"))) return 0;
+    var _aq = variable_struct_get(_B, "_anim_queue");
+    if (!variable_struct_exists(_aq, "overlays") || !is_array(variable_struct_get(_aq, "overlays"))) return 0;
+    var _overlays = variable_struct_get(_aq, "overlays");
+    for (var _oi = 0; _oi < array_length(_overlays); ++_oi){
+        var _ov = _overlays[_oi];
+        if (!is_struct(_ov)) continue;
+        if (!variable_struct_exists(_ov, "type") || string_lower(string(variable_struct_get(_ov, "type"))) != "hit_effect") continue;
+        if (is_real(_target_index)){
+            if (!variable_struct_exists(_ov, "target_index") || !is_real(variable_struct_get(_ov, "target_index")) || floor(variable_struct_get(_ov, "target_index")) != floor(_target_index)) continue;
+        }
+        if (!is_undefined(_sprite)){
+            if (!variable_struct_exists(_ov, "sprite") || variable_struct_get(_ov, "sprite") != _sprite) continue;
+        }
+        if (is_bool(_use_actor_sprite)){
+            var _ov_use_actor_sprite = (variable_struct_exists(_ov, "use_actor_sprite") && variable_struct_get(_ov, "use_actor_sprite") == true);
+            if (_ov_use_actor_sprite != _use_actor_sprite) continue;
+        }
+        _count += 1;
+    }
+    if (variable_struct_exists(_aq, "draw_states") && is_array(variable_struct_get(_aq, "draw_states"))){
+        var _states = variable_struct_get(_aq, "draw_states");
+        for (var _si = 0; _si < array_length(_states); ++_si){
+            var _st = _states[_si];
+            if (!is_struct(_st)) continue;
+            if (!variable_struct_exists(_st, "kind") || string_lower(string(variable_struct_get(_st, "kind"))) != "sprite_overlay") continue;
+            if (is_real(_target_index)){
+                if (!variable_struct_exists(_st, "target_index") || !is_real(variable_struct_get(_st, "target_index")) || floor(variable_struct_get(_st, "target_index")) != floor(_target_index)) continue;
+            }
+            if (!is_undefined(_sprite)){
+                if (!variable_struct_exists(_st, "sprite") || variable_struct_get(_st, "sprite") != _sprite) continue;
+            }
+            _count += 1;
+        }
+    }
+    return _count;
+}
+
+function __status_smoke_actor_has_nudge(_actor, _expected_dir = undefined){
+    if (!is_struct(_actor)) return false;
+    var _mag = (variable_struct_exists(_actor, "_nudge_mag") && is_real(variable_struct_get(_actor, "_nudge_mag"))) ? variable_struct_get(_actor, "_nudge_mag") : 0;
+    if (_mag <= 0) return false;
+    var _active = (variable_struct_exists(_actor, "_nudge_active") && variable_struct_get(_actor, "_nudge_active") == true);
+    var _start_ms = (variable_struct_exists(_actor, "_nudge_start_ms") && is_real(variable_struct_get(_actor, "_nudge_start_ms"))) ? variable_struct_get(_actor, "_nudge_start_ms") : -1;
+    var _dur_ms = (variable_struct_exists(_actor, "_nudge_dur") && is_real(variable_struct_get(_actor, "_nudge_dur"))) ? variable_struct_get(_actor, "_nudge_dur") : 0;
+    var _recent = (_active || (_start_ms >= 0 && current_time - _start_ms <= max(1200, _dur_ms + 500)));
+    if (!_recent) return false;
+    if (is_real(_expected_dir)){
+        if (!variable_struct_exists(_actor, "_nudge_dir") || !is_real(variable_struct_get(_actor, "_nudge_dir"))) return false;
+        return sign(variable_struct_get(_actor, "_nudge_dir")) == sign(_expected_dir);
+    }
+    return true;
+}
+
+function __status_smoke_actor_nudge_mag(_actor){
+    if (!is_struct(_actor)) return 0;
+    if (!variable_struct_exists(_actor, "_nudge_mag") || !is_real(variable_struct_get(_actor, "_nudge_mag"))) return 0;
+    return max(0, real(variable_struct_get(_actor, "_nudge_mag")));
+}
+
+function __status_smoke_queue_double_turn(_pid, _player_actions){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !is_array(_player_actions)) return false;
+    variable_struct_set(_B, "_player_turn_actions", _player_actions);
+    variable_struct_set(_B, "turn_queue", __battle_build_turn_actions(_pid));
+    variable_struct_set(_B, "turn_i", 0);
+    try { variable_struct_set(_B, "_action_active", true); } catch (e_double_smoke_act) {}
+    variable_struct_set(_B, "phase", "turn");
+    return true;
+}
+
 function test_battle_status_smoke_start(_auto_close = false){
     var _pid = 0;
     if (battle_is_open(_pid)) battle_close(_pid);
@@ -1188,11 +1336,15 @@ function test_battle_field_switch_smoke_update(_pid = 0){
 
         case "await_pursuit_baseline":
             if (!variable_struct_exists(_B, "phase") || variable_struct_get(_B, "phase") != "command") break;
-            var _baseline = max(0, variable_struct_get(_S, "foe_hp_before_pursuit") - __status_smoke_hp_now(_foe));
+            var _baseline = __status_smoke_last_move_damage(_foe, 228);
             __status_smoke_assert(_S, _baseline > 0, "Pursuit dealt baseline damage against a non-switching target");
             variable_struct_set(_S, "pursuit_baseline", _baseline);
             variable_struct_set(_S, "pursuit_switch_hp_before", __status_smoke_hp_now(_foe));
             variable_struct_set(_S, "pursuit_switch_target", _foe);
+            try {
+                variable_struct_set(_foe, "_last_received_from_move", -1);
+                variable_struct_set(_foe, "_last_received_from_move_damage", 0);
+            } catch (e_pursuit_reset) {}
             _B.turn_action_player = { slot: 1, move_id: 228, actor_index: 0, target_index: 1 };
             _B.turn_action_enemy = { switch_to: 1, actor_index: 1, target_index: 0, debug_from: "Switch Target", debug_to: "Bench Target" };
             _B.turn_queue = __battle_build_turn_actions(_pid);
@@ -1206,11 +1358,242 @@ function test_battle_field_switch_smoke_update(_pid = 0){
         case "await_pursuit_switch":
             if (!variable_struct_exists(_B, "phase") || variable_struct_get(_B, "phase") != "command") break;
             var _old_target = variable_struct_get(_S, "pursuit_switch_target");
-            var _switch_damage = max(0, variable_struct_get(_S, "pursuit_switch_hp_before") - __status_smoke_hp_now(_old_target));
+            var _switch_damage = __status_smoke_last_move_damage(_old_target, 228);
             __status_smoke_assert(_S, _switch_damage > variable_struct_get(_S, "pursuit_baseline"), "Pursuit dealt increased damage against a switching target");
             __status_smoke_finish(_pid, _S, "completed");
             break;
     }
+}
+
+function test_battle_doubles_forced_player_switch_smoke_start(_auto_close = false){
+    var _pid = 0;
+    if (battle_is_open(_pid)) battle_close(_pid);
+
+    var _party = party_ensure(_pid);
+    if (!is_struct(_party)){
+        show_debug_message("[smoke][forced-player-switch] FAIL unable to ensure player party");
+        return false;
+    }
+
+    var _names = ["Lead Alpha", "Lead Beta", "Bench Gamma", "Bench Delta"];
+    var _species = [133, 25, 10, 16];
+    var _moves = [[33, -1, -1, -1], [98, -1, -1, -1], [45, -1, -1, -1], [28, -1, -1, -1]];
+    for (var _i = 0; _i < 4; ++_i){
+        var _mon = pokemon_factory_create(_species[_i], 24, {});
+        __dev_assign_moves_to_mon(_mon, _moves[_i]);
+        variable_struct_set(_mon, "name", _names[_i]);
+        _party.mons[_i] = _mon;
+    }
+    global.PARTY[_pid] = _party;
+
+    var _enemy_a = pokemon_factory_create(263, 24, {});
+    var _enemy_b = pokemon_factory_create(19, 24, {});
+    variable_struct_set(_enemy_a, "name", "Force Rat A");
+    variable_struct_set(_enemy_b, "name", "Force Rat B");
+    __dev_assign_moves_to_mon(_enemy_a, [46, -1, -1, -1]);
+    __dev_assign_moves_to_mon(_enemy_b, [33, -1, -1, -1]);
+
+    battle_open(0, 24, "forest", {
+        type: "trainer",
+        battle_format: "double",
+        enemy_party: [_enemy_a, _enemy_b],
+        trainer_name: "Forced Switch Smoke",
+        sprite: (variable_global_exists("spr_PokemonEmeraldTrainers") ? variable_global_get("spr_PokemonEmeraldTrainers") : undefined),
+        sprite_index: 12,
+        trainer_reward: 0
+    });
+
+    global.DEV_FORCED_PLAYER_SWITCH_SMOKE = {
+        pid: _pid,
+        tag: "forced-player-switch",
+        global_name: "DEV_FORCED_PLAYER_SWITCH_SMOKE",
+        auto_close: (_auto_close == true),
+        state: "opening",
+        pass_count: 0,
+        fail_count: 0,
+        turn_counter: 0,
+        dialog_advance_ms: -1,
+        chosen_party_idx: -1,
+        chosen_name: "",
+        dialog_checked: false,
+        original_slot0_mon: _party.mons[0],
+        original_slot1_mon: _party.mons[1],
+        valid_choices: [2, 3]
+    };
+    show_debug_message("[smoke][forced-player-switch] starting dedicated doubles forced player switch smoke");
+    return true;
+}
+
+function test_battle_doubles_forced_player_switch_smoke_update(_pid = 0){
+    if (!variable_global_exists("DEV_FORCED_PLAYER_SWITCH_SMOKE")) return;
+    var _S = global.DEV_FORCED_PLAYER_SWITCH_SMOKE;
+    if (!is_struct(_S)) return;
+    if (_pid != variable_struct_get(_S, "pid")) return;
+
+    variable_struct_set(_S, "turn_counter", variable_struct_get(_S, "turn_counter") + 1);
+    if (variable_struct_get(_S, "turn_counter") > 5400){
+        __status_smoke_assert(_S, false, "timed out waiting for doubles forced player switch smoke to finish");
+        __status_smoke_finish(_pid, _S, "timeout");
+        return;
+    }
+    if (!battle_is_open(_pid)) return;
+
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !variable_struct_exists(_B, "actor") || !is_array(variable_struct_get(_B, "actor"))) return;
+    var _actors = variable_struct_get(_B, "actor");
+    if (array_length(_actors) < 4) return;
+
+    var _state = string(variable_struct_get(_S, "state"));
+    switch (_state){
+        case "opening":
+            if (__status_smoke_advance_dialog(_pid, _S)) break;
+            if (!variable_struct_exists(_B, "phase") || variable_struct_get(_B, "phase") != "command") break;
+            var _ok_switch = false;
+            try {
+                variable_struct_set(_B, "phase", "turn");
+                variable_struct_set(_B, "_action_active", true);
+                _ok_switch = battle_switch_to(_pid, -1, { auto_apply:true, consume_turn:false, forced:true, actor_index:1 });
+            } catch (e_force_switch) { _ok_switch = false; }
+            __status_smoke_assert(_S, _ok_switch, "Forced doubles player switch was accepted for player slot 1");
+            if (!_ok_switch){
+                __status_smoke_finish(_pid, _S, "switch-rejected");
+                return;
+            }
+            try {
+                __status_smoke_assert(_S, variable_struct_exists(_B, "_switch_actor_index") && variable_struct_get(_B, "_switch_actor_index") == 1, "Forced doubles player switch targeted actor slot 1");
+            } catch (e_actor_idx) { __status_smoke_assert(_S, false, "Forced doubles player switch targeted actor slot 1"); }
+            variable_struct_set(_S, "state", "await_dialog");
+            break;
+
+        case "await_dialog":
+            if (variable_struct_get(_S, "chosen_party_idx") < 0){
+                var _picked_idx = (variable_struct_exists(_B, "_switch_target_idx") && is_real(variable_struct_get(_B, "_switch_target_idx"))) ? floor(variable_struct_get(_B, "_switch_target_idx")) : -1;
+                if (_picked_idx >= 0){
+                    variable_struct_set(_S, "chosen_party_idx", _picked_idx);
+                    var _valid = false;
+                    var _choices = variable_struct_get(_S, "valid_choices");
+                    for (var _ci = 0; _ci < array_length(_choices); ++_ci){ if (_choices[_ci] == _picked_idx) { _valid = true; break; } }
+                    __status_smoke_assert(_S, _valid, "Forced doubles player switch picked a valid bench mon when no explicit party index was provided");
+                    var _party_live = party_ensure(_pid);
+                    if (is_struct(_party_live) && is_array(_party_live.mons) && _picked_idx < array_length(_party_live.mons) && is_struct(_party_live.mons[_picked_idx]) && variable_struct_exists(_party_live.mons[_picked_idx], "name")){
+                        variable_struct_set(_S, "chosen_name", string(variable_struct_get(_party_live.mons[_picked_idx], "name")));
+                    }
+                }
+            }
+            if (is_undefined(dialog2p_is_open) || !dialog2p_is_open(_pid)) break;
+            if (!variable_struct_get(_S, "dialog_checked")){
+                var _dlg_text = __status_smoke_dialog_text(_pid);
+                var _chosen_name = string(variable_struct_get(_S, "chosen_name"));
+                if (string_length(_chosen_name) > 0){
+                    var _name_ok = string_pos("Go. " + _chosen_name + "!", _dlg_text) > 0;
+                    var _generic_ok = string_pos("Go. Pokémon!", _dlg_text) == 0 && string_pos("Go. Pokemon!", _dlg_text) == 0;
+                    __status_smoke_assert(_S, _name_ok && _generic_ok, "Forced doubles player switch dialog used the selected mon name instead of a generic Pokémon label");
+                    variable_struct_set(_S, "dialog_checked", true);
+                }
+            }
+            __status_smoke_advance_dialog(_pid, _S);
+            if (variable_struct_get(_S, "dialog_checked")) variable_struct_set(_S, "state", "await_switch_apply");
+            break;
+
+        case "await_switch_apply":
+            if (__status_smoke_advance_dialog(_pid, _S)) break;
+            if (!variable_struct_exists(_B, "phase") || variable_struct_get(_B, "phase") != "command") break;
+            var _party_after = party_ensure(_pid);
+            var _picked_after = variable_struct_get(_S, "chosen_party_idx");
+            var _slot0_ok = false;
+            var _slot1_ok = false;
+            var _slot1_changed = false;
+            try {
+                var _slot0_actor = _actors[0];
+                var _slot1_actor = _actors[1];
+                var _slot0_mon = (is_struct(_slot0_actor) && variable_struct_exists(_slot0_actor, "mon") && is_struct(variable_struct_get(_slot0_actor, "mon"))) ? variable_struct_get(_slot0_actor, "mon") : _slot0_actor;
+                var _slot1_mon = (is_struct(_slot1_actor) && variable_struct_exists(_slot1_actor, "mon") && is_struct(variable_struct_get(_slot1_actor, "mon"))) ? variable_struct_get(_slot1_actor, "mon") : _slot1_actor;
+                _slot0_ok = (_slot0_mon == variable_struct_get(_S, "original_slot0_mon"));
+                _slot1_changed = (_slot1_mon != variable_struct_get(_S, "original_slot1_mon"));
+                if (is_struct(_party_after) && is_array(_party_after.mons) && is_real(_picked_after) && _picked_after >= 0 && _picked_after < array_length(_party_after.mons)) _slot1_ok = (_slot1_mon == _party_after.mons[_picked_after]);
+            } catch (e_slot_chk) { _slot0_ok = false; _slot1_ok = false; _slot1_changed = false; }
+            __status_smoke_assert(_S, _slot0_ok, "Forced doubles player switch left player slot 0 unchanged");
+            __status_smoke_assert(_S, _slot1_changed && _slot1_ok, "Forced doubles player switch replaced only player slot 1 with the chosen bench mon");
+            __status_smoke_finish(_pid, _S, "completed");
+            break;
+    }
+}
+
+function test_battle_visual_target_smoke_start(_auto_close = false){
+    var _pid = 0;
+    if (battle_is_open(_pid)) battle_close(_pid);
+    var _S = {
+        pid: _pid,
+        tag: "visual-target",
+        global_name: "DEV_VISUAL_TARGET_SMOKE",
+        auto_close: (_auto_close == true),
+        state: "running",
+        turn_counter: 0,
+        pass_count: 0,
+        fail_count: 0,
+        started_ms: current_time
+    };
+    global.DEV_VISUAL_TARGET_SMOKE = _S;
+    show_debug_message("[smoke][visual-target] starting direct basic-hit / Quick Attack / multi-hit visual smoke");
+
+    var _basic_hit_id = __status_smoke_find_move_id(["wing-attack", "wing_attack", "pound", "scratch", "tackle"], 1);
+    var _quick_attack_id = __status_smoke_find_move_id(["quick-attack", "quick_attack"]);
+    var _multi_hit_id = __status_smoke_find_move_id(["double-kick", "double_kick", "doublekick", "comet-punch", "comet_punch", "fury-swipes", "fury_swipes", "arm-thrust", "arm_thrust", "armthrust"], 30);
+    if (_basic_hit_id < 0 || _quick_attack_id < 0 || _multi_hit_id < 0){
+        __status_smoke_assert(_S, false, "Resolved a basic hit, Quick Attack, and a multi-hit move from move data");
+        __status_smoke_finish(_pid, _S, "missing-moves");
+        return false;
+    }
+
+    var _lead_a = __effect_smoke_mon(133, 26, 120, [_multi_hit_id, _basic_hit_id, -1, -1]);
+    var _lead_b = __effect_smoke_mon(25, 26, 120, [_quick_attack_id, -1, -1, -1]);
+    var _enemy_a = __effect_smoke_mon(263, 22, 120, [150, -1, -1, -1]);
+    var _enemy_b = __effect_smoke_mon(19, 22, 120, [150, -1, -1, -1]);
+    variable_struct_set(_lead_a, "name", "Visual Alpha");
+    variable_struct_set(_lead_b, "name", "Visual Beta");
+    variable_struct_set(_enemy_a, "name", "Target Left");
+    variable_struct_set(_enemy_b, "name", "Target Right");
+    var _B = __effect_smoke_slot_double(_pid, _lead_a, _lead_b, _enemy_a, _enemy_b);
+    var _actors_visual = variable_struct_get(_B, "actor");
+
+    __status_smoke_clear_anim_queue(_pid);
+    for (var _bi = 0; _bi < 4; ++_bi) __status_smoke_reset_visual_actor(_actors_visual[_bi]);
+    __battle_perform_action_impl(_pid, { slot: 1, move_id: _basic_hit_id, actor_index: 0, target_index: 2 });
+    if (!is_undefined(battle_anim_queue_tick)) battle_anim_queue_tick(_pid);
+    var _basic_hit_overlays = __status_smoke_count_hit_effect_overlays(_pid, 2, spr_hiteffect, undefined);
+    __status_smoke_assert(_S, _basic_hit_overlays >= 1, "Basic hit move enqueued a hit overlay on the chosen doubles target");
+    __status_smoke_assert(_S, __status_smoke_actor_has_nudge(_lead_a, 1), "Basic hit move gave the attacker a forward nudge toward the chosen doubles target");
+    __status_smoke_assert(_S, __status_smoke_actor_has_nudge(_enemy_a, -1), "Basic hit move gave the chosen defender recoil nudge in doubles");
+    __status_smoke_assert(_S, __status_smoke_last_move_damage(_enemy_a, _basic_hit_id) > 0 && __status_smoke_last_move_damage(_enemy_b, _basic_hit_id) <= 0, "Basic hit visuals did not attach to the wrong enemy slot in doubles");
+
+    __status_smoke_clear_anim_queue(_pid);
+    for (var _qi = 0; _qi < 4; ++_qi) __status_smoke_reset_visual_actor(_actors_visual[_qi]);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: _quick_attack_id, actor_index: 1, target_index: 3 });
+    if (!is_undefined(battle_anim_queue_tick)) battle_anim_queue_tick(_pid);
+    var _quick_afterimages = __status_smoke_count_hit_effect_overlays(_pid, 1);
+    __status_smoke_assert(_S, _quick_afterimages >= 2, "Quick Attack enqueued attacker afterimages for the lunging actor");
+    __status_smoke_assert(_S, __status_smoke_actor_has_nudge(_lead_b, 1), "Quick Attack gave the attacker a forward nudge toward the chosen doubles target");
+    __status_smoke_assert(_S, __status_smoke_actor_has_nudge(_enemy_b, -1), "Quick Attack gave the chosen defender recoil nudge in doubles");
+    __status_smoke_assert(_S, __status_smoke_last_move_damage(_enemy_a, _quick_attack_id) <= 0 && __status_smoke_last_move_damage(_enemy_b, _quick_attack_id) > 0, "Quick Attack visuals did not attach to the wrong enemy slot in doubles");
+
+    __status_smoke_clear_anim_queue(_pid);
+    for (var _mi = 0; _mi < 4; ++_mi) __status_smoke_reset_visual_actor(_actors_visual[_mi]);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: _multi_hit_id, actor_index: 0, target_index: 3 });
+    if (!is_undefined(battle_anim_queue_tick)) battle_anim_queue_tick(_pid);
+    var _multi_hits = __status_smoke_count_hit_effect_overlays(_pid, 3, spr_multihit, undefined);
+    __status_smoke_assert(_S, _multi_hits >= 2, "Multi-hit move enqueued repeated hit overlays on the chosen doubles target");
+    __status_smoke_assert(_S, __status_smoke_actor_has_nudge(_lead_a, 1), "Multi-hit move gave the attacker a forward nudge toward the chosen doubles target");
+    __status_smoke_assert(_S, __status_smoke_actor_has_nudge(_enemy_b, -1), "Multi-hit move gave the chosen defender recoil nudge in doubles");
+    __status_smoke_assert(_S, __status_smoke_actor_nudge_mag(_enemy_b) >= 3.5, "Multi-hit move defender recoil stayed visibly strong enough to read in battle");
+    __status_smoke_assert(_S, __status_smoke_last_move_damage(_enemy_a, _multi_hit_id) <= 0 && __status_smoke_last_move_damage(_enemy_b, _multi_hit_id) > 0, "Multi-hit visuals did not attach to the wrong enemy slot in doubles");
+
+    var _fails = variable_struct_get(_S, "fail_count");
+    __status_smoke_finish(_pid, _S, (_fails == 0) ? "completed" : "failed");
+    return (_fails == 0);
+}
+
+function test_battle_visual_target_smoke_update(_pid = 0){
+    // Direct smoke completes synchronously in start().
 }
 
 function __effect_smoke_mon(_species, _level, _hp_max, _moves){
@@ -1240,6 +1623,25 @@ function __effect_smoke_slot(_pid, _A, _D, _mode = "trainer"){
     variable_struct_set(_B, "phase", "command");
     variable_struct_set(_B, "_battle_mode", _mode);
     variable_struct_set(_B, "actor", [_A, _D]);
+    variable_struct_set(_B, "_field", __battle_field_defaults());
+    return _B;
+}
+
+function __effect_smoke_slot_double(_pid, _P0, _P1, _E0, _E1, _mode = "trainer"){
+    if (variable_global_exists("sys_battles") && is_array(global.sys_battles) && array_length(global.sys_battles) > _pid){
+        global.sys_battles[_pid] = undefined;
+    }
+    var _B = __battle_ensure_slot(_pid);
+    variable_struct_set(_P0, "actor_index", 0);
+    variable_struct_set(_P1, "actor_index", 1);
+    variable_struct_set(_E0, "actor_index", 2);
+    variable_struct_set(_E1, "actor_index", 3);
+    variable_struct_set(_B, "sys_open", true);
+    variable_struct_set(_B, "phase", "command");
+    variable_struct_set(_B, "_battle_mode", _mode);
+    variable_struct_set(_B, "battle_format", "double");
+    variable_struct_set(_B, "active_per_side", 2);
+    variable_struct_set(_B, "actor", [_P0, _P1, _E0, _E1]);
     variable_struct_set(_B, "_field", __battle_field_defaults());
     return _B;
 }

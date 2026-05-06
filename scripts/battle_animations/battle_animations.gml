@@ -842,7 +842,7 @@ function __battle_anim_queue_build_draw_state(_pid, _slot, _entry){
         return { kind: "stat_overlay", target_index: _idx_so, frame: _frame_so, darken: _darken_so, progress: _prog, bg: _bg_so, direction: _dir_so, stat_keys: _stat_keys_so, stat_deltas: _stat_deltas_so, bg_loops: _bg_loops_so };
     }
         if (_type == "hit_effect"){
-        var _idx_he = (variable_struct_exists(_entry, "target_index") && is_real(_entry.target_index)) ? clamp(_entry.target_index, 0, 1) : 0;
+        var _idx_he = (variable_struct_exists(_entry, "target_index") && is_real(_entry.target_index)) ? floor(_entry.target_index) : 0;
         var _sprite_he = (variable_struct_exists(_entry, "sprite") && !is_undefined(_entry.sprite)) ? _entry.sprite : spr_hiteffect;
         var _spr_count_he = 1;
         try { if (is_undefined(_sprite_he) == false && sprite_exists(_sprite_he)) _spr_count_he = max(1, sprite_get_number(_sprite_he)); } catch (e_sp) { _spr_count_he = 1; }
@@ -904,7 +904,7 @@ function __battle_anim_queue_build_draw_state(_pid, _slot, _entry){
         return { kind: "sprite_overlay", target_index: _idx_he, sprite: _sprite_he, frame: _frame_he, scale: _scale_he, alpha: _alpha_he, progress: _prog, offset_x: _offx_he, offset_y: _offy_he, slide_dir: _sdir_he, slide_mag: _smag_he };
     }
     if (_type == "sleep_effect"){
-        var _idx_s = (variable_struct_exists(_entry, "target_index") && is_real(_entry.target_index)) ? clamp(_entry.target_index, 0, 1) : 0;
+        var _idx_s = (variable_struct_exists(_entry, "target_index") && is_real(_entry.target_index)) ? floor(_entry.target_index) : 0;
         var _sprite_s = (variable_struct_exists(_entry, "sprite") && !is_undefined(_entry.sprite)) ? _entry.sprite : spr_sleep;
         var _spr_count_s = 1;
         try { if (is_undefined(_sprite_s) == false && sprite_exists(_sprite_s)) _spr_count_s = max(1, sprite_get_number(_sprite_s)); } catch (e_sp2) { _spr_count_s = 1; }
@@ -1214,9 +1214,10 @@ function __battle_anim_queue_draw_states(_pid, _states){
         }
         else if (_kind == "sprite_overlay"){
             // Draw an arbitrary single-frame/animated sprite centered on the target actor
-            var _idxs = (variable_struct_exists(_st, "target_index") && is_real(_st.target_index)) ? clamp(_st.target_index, 0, 1) : 0;
-            var _cxs = (_idxs == 1 ? _enemy_cx : _player_cx);
-            var _cys = (_idxs == 1 ? _enemy_cy : _player_cy);
+            var _idxs = (variable_struct_exists(_st, "target_index") && is_real(_st.target_index)) ? floor(_st.target_index) : 0;
+            var _center_s = __battle_anim_queue_actor_center(_pid, _idxs);
+            var _cxs = (is_array(_center_s) && array_length(_center_s) >= 2) ? _center_s[0] + _offx : _player_cx;
+            var _cys = (is_array(_center_s) && array_length(_center_s) >= 2) ? _center_s[1] + _offy : _player_cy;
             var _sprs = (variable_struct_exists(_st, "sprite") ? _st.sprite : undefined);
             var _frs = (variable_struct_exists(_st, "frame") && is_real(_st.frame)) ? floor(_st.frame) : 0;
             var _scs = (variable_struct_exists(_st, "scale") && is_real(_st.scale)) ? _st.scale : 1;

@@ -108,6 +108,16 @@ if (variable_global_exists("DEV_AUTO_FIELD_SWITCH_SMOKE") && global.DEV_AUTO_FIE
     test_battle_field_switch_smoke_start(true);
 }
 
+if (variable_global_exists("DEV_AUTO_FORCED_PLAYER_SWITCH_SMOKE") && global.DEV_AUTO_FORCED_PLAYER_SWITCH_SMOKE) {
+    global.DEV_AUTO_FORCED_PLAYER_SWITCH_SMOKE = false;
+    test_battle_doubles_forced_player_switch_smoke_start(true);
+}
+
+if (variable_global_exists("DEV_AUTO_VISUAL_TARGET_SMOKE") && global.DEV_AUTO_VISUAL_TARGET_SMOKE) {
+    global.DEV_AUTO_VISUAL_TARGET_SMOKE = false;
+    test_battle_visual_target_smoke_start(true);
+}
+
 if (variable_global_exists("DEV_AUTO_EFFECT_131_155_SMOKE") && global.DEV_AUTO_EFFECT_131_155_SMOKE) {
     global.DEV_AUTO_EFFECT_131_155_SMOKE = false;
     test_battle_effect_131_155_smoke_start(true);
@@ -186,6 +196,8 @@ test_battle_rollout_smoke_update(0);
 test_battle_fury_cutter_smoke_update(0);
 test_battle_love_gift_smoke_update(0);
 test_battle_field_switch_smoke_update(0);
+test_battle_doubles_forced_player_switch_smoke_update(0);
+test_battle_visual_target_smoke_update(0);
 test_battle_effect_131_155_smoke_update(0);
 test_battle_effect_159_176_smoke_update(0);
 test_battle_effect_27_42_smoke_update(0);

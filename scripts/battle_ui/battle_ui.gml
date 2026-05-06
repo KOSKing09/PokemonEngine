@@ -641,7 +641,7 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
             var label = nm + "  " + (is_real(pp) ? string(pp) : "0") + " PP";
             label = __battle_text_fit_ellipsis(_pid, label, cellW);
 
-            var _fight_col = (hilite && variable_struct_exists(_t, "col_ui_highlight")) ? variable_struct_get(_t, "col_ui_highlight") : ((variable_struct_exists(_t, "col_ui_text") ? variable_struct_get(_t, "col_ui_text") : _t.col_text));
+            var _fight_col = (hilite && variable_struct_exists(_t, "col_ui_highlight_text")) ? variable_struct_get(_t, "col_ui_highlight_text") : ((variable_struct_exists(_t, "col_ui_text") ? variable_struct_get(_t, "col_ui_text") : _t.col_text));
             draw_set_color(_fight_col);
             draw_text(tx, ty, label);
         }
@@ -669,7 +669,7 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
         var ty2 = _by + __bhu(_pid,6)  + (floor(j / 2) * (_bh * 0.5));
         var hilite2 = (_selX == (j % 2)) && (_selY == floor(j / 2));
         var lbl = __battle_text_fit_ellipsis(_pid, labels[j], rootCellW);
-        var _root_col = (hilite2 && variable_struct_exists(_t, "col_ui_highlight")) ? variable_struct_get(_t, "col_ui_highlight") : ((variable_struct_exists(_t, "col_ui_text") ? variable_struct_get(_t, "col_ui_text") : _t.col_text));
+        var _root_col = (hilite2 && variable_struct_exists(_t, "col_ui_highlight_text")) ? variable_struct_get(_t, "col_ui_highlight_text") : ((variable_struct_exists(_t, "col_ui_text") ? variable_struct_get(_t, "col_ui_text") : _t.col_text));
         draw_set_color(_root_col);
         draw_text(tx2, ty2, lbl);
     }

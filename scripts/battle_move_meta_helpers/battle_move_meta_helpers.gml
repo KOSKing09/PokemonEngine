@@ -33,6 +33,27 @@ if (is_undefined(__battle_apply_move_meta_effects)){
             // Helper: resolve hp_now and maxhp fields for an entity
             var get_hp_now = function(ent){ try { if (variable_struct_exists(ent, "hp_now")) return variable_struct_get(ent, "hp_now"); if (variable_struct_exists(ent, "hp")) return variable_struct_get(ent, "hp"); if (variable_struct_exists(ent, "mon") && is_struct(variable_struct_get(ent, "mon"))){ var mi = variable_struct_get(ent, "mon"); if (variable_struct_exists(mi, "hp_now")) return variable_struct_get(mi, "hp_now"); if (variable_struct_exists(mi, "hp")) return variable_struct_get(mi, "hp"); } } catch (ee) {} return 0; };
             var get_hp_max = function(ent){ try { if (variable_struct_exists(ent, "hp_max")) return variable_struct_get(ent, "hp_max"); if (variable_struct_exists(ent, "maxhp")) return variable_struct_get(ent, "maxhp"); if (variable_struct_exists(ent, "mon") && is_struct(variable_struct_get(ent, "mon"))){ var mi2 = variable_struct_get(ent, "mon"); if (variable_struct_exists(mi2, "hp_max")) return variable_struct_get(mi2, "hp_max"); if (variable_struct_exists(mi2, "maxhp")) return variable_struct_get(mi2, "maxhp"); } } catch (ee) {} return 1; };
+            var resolve_effect_target_index_safe = function(_pid_local, _attacker_local, _defender_local, _fallback_target_index_local){
+                var _fallback_local = (is_real(_fallback_target_index_local) ? floor(_fallback_target_index_local) : _fallback_target_index_local);
+                try {
+                    if (variable_global_exists("_battle_impls") && is_struct(variable_global_get("_battle_impls"))){
+                        var _impls_local = variable_global_get("_battle_impls");
+                        if (variable_struct_exists(_impls_local, "__battle_resolve_effect_target_index")){
+                            var _resolve_fn_local = variable_struct_get(_impls_local, "__battle_resolve_effect_target_index");
+                            if (!is_undefined(_resolve_fn_local)) return _resolve_fn_local(_pid_local, _attacker_local, _defender_local, _fallback_local);
+                        }
+                    }
+                } catch (e_resolve_registry_local) {}
+                try {
+                    if (!is_undefined(__battle_resolve_live_actor_index)){
+                        var _resolved_local = __battle_resolve_live_actor_index(_pid_local, _defender_local, _fallback_local);
+                        if (is_real(_resolved_local)) return _resolved_local;
+                        var _attacker_idx_local = __battle_resolve_live_actor_index(_pid_local, _attacker_local, undefined);
+                        if (is_real(_attacker_idx_local) && !is_undefined(__battle_get_default_target_index)) return __battle_get_default_target_index(_pid_local, _attacker_idx_local);
+                    }
+                } catch (e_resolve_fallback_local) {}
+                return _fallback_local;
+            };
 
             var A_before = real(get_hp_now(_A));
             var A_max = max(1, real(get_hp_max(_A)));
@@ -549,7 +570,27 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                         if (_eid == 30){
                             try {
                                 var _tgt_idx_mh = undefined;
-                                try { if (is_struct(_D) && variable_struct_exists(_D, "actor_index")) _tgt_idx_mh = variable_struct_get(_D, "actor_index"); } catch (e_tim) { _tgt_idx_mh = undefined; }
+                                var _step_target_idx_mh = (is_struct(_step) && variable_struct_exists(_step, "target_index") && is_real(variable_struct_get(_step, "target_index"))) ? floor(variable_struct_get(_step, "target_index")) : undefined;
+                                var _step_actor_idx_mh = (is_struct(_step) && variable_struct_exists(_step, "actor_index") && is_real(variable_struct_get(_step, "actor_index"))) ? floor(variable_struct_get(_step, "actor_index")) : undefined;
+                                var _live_attacker_mh = _A;
+                                var _live_defender_mh = _D;
+                                var _act_idx_mh = _step_actor_idx_mh;
+                                try { _tgt_idx_mh = (!is_undefined(__battle_resolve_effect_target_index) ? __battle_resolve_effect_target_index(_pid, _A, _D, _step_target_idx_mh) : _step_target_idx_mh); } catch (e_tim) { _tgt_idx_mh = _step_target_idx_mh; }
+                                if (!is_real(_tgt_idx_mh)){
+                                    try {
+                                        var _act_idx_seed_mh = (!is_undefined(__battle_resolve_live_actor_index) ? __battle_resolve_live_actor_index(_pid, _A, _step_actor_idx_mh) : _step_actor_idx_mh);
+                                        if (is_real(_act_idx_seed_mh) && !is_undefined(__battle_get_default_target_index)) _tgt_idx_mh = __battle_get_default_target_index(_pid, _act_idx_seed_mh);
+                                    } catch (e_tim_fallback) { _tgt_idx_mh = _tgt_idx_mh; }
+                                }
+                                try {
+                                    var _Banim_mh = __battle_ensure_slot(_pid);
+                                    if (is_struct(_Banim_mh) && variable_struct_exists(_Banim_mh, "actor") && is_array(variable_struct_get(_Banim_mh, "actor"))){
+                                        var _acts_anim_mh = variable_struct_get(_Banim_mh, "actor");
+                                        if (!is_real(_act_idx_mh)) _act_idx_mh = (!is_undefined(__battle_resolve_live_actor_index) ? __battle_resolve_live_actor_index(_pid, _A, _step_actor_idx_mh) : _step_actor_idx_mh);
+                                        if (is_real(_act_idx_mh) && _act_idx_mh >= 0 && _act_idx_mh < array_length(_acts_anim_mh) && is_struct(_acts_anim_mh[_act_idx_mh])) _live_attacker_mh = _acts_anim_mh[_act_idx_mh];
+                                        if (is_real(_tgt_idx_mh) && _tgt_idx_mh >= 0 && _tgt_idx_mh < array_length(_acts_anim_mh) && is_struct(_acts_anim_mh[_tgt_idx_mh])) _live_defender_mh = _acts_anim_mh[_tgt_idx_mh];
+                                    }
+                                } catch (e_live_attacker_mh) { _live_attacker_mh = _A; }
                                 // Determine hits: prefer explicit min_hits/max_hits from move meta
                                 var _min_hits_m = (variable_struct_exists(_mm, "min_hits") && is_real(variable_struct_get(_mm, "min_hits"))) ? floor(variable_struct_get(_mm, "min_hits")) : 2;
                                 var _max_hits_m = (variable_struct_exists(_mm, "max_hits") && is_real(variable_struct_get(_mm, "max_hits"))) ? floor(variable_struct_get(_mm, "max_hits")) : 5;
@@ -581,6 +622,11 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                 // Per-hit damage estimate
                                 var _per_hit_dmg_m = 0;
                                 if (is_real(_dmg) && _hits_count_m > 0) _per_hit_dmg_m = real(_dmg) / _hits_count_m;
+                                var _tgt_max_h_total = 1;
+                                try { if (variable_struct_exists(_live_defender_mh, "hp_max")) _tgt_max_h_total = max(1, real(variable_struct_get(_live_defender_mh, "hp_max"))); else if (variable_struct_exists(_live_defender_mh, "mon") && is_struct(variable_struct_get(_live_defender_mh, "mon")) && variable_struct_exists(variable_struct_get(_live_defender_mh, "mon"), "hp_max")) _tgt_max_h_total = max(1, real(variable_struct_get(variable_struct_get(_live_defender_mh, "mon"), "hp_max"))); } catch (e_tmp_total) { _tgt_max_h_total = 1; }
+                                var _total_dmg_m = (is_real(_dmg) ? max(0, real(_dmg)) : max(0, _per_hit_dmg_m));
+                                var _prop_total_m = clamp((_tgt_max_h_total > 0 ? (_total_dmg_m / _tgt_max_h_total) : 0), 0, 1);
+                                var _nudge_mag_total_m = lerp(5, 18, _prop_total_m);
 
                                 for (var _hi_m = 0; _hi_m < _hits_count_m; ++_hi_m){
                                     var _offx_m = irandom_range(-8, 8);
@@ -588,24 +634,20 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
                                         try { show_debug_message("[battle][multi-hit][meta-enqueue] pid=" + string(_pid) + ", tgt=" + string(_tgt_idx_mh) + ", frame=" + string(_frame_map_m) + ", off=(" + string(_offx_m) + "," + string(_offy_m) + ")"); } catch (e_dbgmh2) {}
                                     }
-                                    try { __battle_request_animation_safe(_pid, { type: "hit_effect", target_index: _tgt_idx_mh, actor: _A, target: _D, sprite: spr_multihit, scale: 1.0, frame: _frame_map_m, offset_x: _offx_m, offset_y: _offy_m, slide_mag: 6, duration: 140 }); } catch (e_reqm2) {}
+                                    try { __battle_request_animation_safe(_pid, { type: "hit_effect", target_index: _tgt_idx_mh, actor: _live_attacker_mh, target: _live_defender_mh, sprite: spr_multihit, scale: 1.0, frame: _frame_map_m, offset_x: _offx_m, offset_y: _offy_m, slide_mag: 6, duration: 140 }); } catch (e_reqm2) {}
                                     try { if (!is_undefined(battle_cam_shake)) battle_cam_shake(_pid, 3, 100, 10, 0.9); } catch (e_cam2) {}
 
                                     // small per-hit nudge
                                     try {
-                                        var _tgt_max_h = 1;
-                                        try { if (variable_struct_exists(_D, "hp_max")) _tgt_max_h = max(1, real(variable_struct_get(_D, "hp_max"))); else if (variable_struct_exists(_D, "mon") && is_struct(variable_struct_get(_D, "mon")) && variable_struct_exists(variable_struct_get(_D, "mon"), "hp_max")) _tgt_max_h = max(1, real(variable_struct_get(variable_struct_get(_D, "mon"), "hp_max"))); } catch (e_tmp) { _tgt_max_h = 1; }
-                                        var _prop_m = clamp((_tgt_max_h > 0 ? (_per_hit_dmg_m / _tgt_max_h) : 0), 0, 1);
-                                        var _nudge_mag_m = lerp(2, 18, _prop_m);
-                                        var _ndir_m = 0; var _act_idx_m = (variable_struct_exists(_A, "actor_index") ? variable_struct_get(_A, "actor_index") : undefined);
+                                        var _nudge_mag_m = max(4, _nudge_mag_total_m);
+                                        var _ndir_m = 0; var _act_idx_m = _act_idx_mh;
                                         if (is_real(_act_idx_m) && is_real(_tgt_idx_mh)) _ndir_m = sign(_tgt_idx_mh - _act_idx_m);
                                         // Attacker nudge
-                                        try { if (is_struct(_A)){ variable_struct_set(_A, "_nudge_active", true); variable_struct_set(_A, "_nudge_start_ms", current_time); variable_struct_set(_A, "_nudge_dur", 220); variable_struct_set(_A, "_nudge_mag", _nudge_mag_m); variable_struct_set(_A, "_nudge_dir", _ndir_m); } } catch (e_an2) {}
+                                        try { if (is_struct(_live_attacker_mh)){ variable_struct_set(_live_attacker_mh, "_nudge_active", true); variable_struct_set(_live_attacker_mh, "_nudge_start_ms", current_time); variable_struct_set(_live_attacker_mh, "_nudge_dur", 220); variable_struct_set(_live_attacker_mh, "_nudge_mag", _nudge_mag_m); variable_struct_set(_live_attacker_mh, "_nudge_dir", _ndir_m); } } catch (e_an2_live) {}
                                         // Defender nudge
                                         try {
-                                            var _dmag_m = max(1, _nudge_mag_m * 0.7);
-                                            if (is_struct(_D)){ variable_struct_set(_D, "_nudge_active", true); variable_struct_set(_D, "_nudge_start_ms", current_time); variable_struct_set(_D, "_nudge_dur", 180); variable_struct_set(_D, "_nudge_mag", _dmag_m); variable_struct_set(_D, "_nudge_dir", -_ndir_m); }
-                                            try { var _Btmp_m = __battle_ensure_slot(_pid); if (is_struct(_Btmp_m) && variable_struct_exists(_Btmp_m, "actor") && is_array(variable_struct_get(_Btmp_m, "actor"))){ var _acts_m = variable_struct_get(_Btmp_m, "actor"); if (is_real(_tgt_idx_mh) && _tgt_idx_mh >= 0 && _tgt_idx_mh < array_length(_acts_m)){ var _def_m = _acts_m[_tgt_idx_mh]; if (is_struct(_def_m)){ variable_struct_set(_def_m, "_nudge_active", true); variable_struct_set(_def_m, "_nudge_start_ms", current_time); variable_struct_set(_def_m, "_nudge_dur", 180); variable_struct_set(_def_m, "_nudge_mag", _dmag_m); variable_struct_set(_def_m, "_nudge_dir", -_ndir_m); } } } } catch (e_setsm) {}
+                                            var _dmag_m = max(3.5, _nudge_mag_m * 0.85);
+                                            if (is_struct(_live_defender_mh)){ variable_struct_set(_live_defender_mh, "_nudge_active", true); variable_struct_set(_live_defender_mh, "_nudge_start_ms", current_time); variable_struct_set(_live_defender_mh, "_nudge_dur", 220); variable_struct_set(_live_defender_mh, "_nudge_mag", _dmag_m); variable_struct_set(_live_defender_mh, "_nudge_dir", -_ndir_m); }
                                         } catch (e_dn2) {}
                                     } catch (e_phn) {}
                                 }
@@ -777,10 +819,25 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                     // Quick: effect_id 1 -> basic hit visual (draw spr_hiteffect over defender)
                     if (_eid == 1){
                         try {
+                            var _step_target_idx_he = (is_struct(_step) && variable_struct_exists(_step, "target_index") && is_real(variable_struct_get(_step, "target_index"))) ? floor(variable_struct_get(_step, "target_index")) : undefined;
+                            var _step_actor_idx_he = (is_struct(_step) && variable_struct_exists(_step, "actor_index") && is_real(variable_struct_get(_step, "actor_index"))) ? floor(variable_struct_get(_step, "actor_index")) : undefined;
                             var _tgt_idx_he = undefined;
-                            try { if (is_struct(_D) && variable_struct_exists(_D, "actor_index")) _tgt_idx_he = variable_struct_get(_D, "actor_index"); } catch (e_ti) { _tgt_idx_he = undefined; }
+                            var _act_idx_he_live = _step_actor_idx_he;
+                            var _live_attacker_he = _A;
+                            var _live_defender_he = _D;
+                            try { _tgt_idx_he = (!is_undefined(__battle_resolve_effect_target_index) ? __battle_resolve_effect_target_index(_pid, _A, _D, _step_target_idx_he) : _step_target_idx_he); } catch (e_ti) { _tgt_idx_he = _step_target_idx_he; }
+                            try {
+                                var _Bslot_he = __battle_ensure_slot(_pid);
+                                if (is_struct(_Bslot_he) && variable_struct_exists(_Bslot_he, "actor") && is_array(variable_struct_get(_Bslot_he, "actor"))){
+                                    var _actors_he = variable_struct_get(_Bslot_he, "actor");
+                                    if (!is_real(_act_idx_he_live)) _act_idx_he_live = (!is_undefined(__battle_resolve_live_actor_index) ? __battle_resolve_live_actor_index(_pid, _A, _step_actor_idx_he) : _step_actor_idx_he);
+                                    if (is_real(_act_idx_he_live) && _act_idx_he_live >= 0 && _act_idx_he_live < array_length(_actors_he) && is_struct(_actors_he[_act_idx_he_live])) _live_attacker_he = _actors_he[_act_idx_he_live];
+                                    if (!is_real(_tgt_idx_he) && is_real(_act_idx_he_live) && !is_undefined(__battle_get_default_target_index)) _tgt_idx_he = __battle_get_default_target_index(_pid, _act_idx_he_live);
+                                    if (is_real(_tgt_idx_he) && _tgt_idx_he >= 0 && _tgt_idx_he < array_length(_actors_he) && is_struct(_actors_he[_tgt_idx_he])) _live_defender_he = _actors_he[_tgt_idx_he];
+                                }
+                            } catch (e_live_he) { _live_attacker_he = _A; _live_defender_he = _D; }
                             // Enqueue visual overlay hit effect
-                            try { __battle_request_animation_safe(_pid, { type: "hit_effect", target_index: _tgt_idx_he, actor: _A, target: _D, sprite: spr_hiteffect, scale: 1.0 }); } catch (e_reqh) {}
+                            try { __battle_request_animation_safe(_pid, { type: "hit_effect", target_index: _tgt_idx_he, actor: _live_attacker_he, target: _live_defender_he, sprite: spr_hiteffect, scale: 1.0 }); } catch (e_reqh) {}
                             // Compute damage-based nudge for attacker: proportion of target HP
                             try {
                                 var _dval = 0;
@@ -788,24 +845,32 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                 else if (is_array(_dmg) && array_length(_dmg) > 0) _dval = real(_dmg[0]);
                                 else if (is_struct(_dmg) && is_struct(_D)){
                                     try {
-                                        var _aid = (variable_struct_exists(_D, "actor_index") ? string(variable_struct_get(_D, "actor_index")) : "0");
+                                        var _aid = (is_real(_tgt_idx_he) ? string(_tgt_idx_he) : "0");
                                         if (variable_struct_exists(_dmg, _aid)) _dval = real(variable_struct_get(_dmg, _aid));
                                     } catch (e_dmap){}
                                 }
                                 // Resolve target max HP
                                 var _tgt_max = 1;
-                                try { if (variable_struct_exists(_D, "hp_max")) _tgt_max = max(1, real(variable_struct_get(_D, "hp_max"))); else if (variable_struct_exists(_D, "mon") && is_struct(variable_struct_get(_D, "mon")) && variable_struct_exists(variable_struct_get(_D, "mon"), "hp_max")) _tgt_max = max(1, real(variable_struct_get(variable_struct_get(_D, "mon"), "hp_max"))); } catch (e_tmh) { _tgt_max = 1; }
+                                try { if (variable_struct_exists(_live_defender_he, "hp_max")) _tgt_max = max(1, real(variable_struct_get(_live_defender_he, "hp_max"))); else if (variable_struct_exists(_live_defender_he, "mon") && is_struct(variable_struct_get(_live_defender_he, "mon")) && variable_struct_exists(variable_struct_get(_live_defender_he, "mon"), "hp_max")) _tgt_max = max(1, real(variable_struct_get(variable_struct_get(_live_defender_he, "mon"), "hp_max"))); } catch (e_tmh) { _tgt_max = 1; }
                                 var _prop = clamp((_tgt_max > 0 ? (_dval / _tgt_max) : 0), 0, 1);
                                 // map proportion to nudge magnitude (logical pixels): small->2, big->18
                                 var _nudge_mag = lerp(2, 18, _prop);
                                 // determine slide direction: attacker should move toward target
-                                var _act_idx_local = (variable_struct_exists(_A, "actor_index") ? variable_struct_get(_A, "actor_index") : undefined);
+                                var _act_idx_local = _act_idx_he_live;
+                                if (!is_real(_act_idx_local)) _act_idx_local = (variable_struct_exists(_live_attacker_he, "actor_index") ? variable_struct_get(_live_attacker_he, "actor_index") : undefined);
                                 var _tidx_local = _tgt_idx_he;
                                 var _ndir = 0;
                                 if (is_real(_act_idx_local) && is_real(_tidx_local)) _ndir = sign(_tidx_local - _act_idx_local);
                                 // Set nudge fields on attacker actor for battle_draw to pick up
                                 try {
-                                    if (is_struct(_A)){
+                                    if (is_struct(_live_attacker_he)){
+                                        variable_struct_set(_live_attacker_he, "_nudge_active", true);
+                                        variable_struct_set(_live_attacker_he, "_nudge_start_ms", current_time);
+                                        variable_struct_set(_live_attacker_he, "_nudge_dur", 320);
+                                        variable_struct_set(_live_attacker_he, "_nudge_mag", _nudge_mag);
+                                        variable_struct_set(_live_attacker_he, "_nudge_dir", _ndir);
+                                    }
+                                    if (is_struct(_A) && _A != _live_attacker_he){
                                         variable_struct_set(_A, "_nudge_active", true);
                                         variable_struct_set(_A, "_nudge_start_ms", current_time);
                                         variable_struct_set(_A, "_nudge_dur", 320);
@@ -818,10 +883,10 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                 if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
                                     try {
                                         var _dbgA = "(no attacker)";
-                                        if (is_struct(_A)){
-                                            var _a_idx_dbg = (variable_struct_exists(_A, "actor_index") ? variable_struct_get(_A, "actor_index") : -1);
-                                            var _a_mag_dbg = (variable_struct_exists(_A, "_nudge_mag") ? string(variable_struct_get(_A, "_nudge_mag")) : "nil");
-                                            var _a_dir_dbg = (variable_struct_exists(_A, "_nudge_dir") ? string(variable_struct_get(_A, "_nudge_dir")) : "nil");
+                                        if (is_struct(_live_attacker_he)){
+                                            var _a_idx_dbg = (variable_struct_exists(_live_attacker_he, "actor_index") ? variable_struct_get(_live_attacker_he, "actor_index") : -1);
+                                            var _a_mag_dbg = (variable_struct_exists(_live_attacker_he, "_nudge_mag") ? string(variable_struct_get(_live_attacker_he, "_nudge_mag")) : "nil");
+                                            var _a_dir_dbg = (variable_struct_exists(_live_attacker_he, "_nudge_dir") ? string(variable_struct_get(_live_attacker_he, "_nudge_dir")) : "nil");
                                             _dbgA = "[A idx=" + string(_a_idx_dbg) + " mag=" + _a_mag_dbg + " dir=" + _a_dir_dbg + "]";
                                         }
                                         show_debug_message("[battle][meta] hit_effect nudge attacker: " + _dbgA);
@@ -833,10 +898,17 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                 // because _D may sometimes be an inner mon struct rather than the actor struct used by drawing.
                                 try {
                                     var _d_nudge_mag = max(1, _nudge_mag * 0.75);
-                                    if (is_struct(_D)){
+                                    if (is_struct(_live_defender_he)){
+                                        variable_struct_set(_live_defender_he, "_nudge_active", true);
+                                        variable_struct_set(_live_defender_he, "_nudge_start_ms", current_time);
+                                        // shorter duration so defender snaps back sooner
+                                        variable_struct_set(_live_defender_he, "_nudge_dur", 240);
+                                        variable_struct_set(_live_defender_he, "_nudge_mag", _d_nudge_mag);
+                                        variable_struct_set(_live_defender_he, "_nudge_dir", -_ndir);
+                                    }
+                                    if (is_struct(_D) && _D != _live_defender_he){
                                         variable_struct_set(_D, "_nudge_active", true);
                                         variable_struct_set(_D, "_nudge_start_ms", current_time);
-                                        // shorter duration so defender snaps back sooner
                                         variable_struct_set(_D, "_nudge_dur", 240);
                                         variable_struct_set(_D, "_nudge_mag", _d_nudge_mag);
                                         variable_struct_set(_D, "_nudge_dir", -_ndir);
@@ -852,8 +924,8 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                                 _target_idx_eff = _tgt_idx_he;
                                             } else {
                                                 // Prefer explicit defender actor identity before any fallback.
-                                                if (is_struct(_D) && variable_struct_exists(_D, "actor_index") && is_real(variable_struct_get(_D, "actor_index"))){
-                                                    var _d_actor_idx = floor(variable_struct_get(_D, "actor_index"));
+                                                if (!is_undefined(__battle_resolve_live_actor_index)){
+                                                    var _d_actor_idx = __battle_resolve_live_actor_index(_pid, _D, undefined);
                                                     if (_d_actor_idx >= 0 && _d_actor_idx < array_length(_actors_tmp)) _target_idx_eff = _d_actor_idx;
                                                 }
                                                 // If attacker index exists, resolve the live opposite-side target instead of hardcoding 0<->1.
@@ -925,7 +997,12 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                         if (_eid == 104){
                             try {
                                 var _tgt_idx_qa = undefined;
-                                try { if (is_struct(_D) && variable_struct_exists(_D, "actor_index")) _tgt_idx_qa = variable_struct_get(_D, "actor_index"); } catch (e_tiqa) { _tgt_idx_qa = undefined; }
+                                var _step_target_idx_qa = (is_struct(_step) && variable_struct_exists(_step, "target_index") && is_real(variable_struct_get(_step, "target_index"))) ? floor(variable_struct_get(_step, "target_index")) : undefined;
+                                var _step_actor_idx_qa = (is_struct(_step) && variable_struct_exists(_step, "actor_index") && is_real(variable_struct_get(_step, "actor_index"))) ? floor(variable_struct_get(_step, "actor_index")) : undefined;
+                                var _live_attacker_qa = _A;
+                                var _live_defender_qa = _D;
+                                var _act_idx_qa_live = _step_actor_idx_qa;
+                                try { _tgt_idx_qa = (!is_undefined(__battle_resolve_effect_target_index) ? __battle_resolve_effect_target_index(_pid, _A, _D, _step_target_idx_qa) : _step_target_idx_qa); } catch (e_tiqa) { _tgt_idx_qa = _step_target_idx_qa; }
                                 // Small random offset for placement
                                 var _offx_qa = irandom_range(-6, 6);
                                 var _offy_qa = irandom_range(-6, 6);
@@ -933,12 +1010,22 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                 var _spr_att = undefined;
                                 var _frame_att = 0;
                                 try {
+                                    try {
+                                        var _Banim_qa = __battle_ensure_slot(_pid);
+                                        if (is_struct(_Banim_qa) && variable_struct_exists(_Banim_qa, "actor") && is_array(variable_struct_get(_Banim_qa, "actor"))){
+                                            var _acts_anim_qa = variable_struct_get(_Banim_qa, "actor");
+                                            if (!is_real(_act_idx_qa_live)) _act_idx_qa_live = (!is_undefined(__battle_resolve_live_actor_index) ? __battle_resolve_live_actor_index(_pid, _A, _step_actor_idx_qa) : _step_actor_idx_qa);
+                                            if (is_real(_act_idx_qa_live) && _act_idx_qa_live >= 0 && _act_idx_qa_live < array_length(_acts_anim_qa) && is_struct(_acts_anim_qa[_act_idx_qa_live])) _live_attacker_qa = _acts_anim_qa[_act_idx_qa_live];
+                                            if (is_real(_tgt_idx_qa) && _tgt_idx_qa >= 0 && _tgt_idx_qa < array_length(_acts_anim_qa) && is_struct(_acts_anim_qa[_tgt_idx_qa])) _live_defender_qa = _acts_anim_qa[_tgt_idx_qa];
+                                        }
+                                    } catch (e_live_attacker_qa) { _live_attacker_qa = _A; }
+                                    if (!is_real(_tgt_idx_qa) && is_real(_act_idx_qa_live) && !is_undefined(__battle_get_default_target_index)) _tgt_idx_qa = __battle_get_default_target_index(_pid, _act_idx_qa_live);
                                     var _att_mon = undefined;
-                                    if (is_struct(_A) && variable_struct_exists(_A, "mon")) _att_mon = variable_struct_get(_A, "mon"); else _att_mon = _A;
+                                    if (is_struct(_live_attacker_qa) && variable_struct_exists(_live_attacker_qa, "mon")) _att_mon = variable_struct_get(_live_attacker_qa, "mon"); else _att_mon = _live_attacker_qa;
                                     if (!is_undefined(pkicons_get_art96_by_mon) && !is_undefined(pkicons_get_art96_subimg_by_mon) && is_struct(_att_mon)){
                                         _spr_att = pkicons_get_art96_by_mon(_att_mon);
                                         // prefer back-facing image for player-side actors
-                                        var _att_is_player = (is_struct(_A) && variable_struct_exists(_A, "actor_index") && variable_struct_get(_A, "actor_index") == 0);
+                                        var _att_is_player = (is_real(_act_idx_qa_live) && !is_undefined(__battle_actor_side)) ? (__battle_actor_side(_act_idx_qa_live) == 0) : (is_struct(_live_attacker_qa) && variable_struct_exists(_live_attacker_qa, "actor_index") && __battle_actor_side(variable_struct_get(_live_attacker_qa, "actor_index")) == 0);
                                         try { _frame_att = pkicons_get_art96_subimg_by_mon(_att_mon, _att_is_player); } catch (e_fa) { _frame_att = 0; }
                                     }
                                 } catch (e_res) { _spr_att = undefined; _frame_att = 0; }
@@ -949,7 +1036,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                 }
                                 // Enqueue visual overlays anchored to the attacker to create a trailing afterimage
                                 try {
-                                    var _act_idx_qa = (is_struct(_A) && variable_struct_exists(_A, "actor_index") ? variable_struct_get(_A, "actor_index") : undefined);
+                                    var _act_idx_qa = _act_idx_qa_live;
                                     // spawn several quick overlays with slight offsets to simulate a motion trail
                                     for (var _qi = 0; _qi < 3; ++_qi){
                                         var _stagger_off = (_qi * 8);
@@ -958,7 +1045,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                         var _dur_i = 100 + (_qi * 40);
                                         // fade the afterimages progressively
                                         var _alpha_i = clamp(0.9 - (_qi * 0.25), 0.15, 0.9);
-                                        try { __battle_request_animation_safe(_pid, { type: "hit_effect", target_index: _act_idx_qa, actor: _A, use_actor_sprite: true, sprite: _spr_att, scale: 1.0, frame: _frame_att, offset_x: _offx_i, offset_y: _offy_i, slide_mag: 10, duration: _dur_i, alpha: _alpha_i }); } catch (e_reqqa_i) {}
+                                        try { __battle_request_animation_safe(_pid, { type: "hit_effect", target_index: _act_idx_qa, actor: _live_attacker_qa, use_actor_sprite: true, sprite: _spr_att, scale: 1.0, frame: _frame_att, offset_x: _offx_i, offset_y: _offy_i, slide_mag: 10, duration: _dur_i, alpha: _alpha_i }); } catch (e_reqqa_i) {}
                                     }
                                 } catch (e_reqqa) {}
 
@@ -973,17 +1060,17 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                     var _prop_q = clamp((_tgt_max > 0 ? (_dval_q / _tgt_max) : 0), 0, 1);
                                     // Slightly more punchy nudge for Quick Attack (fast, snappy)
                                     var _nudge_mag_q = lerp(6, 32, _prop_q);
-                                    var _ndir_q = 0; var _act_idx_q = (variable_struct_exists(_A, "actor_index") ? variable_struct_get(_A, "actor_index") : undefined);
+                                    var _ndir_q = 0; var _act_idx_q = _act_idx_qa_live;
                                     if (is_real(_act_idx_q) && is_real(_tgt_idx_qa)) _ndir_q = sign(_tgt_idx_qa - _act_idx_q);
 
                                     // Attacker nudge (fast lunge)
                                     try {
-                                        if (is_struct(_A)){
-                                                variable_struct_set(_A, "_nudge_active", true);
-                                                variable_struct_set(_A, "_nudge_start_ms", current_time);
-                                                variable_struct_set(_A, "_nudge_dur", 260);
-                                                variable_struct_set(_A, "_nudge_mag", _nudge_mag_q);
-                                                variable_struct_set(_A, "_nudge_dir", _ndir_q);
+                                        if (is_struct(_live_attacker_qa)){
+                                                variable_struct_set(_live_attacker_qa, "_nudge_active", true);
+                                                variable_struct_set(_live_attacker_qa, "_nudge_start_ms", current_time);
+                                                variable_struct_set(_live_attacker_qa, "_nudge_dur", 260);
+                                                variable_struct_set(_live_attacker_qa, "_nudge_mag", _nudge_mag_q);
+                                                variable_struct_set(_live_attacker_qa, "_nudge_dir", _ndir_q);
                                             }
                                     } catch (e_an_q) {}
 
@@ -991,29 +1078,13 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                     try {
                                         var _dmag_q = max(1, _nudge_mag_q * 0.7);
                                         // schedule defender recoil to occur after the attacker's lunge (delay by ~180ms)
-                                        if (is_struct(_D)){
-                                            variable_struct_set(_D, "_nudge_active", true);
-                                            variable_struct_set(_D, "_nudge_start_ms", current_time + 220);
-                                            variable_struct_set(_D, "_nudge_dur", 160);
-                                            variable_struct_set(_D, "_nudge_mag", _dmag_q);
-                                            variable_struct_set(_D, "_nudge_dir", -_ndir_q);
+                                        if (is_struct(_live_defender_qa)){
+                                            variable_struct_set(_live_defender_qa, "_nudge_active", true);
+                                            variable_struct_set(_live_defender_qa, "_nudge_start_ms", current_time);
+                                            variable_struct_set(_live_defender_qa, "_nudge_dur", 120);
+                                            variable_struct_set(_live_defender_qa, "_nudge_mag", _dmag_q);
+                                            variable_struct_set(_live_defender_qa, "_nudge_dir", -_ndir_q);
                                         }
-                                        try {
-                                            var _Btmp_q = __battle_ensure_slot(_pid);
-                                            if (is_struct(_Btmp_q) && variable_struct_exists(_Btmp_q, "actor") && is_array(variable_struct_get(_Btmp_q, "actor"))){
-                                                var _acts_q = variable_struct_get(_Btmp_q, "actor");
-                                                if (is_real(_tgt_idx_qa) && _tgt_idx_qa >= 0 && _tgt_idx_qa < array_length(_acts_q)){
-                                                    var _def_q = _acts_q[_tgt_idx_qa];
-                                                    if (is_struct(_def_q)){
-                                                        variable_struct_set(_def_q, "_nudge_active", true);
-                                                        variable_struct_set(_def_q, "_nudge_start_ms", current_time);
-                                                        variable_struct_set(_def_q, "_nudge_dur", 120);
-                                                        variable_struct_set(_def_q, "_nudge_mag", _dmag_q);
-                                                        variable_struct_set(_def_q, "_nudge_dir", -_ndir_q);
-                                                    }
-                                                }
-                                            }
-                                        } catch (e_set_q) {}
                                     } catch (e_dn_q) {}
                                 } catch (e_phn_q) {}
 
@@ -1460,7 +1531,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                 case 8:
                                 case 10:
                                 case 16:
-                                    if (is_struct(_D)) __apply_stat_changes_to_actor(_pid, _D, (variable_struct_exists(_D, "actor_index") && is_real(variable_struct_get(_D, "actor_index"))) ? floor(variable_struct_get(_D, "actor_index")) : undefined, _scarr, _A, _attacker_idx_generic);
+                                    if (is_struct(_D)) __apply_stat_changes_to_actor(_pid, _D, resolve_effect_target_index_safe(_pid, _A, _D, undefined), _scarr, _A, _attacker_idx_generic);
                                     return undefined;
 
                                 case 11:
@@ -1500,7 +1571,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                     return undefined;
 
                                 case 5:
-                                    if (is_struct(_D)) __apply_stat_changes_to_actor(_pid, _D, (variable_struct_exists(_D, "actor_index") && is_real(variable_struct_get(_D, "actor_index"))) ? floor(variable_struct_get(_D, "actor_index")) : undefined, _scarr, _A, _attacker_idx_generic);
+                                    if (is_struct(_D)) __apply_stat_changes_to_actor(_pid, _D, resolve_effect_target_index_safe(_pid, _A, _D, undefined), _scarr, _A, _attacker_idx_generic);
                                     else __apply_stat_changes_to_actor(_pid, _A, _attacker_idx_generic, _scarr);
                                     return undefined;
                             }
@@ -1592,13 +1663,13 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                         var _attacker_idx_step = (is_struct(_A) && variable_struct_exists(_A, "actor_index") && is_real(variable_struct_get(_A, "actor_index"))) ? floor(variable_struct_get(_A, "actor_index")) : undefined;
                         if (!is_real(_attacker_idx_step) || _fallback_step_target_idx != _attacker_idx_step){
                             _fallback_target = _D;
-                            _fallback_actor_idx = (variable_struct_exists(_D, "actor_index") && is_real(variable_struct_get(_D, "actor_index"))) ? variable_struct_get(_D, "actor_index") : _fallback_actor_idx;
+                            _fallback_actor_idx = resolve_effect_target_index_safe(_pid, _A, _D, _fallback_actor_idx);
                             _fallback_visual_actor = _fallback_target;
                             _fallback_visual_actor_idx = _fallback_actor_idx;
                         }
                     } else if (is_struct(_D) && is_real(_fallback_target_id) && _fallback_target_id != 7){
                         _fallback_target = _D;
-                        _fallback_actor_idx = (variable_struct_exists(_D, "actor_index") && is_real(variable_struct_get(_D, "actor_index"))) ? variable_struct_get(_D, "actor_index") : _fallback_actor_idx;
+                        _fallback_actor_idx = resolve_effect_target_index_safe(_pid, _A, _D, _fallback_actor_idx);
                         _fallback_visual_actor = _fallback_target;
                         _fallback_visual_actor_idx = _fallback_actor_idx;
                     }

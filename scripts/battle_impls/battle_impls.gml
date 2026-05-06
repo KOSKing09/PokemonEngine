@@ -1060,6 +1060,44 @@ function __battle_impls_register_all(){
             });
         } catch (e_reg2) {}
     } catch (e) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_impls][reg] failed: " + string(e)); }
+
+        function __battle_resolve_live_actor_index(_pid, _ent, _fallback_index){
+            var _fallback = (is_real(_fallback_index) ? floor(_fallback_index) : undefined);
+            var _B = __battle_ensure_slot(_pid);
+            if (!is_struct(_B) || !variable_struct_exists(_B, "actor") || !is_array(variable_struct_get(_B, "actor"))) return _fallback;
+
+            var _actors = variable_struct_get(_B, "actor");
+            var _hint_idx = __battle_actor_index_of(_ent);
+            if (is_real(_hint_idx) && _hint_idx >= 0 && _hint_idx < array_length(_actors)){
+                var _hint_actor = _actors[_hint_idx];
+                if (is_struct(_hint_actor)){
+                    if (_hint_actor == _ent) return _hint_idx;
+                    if (__battle_struct_matches_actor(_hint_actor, _ent) || __battle_struct_matches_actor(_ent, _hint_actor)) return _hint_idx;
+                }
+            }
+
+            for (var _i = 0; _i < array_length(_actors); ++_i){
+                var _actor = _actors[_i];
+                if (!is_struct(_actor)) continue;
+                if (_actor == _ent) return _i;
+                if (__battle_struct_matches_actor(_actor, _ent) || __battle_struct_matches_actor(_ent, _actor)) return _i;
+            }
+
+            if (is_real(_hint_idx) && _hint_idx >= 0 && _hint_idx < array_length(_actors)) return _hint_idx;
+            if (is_real(_fallback) && _fallback >= 0 && _fallback < array_length(_actors)) return _fallback;
+            return undefined;
+        }
+
+        function __battle_resolve_effect_target_index(_pid, _A, _D, _fallback_target_index){
+            var _fallback = (is_real(_fallback_target_index) ? floor(_fallback_target_index) : undefined);
+            var _tgt_idx = __battle_resolve_live_actor_index(_pid, _D, _fallback);
+            if (is_real(_tgt_idx)) return _tgt_idx;
+
+            var _act_idx = __battle_resolve_live_actor_index(_pid, _A, undefined);
+            if (is_real(_act_idx) && !is_undefined(__battle_get_default_target_index)) return __battle_get_default_target_index(_pid, _act_idx);
+
+            return _fallback;
+        }
 }
 
 // Run once to populate the registry eagerly when this script is first loaded
@@ -1456,15 +1494,9 @@ function __battle_apply_move(_pid, _user, _target, _move){
     // then attempt to locate the target object in the battle slot actor array.
     var _tidx = undefined;
     try {
-        if (is_struct(_target) && variable_struct_exists(_target, "actor_index") && is_real(variable_struct_get(_target, "actor_index"))) _tidx = variable_struct_get(_target, "actor_index");
+        if (!is_undefined(__battle_resolve_live_actor_index)) _tidx = __battle_resolve_live_actor_index(_pid, _target, undefined);
+        else if (is_struct(_target) && variable_struct_exists(_target, "actor_index") && is_real(variable_struct_get(_target, "actor_index"))) _tidx = variable_struct_get(_target, "actor_index");
         else if (is_struct(_target) && variable_struct_exists(_target, "slot") && is_real(variable_struct_get(_target, "slot"))) _tidx = variable_struct_get(_target, "slot");
-        else {
-            var _Btmp_try = __battle_ensure_slot(_pid);
-            if (is_struct(_Btmp_try) && variable_struct_exists(_Btmp_try, "actor") && is_array(variable_struct_get(_Btmp_try, "actor")) && is_struct(_target)){
-                var __actor_arr_try = variable_struct_get(_Btmp_try, "actor");
-                for (var _ai_try = 0; _ai_try < array_length(__actor_arr_try); ++_ai_try){ if (is_struct(__actor_arr_try[_ai_try]) && __actor_arr_try[_ai_try] == _target){ _tidx = _ai_try; break; } }
-            }
-        }
     } catch (e_ti) { _tidx = undefined; }
     if (!is_real(_tidx)) _tidx = 0; // safe fallback
     var _semim = 1.0;

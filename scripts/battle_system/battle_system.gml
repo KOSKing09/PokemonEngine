@@ -186,6 +186,7 @@ function __battle_actor_index_for_side_slot(_pid, _side, _slot){
         if (_side_use == 0) return min(1, _slot_use);
         return 2 + min(1, _slot_use);
     }
+    if (_slot_use > 0) return -1;
     return (_side_use == 0) ? 0 : 1;
 }
 
@@ -1620,17 +1621,21 @@ function battle_open(_a0 = undefined, _a1 = undefined, _a2 = undefined, _a3 = un
 
         var _ui_text = _outline;
         var _ui_highlight = _outline;
+        var _ui_highlight_text = c_white;
         if (_is_light_panel){
             _ui_text = __battle_theme_blend(_outline, c_black, 0.38);
-            _ui_highlight = _outline;
+            _ui_highlight = __battle_theme_blend(_outline, _panel, 0.16);
+            _ui_highlight_text = __battle_theme_blend(_outline, c_white, 0.72);
         } else {
             _ui_text = __battle_theme_blend(c_white, _panel, 0.18);
-            _ui_highlight = __battle_theme_blend(c_white, _outline, 0.28);
+            _ui_highlight = __battle_theme_blend(_outline, _panel, 0.22);
+            _ui_highlight_text = __battle_theme_blend(c_white, _panel, 0.08);
         }
 
         variable_struct_set(_theme, "col_dialog_text", _ui_text);
         variable_struct_set(_theme, "col_ui_text", _ui_text);
         variable_struct_set(_theme, "col_ui_highlight", _ui_highlight);
+        variable_struct_set(_theme, "col_ui_highlight_text", _ui_highlight_text);
     }
 
     function __battle_theme_area_preset(_area_key){
@@ -5241,7 +5246,7 @@ function __battle_variable_move_power(_move_id, _A, _D){
                 if (_revenge_hit && variable_struct_exists(_A, "_last_received_damage") && is_real(variable_struct_get(_A, "_last_received_damage"))) _revenge_hit = variable_struct_get(_A, "_last_received_damage") > 0;
                 if (variable_struct_exists(_A, "_last_received_from_actor_index")) _revenge_from = variable_struct_get(_A, "_last_received_from_actor_index");
             }
-            var _target_idx = (is_struct(_D) && variable_struct_exists(_D, "actor_index")) ? variable_struct_get(_D, "actor_index") : undefined;
+            var _target_idx = (!is_undefined(__battle_actor_index_of) ? __battle_actor_index_of(_D) : undefined);
             if (_revenge_hit && is_real(_revenge_from) && is_real(_target_idx) && floor(_revenge_from) == floor(_target_idx)) return 120;
         } catch (e_revenge) {}
         return 60;
@@ -5698,6 +5703,12 @@ function battle_switch_to(_pid, _party_idx, _opts){
         _switch_actor_index = 0;
     }
 
+    var _requested_party_idx = (is_real(_party_idx) ? floor(_party_idx) : -1);
+    if (_is_forced_switch && (_requested_party_idx < 0 || !__battle_party_index_is_usable(_pid, _requested_party_idx) || __battle_is_player_party_index_active(_pid, _requested_party_idx))){
+        _requested_party_idx = __battle_pick_random_switchable_party_index(_pid, _switch_actor_index);
+    }
+    if (!is_real(_requested_party_idx) || _requested_party_idx < 0) return false;
+
     if (!_is_forced_switch){
         var __fn_jaw_block = undefined;
         if (variable_global_exists("__battle_jaw_lock_is_blocked")){
@@ -5757,18 +5768,18 @@ function battle_switch_to(_pid, _party_idx, _opts){
     }
 
     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
-        show_debug_message("[battle_switch_to] pid=" + string(_pid) + ", party_idx=" + string(_party_idx));
+        show_debug_message("[battle_switch_to] pid=" + string(_pid) + ", party_idx=" + string(_requested_party_idx));
     }
 
     var _active_party_idx = __battle_find_player_party_active_index(_pid, _switch_actor_index);
-    if (__battle_is_player_party_index_active(_pid, _party_idx) || (is_real(_active_party_idx) && floor(_active_party_idx) == floor(_party_idx))){
-        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_switch_to] rejected: target already active pid=" + string(_pid) + ", idx=" + string(_party_idx));
+    if (__battle_is_player_party_index_active(_pid, _requested_party_idx) || (is_real(_active_party_idx) && floor(_active_party_idx) == floor(_requested_party_idx))){
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_switch_to] rejected: target already active pid=" + string(_pid) + ", idx=" + string(_requested_party_idx));
         return false;
     }
 
     if (is_undefined(_opts)) _opts = {};
     if (variable_struct_exists(_B, "_catch_anim")) _B._catch_anim = undefined;
-    _B._switch_target_idx = _party_idx;
+    _B._switch_target_idx = _requested_party_idx;
     _B._switch_opts = _opts;
     _B._switch_actor_index = _switch_actor_index;
     // Start an intro sequence so trainer/pokemon "Go" animation and dialog can play.
@@ -5790,7 +5801,7 @@ function battle_switch_to(_pid, _party_idx, _opts){
     try {
         var _Ptmp = party_ensure(_pid);
         var _incoming = undefined;
-        if (is_struct(_Ptmp) && variable_struct_exists(_Ptmp, "mons") && is_array(_Ptmp.mons) && _party_idx >= 0 && _party_idx < array_length(_Ptmp.mons)) _incoming = _Ptmp.mons[_party_idx];
+        if (is_struct(_Ptmp) && variable_struct_exists(_Ptmp, "mons") && is_array(_Ptmp.mons) && _requested_party_idx >= 0 && _requested_party_idx < array_length(_Ptmp.mons)) _incoming = _Ptmp.mons[_requested_party_idx];
         var incoming_name = "Pok\u00e9mon";
         if (is_struct(_incoming) && variable_struct_exists(_incoming, "name")) incoming_name = string(variable_struct_get(_incoming, "name"));
     var dlg_text = "Go. " + incoming_name + "!";
@@ -6974,6 +6985,26 @@ function __battle_find_first_switchable_party_index(_pid){
     return -1;
 }
 
+function __battle_collect_switchable_party_indexes(_pid, _actorIndex){
+    var _mons = party_model_get_mons(_pid);
+    if (!is_array(_mons)) return [];
+    var _active_idx = __battle_find_player_party_active_index(_pid, _actorIndex);
+    var _out = [];
+    for (var _i = 0; _i < array_length(_mons); ++_i){
+        if (_i == _active_idx) continue;
+        if (!__battle_party_index_is_usable(_pid, _i)) continue;
+        if (__battle_is_player_party_index_active(_pid, _i)) continue;
+        array_push(_out, _i);
+    }
+    return _out;
+}
+
+function __battle_pick_random_switchable_party_index(_pid, _actorIndex){
+    var _choices = __battle_collect_switchable_party_indexes(_pid, _actorIndex);
+    if (!is_array(_choices) || array_length(_choices) <= 0) return -1;
+    return _choices[irandom(array_length(_choices) - 1)];
+}
+
 function __battle_trainer_begin_switch_prompt(_pid, _next_idx){
     var _B = __battle_ensure_slot(_pid);
     if (!is_struct(_B) || !variable_struct_exists(_B, "_trainer_party")) return false;
@@ -7623,6 +7654,54 @@ function __battle_draw_battlers(_pid, _B) {
     var __vict_draw = __battle_fetch_global_function("__battle_trainer_draw_victory");
     if (!is_undefined(__vict_draw)) __vict_draw(_pid, _B);
 
+    // Draw player platforms in a separate background pass so one ally platform
+    // never overlays the other ally's sprite in doubles.
+    for (var _pp = 0; _pp < array_length(_player_draw_order); ++_pp){
+        var _player_idx_platform = _player_draw_order[_pp];
+        if (!is_array(_B.actor) || _player_idx_platform >= array_length(_B.actor) || !is_struct(_B.actor[_player_idx_platform])) continue;
+        var _player_anchor_platform = __battle_get_actor_scene_anchor(_pid, _B, _player_idx_platform);
+        if (!is_struct(_player_anchor_platform) || !variable_struct_exists(_player_anchor_platform, "battler")) continue;
+        var _player_pt_platform = variable_struct_get(_player_anchor_platform, "battler");
+        if (!is_array(_player_pt_platform) || array_length(_player_pt_platform) < 2) continue;
+
+        var _player_actor_platform = _B.actor[_player_idx_platform];
+        if (!is_struct(_player_actor_platform) || !variable_struct_exists(_player_actor_platform, "mon")) continue;
+        if (is_undefined(pkicons_get_art96_by_mon) || is_undefined(pkicons_get_art96_subimg_by_mon)) continue;
+
+        var _mon_platform = variable_struct_get(_player_actor_platform, "mon");
+        var _spr_platform = pkicons_get_art96_by_mon(_mon_platform);
+        var _fallback_platform = undefined;
+        if (variable_global_exists("spr_mon_placeholder")) _fallback_platform = global.spr_mon_placeholder;
+        if (is_undefined(_fallback_platform) || !sprite_exists(_fallback_platform)){
+            try {
+                var _ph_platform = asset_get_index("spr_mon_placeholder");
+                if (!is_undefined(_ph_platform) && sprite_exists(_ph_platform)) _fallback_platform = _ph_platform;
+            } catch (e_ph_platform) { _fallback_platform = undefined; }
+        }
+
+        var _has_player_sprite = sprite_exists(_spr_platform);
+        var _w_platform = _has_player_sprite ? sprite_get_width(_spr_platform) : (sprite_exists(_fallback_platform) ? sprite_get_width(_fallback_platform) : 64);
+        var _h_platform = _has_player_sprite ? sprite_get_height(_spr_platform) : (sprite_exists(_fallback_platform) ? sprite_get_height(_fallback_platform) : 64);
+        var _ui_s_platform = 1;
+        try {
+            if (is_struct(_B) && variable_struct_exists(_B, "_ui")){
+                var _ui_platform = variable_struct_get(_B, "_ui");
+                if (is_struct(_ui_platform) && variable_struct_exists(_ui_platform, "s")) _ui_s_platform = variable_struct_get(_ui_platform, "s");
+            }
+        } catch (e_ui_platform) { _ui_s_platform = 1; }
+
+        var _player_layout_platform = __battle_get_actor_scene_anchor(_pid, _B, _player_idx_platform);
+        var _scale_mult_platform = (is_struct(_player_layout_platform) && variable_struct_exists(_player_layout_platform, "scale_mult") && is_real(variable_struct_get(_player_layout_platform, "scale_mult"))) ? real(variable_struct_get(_player_layout_platform, "scale_mult")) : 1;
+        var _draw_scale_platform = 1.1 * _scale_mult_platform * _ui_s_platform;
+        var _phase_platform = string(_B.phase);
+        var _suppress_platform = (__battle_actor_slot(_player_idx_platform) == 0 && _phase_platform == "intro_call");
+        if (_suppress_platform) continue;
+
+        var _platform_bottom_player = (_player_pt_platform[1] + _cam_offy) + (_h_platform * _draw_scale_platform) * 0.5;
+        if (_is_double_scene && __battle_actor_slot(_player_idx_platform) == 0) _platform_bottom_player += __bhu(_pid, 4);
+        __battle_draw_platform(_pid, _B, "player", _player_pt_platform[0] + _cam_offx, _platform_bottom_player, _ui_s_platform);
+    }
+
     for (var _pd = 0; _pd < array_length(_player_draw_order); ++_pd){
         var _player_idx_draw = _player_draw_order[_pd];
         if (!is_array(_B.actor) || _player_idx_draw >= array_length(_B.actor) || !is_struct(_B.actor[_player_idx_draw])) continue;
@@ -7631,7 +7710,7 @@ function __battle_draw_battlers(_pid, _B) {
         var _player_pt = variable_struct_get(_player_anchor, "battler");
         if (!is_array(_player_pt) || array_length(_player_pt) < 2) continue;
         var _trainer_pt = (variable_struct_exists(_player_anchor, "trainer") ? variable_struct_get(_player_anchor, "trainer") : _player_pt);
-        __battle_draw_player(_pid, _B, _player_idx_draw, _player_pt[0] + _cam_offx, _player_pt[1] + _cam_offy, _trainer_pt[0] + _cam_offx, _trainer_pt[1] + _cam_offy);
+        __battle_draw_player(_pid, _B, _player_idx_draw, _player_pt[0] + _cam_offx, _player_pt[1] + _cam_offy, _trainer_pt[0] + _cam_offx, _trainer_pt[1] + _cam_offy, true);
     }
 
     if (!is_undefined(__battle_draw_target_selector)) __battle_draw_target_selector(_pid, _B, _cam_offx, _cam_offy);

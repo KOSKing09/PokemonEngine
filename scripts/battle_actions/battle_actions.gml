@@ -284,7 +284,7 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
             var aname_dbg = (is_struct(_A) && variable_struct_exists(_A, "name")) ? variable_struct_get(_A, "name") : (is_struct(_A) && variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon")) && variable_struct_exists(variable_struct_get(_A, "mon"), "name") ? variable_struct_get(variable_struct_get(_A, "mon"), "name") : "<attacker?>");
             var dname_dbg = (is_struct(_D) && variable_struct_exists(_D, "name")) ? variable_struct_get(_D, "name") : (is_struct(_D) && variable_struct_exists(_D, "mon") && is_struct(variable_struct_get(_D, "mon")) && variable_struct_exists(variable_struct_get(_D, "mon"), "name") ? variable_struct_get(variable_struct_get(_D, "mon"), "name") : "<defender?>");
             var a_idx_dbg = (is_struct(_A) && variable_struct_exists(_A, "actor_index") ? string(variable_struct_get(_A, "actor_index")) : (variable_struct_exists(_A, "slot") ? string(variable_struct_get(_A, "slot")) : "?"));
-            var d_idx_dbg = (is_struct(_D) && variable_struct_exists(_D, "actor_index") ? string(variable_struct_get(_D, "actor_index")) : (variable_struct_exists(_D, "slot") ? string(variable_struct_get(_D, "slot")) : "?"));
+            var d_idx_dbg = (!is_undefined(__battle_actor_index_of) ? string(__battle_actor_index_of(_D)) : (is_struct(_D) && variable_struct_exists(_D, "actor_index") ? string(variable_struct_get(_D, "actor_index")) : (variable_struct_exists(_D, "slot") ? string(variable_struct_get(_D, "slot")) : "?")));
             show_debug_message("[dbg][apply_move_damage] pid=" + string(_pid) + ", target_idx_param=" + string(_target_index) + ", move=" + string(_move_id) + ", mv_power=" + string(_mv_power) + ", attacker=[" + string(aname_dbg) + ", idx=" + string(a_idx_dbg) + "], defender=[" + string(dname_dbg) + ", idx=" + string(d_idx_dbg) + "], computed_dmg=" + string(dmg) + ", defender_beforeHP=" + string(before));
         }
     } catch (e_dbgd) { }
@@ -693,6 +693,7 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
                 variable_struct_set(_D, "_last_received_damage", actual_delta);
                 variable_struct_set(_D, "_was_hit_this_turn", true);
                 try { variable_struct_set(_D, "_last_received_from_move", _move_id); } catch (ee) {}
+                try { variable_struct_set(_D, "_last_received_from_move_damage", actual_delta); } catch (ee_md) {}
                 // store damage class (physical/special) if data-layer helper exists
                 try { if (!is_undefined(scr_move_damage_class_by_id) && is_real(_move_id)) variable_struct_set(_D, "_last_received_move_damage_class", scr_move_damage_class_by_id(_move_id)); } catch (ee2) {}
                 try {

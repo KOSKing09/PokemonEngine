@@ -661,7 +661,15 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
     var catch_shadow_h = max(2, floor((w * drawScaleE) * 0.12));
     var catch_shadow_center_y = 0;
     catch_shadow_center_y = floor(platform_bottom_local + catch_shadow_h * 0.8 + floor(15 * ui_s));
+    // The ball itself should sit above the shadow, not at the shadow center.
+    var catch_land_x = catch_shadow_center_x;
+    var catch_land_y = floor(platform_bottom_local - max(4, floor(6 * ui_s)));
     if (!fainting && catch_affects_enemy && is_struct(catchA) && catchA.active){
+        // Re-stamp the landing point from the live enemy draw path. The catch
+        // animation is created during update, where _B._ui may be undefined and
+        // __bxu/__byu can fall back to unscaled logical coordinates.
+        variable_struct_set(catchA, "land_x", catch_land_x);
+        variable_struct_set(catchA, "land_y", catch_land_y);
         var now = current_time;
         var since = now - (variable_struct_exists(catchA, "start_ms") ? catchA.start_ms : now);
         // Compute phases: throw -> impact -> shake -> resolve -> escape
@@ -674,11 +682,11 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
 
         if (phase == "throw"){
             var t = clamp(since / throw_dur, 0, 1);
-            // ball travels from trainer area (right of screen) to foe center along a parabolic arc
+            // Ball travels from the trainer area to the stored landing point at the target's feet.
             var sx = __bxu(_pid, 32);
             var sy = __byu(_pid, 108);
-            var txp = catch_shadow_center_x;
-            var typ = catch_shadow_center_y;
+            var txp = (variable_struct_exists(catchA, "land_x") ? variable_struct_get(catchA, "land_x") : catch_land_x);
+            var typ = (variable_struct_exists(catchA, "land_y") ? variable_struct_get(catchA, "land_y") : catch_land_y);
             // base linear interpolation
             var bx_lin = lerp(sx, txp, t);
             var by_lin = lerp(sy, typ, t);
@@ -698,8 +706,8 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
             var ease2 = sin(t2 * pi);
             // shrink the enemy nearly to zero so it appears to be pulled into the ball
             // Compute target anchor (landing position) and lerp both scale and center toward it
-            var anchor_x = (variable_struct_exists(catchA, "land_x") ? variable_struct_get(catchA, "land_x") : catch_shadow_center_x);
-            var anchor_y = (variable_struct_exists(catchA, "land_y") ? variable_struct_get(catchA, "land_y") : catch_shadow_center_y);
+            var anchor_x = (variable_struct_exists(catchA, "land_x") ? variable_struct_get(catchA, "land_x") : catch_land_x);
+            var anchor_y = (variable_struct_exists(catchA, "land_y") ? variable_struct_get(catchA, "land_y") : catch_land_y);
             // Lerp scale down smoothly
             var target_scale_mult = lerp(1, 0, ease2);
             drawScaleE *= target_scale_mult;
@@ -714,10 +722,10 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
             fy = lerp_cy;
             // ball starts centered on the foe while impact completes
                 // Record the landed position once so every later phase stays centered on the shadow.
-                if (!variable_struct_exists(catchA, "land_x")) variable_struct_set(catchA, "land_x", catch_shadow_center_x);
-                if (!variable_struct_exists(catchA, "land_y")) variable_struct_set(catchA, "land_y", catch_shadow_center_y);
-                var bx2 = variable_struct_exists(catchA, "land_x") ? variable_struct_get(catchA, "land_x") : catch_shadow_center_x;
-                var by2 = variable_struct_exists(catchA, "land_y") ? variable_struct_get(catchA, "land_y") : catch_shadow_center_y;
+                if (!variable_struct_exists(catchA, "land_x")) variable_struct_set(catchA, "land_x", catch_land_x);
+                if (!variable_struct_exists(catchA, "land_y")) variable_struct_set(catchA, "land_y", catch_land_y);
+                var bx2 = variable_struct_exists(catchA, "land_x") ? variable_struct_get(catchA, "land_x") : catch_land_x;
+                var by2 = variable_struct_exists(catchA, "land_y") ? variable_struct_get(catchA, "land_y") : catch_land_y;
                 ball_to_draw = {spr: (is_undefined(catchA.ball_sprite) ? undefined : catchA.ball_sprite), x: bx2, y: by2, scale: 0.8};
             anchor_overridden = true;
         } else if (phase == "shake"){
@@ -737,8 +745,8 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
             var arc = eased * hop_height;
             // if we're in the pause portion (after hop_dur_local), keep at bottom
             var in_pause = ((e3 % cycle) >= hop_dur_local);
-            var base_x = (variable_struct_exists(catchA, "land_x") ? variable_struct_get(catchA, "land_x") : catch_shadow_center_x);
-            var base_y = (variable_struct_exists(catchA, "land_y") ? variable_struct_get(catchA, "land_y") : catch_shadow_center_y);
+            var base_x = (variable_struct_exists(catchA, "land_x") ? variable_struct_get(catchA, "land_x") : catch_land_x);
+            var base_y = (variable_struct_exists(catchA, "land_y") ? variable_struct_get(catchA, "land_y") : catch_land_y);
             var enemy_base_bottom = base_y;
             var by3 = in_pause ? enemy_base_bottom : (base_y - arc);
             // enemy remains hidden while hops run
@@ -750,7 +758,7 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
             anchor_overridden = true;
         } else if (phase == "resolve" || phase == "caught"){
             // ball rests at the bottom of the enemy sprite; enemy remains hidden
-            var enemy_base_bottom_res = catch_shadow_center_y;
+            var enemy_base_bottom_res = catch_land_y;
             // During resolve/caught, smoothly lerp the remaining tiny scale toward zero and keep center at anchor
             var res_phase_progress = 1;
             if (variable_struct_exists(catchA, "phase_progress")) res_phase_progress = real(catchA.phase_progress);
@@ -759,7 +767,7 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
             // Reduce scale to near zero
             drawScaleE *= lerp(0, 0, res_ease); // effectively zero but keeps timing consistent
             // Ensure the center is anchored at the landing spot
-            var anchor_x2 = (variable_struct_exists(catchA, "land_x") ? variable_struct_get(catchA, "land_x") : catch_shadow_center_x);
+            var anchor_x2 = (variable_struct_exists(catchA, "land_x") ? variable_struct_get(catchA, "land_x") : catch_land_x);
             var anchor_y2 = (variable_struct_exists(catchA, "land_y") ? variable_struct_get(catchA, "land_y") : enemy_base_bottom_res);
             fx = anchor_x2;
             fy = anchor_y2;
@@ -773,8 +781,8 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
             // grow enemy back to normal from fully hidden (0 -> 1)
             drawScaleE *= lerp(0, 1, t4);
             // ball stays near the bottom while it fades and slightly drifts
-            var enemy_base_bottom_e = catch_shadow_center_y;
-            var bx4 = (variable_struct_exists(catchA, "land_x") ? variable_struct_get(catchA, "land_x") : catch_shadow_center_x);
+            var enemy_base_bottom_e = catch_land_y;
+            var bx4 = (variable_struct_exists(catchA, "land_x") ? variable_struct_get(catchA, "land_x") : catch_land_x);
             var by4 = enemy_base_bottom_e - lerp(0, 24, t4);
             var scaleb = lerp(0.65, 0.45, t4);
             ball_to_draw = {spr: (is_undefined(catchA.ball_sprite) ? undefined : catchA.ball_sprite), x: bx4, y: by4, scale: scaleb, alpha: lerp(1, 0, t4)};
@@ -902,7 +910,7 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
         var origin_y = sprite_get_yoffset(bs);
         var bscale_ui = ball_to_draw.scale * ui_s;
         var cx_off = (bsw * 0.5 - origin_x) * bscale_ui;
-        var cy_off = (bsh * 0.5 - origin_y) * bscale_ui;
+        var cy_off = (bsh - origin_y) * bscale_ui;
         var rot = 0;
         var alpha = (variable_struct_exists(ball_to_draw, "alpha") ? real(ball_to_draw.alpha) : 1);
         var th = rot * pi / 180;
@@ -910,10 +918,27 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
         var ry = cx_off * sin(th) + cy_off * cos(th);
         var bx_draw = ball_to_draw.x - rx;
         var by_draw = ball_to_draw.y - ry;
-    var base_x = (variable_struct_exists(catchA, "land_x") ? variable_struct_get(catchA, "land_x") : ball_to_draw.x);
-    var base_y = (variable_struct_exists(catchA, "land_y") ? variable_struct_get(catchA, "land_y") : catch_shadow_center_y);
-    var hop_est = max(16, floor((h * ui_s) * 0.18));
-    var store = { spr: bs, frame: fr, bx: bx_draw, by: by_draw, scale: ball_to_draw.scale, alpha: alpha, base_x: base_x, base_y: base_y, bsw: bsw, ui_s: ui_s, hop_est: hop_est };
+        var base_x = (variable_struct_exists(catchA, "land_x") ? variable_struct_get(catchA, "land_x") : catch_land_x);
+        var base_y = (variable_struct_exists(catchA, "land_y") ? variable_struct_get(catchA, "land_y") : catch_land_y);
+        var shadow_y = catch_shadow_center_y;
+        var hop_est = max(16, floor((h * ui_s) * 0.18));
+        var store = {
+            spr: bs,
+            frame: fr,
+            bx: bx_draw,
+            by: by_draw,
+            scale: ball_to_draw.scale,
+            alpha: alpha,
+            base_x: base_x,
+            base_y: base_y,
+            shadow_y: shadow_y,
+            bsw: bsw,
+            bsh: bsh,
+            ui_s: ui_s,
+            hop_est: hop_est,
+            contact_x: ball_to_draw.x,
+            contact_y: ball_to_draw.y
+        };
         variable_struct_set(catchA, "_ball_to_draw", store);
     if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][debug] prepared ball overlay pid=" + string(_pid) + ", x=" + string(bx_draw) + ", y=" + string(by_draw));
     }
@@ -938,18 +963,19 @@ function __battle_draw_ball_overlay(_pid, _B){
     var base_x = bd.base_x;
     var base_y = bd.base_y;
     var bsw = bd.bsw;
+    var contact_y = (variable_struct_exists(bd, "contact_y") ? bd.contact_y : base_y);
+    var shadow_y = (variable_struct_exists(bd, "shadow_y") ? bd.shadow_y : base_y);
     // Shadow: bring it up 2 pixels as requested. Use stored ui_s/hop_est so we don't rely on outer locals.
     var _u = (variable_struct_exists(bd, "ui_s") ? bd.ui_s : 1);
     var _hop_est_local = (variable_struct_exists(bd, "hop_est") ? bd.hop_est : 16);
-    // Move the pokéball shadow up 4 pixels relative to base then adjust down 2 pixels (net -2)
-    var _shadow_base_y = base_y + (6 * _u) - 2;
+    var _shadow_base_y = shadow_y;
     var _hop_height_est = _hop_est_local;
-    var _dist = max(0, (_shadow_base_y - by_draw));
+    var _dist = max(0, (_shadow_base_y - contact_y));
     var _shadow_alpha = clamp(1 - (_dist / (_hop_height_est * 1.5)), 0, 1) * alpha;
     var _sw = (bsw * scale * _u) * 0.6;
     var _sh = max(2, _sw * 0.18);
     var _cx = base_x;
-    var _cy = _shadow_base_y + (_sh * 0.25);
+    var _cy = _shadow_base_y;
     draw_set_color(c_black);
     draw_set_alpha(_shadow_alpha * 0.8);
     draw_ellipse(_cx - _sw / 2, _cy - _sh / 2, _cx + _sw / 2, _cy + _sh / 2, false);
@@ -970,7 +996,7 @@ function __battle_draw_ball_overlay(_pid, _B){
     }
 }
 
-function __battle_draw_player(_pid, _B, _actorIndex, mx, my, tx, ty){
+function __battle_draw_player(_pid, _B, _actorIndex, mx, my, tx, ty, _skip_platform){
     var scale_us = 1.1;
     var P = undefined;
     if (is_array(_B.actor) && _actorIndex >= 0 && _actorIndex < array_length(_B.actor)) P = _B.actor[_actorIndex];
@@ -1002,6 +1028,9 @@ function __battle_draw_player(_pid, _B, _actorIndex, mx, my, tx, ty){
     var _player_layout = __battle_get_actor_scene_anchor(_pid, _B, _actorIndex);
     var _player_scale_mult = (is_struct(_player_layout) && variable_struct_exists(_player_layout, "scale_mult") && is_real(variable_struct_get(_player_layout, "scale_mult"))) ? real(variable_struct_get(_player_layout, "scale_mult")) : 1;
     var drawScaleP = scale_us * _player_scale_mult * ui_s;
+    var _player_phase = string(_B.phase);
+    var _suppress_player_platform = (__battle_actor_slot(_actorIndex) == 0 && _player_phase == "intro_call");
+    if (is_undefined(_skip_platform)) _skip_platform = false;
     // Freeze detection for player (affects breathing and tint)
     var _has_freeze_p = false;
     try { _has_freeze_p = status_system_has_status(P, "freeze"); } catch (e_hf_p) { _has_freeze_p = false; }
@@ -1009,7 +1038,7 @@ function __battle_draw_player(_pid, _B, _actorIndex, mx, my, tx, ty){
     var _img_blend_p = c_white;
     if (_has_freeze_p) _img_blend_p = make_color_rgb(120,160,255);
     var platform_bottom_player = my + (h * drawScaleP) * 0.5;
-    __battle_draw_platform(_pid, _B, "player", mx, platform_bottom_player, ui_s);
+    if (!_skip_platform && !_suppress_player_platform) __battle_draw_platform(_pid, _B, "player", mx, platform_bottom_player, ui_s);
     var cry_started_p = (variable_struct_exists(_B, "_cry_play_start_ms_player") && is_real(_B._cry_play_start_ms_player)) ? real(_B._cry_play_start_ms_player) : -1;
     if (cry_started_p > 0){
         var tnow_p = current_time;
@@ -1350,20 +1379,6 @@ function __battle_draw_player(_pid, _B, _actorIndex, mx, my, tx, ty){
                 }
             }
 
-            if (out_prog >= 1 && variable_struct_exists(_B, "_switch_target_idx")){
-                var idx = _B._switch_target_idx;
-                var opts = (variable_struct_exists(_B, "_switch_opts") ? _B._switch_opts : {});
-                var do_auto_apply = !(variable_struct_exists(opts, "auto_apply") && variable_struct_get(opts, "auto_apply") == false);
-                if (do_auto_apply && !is_undefined(party_ensure)){
-                    var Pset = party_ensure(_pid);
-                    if (is_array(Pset.mons) && idx >= 0 && idx < array_length(Pset.mons)){
-                        _B.actor[0] = __battle_actor_from_party_mon(Pset.mons[idx]);
-                        // Ensure actor_index exists for the incoming actor
-                        try { if (is_struct(_B.actor[0])) variable_struct_set(_B.actor[0], "actor_index", 0); } catch (e_ai_draw) {}
-                    }
-                }
-                _B._switch_target_idx = undefined;
-            }
         } else {
             var curA = _B.actor[0];
             var sprIn = -1, subIn = 0, wIn = 0, hIn = 0;

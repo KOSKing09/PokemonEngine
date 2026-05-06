@@ -25,7 +25,7 @@ function __battle_perform_action_impl(_pid, _step){
             if (!is_undefined(__battle_trainer_perform_switch_action)){
                 _switch_msg = __battle_trainer_perform_switch_action(_pid, _switch_idx, _step);
             } else if (!is_undefined(battle_switch_to)){
-                var _ok_switch = battle_switch_to(_pid, _switch_idx, { forced: true });
+                var _ok_switch = battle_switch_to(_pid, _switch_idx, { forced: true, actor_index: actor_idx, consume_turn: false, auto_apply: true });
                 _switch_msg = (_ok_switch ? "The opponent sent out a Pokémon!" : "But it failed!");
             }
         } catch (e_switch) {
