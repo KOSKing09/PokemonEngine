@@ -80,6 +80,38 @@ function __status_smoke_log(_ok, _msg){
     show_debug_message("[smoke][status] " + string(_ok ? "PASS" : "FAIL") + " " + string(_msg));
 }
 
+function __status_smoke_bind_current_battle(_pid, _state){
+    if (!is_struct(_state)) return false;
+    if (!battle_is_open(_pid)) return false;
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B)) return false;
+
+    var _global_name = (variable_struct_exists(_state, "global_name") ? string(variable_struct_get(_state, "global_name")) : "");
+    var _started_ms = (variable_struct_exists(_state, "started_ms") && is_real(variable_struct_get(_state, "started_ms")))
+        ? real(variable_struct_get(_state, "started_ms"))
+        : current_time;
+
+    try { variable_struct_set(_B, "_dev_smoke_global_name", _global_name); } catch (e_smoke_bind_name) {}
+    try { variable_struct_set(_B, "_dev_smoke_started_ms", _started_ms); } catch (e_smoke_bind_ms) {}
+    return true;
+}
+
+function __status_smoke_is_bound_battle(_pid, _state){
+    if (!is_struct(_state) || !battle_is_open(_pid)) return false;
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B)) return false;
+    if (!variable_struct_exists(_B, "_dev_smoke_global_name") || !variable_struct_exists(_B, "_dev_smoke_started_ms")) return false;
+
+    var _expected_name = (variable_struct_exists(_state, "global_name") ? string(variable_struct_get(_state, "global_name")) : "");
+    var _expected_ms = (variable_struct_exists(_state, "started_ms") && is_real(variable_struct_get(_state, "started_ms"))) ? floor(real(variable_struct_get(_state, "started_ms"))) : -1;
+    var _actual_name = string(variable_struct_get(_B, "_dev_smoke_global_name"));
+    var _actual_ms = variable_struct_get(_B, "_dev_smoke_started_ms");
+    if (_actual_name != _expected_name) return false;
+    if (_expected_ms < 0) return true;
+    if (!is_real(_actual_ms)) return false;
+    return (floor(real(_actual_ms)) == _expected_ms);
+}
+
 function __status_smoke_finish(_pid, _state, _reason){
     var _tag = "status";
     var _global_name = "DEV_STATUS_SMOKE";
@@ -93,7 +125,9 @@ function __status_smoke_finish(_pid, _state, _reason){
         show_debug_message("[smoke][" + _tag + "] SUMMARY passes=" + string(_pass_n) + " fails=" + string(_fail_n) + " reason=" + string(_reason));
     }
     if (_auto_close) {
-        try { if (battle_is_open(_pid)) battle_close(_pid); } catch (e_close) {}
+        try {
+            if (battle_is_open(_pid) && __status_smoke_is_bound_battle(_pid, _state)) battle_close(_pid);
+        } catch (e_close) {}
     }
     try { if (string_length(_global_name) > 0 && variable_global_exists(_global_name)) variable_global_set(_global_name, undefined); } catch (e_clear) {}
     if (_auto_close) {
@@ -374,6 +408,7 @@ function test_battle_status_smoke_start(_auto_close = false){
     };
     show_debug_message("[smoke][status] starting Ingrain/Torment smoke battle");
     battle_open_trainer(_pid, _trainer_payload);
+    __status_smoke_bind_current_battle(_pid, global.DEV_STATUS_SMOKE);
     return true;
 }
 
@@ -482,6 +517,7 @@ function test_battle_heal_block_smoke_start(_auto_close = false){
     };
     show_debug_message("[smoke][heal-block] starting Heal Block smoke battle");
     battle_open_trainer(_pid, _trainer_payload);
+    __status_smoke_bind_current_battle(_pid, global.DEV_HEAL_BLOCK_SMOKE);
     return true;
 }
 
@@ -588,6 +624,7 @@ function test_battle_embargo_smoke_start(_auto_close = false){
     };
     show_debug_message("[smoke][embargo] starting Embargo smoke battle");
     battle_open_trainer(_pid, _trainer_payload);
+    __status_smoke_bind_current_battle(_pid, global.DEV_EMBARGO_SMOKE);
     return true;
 }
 
@@ -689,6 +726,7 @@ function test_battle_perish_song_smoke_start(_auto_close = false){
     };
     show_debug_message("[smoke][perish-song] starting Perish Song smoke battle");
     battle_open_trainer(_pid, _trainer_payload);
+    __status_smoke_bind_current_battle(_pid, global.DEV_PERISH_SONG_SMOKE);
     return true;
 }
 
@@ -784,6 +822,7 @@ function test_battle_endure_smoke_start(_auto_close = false){
     };
     show_debug_message("[smoke][endure] starting Endure smoke battle");
     battle_open_trainer(_pid, _trainer_payload);
+    __status_smoke_bind_current_battle(_pid, global.DEV_ENDURE_SMOKE);
     return true;
 }
 
@@ -868,6 +907,7 @@ function test_battle_rollout_smoke_start(_auto_close = false){
     };
     show_debug_message("[smoke][rollout] starting Rollout smoke battle");
     battle_open_trainer(_pid, _trainer_payload);
+    __status_smoke_bind_current_battle(_pid, global.DEV_ROLLOUT_SMOKE);
     return true;
 }
 
@@ -964,6 +1004,7 @@ function test_battle_fury_cutter_smoke_start(_auto_close = false){
     };
     show_debug_message("[smoke][fury-cutter] starting Fury Cutter smoke battle");
     battle_open_trainer(_pid, _trainer_payload);
+    __status_smoke_bind_current_battle(_pid, global.DEV_FURY_CUTTER_SMOKE);
     return true;
 }
 
@@ -980,6 +1021,7 @@ function test_battle_fury_cutter_smoke_update(_pid = 0){
     }
     if (!battle_is_open(_pid)) return;
     if (__status_smoke_advance_dialog(_pid, _S)) return;
+    __status_smoke_bind_current_battle(_pid, _S);
 
     var _B = __battle_ensure_slot(_pid);
     if (!is_struct(_B) || !variable_struct_exists(_B, "actor") || !is_array(variable_struct_get(_B, "actor"))) return;
@@ -1075,6 +1117,7 @@ function test_battle_love_gift_smoke_start(_auto_close = false){
     };
     show_debug_message("[smoke][love-gift] starting Attract/Return/Present/Frustration smoke battle");
     battle_open_trainer(_pid, _trainer_payload);
+    __status_smoke_bind_current_battle(_pid, global.DEV_LOVE_GIFT_SMOKE);
     return true;
 }
 
@@ -1420,6 +1463,7 @@ function test_battle_doubles_forced_player_switch_smoke_start(_auto_close = fals
         original_slot1_mon: _party.mons[1],
         valid_choices: [2, 3]
     };
+    __status_smoke_bind_current_battle(_pid, global.DEV_FORCED_PLAYER_SWITCH_SMOKE);
     show_debug_message("[smoke][forced-player-switch] starting dedicated doubles forced player switch smoke");
     return true;
 }
@@ -1572,6 +1616,7 @@ function test_battle_doubles_enemy_faint_auto_send_smoke_start(_auto_close = fal
         replacement_name: "Bench Replace",
         original_enemy_right_name: "Stay Right"
     };
+    __status_smoke_bind_current_battle(_pid, global.DEV_DOUBLES_ENEMY_FAINT_SEND_SMOKE);
     show_debug_message("[smoke][doubles-enemy-faint-send] starting doubles enemy faint auto-send smoke");
     return true;
 }
