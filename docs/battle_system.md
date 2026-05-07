@@ -28,18 +28,22 @@ This document summarizes the battle system architecture, public APIs, phases, st
 ## Public API (documented)
 - `battle_is_open(pid) -> bool`
 - `battle_open(pid, wildLevel)`
+- `battle_open(pid, wildLevel, areaTypeOrOpts, opts)` accepts either an area type, an opts struct, or both
 - `battle_update(pid)`
 - `battle_draw_gui(pid)`
 - `battle_draw_gui_rect(pid, rx,ry,rw,rh)`
 - `battle_close(pid)`
 - `battle_switch_to(pid, party_idx, opts)` where `opts = { consume_turn?: true, auto_apply?: true }`
 - `battle_intro_set_handlers(pid, updateFn, drawFn)` — extension hook registration
+- `battle_open_trainer(pid, trainer_payload)` — trainer wrapper that normalizes trainer data and calls `battle_open(...)`
 
 ## Key internal helpers
 - `__battle_ensure_slot(pid)` — create/access `_B`.
 - `__battle_process_input(pid)` — command UI input.
 - `__battle_build_turn_actions(pid)` — construct action order.
 - `__battle_step_turn_if_ready(pid)` — resolve queued actions.
+- `__battle_can_hit_target(attacker, defender, move_id)` — central hit gate for ordinary move accuracy; reads attacker `._stages.accuracy`, defender `._stages.evasion`, weather/gravity adjustments, and ignore-accuracy overrides.
+- `__battle_move_accuracy(move_id)` — move base accuracy lookup used by the hit gate.
 - `battle_command_helpers.gml` — command queue, command actor, and target-pick helpers extracted from the main battle script.
 - `battle_theme_helpers.gml` — platform/theme resolution and battle UI text-color helpers extracted from the main battle script.
 - `__battle_enemy_choose_action(pid)` — simple enemy AI.
@@ -55,6 +59,35 @@ This document summarizes the battle system architecture, public APIs, phases, st
 - Intro animations: `battle_intro_set_handlers(pid, updateFn(pid,B), drawFn(pid,B))`.
 - UI suppression windows: `_suppress_sys_ui_until`, `_suppress_wait_for_dialog_close`.
 - Dialog integration via `dialog2p_open_text`, `dialog2p_is_open`, `dialog2p_update`.
+
+## Adding code safely
+- Add new battle-wide state where `_B` is created in `__battle_ensure_slot(pid)` so the default shape is explicit and static analysis keeps up.
+- Add new opening-time options in `battle_open(...)`, then normalize or fan them out immediately into `_B` fields. Do not leave option parsing scattered later in the update flow.
+- Put per-turn or per-action logic in the owning helper module when one already exists (`battle_actions`, `battle_impls`, `battle_move_meta_helpers`, `battle_trainer`, `battle_ui`) instead of growing `battle_system.gml` unless the logic truly owns the main phase machine.
+- Keep `battle_update(pid)` as the orchestration layer: phase transitions, dialog/cutscene gates, queued sends, pending closes, and calls into narrower helpers.
+- Keep `battle_draw_gui(pid)` and `battle_draw_gui_rect(...)` as the public draw API, but prefer editing `battle_draw.gml`, `battle_ui.gml`, or `battle_draw_helpers.gml` for presentation changes.
+
+## Where To Edit
+- Opening a new battle type or new open option: `scripts/battle_system/battle_system.gml::battle_open(...)`
+- Trainer-specific entrypoints and send-out/prompt flow: `scripts/battle_trainer/battle_trainer.gml`
+- Command selection, target picking, and player input routing: `scripts/battle_command_helpers/` and `scripts/battle_system/battle_system.gml::__battle_process_input(...)`
+- Turn construction and resolution order: `scripts/battle_system/battle_system.gml::__battle_build_turn_actions(...)` and `scripts/battle_system/battle_system.gml::__battle_step_turn_if_ready(...)`
+- Shared move hit, status, and meta logic: `scripts/battle_actions/`, `scripts/battle_impls/`, and `scripts/battle_move_meta_helpers/`
+- Battle presentation and command boxes: `scripts/battle_draw/`, `scripts/battle_ui/`, and `scripts/battle_draw_helpers/`
+- Trainer battle payload shape and wrapper examples: `scripts/battle_trainer/battle_trainer.gml::battle_open_trainer(...)`
+
+## Minimal editing workflow
+1. Start from the public seam that owns the behavior you want to change.
+2. Confirm whether the battle script is orchestrating or deciding. If it only forwards, hop one helper deeper before editing.
+3. Add or update focused smoke coverage in `scripts/test_trainer_battle_scenario/` when the change affects runtime behavior.
+4. Run the relevant Igor smoke path, then restore any temporary `global.DEV_AUTO_*` flag changes.
+
+## Accuracy And Evasion
+- Ordinary hit checks are centralized in `__battle_can_hit_target(attacker, defender, move_id)` inside `scripts/battle_system/battle_system.gml`.
+- Stage-based miss logic uses the battler wrapper structs, not only inner `mon` payloads. The helper reads attacker `._stages.accuracy` and defender `._stages.evasion`, then applies the shared stage multiplier table before rolling hit chance.
+- Accuracy bypass cases are handled before the roll through `__battle_should_ignore_accuracy(...)`, so effects such as perfect target lock and move-specific ignore-accuracy behavior stay in one seam.
+- Battle-action callers such as `__battle_apply_move_damage(...)` route through this helper, so misses in the smoke harness exercise the same path as normal battle turns.
+- Verified smoke coverage lives in `scripts/test_trainer_battle_scenario/test_trainer_battle_scenario.gml::test_battle_accuracy_smoke_start(...)` and covers both direct stage injection and move-applied `sand-attack` accuracy drops.
 
 ## Message ordering and close flow
 - Status/defeat messages accumulate in `_pending_status_msgs`.

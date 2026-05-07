@@ -182,6 +182,7 @@ global.DEV_AUTO_EFFECT_216_SMOKE = false;
 global.DEV_AUTO_EFFECT_225_SMOKE = false;
 global.DEV_AUTO_EFFECT_221_SMOKE = false;
 global.DEV_AUTO_EFFECT_217_SMOKE = false;
+global.DEV_AUTO_ACCURACY_SMOKE = false;
 global.DEV_AUTO_EFFECT_195_SMOKE = false;
 global.DEV_AUTO_EFFECT_210_SMOKE = false;
 global.DEV_AUTO_EFFECT_211_229_SMOKE = false;

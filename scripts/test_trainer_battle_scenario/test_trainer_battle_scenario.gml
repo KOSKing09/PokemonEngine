@@ -2914,6 +2914,89 @@ function test_battle_effect_217_smoke_update(_pid = 0){
     // Direct smoke completes synchronously in start().
 }
 
+function test_battle_accuracy_smoke_start(_auto_close = false){
+    var _pid = 0;
+    var _S = {
+        pid: _pid,
+        tag: "accuracy",
+        global_name: "DEV_ACCURACY_SMOKE",
+        auto_close: (_auto_close == true),
+        state: "running",
+        turn_counter: 0,
+        pass_count: 0,
+        fail_count: 0,
+        started_ms: current_time
+    };
+    global.DEV_ACCURACY_SMOKE = _S;
+    show_debug_message("[smoke][accuracy] starting direct accuracy smoke");
+
+    var _A = __effect_smoke_mon(16, 30, 160, [1, -1, -1, -1]);
+    var _D = __effect_smoke_mon(19, 30, 160, [1, -1, -1, -1]);
+    __effect_smoke_slot(_pid, _A, _D);
+
+    var _neutral_hits = 0;
+    for (var _ni = 0; _ni < 16; ++_ni){
+        if (__battle_can_hit_target(_A, _D, 1)) _neutral_hits += 1;
+    }
+    __status_smoke_assert(_S, _neutral_hits == 16, "neutral 100-accuracy moves remained reliable");
+
+    variable_struct_set(_A, "_stages", { accuracy: -6 });
+    variable_struct_set(_D, "_stages", { evasion: 6 });
+
+    var _reduced_hits = 0;
+    for (var _ri = 0; _ri < 64; ++_ri){
+        if (__battle_can_hit_target(_A, _D, 1)) _reduced_hits += 1;
+    }
+    __status_smoke_assert(_S, _reduced_hits <= 16, "lowered accuracy and raised evasion reduced hit rate");
+
+    var _misses = 0;
+    for (var _mi = 0; _mi < 16; ++_mi){
+        __effect_smoke_set_hp(_D, 160);
+        var _res = __battle_apply_move_damage(_pid, 1, _A, _D, 1, 40);
+        var _dmg = (is_array(_res) && array_length(_res) > 0 && is_real(_res[0])) ? _res[0] : 0;
+        if (_dmg <= 0) _misses += 1;
+    }
+    __status_smoke_assert(_S, _misses >= 8, "live move damage path recorded misses after accuracy drops");
+
+    var _sand_attack_id = __status_smoke_find_move_id(["sand-attack"]);
+    var _tackle_id = __status_smoke_find_move_id(["tackle"]);
+    __status_smoke_assert(_S, _sand_attack_id >= 0 && _tackle_id >= 0, "move identifiers for Sand-Attack and Tackle resolved");
+    if (_sand_attack_id >= 0 && _tackle_id >= 0){
+        var _A2 = __effect_smoke_mon(16, 30, 160, [_sand_attack_id, _tackle_id, -1, -1]);
+        var _D2 = __effect_smoke_mon(19, 30, 160, [_tackle_id, -1, -1, -1]);
+        __effect_smoke_slot(_pid, _A2, _D2);
+
+        for (var _si = 0; _si < 6; ++_si){
+            __battle_perform_action_impl(_pid, { slot: 0, move_id: _sand_attack_id, actor_index: 0, target_index: 1 });
+        }
+
+        var _move_applied_stage = 0;
+        if (variable_struct_exists(_D2, "_stages") && is_struct(variable_struct_get(_D2, "_stages"))){
+            var _stage_obj = variable_struct_get(_D2, "_stages");
+            if (variable_struct_exists(_stage_obj, "accuracy") && is_real(variable_struct_get(_stage_obj, "accuracy"))) _move_applied_stage = variable_struct_get(_stage_obj, "accuracy");
+        }
+        __status_smoke_assert(_S, _move_applied_stage == -6, "Sand-Attack stacked through the live move path to the accuracy stage cap");
+
+        var _move_path_misses = 0;
+        for (var _ti = 0; _ti < 24; ++_ti){
+            __effect_smoke_set_hp(_A2, 160);
+            var _before_hp = __battle_hp_now(_A2);
+            __battle_perform_action_impl(_pid, { slot: 0, move_id: _tackle_id, actor_index: 1, target_index: 0 });
+            var _after_hp = __battle_hp_now(_A2);
+            if (_after_hp >= _before_hp) _move_path_misses += 1;
+        }
+        __status_smoke_assert(_S, _move_path_misses >= 8, "move-applied accuracy drops caused later attacks to miss in the live action path");
+    }
+
+    var _fails = variable_struct_get(_S, "fail_count");
+    __status_smoke_finish(_pid, _S, (_fails == 0) ? "completed" : "failed");
+    return (_fails == 0);
+}
+
+function test_battle_accuracy_smoke_update(_pid = 0){
+    // Direct smoke completes synchronously in start().
+}
+
 function test_battle_effect_195_smoke_start(_auto_close = false){
     var _pid = 0;
     var _S = {

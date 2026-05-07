@@ -2,7 +2,7 @@
   "$GMProject":"v1",
   "%Name":"Pokemon Rogue",
   "AudioGroups":[
-    {"$GMAudioGroup":"","%Name":"audiogroup_default","name":"audiogroup_default","resourceType":"GMAudioGroup","resourceVersion":"2.0","targets":-1,},
+    {"$GMAudioGroup":"v1","%Name":"audiogroup_default","exportDir":"","name":"audiogroup_default","resourceType":"GMAudioGroup","resourceVersion":"2.0","targets":-1,},
   ],
   "configs":{
     "children":[],
@@ -260,6 +260,7 @@
     {"id":{"name":"battle_actions","path":"scripts/battle_actions/battle_actions.yy",},},
     {"id":{"name":"battle_animations","path":"scripts/battle_animations/battle_animations.yy",},},
     {"id":{"name":"battle_command_helpers","path":"scripts/battle_command_helpers/battle_command_helpers.yy",},},
+    {"id":{"name":"battle_draw_helpers","path":"scripts/battle_draw_helpers/battle_draw_helpers.yy",},},
     {"id":{"name":"battle_draw","path":"scripts/battle_draw/battle_draw.yy",},},
     {"id":{"name":"battle_entry_hazard_helpers","path":"scripts/battle_entry_hazard_helpers/battle_entry_hazard_helpers.yy",},},
     {"id":{"name":"battle_field_helpers","path":"scripts/battle_field_helpers/battle_field_helpers.yy",},},

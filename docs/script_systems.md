@@ -2,6 +2,13 @@
 
 This index documents the script folders by responsibility so later work can find the owning subsystem quickly.
 
+## Detailed guides
+
+- `docs/battle_system.md`: start here when changing turn flow, battler state, command routing, or battle UI integration
+- `docs/bag_system.md`: start here when changing bag state, item use behavior, page seeding, or bag UI layout
+- `docs/party_system.md`: start here when changing party modes, swap flow, summaries, or bag/party interactions
+- `docs/description_menus.md`: start here when changing item descriptions, move prose, flavor text, scroll behavior, or description box layout
+
 ## Core game loop and runtime
 
 - `scripts/scr_controls/`: boot-time control singleton and per-frame input helpers
@@ -43,7 +50,7 @@ This index documents the script folders by responsibility so later work can find
 
 ## Battle core
 
-- `scripts/battle_system/`: public battle entrypoints and main update loop
+- `scripts/battle_system/`: public battle entrypoints, main update loop, and shared hit-rate resolution such as `__battle_can_hit_target`
 - `scripts/battle_command_helpers/`: player command queue, command actor routing, and target-pick helpers
 - `scripts/battle_theme_helpers/`: platform/environment theme resolution and UI text-color refresh
 - `scripts/battle_actions/`: action resolution helpers used by the turn engine
@@ -74,7 +81,7 @@ This index documents the script folders by responsibility so later work can find
 
 ## Test and smoke harnesses
 
-- `scripts/test_trainer_battle_scenario/`: focused battle smokes and regression harnesses
+- `scripts/test_trainer_battle_scenario/`: focused battle smokes and regression harnesses, including the canonical accuracy/evasion smoke path
 
 ## Ownership notes
 

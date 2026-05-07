@@ -1,5 +1,45 @@
 // Battle UI / HUD helpers (extracted)
 
+
+// ===== Rect pipeline (PID-aware, GUI-only) =====
+function __bui_begin(_pid,_rx,_ry,_rw,_rh){
+    var _B = __battle_ensure_slot(_pid);
+    var base_w = 240, base_h = 160;
+    var sx = _rw / base_w;
+    var sy = _rh / base_h;
+    var s = min(sx, sy);
+    var content_w = floor(base_w * s);
+    var content_h = floor(base_h * s);
+    var origin_x = _rx + floor((_rw - content_w) / 2);
+    var origin_y = _ry + floor((_rh - content_h) / 2);
+    _B._ui = { rx: origin_x, ry: origin_y, rw: content_w, rh: content_h, base_w: base_w, base_h: base_h, s: s };
+}
+function __bui_end(_pid){
+    var _B = __battle_ensure_slot(_pid);
+    _B._ui = undefined;
+}
+function __bxu(_pid,_xv){
+    var _u = __battle_ensure_slot(_pid)._ui;
+    if (is_undefined(_u)) return _xv;
+    return floor(_u.rx + _xv * _u.s);
+}
+function __byu(_pid,_yv){
+    var _u = __battle_ensure_slot(_pid)._ui;
+    if (is_undefined(_u)) return _yv;
+    return floor(_u.ry + _yv * _u.s);
+}
+function __bwu(_pid,_wv){
+    var _u = __battle_ensure_slot(_pid)._ui;
+    if (is_undefined(_u)) return _wv;
+    return floor(_wv * _u.s);
+}
+function __bhu(_pid,_hv){
+    var _u = __battle_ensure_slot(_pid)._ui;
+    if (is_undefined(_u)) return _hv;
+    return floor(_hv * _u.s);
+}
+
+// ===== Panels & HUD =====
 function __battle_panel_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn){
     var _t  = __battle_ensure_slot(_pid).theme;
     var _bx = __bxu(_pid,_rxIn), _by = __byu(_pid,_ryIn);
@@ -680,3 +720,27 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
     if (restoreFont2 != -1) draw_set_font(restoreFont2);
 }
 
+// ===== GUI Letterbox rect =====
+function __battle_view_rect_for_pid(_pid){
+    var _gw = display_get_gui_width();
+    var _gh = display_get_gui_height();
+
+    var _logic_w = 240;
+    var _logic_h = 160;
+    var _aspect  = _logic_w / _logic_h; // 1.5
+    var _guiAsp  = _gw / max(1,_gh);
+
+    var _rw, _rh, _rx, _ry;
+    if (_guiAsp > _aspect) {
+        _rh = _gh;
+        _rw = floor(_rh * _aspect);
+        _rx = (_gw - _rw) div 2;
+        _ry = 0;
+    } else {
+        _rw = _gw;
+        _rh = floor(_rw / _aspect);
+        _rx = 0;
+        _ry = (_gh - _rh) div 2;
+    }
+    return [_rx, _ry, _rw, _rh];
+}

@@ -55,7 +55,7 @@ if (keyboard_check_pressed(vk_f1)){
             choose("dark water", "rocks a", "light", "grassy", "rocks b", "dirt", "river", "snowy", "grassy snow", "ice", "forest", "ugly grass", "wood bridge", "man made paths"),
             {
                 battle_type: "wild",
-                battle_format: "double"
+                battle_format: "singles"
             }
         );
 	}else{
@@ -184,6 +184,10 @@ if (variable_global_exists("DEV_AUTO_EFFECT_217_SMOKE") && global.DEV_AUTO_EFFEC
     global.DEV_AUTO_EFFECT_217_SMOKE = false;
     test_battle_effect_217_smoke_start(true);
 }
+if (variable_global_exists("DEV_AUTO_ACCURACY_SMOKE") && global.DEV_AUTO_ACCURACY_SMOKE) {
+    global.DEV_AUTO_ACCURACY_SMOKE = false;
+    test_battle_accuracy_smoke_start(true);
+}
 if (variable_global_exists("DEV_AUTO_EFFECT_195_SMOKE") && global.DEV_AUTO_EFFECT_195_SMOKE) {
     global.DEV_AUTO_EFFECT_195_SMOKE = false;
     test_battle_effect_195_smoke_start(true);
@@ -224,6 +228,7 @@ test_battle_effect_216_smoke_update(0);
 test_battle_effect_225_smoke_update(0);
 test_battle_effect_221_smoke_update(0);
 test_battle_effect_217_smoke_update(0);
+test_battle_accuracy_smoke_update(0);
 test_battle_effect_210_smoke_update(0);
 test_battle_effect_211_229_smoke_update(0);
 

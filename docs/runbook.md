@@ -2,6 +2,14 @@
 
 This project is a GameMaker Studio project. The runtime contracts live in scripts and are booted from the room/object events, not from a standalone CLI entrypoint.
 
+## Documentation map
+
+- `docs/script_systems.md`: quick ownership map when you only need to know which folder owns a behavior
+- `docs/battle_system.md`: battle slot shape, phase flow, entrypoints, and battle-specific extension seams
+- `docs/bag_system.md`: bag state, inventory helpers, in-battle item use flow, and bag draw/input split
+- `docs/party_system.md`: party state, menu modes, summary flow, and party/battle integration
+- `docs/description_menus.md`: where item, species, and move description text comes from and which draw/input helpers own the UI
+
 ## Open and run
 
 1. Open `Pokemon Rogue.yyp` in GameMaker Studio.
@@ -55,6 +63,13 @@ Common flags:
 - `global.DEV_AUTO_DOUBLES_ENEMY_FAINT_SEND_SMOKE`
 - `global.DEV_AUTO_BURN_POISON_RESIDUAL_SMOKE`
 - `global.DEV_AUTO_VISUAL_TARGET_SMOKE`
+- `global.DEV_AUTO_ACCURACY_SMOKE`
+
+Accuracy smoke coverage:
+
+- validates neutral `100`-accuracy hit behavior
+- validates extreme stage math (`accuracy = -6`, `evasion = +6`) through `__battle_can_hit_target`
+- validates move-applied accuracy drops by stacking `sand-attack` to the stage cap, then confirming later `tackle` uses miss through the live action path
 
 Recommended workflow:
 
@@ -62,6 +77,10 @@ Recommended workflow:
 2. Run the project once.
 3. Capture or inspect the log in `tmp/`.
 4. Restore the flag to `false` after validation.
+
+Suggested log names:
+
+- `tmp/accuracy-smoke.log` for the accuracy/evasion regression path
 
 ## Igor command
 
