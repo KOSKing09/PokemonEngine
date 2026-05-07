@@ -443,10 +443,14 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
 
             if (variable_global_exists("FNT_POKEMON")) draw_set_font(global.FNT_POKEMON);
             var _dialog_col = (variable_struct_exists(_t, "col_dialog_text") ? variable_struct_get(_t, "col_dialog_text") : _t.col_text);
-            draw_set_color(_dialog_col);
             var _fh = (!is_undefined(__dlg_font_h) ? __dlg_font_h() : 8);
-            draw_text(_bx + __bwu(_pid,8), _by + __bhu(_pid,6), vis0);
-            draw_text(_bx + __bwu(_pid,8), _by + __bhu(_pid,6) + __bhu(_pid, _fh + 2), vis1);
+            __dlg_draw_lines_spritefont(
+                vis0,
+                vis1,
+                _bx + __bwu(_pid,8),
+                _by + __bhu(_pid,6),
+                _dialog_col
+            );
             // Debug: note that the battle UI dialog branch executed. Only log once the page is fully visible
             var _page_full_len = string_length(l0 + "\n" + l1);
             if (is_real(d.char_idx) && d.char_idx >= _page_full_len){

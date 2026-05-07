@@ -516,10 +516,213 @@ function dialog2p_update(_pid){
 }
 
 // ---------- Draw in WORLD space for a given camera (splitscreen-friendly) ---
-function __dlg_draw_lines_spritefont(_l0, _l1, _x, _y){
+function __dlg_type_color(_type_id){
+    switch (floor(_type_id)){
+        case 1: return make_color_rgb(176, 168, 120); // Normal
+        case 2: return make_color_rgb(208, 88, 72);   // Fighting
+        case 3: return make_color_rgb(120, 152, 240); // Flying
+        case 4: return make_color_rgb(168, 96, 208);  // Poison
+        case 5: return make_color_rgb(216, 184, 88);  // Ground
+        case 6: return make_color_rgb(184, 160, 72);  // Rock
+        case 7: return make_color_rgb(152, 184, 56);  // Bug
+        case 8: return make_color_rgb(112, 88, 152);  // Ghost
+        case 9: return make_color_rgb(184, 184, 208); // Steel
+        case 10: return make_color_rgb(232, 112, 56); // Fire
+        case 11: return make_color_rgb(72, 152, 232); // Water
+        case 12: return make_color_rgb(104, 192, 88); // Grass
+        case 13: return make_color_rgb(248, 208, 72); // Electric
+        case 14: return make_color_rgb(248, 120, 184); // Psychic
+        case 15: return make_color_rgb(136, 208, 240); // Ice
+        case 16: return make_color_rgb(112, 88, 240); // Dragon
+        case 17: return make_color_rgb(112, 88, 72);  // Dark
+        case 18: return make_color_rgb(240, 152, 184); // Fairy
+    }
+    return c_white;
+}
+
+function __dlg_stat_delta_color(_positive){
+    return (_positive ? make_color_rgb(72, 168, 96) : make_color_rgb(216, 88, 72));
+}
+
+function __dlg_line_is_word_char(_ch){
+    if (!is_string(_ch) || string_length(_ch) <= 0) return false;
+    var _ord = ord(_ch);
+    if (_ord >= ord("0") && _ord <= ord("9")) return true;
+    if (_ord >= ord("A") && _ord <= ord("Z")) return true;
+    if (_ord >= ord("a") && _ord <= ord("z")) return true;
+    return false;
+}
+
+function __dlg_line_has_term_boundaries(_line, _start, _len){
+    var _before_ok = true;
+    var _after_ok = true;
+    if (_start > 1){
+        var _before = string_char_at(_line, _start - 1);
+        _before_ok = !__dlg_line_is_word_char(_before);
+    }
+    var _after_idx = _start + _len;
+    if (_after_idx <= string_length(_line)){
+        var _after = string_char_at(_line, _after_idx);
+        _after_ok = !__dlg_line_is_word_char(_after);
+    }
+    return _before_ok && _after_ok;
+}
+
+function __dlg_find_move_match(_line){
+    if (!is_string(_line) || string_length(_line) <= 0) return undefined;
+    if (!(variable_global_exists("_moves") && is_array(global._moves))) return undefined;
+
+    var _line_lower = string_lower(_line);
+    var _best = undefined;
+    for (var _mid = 1; _mid < array_length(global._moves); ++_mid){
+        var _move_name = "";
+        try {
+            if (!is_undefined(scr_move_name_by_id)) _move_name = string(scr_move_name_by_id(_mid));
+        } catch (e_move_name) { _move_name = ""; }
+        if (string_length(_move_name) <= 0) continue;
+        var _move_lower = string_lower(_move_name);
+        var _pos = string_pos(_move_lower, _line_lower);
+        if (_pos <= 0) continue;
+        if (!__dlg_line_has_term_boundaries(_line, _pos, string_length(_move_name))) continue;
+
+        var _take = false;
+        if (!is_struct(_best)) _take = true;
+        else if (string_length(_move_name) > variable_struct_get(_best, "len")) _take = true;
+        else if (string_length(_move_name) == variable_struct_get(_best, "len") && _pos < variable_struct_get(_best, "pos")) _take = true;
+
+        if (_take){
+            var _type_id = -1;
+            try {
+                if (!is_undefined(scr_move_type_id_by_id)) _type_id = scr_move_type_id_by_id(_mid);
+            } catch (e_move_type) { _type_id = -1; }
+            _best = {
+                pos: _pos,
+                len: string_length(_move_name),
+                text: string_copy(_line, _pos, string_length(_move_name)),
+                color: __dlg_type_color(_type_id)
+            };
+        }
+    }
+    return _best;
+}
+
+function __dlg_find_stat_match(_line){
+    if (!is_string(_line) || string_length(_line) <= 0) return undefined;
+    var _stats = ["ACCURACY", "EVASION", "ATK", "DEF", "SPA", "SPD", "SPE"];
+    var _line_upper = string_upper(_line);
+    var _best = undefined;
+
+    for (var _i = 0; _i < array_length(_stats); ++_i){
+        var _token = _stats[_i];
+        var _pos = string_pos(_token, _line_upper);
+        if (_pos <= 0) continue;
+
+        var _tail = string_copy(_line, _pos + string_length(_token), string_length(_line) - (_pos + string_length(_token)) + 1);
+        var _trimmed = _tail;
+        while (string_length(_trimmed) > 0){
+            var _lead = string_char_at(_trimmed, 1);
+            if (_lead != " " && _lead != "\n" && _lead != "\r" && _lead != "\t") break;
+            _trimmed = string_delete(_trimmed, 1, 1);
+        }
+        if (string_length(_trimmed) <= 0) continue;
+
+        var _sign = string_char_at(_trimmed, 1);
+        if (_sign != "+" && _sign != "-") continue;
+
+        var _digits_len = 0;
+        for (var _di = 2; _di <= string_length(_trimmed); ++_di){
+            var _ch = string_char_at(_trimmed, _di);
+            var _ord = ord(_ch);
+            if (_ord < ord("0") || _ord > ord("9")) break;
+            _digits_len += 1;
+        }
+        if (_digits_len <= 0) continue;
+
+        var _delta_text = string_copy(_trimmed, 1, 1 + _digits_len);
+        _best = {
+            token_pos: _pos,
+            token_len: string_length(_token),
+            delta_pos: string_pos(_delta_text, _line),
+            delta_len: string_length(_delta_text),
+            positive: (_sign == "+")
+        };
+        break;
+    }
+    return _best;
+}
+
+function __dlg_style_line_parts(_line, _base_color = c_white){
+    var _parts = [];
+    if (!is_string(_line) || string_length(_line) <= 0){
+        array_push(_parts, { text: "", color: _base_color });
+        return _parts;
+    }
+
+    var _stat = __dlg_find_stat_match(_line);
+    if (is_struct(_stat)){
+        var _color = __dlg_stat_delta_color(variable_struct_get(_stat, "positive"));
+        var _token_pos = variable_struct_get(_stat, "token_pos");
+        var _token_len = variable_struct_get(_stat, "token_len");
+        var _delta_pos = variable_struct_get(_stat, "delta_pos");
+        var _delta_len = variable_struct_get(_stat, "delta_len");
+
+        if (_token_pos > 1) array_push(_parts, { text: string_copy(_line, 1, _token_pos - 1), color: _base_color });
+        array_push(_parts, { text: string_copy(_line, _token_pos, _token_len), color: _color });
+        if (_delta_pos > (_token_pos + _token_len)) array_push(_parts, { text: string_copy(_line, _token_pos + _token_len, _delta_pos - (_token_pos + _token_len)), color: _base_color });
+        array_push(_parts, { text: string_copy(_line, _delta_pos, _delta_len), color: _color });
+
+        var _suffix_start = _delta_pos + _delta_len;
+        if (_suffix_start <= string_length(_line)) array_push(_parts, { text: string_copy(_line, _suffix_start, string_length(_line) - _suffix_start + 1), color: _base_color });
+        return _parts;
+    }
+
+    var _move = __dlg_find_move_match(_line);
+    if (is_struct(_move)){
+        var _pos_move = variable_struct_get(_move, "pos");
+        var _len_move = variable_struct_get(_move, "len");
+        if (_pos_move > 1) array_push(_parts, { text: string_copy(_line, 1, _pos_move - 1), color: _base_color });
+        array_push(_parts, { text: variable_struct_get(_move, "text"), color: variable_struct_get(_move, "color") });
+        var _move_end = _pos_move + _len_move;
+        if (_move_end <= string_length(_line)) array_push(_parts, { text: string_copy(_line, _move_end, string_length(_line) - _move_end + 1), color: _base_color });
+        return _parts;
+    }
+
+    array_push(_parts, { text: _line, color: _base_color });
+    return _parts;
+}
+
+function __dlg_draw_styled_text(_text, _x, _y, _base_color = c_white){
+    var _parts = __dlg_style_line_parts(_text, _base_color);
+    var _cursor_x = _x;
+    var _cursor_y = _y;
+    var _char_w = __dlg_font_w();
+    var _char_h = __dlg_font_h() + 2;
     if (variable_global_exists("FNT_POKEMON")) draw_set_font(global.FNT_POKEMON);
-    draw_text(_x, _y, _l0);
-    if (_l1 != "") draw_text(_x, _y + __dlg_font_h() + 2, _l1);
+    for (var _i = 0; _i < array_length(_parts); ++_i){
+        var _part = _parts[_i];
+        if (!is_struct(_part) || !variable_struct_exists(_part, "text")) continue;
+        var _part_text = string(variable_struct_get(_part, "text"));
+        if (string_length(_part_text) <= 0) continue;
+        var _color = (variable_struct_exists(_part, "color") ? variable_struct_get(_part, "color") : c_white);
+        draw_set_color(_color);
+        for (var _ci = 1; _ci <= string_length(_part_text); ++_ci){
+            var _ch = string_char_at(_part_text, _ci);
+            if (_ch == "\n"){
+                _cursor_x = _x;
+                _cursor_y += _char_h;
+                continue;
+            }
+            draw_text(_cursor_x, _cursor_y, _ch);
+            _cursor_x += _char_w;
+        }
+    }
+    draw_set_color(c_white);
+}
+
+function __dlg_draw_lines_spritefont(_l0, _l1, _x, _y, _base_color = c_white){
+    var _page_text = _l0;
+    if (_l1 != "") _page_text += "\n" + _l1;
+    __dlg_draw_styled_text(_page_text, _x, _y, _base_color);
 }
 
 
