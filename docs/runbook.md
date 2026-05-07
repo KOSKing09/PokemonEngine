@@ -6,6 +6,7 @@ This project is a GameMaker Studio project. The runtime contracts live in script
 
 - `docs/script_systems.md`: quick ownership map when you only need to know which folder owns a behavior
 - `docs/battle_system.md`: battle slot shape, phase flow, entrypoints, and battle-specific extension seams
+- `docs/battle_doubles.md`: doubles/co-op format rules, actor layout, ownership routing, target helpers, and trainer doubles seams
 - `docs/bag_system.md`: bag state, inventory helpers, in-battle item use flow, and bag draw/input split
 - `docs/party_system.md`: party state, menu modes, summary flow, and party/battle integration
 - `docs/description_menus.md`: where item, species, and move description text comes from and which draw/input helpers own the UI

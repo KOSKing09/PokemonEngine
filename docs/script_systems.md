@@ -5,6 +5,7 @@ This index documents the script folders by responsibility so later work can find
 ## Detailed guides
 
 - `docs/battle_system.md`: start here when changing turn flow, battler state, command routing, or battle UI integration
+- `docs/battle_doubles.md`: start here when changing doubles/co-op actor ownership, target selection, trainer doubles behavior, or scene layout
 - `docs/bag_system.md`: start here when changing bag state, item use behavior, page seeding, or bag UI layout
 - `docs/party_system.md`: start here when changing party modes, swap flow, summaries, or bag/party interactions
 - `docs/description_menus.md`: start here when changing item descriptions, move prose, flavor text, scroll behavior, or description box layout
@@ -52,6 +53,7 @@ This index documents the script folders by responsibility so later work can find
 
 - `scripts/battle_system/`: public battle entrypoints, main update loop, and shared hit-rate resolution such as `__battle_can_hit_target`
 - `scripts/battle_command_helpers/`: player command queue, command actor routing, and target-pick helpers
+- `scripts/battle_draw_helpers/`: scene anchors, doubles placement helpers, target-selector rectangles, and shared draw geometry
 - `scripts/battle_theme_helpers/`: platform/environment theme resolution and UI text-color refresh
 - `scripts/battle_actions/`: action resolution helpers used by the turn engine
 - `scripts/battle_impls/`: registered battle implementation functions used in hot paths
@@ -87,5 +89,6 @@ This index documents the script folders by responsibility so later work can find
 
 - If the change affects input semantics, start in `scripts/scr_controls/` and the caller Step event.
 - If the change affects battle flow, start in `scripts/battle_system/` and then hop to the owning helper module.
+- If the change affects doubles or co-op routing, start in `docs/battle_doubles.md`, then use `scripts/battle_system/`, `scripts/battle_command_helpers/`, `scripts/battle_draw_helpers/`, and `scripts/battle_trainer/` as the owning seams.
 - If the change affects party data shape, use `scripts/party_model/` and `scripts/party_system/` before editing battle callers.
 - If the change affects loaded data or names, inspect `scripts/PokemonDataLoaders/` and `scripts/PokemonIndexSystem/` first.

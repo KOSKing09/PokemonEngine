@@ -2,6 +2,8 @@
 
 This document summarizes the battle system architecture, public APIs, phases, state shape, and extension points. It’s written for engineers and AI agents to navigate and extend the system confidently.
 
+For doubles/co-op ownership, actor layout, target-pick flow, and trainer doubles behavior, use `docs/battle_doubles.md` alongside this file.
+
 ## Runtime contracts
 - Call `battle_open(pid, wildLevel)` to create a battle slot.
 - Each Step: `battle_update(pid)`.
@@ -69,6 +71,7 @@ This document summarizes the battle system architecture, public APIs, phases, st
 
 ## Where To Edit
 - Opening a new battle type or new open option: `scripts/battle_system/battle_system.gml::battle_open(...)`
+- Doubles/co-op actor routing, target helpers, and trainer doubles behavior: `docs/battle_doubles.md`
 - Trainer-specific entrypoints and send-out/prompt flow: `scripts/battle_trainer/battle_trainer.gml`
 - Command selection, target picking, and player input routing: `scripts/battle_command_helpers/` and `scripts/battle_system/battle_system.gml::__battle_process_input(...)`
 - Turn construction and resolution order: `scripts/battle_system/battle_system.gml::__battle_build_turn_actions(...)` and `scripts/battle_system/battle_system.gml::__battle_step_turn_if_ready(...)`

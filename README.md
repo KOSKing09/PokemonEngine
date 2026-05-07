@@ -7,6 +7,7 @@ Start with these docs:
 - `docs/runbook.md` for boot flow, manual run steps, smoke usage, and the Igor VM command
 - `docs/script_systems.md` for a folder-by-folder map of the script subsystems
 - `docs/battle_system.md` for battle-slot state, phases, and battle entrypoints
+- `docs/battle_doubles.md` for doubles/co-op actor layout, ownership routing, target selection, and trainer doubles behavior
 - `docs/bag_system.md` for bag boot/update/draw flow, inventory helpers, and battle-bag extension seams
 - `docs/party_system.md` for party state, menu modes, summary flow, and battle swap integration
 - `docs/description_menus.md` for the shared rules behind item, Pokemon, and move description panels
