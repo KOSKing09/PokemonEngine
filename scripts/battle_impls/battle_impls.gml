@@ -1821,6 +1821,67 @@ function __battle_check_can_act(_user, _move_id){
                 }
                 return true;
             }
+            // Confusion: announce the state, then 50% chance to hurt self instead of acting.
+            if (status_system_has_status(_user, "confusion")){
+                var _cinst = undefined;
+                try { _cinst = status_system_get(_user, "confusion"); } catch (e_ci) { _cinst = undefined; }
+                var _conf_name = "The user";
+                try { _conf_name = string(__status_mon_display_name(_user)); } catch (e_conf_name) {
+                    if (variable_struct_exists(_user, "name")) _conf_name = string(variable_struct_get(_user, "name"));
+                }
+                var _actor_idx_conf = (variable_struct_exists(_user, "actor_index") && is_real(variable_struct_get(_user, "actor_index"))) ? floor(variable_struct_get(_user, "actor_index")) : 0;
+
+                var _cturns = (is_struct(_cinst) && variable_struct_exists(_cinst, "turns") && is_real(variable_struct_get(_cinst, "turns"))) ? variable_struct_get(_cinst, "turns") : undefined;
+                if (is_real(_cturns) && _cturns <= 0){
+                    dialog_queue(_conf_name + " snapped out of confusion!");
+                    status_system_clear_status(_user, "confusion");
+                    try { variable_struct_set(_user, "_confusion_turn_pending_roll", false); } catch (e_conf_turn_reset) {}
+                    return true;
+                }
+
+                var _pending_conf_roll = (variable_struct_exists(_user, "_confusion_turn_pending_roll") && variable_struct_get(_user, "_confusion_turn_pending_roll") == true);
+                if (!_pending_conf_roll){
+                    var _pid_conf_announce = __battle_guess_pid_for_entities(_user, _user);
+                    var _shown_conf = false;
+                    try {
+                        if (is_real(_pid_conf_announce) && !is_undefined(dialog2p_show_now)){
+                            dialog2p_show_now(_pid_conf_announce, { text: _conf_name + " is confused!" });
+                            _shown_conf = true;
+                        }
+                    } catch (e_conf_now) { _shown_conf = false; }
+                    if (!_shown_conf){
+                        try { _shown_conf = __status_request_dialog_for_mon(_user, _conf_name + " is confused!", false); } catch (e_conf_msg) { _shown_conf = false; }
+                    }
+                    if (!_shown_conf){
+                        try {
+                            dialog_queue(_conf_name + " is confused!");
+                            _shown_conf = true;
+                        } catch (e_conf_queue) { _shown_conf = false; }
+                    }
+                    if (_shown_conf){
+                        try { variable_struct_set(_user, "_confusion_turn_pending_roll", true); } catch (e_conf_pending) {}
+                        try {
+                            var _B_conf_announce = __battle_ensure_slot(_pid_conf_announce);
+                            if (is_struct(_B_conf_announce)) variable_struct_set(_B_conf_announce, "_hold_current_action_for_status_dialog", true);
+                        } catch (e_conf_hold) {}
+                        return false;
+                    }
+                }
+
+                try { variable_struct_set(_user, "_confusion_turn_pending_roll", false); } catch (e_conf_resume) {}
+                if (is_struct(_cinst) && is_real(_cturns) && _cturns > 0) variable_struct_set(_cinst, "turns", max(0, _cturns - 1));
+
+                if (irandom(1) == 0){
+                    var _pid_conf = __battle_guess_pid_for_entities(_user, _user);
+                    try { variable_struct_set(_user, "_allow_confusion_self_hit", true); } catch (e_conf_flag_set) {}
+                    try { __battle_apply_move_damage(_pid_conf, _actor_idx_conf, _user, _user, -1, 40); } catch (e_conf_self) {}
+                    try { variable_struct_set(_user, "_allow_confusion_self_hit", false); } catch (e_conf_flag_clear) {}
+                    dialog_queue(_conf_name + " hurt itself in its confusion!");
+                    try { __battle_request_animation_safe(_user, { type: "confusion_hit" }); } catch (e_conf_anim) {}
+                    return false;
+                }
+                return true;
+            }
             // Infatuation: 50% chance to be immobilized.
             if (status_system_has_status(_user, "infatuation")){
                 var _iinst = undefined;

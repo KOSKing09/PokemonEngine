@@ -496,6 +496,152 @@ function __battle_anim_queue_resolve_side(_slot, _spec){
 
 }
 
+function __battle_anim_sprite_from_names(_sprite_names){
+    if (!is_array(_sprite_names)) return undefined;
+    for (var _i = 0; _i < array_length(_sprite_names); ++_i){
+        var _sprite_name = string(_sprite_names[_i]);
+        if (string_length(_sprite_name) <= 0) continue;
+        var _sprite_asset = asset_get_index(_sprite_name);
+        if (is_real(_sprite_asset) && _sprite_asset >= 0){
+            try {
+                if (sprite_exists(_sprite_asset)) return _sprite_asset;
+            } catch (_sprite_exists_error) { }
+        }
+    }
+    return undefined;
+}
+
+function __battle_anim_move_type_id_safe(_move_id){
+    if (!is_real(_move_id)) return undefined;
+    try {
+        if (variable_global_exists("_moves") && is_array(global._moves) && _move_id >= 0 && _move_id < array_length(global._moves)){
+            var _move_data = global._moves[_move_id];
+            if (is_struct(_move_data) && variable_struct_exists(_move_data, "type_id") && is_real(_move_data.type_id)) return floor(_move_data.type_id);
+        }
+    } catch (_move_type_error) { }
+    return undefined;
+}
+
+function __battle_anim_sprite_for_type_id(_type_id){
+    if (!is_real(_type_id)) return undefined;
+    switch (floor(_type_id)){
+        case 1:  return __battle_anim_sprite_from_names(["spr_anim_normal", "spr_type_normal", "spr_normal_anim", "sanim_normal"]);
+        case 2:  return __battle_anim_sprite_from_names(["spr_anim_fighting", "spr_type_fighting", "spr_fighting_anim", "sanim_fighting"]);
+        case 3:  return __battle_anim_sprite_from_names(["spr_anim_flying", "spr_type_flying", "spr_flying_anim", "sanim_flying"]);
+        case 4:  return __battle_anim_sprite_from_names(["spr_anim_poison", "spr_type_poison", "spr_poison_anim", "sanim_poison"]);
+        case 5:  return __battle_anim_sprite_from_names(["spr_anim_ground", "spr_type_ground", "spr_ground_anim", "sanim_ground"]);
+        case 6:  return __battle_anim_sprite_from_names(["spr_anim_rock", "spr_type_rock", "spr_rock_anim", "sanim_rock"]);
+        case 7:  return __battle_anim_sprite_from_names(["spr_anim_bug", "spr_type_bug", "spr_bug_anim", "sanim_bug"]);
+        case 8:  return __battle_anim_sprite_from_names(["spr_anim_ghost", "spr_type_ghost", "spr_ghost_anim", "sanim_ghost"]);
+        case 9:  return __battle_anim_sprite_from_names(["spr_anim_steel", "spr_type_steel", "spr_steel_anim", "sanim_steel"]);
+        case 10: return __battle_anim_sprite_from_names(["spr_anim_fire", "spr_type_fire", "spr_fire_anim", "sanim_fire"]);
+        case 11: return __battle_anim_sprite_from_names(["spr_anim_water", "spr_type_water", "spr_water_anim", "sanim_water"]);
+        case 12: return __battle_anim_sprite_from_names(["spr_anim_grass", "spr_type_grass", "spr_grass_anim", "sanim_grass"]);
+        case 13: return __battle_anim_sprite_from_names(["spr_anim_electric", "spr_type_electric", "spr_electric_anim", "sanim_electric"]);
+        case 14: return __battle_anim_sprite_from_names(["spr_anim_psychic", "spr_type_psychic", "spr_psychic_anim", "sanim_psychic"]);
+        case 15: return __battle_anim_sprite_from_names(["spr_anim_ice", "spr_type_ice", "spr_ice_anim", "sanim_ice"]);
+        case 16: return __battle_anim_sprite_from_names(["spr_anim_dragon", "spr_type_dragon", "spr_dragon_anim", "sanim_dragon"]);
+        case 17: return __battle_anim_sprite_from_names(["spr_anim_dark", "spr_type_dark", "spr_dark_anim", "sanim_dark"]);
+        case 18: return __battle_anim_sprite_from_names(["spr_anim_fairy", "spr_type_fairy", "spr_fairy_anim", "sanim_fairy"]);
+    }
+    return undefined;
+}
+
+function __battle_anim_effect_visual_profile(_effect_id, _move_id, _family){
+    var _profile = {
+        visual_kind: "none",
+        sprite: undefined,
+        duration: 640,
+        scale: 1,
+        offset_x: 0,
+        offset_y: 0,
+        orbit_count: 0,
+        orbit_radius_x: 18,
+        orbit_radius_y: 9,
+        spin_speed: 1,
+        tint: c_white
+    };
+
+    var _effect_index = is_real(_effect_id) ? floor(_effect_id) : -1;
+    var _type_id = __battle_anim_move_type_id_safe(_move_id);
+    var _type_sprite = __battle_anim_sprite_for_type_id(_type_id);
+
+    // Sleep status / Dream Eater-style sleep visuals.
+    if (_effect_index == 2 || _effect_index == 9){
+        _profile.visual_kind = "sprite_overlay";
+        _profile.sprite = __battle_anim_sprite_from_names(["spr_sleep", "spr_anim_sleep", "spr_status_sleep", "ssleep"]);
+        _profile.duration = 820;
+        _profile.scale = 1;
+        _profile.offset_y = -28;
+        return _profile;
+    }
+
+    // Poison, burn, freeze, paralysis: prefer specific status sprite, then fall back to type animation sprite.
+    if (_effect_index == 3){
+        _profile.visual_kind = "sprite_overlay";
+        _profile.sprite = __battle_anim_sprite_from_names(["spr_status_poison", "spr_anim_poison_status", "spr_poison_status"]);
+        if (is_undefined(_profile.sprite)) _profile.sprite = _type_sprite;
+        _profile.duration = 720;
+        _profile.scale = 1;
+        return _profile;
+    }
+    if (_effect_index == 5){
+        _profile.visual_kind = "sprite_overlay";
+        _profile.sprite = __battle_anim_sprite_from_names(["spr_status_burn", "spr_anim_burn", "spr_burn_status"]);
+        if (is_undefined(_profile.sprite)) _profile.sprite = _type_sprite;
+        _profile.duration = 720;
+        _profile.scale = 1;
+        return _profile;
+    }
+    if (_effect_index == 6){
+        _profile.visual_kind = "sprite_overlay";
+        _profile.sprite = __battle_anim_sprite_from_names(["spr_status_freeze", "spr_anim_freeze", "spr_freeze_status"]);
+        if (is_undefined(_profile.sprite)) _profile.sprite = _type_sprite;
+        _profile.duration = 760;
+        _profile.scale = 1;
+        return _profile;
+    }
+    if (_effect_index == 7){
+        _profile.visual_kind = "sprite_overlay";
+        _profile.sprite = __battle_anim_sprite_from_names(["spr_status_paralyze", "spr_anim_paralyze", "spr_paralyze_status", "spr_anim_electric"]);
+        if (is_undefined(_profile.sprite)) _profile.sprite = _type_sprite;
+        _profile.duration = 700;
+        _profile.scale = 1;
+        return _profile;
+    }
+
+    // Drain moves: Absorb / Mega Drain / Leech Life etc.
+    if (_effect_index == 4){
+        _profile.visual_kind = "sprite_overlay";
+        _profile.sprite = __battle_anim_sprite_from_names(["spr_anim_absorb", "spr_absorb", "spr_drain", "spr_anim_drain", "spr_anim_grass"]);
+        if (is_undefined(_profile.sprite)) _profile.sprite = _type_sprite;
+        _profile.duration = 760;
+        _profile.scale = 1;
+        return _profile;
+    }
+
+    // Self-destruct / Explosion.
+    if (_effect_index == 8){
+        _profile.visual_kind = "sprite_overlay";
+        _profile.sprite = __battle_anim_sprite_from_names(["spr_anim_explosion", "spr_explosion", "spr_boom", "spr_hiteffect"]);
+        _profile.duration = 760;
+        _profile.scale = 1.25;
+        return _profile;
+    }
+
+    // Generic damage/status fallback: use move type animation if present.
+    if (!is_undefined(_type_sprite)){
+        _profile.visual_kind = "sprite_overlay";
+        _profile.sprite = _type_sprite;
+        _profile.duration = 560;
+        _profile.scale = 1;
+        return _profile;
+    }
+
+    return _profile;
+}
+
+
 function __battle_anim_queue_normalize(_slot, _spec){
     if (!is_struct(_spec)) return undefined;
     var _type = string_lower(string(variable_struct_exists(_spec, "type") ? variable_struct_get(_spec, "type") : "generic"));
@@ -511,6 +657,21 @@ function __battle_anim_queue_normalize(_slot, _spec){
             _out.effect_id = __battle_anim_move_effect_id(_out.move_id);
             _out.family = __battle_anim_family_for_move(_out.move_id);
             _out.color = __battle_anim_color_for_family(_out.family);
+            var _effect_visual_profile = __battle_anim_effect_visual_profile(_out.effect_id, _out.move_id, _out.family);
+            if (is_struct(_effect_visual_profile) && string(_effect_visual_profile.visual_kind) != "none"){
+                _out.visual_kind = _effect_visual_profile.visual_kind;
+                _out.sprite = _effect_visual_profile.sprite;
+                _out.scale = _effect_visual_profile.scale;
+                _out.offset_x = _effect_visual_profile.offset_x;
+                _out.offset_y = _effect_visual_profile.offset_y;
+                _out.orbit_count = _effect_visual_profile.orbit_count;
+                _out.orbit_radius_x = _effect_visual_profile.orbit_radius_x;
+                _out.orbit_radius_y = _effect_visual_profile.orbit_radius_y;
+                _out.spin_speed = _effect_visual_profile.spin_speed;
+                _out.tint = _effect_visual_profile.tint;
+                _out.duration = __battle_anim_duration_for_family(_out.family, _effect_visual_profile.duration);
+                if (is_real(_effect_visual_profile.duration)) _out.duration = max(_out.duration, floor(_effect_visual_profile.duration));
+            }
             var _actor_index_move = undefined;
             if (variable_struct_exists(_spec, "actor") && is_struct(variable_struct_get(_spec, "actor")) && variable_struct_exists(variable_struct_get(_spec, "actor"), "actor_index") && is_real(variable_struct_get(variable_struct_get(_spec, "actor"), "actor_index"))){
                 _actor_index_move = variable_struct_get(variable_struct_get(_spec, "actor"), "actor_index");
@@ -688,6 +849,15 @@ function battle_anim_queue_enqueue(_pid_or_slot, _spec){
         if (variable_struct_exists(_norm, "slide_mag")) _entry.slide_mag = _norm.slide_mag;
         if (variable_struct_exists(_norm, "actor")) _entry.actor = _norm.actor;
         if (variable_struct_exists(_norm, "use_actor_sprite")) _entry.use_actor_sprite = _norm.use_actor_sprite;
+        if (variable_struct_exists(_norm, "visual_kind")) _entry.visual_kind = _norm.visual_kind;
+        if (variable_struct_exists(_norm, "orbit_count")) _entry.orbit_count = _norm.orbit_count;
+        if (variable_struct_exists(_norm, "orbit_radius_x")) _entry.orbit_radius_x = _norm.orbit_radius_x;
+        if (variable_struct_exists(_norm, "orbit_radius_y")) _entry.orbit_radius_y = _norm.orbit_radius_y;
+        if (variable_struct_exists(_norm, "spin_speed")) _entry.spin_speed = _norm.spin_speed;
+        if (variable_struct_exists(_norm, "tint")) _entry.tint = _norm.tint;
+        if (variable_struct_exists(_norm, "move_id")) _entry.move_id = _norm.move_id;
+        if (variable_struct_exists(_norm, "effect_id")) _entry.effect_id = _norm.effect_id;
+        if (variable_struct_exists(_norm, "family")) _entry.family = _norm.family;
         // Allow callers to provide a base alpha for overlays so we can fade them independently
         if (variable_struct_exists(_norm, "alpha")) _entry.alpha = variable_struct_get(_norm, "alpha");
     // (alpha is computed by the draw-state for most overlays; no explicit copy needed)
@@ -791,6 +961,35 @@ function __battle_anim_queue_build_draw_state(_pid, _slot, _entry){
     if (!is_struct(_entry)) return undefined;
     var _type = string(_entry.type);
     var _prog = clamp((variable_struct_exists(_entry, "progress") ? _entry.progress : 0), 0, 1);
+    if (_type == "move" && variable_struct_exists(_entry, "visual_kind")){
+        var _visual_kind = string(_entry.visual_kind);
+        var _idx_fx = (variable_struct_exists(_entry, "target_index") && is_real(_entry.target_index)) ? floor(_entry.target_index) : 0;
+        var _sprite_fx = (variable_struct_exists(_entry, "sprite")) ? _entry.sprite : undefined;
+        var _scale_fx = (variable_struct_exists(_entry, "scale") && is_real(_entry.scale)) ? real(_entry.scale) : 1;
+        var _offset_x_fx = (variable_struct_exists(_entry, "offset_x") && is_real(_entry.offset_x)) ? __battle_anim_queue_wu(_pid, _entry.offset_x, _entry.offset_x) : 0;
+        var _offset_y_fx = (variable_struct_exists(_entry, "offset_y") && is_real(_entry.offset_y)) ? __battle_anim_queue_hu(_pid, _entry.offset_y, _entry.offset_y) : 0;
+        var _tint_fx = (variable_struct_exists(_entry, "tint") && is_real(_entry.tint)) ? _entry.tint : c_white;
+
+        if (_visual_kind == "sprite_overlay"){
+            var _spr_count_fx = 1;
+            try { if (!is_undefined(_sprite_fx) && sprite_exists(_sprite_fx)) _spr_count_fx = max(1, sprite_get_number(_sprite_fx)); } catch (_sprite_count_error) { _spr_count_fx = 1; }
+            var _frame_fx = clamp(floor(_prog * _spr_count_fx), 0, max(0, _spr_count_fx - 1));
+            return {
+                kind: "sprite_overlay",
+                target_index: _idx_fx,
+                sprite: _sprite_fx,
+                frame: _frame_fx,
+                scale: _scale_fx,
+                alpha: 1 - max(0, (_prog - 0.70) / 0.30),
+                progress: _prog,
+                offset_x: _offset_x_fx,
+                offset_y: _offset_y_fx,
+                slide_dir: 0,
+                slide_mag: 0,
+                tint: _tint_fx
+            };
+        }
+    }
     if (_type == "move"){
         var _family_mv = string_lower(string(variable_struct_exists(_entry, "family") ? variable_struct_get(_entry, "family") : "damage"));
         var _focus_mv = (variable_struct_exists(_entry, "focus_index") && is_real(variable_struct_get(_entry, "focus_index"))) ? clamp(variable_struct_get(_entry, "focus_index"), 0, 1) : ((variable_struct_exists(_entry, "target_index") && is_real(variable_struct_get(_entry, "target_index"))) ? clamp(variable_struct_get(_entry, "target_index"), 0, 1) : 0);
@@ -1211,6 +1410,34 @@ function __battle_anim_queue_draw_states(_pid, _states){
             draw_rectangle(_sf0, _sf1, _sf2, _sf3, false);
             draw_set_alpha(1);
             draw_set_color(c_white);
+        } else if (_kind == "sprite_orbit"){
+            var _idx_orbit = (variable_struct_exists(_st, "target_index") && is_real(_st.target_index)) ? floor(_st.target_index) : 0;
+            var _center_orbit = __battle_anim_queue_actor_center(_pid, _idx_orbit);
+            var _sprite_orbit = (variable_struct_exists(_st, "sprite")) ? _st.sprite : undefined;
+            if (is_undefined(_sprite_orbit)) continue;
+            try { if (!sprite_exists(_sprite_orbit)) continue; } catch (_orbit_sprite_error) { continue; }
+
+            var _spr_count_orbit = 1;
+            try { _spr_count_orbit = max(1, sprite_get_number(_sprite_orbit)); } catch (_orbit_count_error) { _spr_count_orbit = 1; }
+
+            var _progress_orbit = (variable_struct_exists(_st, "progress") && is_real(_st.progress)) ? clamp(_st.progress, 0, 1) : 0;
+            var _alpha_orbit = (variable_struct_exists(_st, "alpha") && is_real(_st.alpha)) ? clamp(_st.alpha, 0, 1) : 1;
+            var _scale_orbit = (variable_struct_exists(_st, "scale") && is_real(_st.scale)) ? real(_st.scale) : 1;
+            var _offset_x_orbit = (variable_struct_exists(_st, "offset_x") && is_real(_st.offset_x)) ? _st.offset_x : 0;
+            var _offset_y_orbit = (variable_struct_exists(_st, "offset_y") && is_real(_st.offset_y)) ? _st.offset_y : 0;
+            var _orbit_count = (variable_struct_exists(_st, "orbit_count") && is_real(_st.orbit_count)) ? max(1, floor(_st.orbit_count)) : 3;
+            var _radius_x_orbit = (variable_struct_exists(_st, "orbit_radius_x") && is_real(_st.orbit_radius_x)) ? real(_st.orbit_radius_x) : 22;
+            var _radius_y_orbit = (variable_struct_exists(_st, "orbit_radius_y") && is_real(_st.orbit_radius_y)) ? real(_st.orbit_radius_y) : 8;
+            var _spin_speed_orbit = (variable_struct_exists(_st, "spin_speed") && is_real(_st.spin_speed)) ? real(_st.spin_speed) : 1.35;
+            var _tint_orbit = (variable_struct_exists(_st, "tint") && is_real(_st.tint)) ? _st.tint : c_white;
+
+            for (var _orbit_i = 0; _orbit_i < _orbit_count; ++_orbit_i){
+                var _orbit_angle = ((_progress_orbit * 2 * pi * _spin_speed_orbit) + ((_orbit_i / _orbit_count) * 2 * pi));
+                var _draw_x_orbit = _center_orbit[0] + _offset_x_orbit + cos(_orbit_angle) * _radius_x_orbit;
+                var _draw_y_orbit = _center_orbit[1] + _offset_y_orbit + sin(_orbit_angle) * _radius_y_orbit;
+                var _frame_orbit = clamp(floor((_progress_orbit * _spr_count_orbit * 1.75) + _orbit_i) mod _spr_count_orbit, 0, max(0, _spr_count_orbit - 1));
+                draw_sprite_ext(_sprite_orbit, _frame_orbit, _draw_x_orbit, _draw_y_orbit, _scale_orbit, _scale_orbit, 0, _tint_orbit, _alpha_orbit);
+            }
         }
         else if (_kind == "sprite_overlay"){
             // Draw an arbitrary single-frame/animated sprite centered on the target actor

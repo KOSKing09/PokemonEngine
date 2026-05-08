@@ -2822,6 +2822,9 @@ function __battle_perform_action_impl(_pid, _step){
                 return string((variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"The user")) + "'s attack missed!";
             }
         } catch (e_rr) {}
+        if (_damage_move_missed){
+            return string((variable_struct_exists(A,"name") ? variable_struct_get(A,"name") : "The user")) + "'s attack missed!";
+        }
         }
 
         // For non-damaging/status moves (mv_power <= 0), ensure meta effects run here

@@ -213,6 +213,7 @@ function __party_status_ui_sprite_frame_for(_sid){
         case "burn": return 4;
         case "pkrs": return 5;
         case "fnt": return 6;
+        case "confusion": return 7;
     }
     return -1;
 }
@@ -237,14 +238,16 @@ function __party_status_ui_sprite_frames(_mon_or_actor){
 function __party_draw_status_ui(_x, _y, _scale, _mon_or_actor, _max_width = -1, _alpha = 1){
     if (!sprite_exists(spr_statusUI)) return 0;
 
-    var _frames = __party_status_ui_sprite_frames(_mon_or_actor);
-    if (!is_array(_frames) || array_length(_frames) <= 0) return 0;
+    var _statuses = __party_status_ui_collect(_mon_or_actor);
+    if (!is_array(_statuses) || array_length(_statuses) <= 0) return 0;
 
     var _safe_scale = max(0.5, real(_scale));
     var _old_alpha = draw_get_alpha();
     var _old_color = draw_get_color();
     var _sprite_w = max(1, sprite_get_width(spr_statusUI));
+    var _sprite_h = max(1, sprite_get_height(spr_statusUI));
     var _draw_step = max(1, floor(_sprite_w * _safe_scale));
+    var _draw_h = max(1, floor(_sprite_h * _safe_scale));
     var _gap = max(1, round(2 * _safe_scale));
     var _cursor_x = _x;
     var _drawn_w = 0;
@@ -252,12 +255,16 @@ function __party_draw_status_ui(_x, _y, _scale, _mon_or_actor, _max_width = -1, 
     draw_set_alpha(clamp(_alpha, 0, 1));
     draw_set_color(c_white);
 
-    for (var _si = 0; _si < array_length(_frames); ++_si){
-        var _next_w = _draw_step + ((_si > 0) ? _gap : 0);
+    for (var _si = 0; _si < array_length(_statuses); ++_si){
+        var _sid = _statuses[_si];
+        var _frame = __party_status_ui_sprite_frame_for(_sid);
+        var _item_w = _draw_step;
+        if (_frame < 0) continue;
+        var _next_w = _item_w + ((_drawn_w > 0) ? _gap : 0);
         if (is_real(_max_width) && _max_width > 0 && (_drawn_w + _next_w) > _max_width) break;
-        if (_si > 0) _cursor_x += _gap;
-        draw_sprite_ext(spr_statusUI, _frames[_si], _cursor_x, _y, _safe_scale, _safe_scale, 0, c_white, clamp(_alpha, 0, 1));
-        _cursor_x += _draw_step;
+        if (_drawn_w > 0) _cursor_x += _gap;
+        draw_sprite_ext(spr_statusUI, _frame, _cursor_x, _y, _safe_scale, _safe_scale, 0, c_white, clamp(_alpha, 0, 1));
+        _cursor_x += _item_w;
         _drawn_w = _cursor_x - _x;
     }
 

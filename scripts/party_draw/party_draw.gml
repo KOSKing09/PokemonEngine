@@ -296,7 +296,9 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
 
         var _status_draw_w = 0;
         if (!is_undefined(__party_draw_status_ui)){
-            _status_draw_w = __party_draw_status_ui(_bar_x, _bar_y + _bar_h + (2 * _S), _S * 0.8, _L, floor(_bar_w * 0.55));
+            var _status_h = (sprite_exists(spr_statusUI) ? floor(sprite_get_height(spr_statusUI) * (_S * 0.8)) : floor(8 * _S));
+            var _status_y = _bar_y - _status_h - max(1, floor(2 * _S));
+            _status_draw_w = __party_draw_status_ui(_bar_x, _status_y, _S * 0.8, _L, floor(_bar_w * 0.55));
         }
 
         var _hp_txt = string(_hp_cur) + " / " + string(_hp_max);
@@ -304,7 +306,7 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         var _hp_ty  = _bar_y + _bar_h + (2*_S) + 6;
 
         draw_set_color(c_white);
-        draw_text(_bar_x + _status_draw_w + ((_status_draw_w > 0) ? (2 * _S) : 0), _hp_ty, "Lv " + string(_lvl_val));
+        draw_text(_bar_x, _hp_ty, "Lv " + string(_lvl_val));
         draw_text(_hp_tx, _hp_ty, _hp_txt);
     }
 

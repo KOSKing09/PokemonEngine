@@ -48,6 +48,103 @@ function __battle_draw_platform(_pid, _B, _side, _anchor_x, _anchor_bottom, _ui_
     draw_sprite_ext(spr, subimg, draw_x, draw_y, scale, scale, 0, c_white, 1);
 }
 
+function __battle_confusion_dialog_overlay_state(_pid, _actor, _center_x, _center_y, _alpha_mult = 1){
+    if (!is_struct(_actor)) return undefined;
+
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B)) return undefined;
+    if (!variable_struct_exists(_B, "_confusion_prompt_actor_index") || !is_real(variable_struct_get(_B, "_confusion_prompt_actor_index"))) return undefined;
+    if (is_undefined(dialog2p_is_open) || !dialog2p_is_open(_pid)) return undefined;
+
+    var _actor_index = (variable_struct_exists(_actor, "actor_index") && is_real(variable_struct_get(_actor, "actor_index"))) ? floor(variable_struct_get(_actor, "actor_index")) : -1;
+    var _prompt_actor_index = floor(variable_struct_get(_B, "_confusion_prompt_actor_index"));
+    if (_actor_index < 0 || _actor_index != _prompt_actor_index) return undefined;
+
+    var _spr = asset_get_index("spr_confused");
+    if (!is_real(_spr) || _spr < 0 || !sprite_exists(_spr)) return undefined;
+
+    var _loop_ms = 860;
+    var _elapsed = current_time mod _loop_ms;
+    var _progress = clamp(_elapsed / _loop_ms, 0, 1);
+    var _alpha = clamp(_alpha_mult * (0.86 + 0.14 * sin((_progress * 2 * pi) - (pi * 0.5))), 0, 1);
+    if (_alpha <= 0.001) return undefined;
+
+    var _ui_s = 1;
+    if (is_struct(_B) && variable_struct_exists(_B, "_ui") && is_struct(variable_struct_get(_B, "_ui"))){
+        var _ui = variable_struct_get(_B, "_ui");
+        if (variable_struct_exists(_ui, "s") && is_real(variable_struct_get(_ui, "s"))) _ui_s = max(1, real(variable_struct_get(_ui, "s")));
+    }
+
+    var _side = __battle_actor_side(_actor_index);
+    var _base_y = _center_y - ((_side == 1) ? floor(18 * _ui_s) : floor(28 * _ui_s));
+    var _base_x = _center_x;
+    var _scale = max(1.6, 1.15 * _ui_s);
+    var _radius_x = max(10, floor(12 * _ui_s));
+    var _radius_y = max(5, floor(5 * _ui_s));
+    var _orbit_count = 3;
+    var _spin_speed = 1.05;
+    var _spr_w = sprite_get_width(_spr);
+    var _spr_h = sprite_get_height(_spr);
+    var _spr_xoff = sprite_get_xoffset(_spr);
+    var _spr_yoff = sprite_get_yoffset(_spr);
+    var _anchor_dx = (_spr_xoff - (_spr_w * 0.5)) * _scale;
+    var _anchor_dy = (_spr_yoff - (_spr_h * 0.5)) * _scale;
+    return {
+        sprite: _spr,
+        progress: _progress,
+        alpha: _alpha,
+        center_x: _center_x,
+        center_y: _center_y,
+        base_x: _base_x,
+        base_y: _base_y,
+        scale: _scale,
+        orbit_radius_x: _radius_x,
+        orbit_radius_y: _radius_y,
+        orbit_count: _orbit_count,
+        spin_speed: _spin_speed,
+        spr_w: _spr_w,
+        spr_h: _spr_h,
+        anchor_dx: _anchor_dx,
+        anchor_dy: _anchor_dy
+    };
+}
+
+function __battle_draw_confusion_dialog_overlay(_pid, _actor, _center_x, _center_y, _alpha_mult = 1){
+    var _state = __battle_confusion_dialog_overlay_state(_pid, _actor, _center_x, _center_y, _alpha_mult);
+    if (!is_struct(_state)) return;
+
+    var _spr = _state.sprite;
+    var _progress = _state.progress;
+    var _alpha = _state.alpha;
+    var _base_x = _state.base_x;
+    var _base_y = _state.base_y;
+    var _scale = _state.scale;
+    var _radius_x = _state.orbit_radius_x;
+    var _radius_y = _state.orbit_radius_y;
+    var _orbit_count = _state.orbit_count;
+    var _spin_speed = _state.spin_speed;
+    var _spr_w = _state.spr_w;
+    var _spr_h = _state.spr_h;
+    var _anchor_dx = _state.anchor_dx;
+    var _anchor_dy = _state.anchor_dy;
+    var _max_x = display_get_gui_width() - ceil(_spr_w * _scale) - 2;
+    var _max_y = display_get_gui_height() - ceil(_spr_h * _scale) - 2;
+
+    gpu_set_blendmode(bm_normal);
+    for (var _orbit_i = 0; _orbit_i < _orbit_count; ++_orbit_i){
+        var _orbit_angle = ((_progress * 2 * pi * _spin_speed) + ((_orbit_i / _orbit_count) * 2 * pi));
+        var _draw_x = _base_x + cos(_orbit_angle) * _radius_x + _anchor_dx;
+        var _draw_y = _base_y + sin(_orbit_angle) * _radius_y + _anchor_dy + sin((_progress * 2 * pi) + _orbit_i) * 2;
+        _draw_x = clamp(_draw_x, 2, max(2, _max_x));
+        _draw_y = clamp(_draw_y, 2, max(2, _max_y));
+        var _frame = clamp(floor((current_time / 90) + _orbit_i) mod max(1, sprite_get_number(_spr)), 0, max(0, sprite_get_number(_spr) - 1));
+        draw_sprite_ext(_spr, _frame, _draw_x, _draw_y, _scale, _scale, 0, c_white, _alpha);
+    }
+    gpu_set_blendmode(bm_normal);
+    draw_set_alpha(1);
+    draw_set_color(c_white);
+}
+
 function __battle_is_double_scene(_B){
     return is_struct(_B) && variable_struct_exists(_B, "battle_format") && string(variable_struct_get(_B, "battle_format")) == "double";
 }

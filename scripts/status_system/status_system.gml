@@ -1183,8 +1183,18 @@ if (variable_global_exists("STATUS_SYS") && variable_struct_exists(global.STATUS
     // confusion
     if (variable_struct_exists(_reg, "confusion")){
         var _cf = variable_struct_get(_reg, "confusion");
-    variable_struct_set(_cf, "on_apply", function(mon, s, opts){ var durc = irandom_range(2,5); if (is_struct(s)) s.turns = durc; __battle_request_animation_safe(mon, { type: "status_apply", status: "confusion" }); });
-    variable_struct_set(_cf, "on_tick", function(mon, s, dt){ var r = irandom(99); if (r < 50){ if (!is_undefined(__battle_apply_move_damage)){ try { __battle_apply_move_damage(undefined, 0, mon, mon, -1, 40); } catch (e) {} } __battle_request_animation_safe(mon, { type: "confusion_hit" }); } });
+    variable_struct_set(_cf, "on_apply", function(mon, s, opts){
+        var durc = irandom_range(2,5);
+        if (is_struct(s)){
+            s.turns = durc;
+            variable_struct_set(s, "_skip_first_tick", true);
+        }
+        __battle_request_animation_safe(mon, { type: "status_apply", status: "confusion" });
+    });
+    variable_struct_set(_cf, "on_tick", function(mon, s, dt){
+        // Confusion is resolved in __battle_check_can_act before move execution.
+        // Keep the per-turn duration bookkeeping in status_system_tick_statuses only.
+    });
         variable_struct_set(_reg, "confusion", _cf);
     }
     // paralysis

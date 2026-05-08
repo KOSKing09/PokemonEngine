@@ -4296,6 +4296,12 @@ function __battle_step_turn_if_ready(_pid){
     }
 
     if (string_length(out_msg) <= 0){
+        try {
+            if (variable_struct_exists(_B, "_hold_current_action_for_status_dialog") && variable_struct_get(_B, "_hold_current_action_for_status_dialog")){
+                variable_struct_set(_B, "_hold_current_action_for_status_dialog", false);
+                return;
+            }
+        } catch (e_hold_status_dialog) {}
         // No text? move on silently
         _B.turn_i += 1;
         __battle_step_turn_if_ready(_pid);

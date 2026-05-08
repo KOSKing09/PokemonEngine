@@ -230,3 +230,5 @@ wc_bind_layers(["WALL", "BLOCKS"]);
 wc_set_solids([noone]); // add object ids here if you have solid instances
 
 show_debug_message(global._move_meta[79]);
+
+global.DEV_AUTO_CONFUSION_ANIM_SMOKE = true

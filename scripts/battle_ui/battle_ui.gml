@@ -409,6 +409,18 @@ function __battle_player_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_A,_label,_compac
         return;
     }
 
+    var _show_exp = false;
+    var _actor_idx_exp = (is_struct(_A) && variable_struct_exists(_A, "actor_index") && is_real(variable_struct_get(_A, "actor_index"))) ? floor(variable_struct_get(_A, "actor_index")) : -1;
+    var _owner_pid_exp = (is_struct(_A) && variable_struct_exists(_A, "owner_pid") && is_real(variable_struct_get(_A, "owner_pid"))) ? floor(variable_struct_get(_A, "owner_pid")) : undefined;
+    if (is_real(_actor_idx_exp) && _actor_idx_exp >= 0 && __battle_actor_side(_actor_idx_exp) == 0){
+        if (is_real(_owner_pid_exp)) _show_exp = (_owner_pid_exp == _pid);
+        else _show_exp = true;
+    }
+    if (!_show_exp){
+        if (_restore_font2 != -1) draw_set_font(_restore_font2);
+        return;
+    }
+
     var _expReserve = __bwu(_pid, 64);
     var _expBarY = _is_compact ? (_by + __bhu(_pid, 18)) : (_barY + _bh + __bhu(_pid,2));
     var _expBarH = __bhu(_pid, 3);

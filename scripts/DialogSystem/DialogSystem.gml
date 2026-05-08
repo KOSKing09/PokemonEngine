@@ -687,6 +687,19 @@ function __dlg_style_line_parts(_line, _base_color = c_white){
         return _parts;
     }
 
+    var _mh_start = string_pos("(", _line);
+    var _mh_times = string_pos(" time", string_lower(_line));
+    if (_mh_start > 0 && _mh_times > _mh_start){
+        var _mh_end = string_pos(")", _line);
+        if (_mh_end > _mh_times){
+            if (_mh_start > 1) array_push(_parts, { text: string_copy(_line, 1, _mh_start - 1), color: _base_color });
+            array_push(_parts, { text: string_copy(_line, _mh_start, _mh_end - _mh_start + 1), color: c_red });
+            var _mh_suffix = _mh_end + 1;
+            if (_mh_suffix <= string_length(_line)) array_push(_parts, { text: string_copy(_line, _mh_suffix, string_length(_line) - _mh_suffix + 1), color: _base_color });
+            return _parts;
+        }
+    }
+
     array_push(_parts, { text: _line, color: _base_color });
     return _parts;
 }

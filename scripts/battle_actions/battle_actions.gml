@@ -603,6 +603,11 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
                 }
             }
         } catch (e_mf) {}
+        if (!_is_self_target_allowed && is_real(_move_id) && _move_id < 0){
+            if (is_struct(_A) && variable_struct_exists(_A, "_allow_confusion_self_hit") && variable_struct_get(_A, "_allow_confusion_self_hit") == true){
+                _is_self_target_allowed = true;
+            }
+        }
         if (is_real(_att_idx_chk) && is_real(_target_index) && _att_idx_chk == _target_index && !_is_self_target_allowed){
             if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) {
                 var _an = (is_struct(_A) && variable_struct_exists(_A, "name") ? variable_struct_get(_A, "name") : "<att?>");

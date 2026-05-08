@@ -22,6 +22,7 @@ function __battle_draw_battlers(_pid, _B) {
         var _enemy_pt = variable_struct_get(_enemy_anchor, "battler");
         if (!is_array(_enemy_pt) || array_length(_enemy_pt) < 2) continue;
         __battle_draw_enemy(_pid, _B, _enemy_idx_draw, _enemy_pt[0] + _cam_offx, _enemy_pt[1] + _cam_offy);
+        if (!is_undefined(__battle_draw_confusion_dialog_overlay)) __battle_draw_confusion_dialog_overlay(_pid, _B.actor[_enemy_idx_draw], _enemy_pt[0] + _cam_offx, _enemy_pt[1] + _cam_offy);
     }
 
     var __vict_draw = __battle_fetch_global_function("__battle_trainer_draw_victory");
@@ -84,6 +85,7 @@ function __battle_draw_battlers(_pid, _B) {
         if (!is_array(_player_pt) || array_length(_player_pt) < 2) continue;
         var _trainer_pt = (variable_struct_exists(_player_anchor, "trainer") ? variable_struct_get(_player_anchor, "trainer") : _player_pt);
         __battle_draw_player(_pid, _B, _player_idx_draw, _player_pt[0] + _cam_offx, _player_pt[1] + _cam_offy, _trainer_pt[0] + _cam_offx, _trainer_pt[1] + _cam_offy, true);
+        if (!is_undefined(__battle_draw_confusion_dialog_overlay)) __battle_draw_confusion_dialog_overlay(_pid, _B.actor[_player_idx_draw], _player_pt[0] + _cam_offx, _player_pt[1] + _cam_offy);
     }
 
     if (!is_undefined(__battle_draw_target_selector)) __battle_draw_target_selector(_pid, _B, _cam_offx, _cam_offy);
