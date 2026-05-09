@@ -41,6 +41,9 @@ function __ctrl_default_bind_p1(){
         Interact : { k: ord("Z"), gp: gp_face1 },  // A/South
         Inventory: { k: ord("C"), gp: gp_face3 },  // Y/North
         Run      : { k: ord("X"), gp: gp_face2 },  // B/East
+        Back     : { k: ord("X"), gp: gp_face2 },
+        PageUp   : { k: ord("A"), gp: gp_shoulderl },
+        PageDown : { k: ord("S"), gp: gp_shoulderr },
         Pause    : { k: vk_enter, gp: gp_start }
     };
 }
@@ -53,69 +56,113 @@ function __ctrl_default_bind_p2(){
         Interact : { k: ord("N"), gp: gp_face1 },
         Inventory: { k: ord("B"), gp: gp_face3 },
         Run      : { k: ord("M"), gp: gp_face2 },
+        Back     : { k: ord("M"), gp: gp_face2 },
+        PageUp   : { k: ord("Q"), gp: gp_shoulderl },
+        PageDown : { k: ord("E"), gp: gp_shoulderr },
         Pause    : { k: vk_tab,   gp: gp_start }
     };
+}
+
+function __ctrl_ensure_bind_shape(_bind, _defaults){
+    if (!is_struct(_bind)) return _defaults;
+    if (!is_struct(_defaults)) return _bind;
+    var _actions = variable_struct_get_names(_defaults);
+    for (var _i = 0; _i < array_length(_actions); ++_i){
+        var _act = _actions[_i];
+        if (!variable_struct_exists(_bind, _act) || !is_struct(variable_struct_get(_bind, _act))){
+            variable_struct_set(_bind, _act, variable_struct_get(_defaults, _act));
+            continue;
+        }
+        var _dst = variable_struct_get(_bind, _act);
+        var _src = variable_struct_get(_defaults, _act);
+        if (!variable_struct_exists(_dst, "k")) variable_struct_set(_dst, "k", variable_struct_get(_src, "k"));
+        if (!variable_struct_exists(_dst, "gp")) variable_struct_set(_dst, "gp", variable_struct_get(_src, "gp"));
+        variable_struct_set(_bind, _act, _dst);
+    }
+    return _bind;
 }
 
 // ---- INI load/save ---------------------------------------------------------
 function controls_load(){
     var b = CTRL.bind;
+    var _b0 = __ctrl_ensure_bind_shape(b[0], __ctrl_default_bind_p1());
+    var _b1 = __ctrl_ensure_bind_shape(b[1], __ctrl_default_bind_p2());
 
     ini_open(working_directory + "/options.ini");
 
     // P1
-    b[0].MoveLeft.k   = ini_read_real("P1","MoveLeft_k",  b[0].MoveLeft.k);
-    b[0].MoveRight.k  = ini_read_real("P1","MoveRight_k", b[0].MoveRight.k);
-    b[0].MoveUp.k     = ini_read_real("P1","MoveUp_k",    b[0].MoveUp.k);
-    b[0].MoveDown.k   = ini_read_real("P1","MoveDown_k",  b[0].MoveDown.k);
-    b[0].Interact.k   = ini_read_real("P1","Interact_k",  b[0].Interact.k);
-    b[0].Inventory.k  = ini_read_real("P1","Inventory_k", b[0].Inventory.k);
-    b[0].Run.k        = ini_read_real("P1","Run_k",       b[0].Run.k);
-    b[0].Pause.k      = ini_read_real("P1","Pause_k",     b[0].Pause.k);
+    _b0.MoveLeft.k   = ini_read_real("P1","MoveLeft_k",  _b0.MoveLeft.k);
+    _b0.MoveRight.k  = ini_read_real("P1","MoveRight_k", _b0.MoveRight.k);
+    _b0.MoveUp.k     = ini_read_real("P1","MoveUp_k",    _b0.MoveUp.k);
+    _b0.MoveDown.k   = ini_read_real("P1","MoveDown_k",  _b0.MoveDown.k);
+    _b0.Interact.k   = ini_read_real("P1","Interact_k",  _b0.Interact.k);
+    _b0.Inventory.k  = ini_read_real("P1","Inventory_k", _b0.Inventory.k);
+    _b0.Run.k        = ini_read_real("P1","Run_k",       _b0.Run.k);
+    _b0.Back.k       = ini_read_real("P1","Back_k",      _b0.Back.k);
+    _b0.PageUp.k     = ini_read_real("P1","PageUp_k",    _b0.PageUp.k);
+    _b0.PageDown.k   = ini_read_real("P1","PageDown_k",  _b0.PageDown.k);
+    _b0.Pause.k      = ini_read_real("P1","Pause_k",     _b0.Pause.k);
 
     // P2
-    b[1].MoveLeft.k   = ini_read_real("P2","MoveLeft_k",  b[1].MoveLeft.k);
-    b[1].MoveRight.k  = ini_read_real("P2","MoveRight_k", b[1].MoveRight.k);
-    b[1].MoveUp.k     = ini_read_real("P2","MoveUp_k",    b[1].MoveUp.k);
-    b[1].MoveDown.k   = ini_read_real("P2","MoveDown_k",  b[1].MoveDown.k);
-    b[1].Interact.k   = ini_read_real("P2","Interact_k",  b[1].Interact.k);
-    b[1].Inventory.k  = ini_read_real("P2","Inventory_k", b[1].Inventory.k);
-    b[1].Run.k        = ini_read_real("P2","Run_k",       b[1].Run.k);
-    b[1].Pause.k      = ini_read_real("P2","Pause_k",     b[1].Pause.k);
+    _b1.MoveLeft.k   = ini_read_real("P2","MoveLeft_k",  _b1.MoveLeft.k);
+    _b1.MoveRight.k  = ini_read_real("P2","MoveRight_k", _b1.MoveRight.k);
+    _b1.MoveUp.k     = ini_read_real("P2","MoveUp_k",    _b1.MoveUp.k);
+    _b1.MoveDown.k   = ini_read_real("P2","MoveDown_k",  _b1.MoveDown.k);
+    _b1.Interact.k   = ini_read_real("P2","Interact_k",  _b1.Interact.k);
+    _b1.Inventory.k  = ini_read_real("P2","Inventory_k", _b1.Inventory.k);
+    _b1.Run.k        = ini_read_real("P2","Run_k",       _b1.Run.k);
+    _b1.Back.k       = ini_read_real("P2","Back_k",      _b1.Back.k);
+    _b1.PageUp.k     = ini_read_real("P2","PageUp_k",    _b1.PageUp.k);
+    _b1.PageDown.k   = ini_read_real("P2","PageDown_k",  _b1.PageDown.k);
+    _b1.Pause.k      = ini_read_real("P2","Pause_k",     _b1.Pause.k);
+
+    b[0] = _b0;
+    b[1] = _b1;
+    CTRL.bind = b;
 
     // Dialog speed global (1 slow, 2 normal, 3 fast)
     global.DIALOG_SPEED = ini_read_real("Dialog","speed", 2);
+    CTRL.deadzone = clamp(ini_read_real("Input", "deadzone", CTRL.deadzone), 0.05, 0.95);
 
     ini_close();
 }
 
 function controls_save(){
     var b = CTRL.bind;
+    var _b0 = __ctrl_ensure_bind_shape(b[0], __ctrl_default_bind_p1());
+    var _b1 = __ctrl_ensure_bind_shape(b[1], __ctrl_default_bind_p2());
 
     ini_open(working_directory + "/options.ini");
 
     // P1
-    ini_write_real("P1","MoveLeft_k",  b[0].MoveLeft.k);
-    ini_write_real("P1","MoveRight_k", b[0].MoveRight.k);
-    ini_write_real("P1","MoveUp_k",    b[0].MoveUp.k);
-    ini_write_real("P1","MoveDown_k",  b[0].MoveDown.k);
-    ini_write_real("P1","Interact_k",  b[0].Interact.k);
-    ini_write_real("P1","Inventory_k", b[0].Inventory.k);
-    ini_write_real("P1","Run_k",       b[0].Run.k);
-    ini_write_real("P1","Pause_k",     b[0].Pause.k);
+    ini_write_real("P1","MoveLeft_k",  _b0.MoveLeft.k);
+    ini_write_real("P1","MoveRight_k", _b0.MoveRight.k);
+    ini_write_real("P1","MoveUp_k",    _b0.MoveUp.k);
+    ini_write_real("P1","MoveDown_k",  _b0.MoveDown.k);
+    ini_write_real("P1","Interact_k",  _b0.Interact.k);
+    ini_write_real("P1","Inventory_k", _b0.Inventory.k);
+    ini_write_real("P1","Run_k",       _b0.Run.k);
+    ini_write_real("P1","Back_k",      _b0.Back.k);
+    ini_write_real("P1","PageUp_k",    _b0.PageUp.k);
+    ini_write_real("P1","PageDown_k",  _b0.PageDown.k);
+    ini_write_real("P1","Pause_k",     _b0.Pause.k);
 
     // P2
-    ini_write_real("P2","MoveLeft_k",  b[1].MoveLeft.k);
-    ini_write_real("P2","MoveRight_k", b[1].MoveRight.k);
-    ini_write_real("P2","MoveUp_k",    b[1].MoveUp.k);
-    ini_write_real("P2","MoveDown_k",  b[1].MoveDown.k);
-    ini_write_real("P2","Interact_k",  b[1].Interact.k);
-    ini_write_real("P2","Inventory_k", b[1].Inventory.k);
-    ini_write_real("P2","Run_k",       b[1].Run.k);
-    ini_write_real("P2","Pause_k",     b[1].Pause.k);
+    ini_write_real("P2","MoveLeft_k",  _b1.MoveLeft.k);
+    ini_write_real("P2","MoveRight_k", _b1.MoveRight.k);
+    ini_write_real("P2","MoveUp_k",    _b1.MoveUp.k);
+    ini_write_real("P2","MoveDown_k",  _b1.MoveDown.k);
+    ini_write_real("P2","Interact_k",  _b1.Interact.k);
+    ini_write_real("P2","Inventory_k", _b1.Inventory.k);
+    ini_write_real("P2","Run_k",       _b1.Run.k);
+    ini_write_real("P2","Back_k",      _b1.Back.k);
+    ini_write_real("P2","PageUp_k",    _b1.PageUp.k);
+    ini_write_real("P2","PageDown_k",  _b1.PageDown.k);
+    ini_write_real("P2","Pause_k",     _b1.Pause.k);
 
     // Dialog
     ini_write_real("Dialog","speed", global.DIALOG_SPEED);
+    ini_write_real("Input","deadzone", CTRL.deadzone);
 
     ini_close();
 }
@@ -145,6 +192,17 @@ function controls_update(){
     for (var pid = 0; pid < CTRL.max_players; pid++){
         var st = CTRL.state[pid];
         var bd = CTRL.bind[pid];
+        var _move_left = variable_struct_get(bd, "MoveLeft");
+        var _move_right = variable_struct_get(bd, "MoveRight");
+        var _move_up = variable_struct_get(bd, "MoveUp");
+        var _move_down = variable_struct_get(bd, "MoveDown");
+        var _interact = variable_struct_get(bd, "Interact");
+        var _inventory = variable_struct_get(bd, "Inventory");
+        var _run = variable_struct_get(bd, "Run");
+        var _back = variable_struct_get(bd, "Back");
+        var _page_up = variable_struct_get(bd, "PageUp");
+        var _page_down = variable_struct_get(bd, "PageDown");
+        var _pause = variable_struct_get(bd, "Pause");
 
         // rotate maps
         ds_map_copy(st.prev, st.now);
@@ -153,17 +211,20 @@ function controls_update(){
         ds_map_clear(st.released);
 
         // digital actions (keyboard OR gamepad)
-        __ctrl_set(st, "Interact",  __k_down(bd.Interact.k)  || __gp_btn(CTRL.pad_index[pid], bd.Interact.gp));
-        __ctrl_set(st, "Inventory", __k_down(bd.Inventory.k) || __gp_btn(CTRL.pad_index[pid], bd.Inventory.gp));
-        __ctrl_set(st, "Run",       __k_down(bd.Run.k)       || __gp_btn(CTRL.pad_index[pid], bd.Run.gp));
-        __ctrl_set(st, "Pause",     __k_down(bd.Pause.k)     || __gp_btn(CTRL.pad_index[pid], bd.Pause.gp));
+        __ctrl_set(st, "Interact",  __k_down(variable_struct_get(_interact, "k"))  || __gp_btn(CTRL.pad_index[pid], variable_struct_get(_interact, "gp")));
+        __ctrl_set(st, "Inventory", __k_down(variable_struct_get(_inventory, "k")) || __gp_btn(CTRL.pad_index[pid], variable_struct_get(_inventory, "gp")));
+        __ctrl_set(st, "Run",       __k_down(variable_struct_get(_run, "k"))       || __gp_btn(CTRL.pad_index[pid], variable_struct_get(_run, "gp")));
+        __ctrl_set(st, "Back",      __k_down(variable_struct_get(_back, "k"))      || __gp_btn(CTRL.pad_index[pid], variable_struct_get(_back, "gp")));
+        __ctrl_set(st, "PageUp",    __k_down(variable_struct_get(_page_up, "k"))   || __gp_btn(CTRL.pad_index[pid], variable_struct_get(_page_up, "gp")));
+        __ctrl_set(st, "PageDown",  __k_down(variable_struct_get(_page_down, "k")) || __gp_btn(CTRL.pad_index[pid], variable_struct_get(_page_down, "gp")));
+        __ctrl_set(st, "Pause",     __k_down(variable_struct_get(_pause, "k"))     || __gp_btn(CTRL.pad_index[pid], variable_struct_get(_pause, "gp")));
 
         // axes (keyboard dpad + left stick)
         var ax = 0, ay = 0;
-        if (__k_down(bd.MoveLeft.k))  ax -= 1;
-        if (__k_down(bd.MoveRight.k)) ax += 1;
-        if (__k_down(bd.MoveUp.k))    ay -= 1;
-        if (__k_down(bd.MoveDown.k))  ay += 1;
+        if (__k_down(variable_struct_get(_move_left, "k")))  ax -= 1;
+        if (__k_down(variable_struct_get(_move_right, "k"))) ax += 1;
+        if (__k_down(variable_struct_get(_move_up, "k")))    ay -= 1;
+        if (__k_down(variable_struct_get(_move_down, "k")))  ay += 1;
 
         var pad = CTRL.pad_index[pid];
         if (gamepad_is_connected(pad)){
@@ -171,6 +232,10 @@ function controls_update(){
             var sy = gamepad_axis_value(pad, gp_axislv);
             if (abs(sx) < dead) sx = 0;
             if (abs(sy) < dead) sy = 0;
+            if (gamepad_button_check(pad, gp_padl)) sx = -1;
+            else if (gamepad_button_check(pad, gp_padr)) sx = 1;
+            if (gamepad_button_check(pad, gp_padu)) sy = -1;
+            else if (gamepad_button_check(pad, gp_padd)) sy = 1;
             ax += sx;
             ay += sy;
         }
@@ -181,15 +246,18 @@ function controls_update(){
         st.axis_y = ay;
 
         // synthesize 4-way booleans (grid/anim)
-        __ctrl_set(st, "MoveLeft",  (ax < -dead) || __k_down(bd.MoveLeft.k));
-        __ctrl_set(st, "MoveRight", (ax >  dead) || __k_down(bd.MoveRight.k));
-        __ctrl_set(st, "MoveUp",    (ay < -dead) || __k_down(bd.MoveUp.k));
-        __ctrl_set(st, "MoveDown",  (ay >  dead) || __k_down(bd.MoveDown.k));
+        __ctrl_set(st, "MoveLeft",  (ax < -dead) || __k_down(variable_struct_get(_move_left, "k")));
+        __ctrl_set(st, "MoveRight", (ax >  dead) || __k_down(variable_struct_get(_move_right, "k")));
+        __ctrl_set(st, "MoveUp",    (ay < -dead) || __k_down(variable_struct_get(_move_up, "k")));
+        __ctrl_set(st, "MoveDown",  (ay >  dead) || __k_down(variable_struct_get(_move_down, "k")));
 
         // pressed/released edges
         __ctrl_edges(st, "Interact");
         __ctrl_edges(st, "Inventory");
         __ctrl_edges(st, "Run");
+        __ctrl_edges(st, "Back");
+        __ctrl_edges(st, "PageUp");
+        __ctrl_edges(st, "PageDown");
         __ctrl_edges(st, "Pause");
         __ctrl_edges(st, "MoveLeft");
         __ctrl_edges(st, "MoveRight");
@@ -212,7 +280,7 @@ function __ctrl_edges(_st, _act){
 }
 
 // ---- List of actions (for UI/rebinding tools) ------------------------------
-function controls_actions(){ return ["MoveLeft","MoveRight","MoveUp","MoveDown","Interact","Inventory","Run","Pause"]; }
+function controls_actions(){ return ["MoveLeft","MoveRight","MoveUp","MoveDown","Interact","Inventory","Run","Back","PageUp","PageDown","Pause"]; }
 
 // Repeat helper: returns true on initial press and then repeatedly while held
 // using an initial delay and then a repeat interval (both in frames).

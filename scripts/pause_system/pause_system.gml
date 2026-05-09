@@ -1,14 +1,14 @@
 // ============================================================================
 // Pause Menu (Emerald-style) — 2 players, drawn per camera
-// Entries: [0] Pokémon, [1] Bag, [2] Options, [3] Save
+// Entries: [0] Pokemon, [1] Bag, [2] Poke-Index, [3] Options, [4] Save
 // ============================================================================
 
 globalvar PAUSE;
 
 function pause_init(){
     global.PAUSE = [
-        { open:false, sel:0, t:0 },
-        { open:false, sel:0, t:0 }
+        { open:false, sel:0, t:0, mode:"main", options_sel:0, input_sel:0 },
+        { open:false, sel:0, t:0, mode:"main", options_sel:0, input_sel:0 }
     ];
 
     // safe legacy owner setup
@@ -19,8 +19,15 @@ function pause_init(){
 
 function pause_toggle(pid){
     var p = global.PAUSE[pid];
-    p.open = !p.open;
-    if (p.open){ p.sel = 0; p.t = 0; }
+    var _opening = !p.open;
+    p.open = _opening;
+    if (_opening){
+        p.sel = 0;
+        p.t = 0;
+        p.mode = "main";
+        p.options_sel = 0;
+        p.input_sel = 0;
+    }
     pause_set_owner(pid); // record owner for dialog’s legacy check
 }
 
@@ -43,6 +50,9 @@ function world_is_paused_both(){
 function pause_update(){
     for (var pid = 0; pid < 2; pid++){
         var p = PAUSE[pid];
+        var _entry_count = 5;
+        var _options_count = 3;
+        var _input_count = 2;
 
         // toggle
         if (controls_pressed(pid,"Pause")){
@@ -52,11 +62,80 @@ function pause_update(){
         if (!p.open) continue;
         p.t++;
 
-        // grid nav (2x2)
-        if (controls_pressed(pid,"MoveRight")) p.sel = (p.sel % 2 == 0) ? p.sel + 1 : p.sel;
-        if (controls_pressed(pid,"MoveLeft"))  p.sel = (p.sel % 2 == 1) ? p.sel - 1 : p.sel;
-        if (controls_pressed(pid,"MoveDown"))  p.sel = (p.sel < 2) ? p.sel + 2 : p.sel;
-        if (controls_pressed(pid,"MoveUp"))    p.sel = (p.sel >= 2) ? p.sel - 2 : p.sel;
+        if (!variable_global_exists("DIALOG_SPEED")) global.DIALOG_SPEED = 2;
+
+        if (string(p.mode) == "input"){
+            if (controls_pressed(pid,"MoveDown")) p.input_sel = (p.input_sel + 1) mod _input_count;
+            if (controls_pressed(pid,"MoveUp")){
+                p.input_sel -= 1;
+                if (p.input_sel < 0) p.input_sel = _input_count - 1;
+            }
+
+            if (p.input_sel == 0){
+                if (controls_pressed(pid,"MoveLeft")) __pause_adjust_deadzone(-0.05);
+                if (controls_pressed(pid,"MoveRight")) __pause_adjust_deadzone(0.05);
+            }
+
+            if (controls_pressed(pid,"Interact")){
+                switch (p.input_sel){
+                    case 0:
+                        __pause_adjust_deadzone(0.05);
+                        break;
+                    case 1:
+                        p.mode = "options";
+                        p.input_sel = 0;
+                        break;
+                }
+            }
+
+            if (controls_pressed(pid,"Run") || controls_pressed(pid,"Back")){
+                p.mode = "options";
+                p.input_sel = 0;
+            }
+            continue;
+        }
+
+        if (string(p.mode) == "options"){
+            if (controls_pressed(pid,"MoveDown") || controls_pressed(pid,"MoveRight")) p.options_sel = (p.options_sel + 1) mod _options_count;
+            if (controls_pressed(pid,"MoveUp") || controls_pressed(pid,"MoveLeft")){
+                p.options_sel -= 1;
+                if (p.options_sel < 0) p.options_sel = _options_count - 1;
+            }
+
+            if (p.options_sel == 1){
+                if (controls_pressed(pid,"MoveLeft")) __pause_adjust_dialog_speed(-1);
+                if (controls_pressed(pid,"MoveRight")) __pause_adjust_dialog_speed(1);
+            }
+
+            if (controls_pressed(pid,"Interact")){
+                switch (p.options_sel){
+                    case 0:
+                        p.mode = "input";
+                        p.input_sel = 0;
+                        break;
+                    case 1:
+                        __pause_adjust_dialog_speed(1);
+                        break;
+                    case 2:
+                        p.mode = "main";
+                        p.options_sel = 0;
+                        break;
+                }
+            }
+
+            if (controls_pressed(pid,"Run") || controls_pressed(pid,"Back")){
+                p.mode = "main";
+                p.options_sel = 0;
+            }
+            continue;
+        }
+
+        // Emerald-style vertical list navigation.
+        if (controls_pressed(pid,"MoveDown") || controls_pressed(pid,"MoveRight")) p.sel = (p.sel + 1) mod _entry_count;
+        if (controls_pressed(pid,"MoveUp") || controls_pressed(pid,"MoveLeft")){
+            p.sel -= 1;
+            if (p.sel < 0) p.sel = _entry_count - 1;
+        }
 
 		// choose
 		if (controls_pressed(pid,"Interact")){
@@ -69,8 +148,9 @@ function pause_update(){
 					pause_toggle(pid);
 					bag_open(pid);
 					break;
-				case 2: __pause_do_options(pid); break;
-				case 3: __pause_do_save(pid); break;
+                case 2: __pause_do_poke_index(pid); break;
+                case 3: __pause_do_options(pid); break;
+                case 4: __pause_do_save(pid); break;
 			}
 		}
 
@@ -97,52 +177,73 @@ function pause_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     draw_rectangle(_rx, _ry, _rx + _rw, _ry + _rh, false);
     draw_set_alpha(1);
 
-    // Panel
-    var px = ox + 16*s, py = oy + 16*s, pw = 240*s - 32*s, ph = 160*s - 32*s;
-
-    draw_set_color(make_color_rgb(72,80,96));
-    draw_roundrect(px, py, px+pw, py+ph, false);
-    draw_set_color(make_color_rgb(28,32,44));
-    draw_roundrect(px-1, py-1, px+pw+1, py+ph+1, true);
-
-    // Header bar
-    var head_h = 28*s;
-    draw_set_color(make_color_rgb(52,60,76));
-    draw_roundrect(px+6, py+6, px+pw-6, py+head_h, false);
-
-    // "MENU" — WHITE, moved down 4px from header top
-    if (variable_global_exists("FNT_POKEMON")) draw_set_font(global.FNT_POKEMON); else draw_set_font(-1);
-    draw_set_color(c_white);
-    draw_text(px + 16, py + 6 + 4, "MENU"); // +4px vertical nudge
-
-    // 2x2 entries
-    var pad    = 12*s;
-    var cell_w = (pw - pad*3) * 0.5;
-    var cell_h = (ph - head_h - pad*3) * 0.5;
-    var labels = ["POKEMON","BAG","OPTIONS","SAVE"];
-    var p      = global.PAUSE[_pid];
-
-    // Label measure (safe)
+    var labels = ["POKEMON","BAG","POKE-INDEX","OPTIONS","SAVE"];
+    var options_labels = ["INPUT","TEXT SPEED","BACK"];
+    var input_labels = ["DEADZONE","BACK"];
+    var p = global.PAUSE[_pid];
     var line_h = max(12, string_height("A") + 2);
 
-    for (var i = 0; i < 4; i++){
-        var col = i mod 2, row = i div 2;
-        var cx  = px + pad + col * (cell_w + pad);
-        var cy  = py + head_h + pad + row * (cell_h + pad);
-        var sel = (i == p.sel);
+    // Emerald-style narrow menu column, tucked into the top-right of the logical screen.
+    var item_gap = 4*s;
+    var top_pad = 10*s;
+    var bottom_pad = 10*s;
+    var left_pad = 18*s;
+    var right_pad = 16*s;
+    var pointer_w = 12*s;
+    var item_h = max(16*s, line_h + 4*s);
+    var _active_labels = labels;
+    var _active_sel = p.sel;
+    var _title = "MENU";
+    if (string(p.mode) == "options"){
+        _active_labels = options_labels;
+        _active_sel = p.options_sel;
+        _title = "OPTIONS";
+    } else if (string(p.mode) == "input"){
+        _active_labels = input_labels;
+        _active_sel = p.input_sel;
+        _title = "INPUT";
+    }
+    var longest_label = 0;
+    for (var _i = 0; _i < array_length(_active_labels); ++_i){
+        longest_label = max(longest_label, string_width(_active_labels[_i]));
+    }
+    if (string(p.mode) == "options") longest_label = max(longest_label, string_width(__pause_dialog_speed_label()));
+    if (string(p.mode) == "input") longest_label = max(longest_label, string_width(__pause_deadzone_label()));
+    var pw = left_pad + pointer_w + longest_label + right_pad;
+    var ph = top_pad + bottom_pad + array_length(_active_labels) * item_h + (array_length(_active_labels) - 1) * item_gap;
+    var px = ox + 240*s - pw - 10*s;
+    var py = oy + 10*s;
 
-        // Card fill + border
-        draw_set_color(sel ? make_color_rgb(120,160,220) : make_color_rgb(236,228,184));
-        draw_roundrect(cx, cy, cx + cell_w, cy + cell_h, false);
+    draw_set_color(make_color_rgb(236, 228, 184));
+    draw_roundrect(px, py, px + pw, py + ph, false);
+    draw_set_color(make_color_rgb(52, 60, 76));
+    draw_roundrect(px - 1, py - 1, px + pw + 1, py + ph + 1, true);
 
-        draw_set_color(sel ? make_color_rgb(40,64,168) : make_color_rgb(52,60,76));
-        draw_roundrect(cx-1, cy-1, cx + cell_w+1, cy + cell_h+1, true);
+    // "MENU" — WHITE title above the command list.
+    if (variable_global_exists("FNT_POKEMON")) draw_set_font(global.FNT_POKEMON); else draw_set_font(-1);
+    draw_set_color(c_white);
+    draw_text(px + 10*s, py + 4*s, _title);
 
-        // Label — WHITE (no black anywhere)
+    for (var i = 0; i < array_length(_active_labels); i++){
+        var row_y = py + top_pad + i * (item_h + item_gap);
+        var sel = (i == _active_sel);
+        if (sel){
+            draw_set_color(make_color_rgb(120, 160, 220));
+            draw_roundrect(px + 8*s, row_y - 1*s, px + pw - 8*s, row_y + item_h - 1*s, false);
+            draw_set_color(make_color_rgb(40, 64, 168));
+            draw_roundrect(px + 7*s, row_y - 2*s, px + pw - 7*s, row_y + item_h, true);
+        }
+
+        var pointer_x = px + 12*s;
+        var pointer_y = row_y + max(0, (item_h - line_h) * 0.5) + 5*s;
         draw_set_color(c_white);
-        var tx = cx + (cell_w - string_width(labels[i])) * 0.5;
-        var ty = cy + (cell_h - line_h) * 0.5;
-        draw_text(tx, ty, labels[i]);
+        if (sel) draw_text(pointer_x, pointer_y, "> ");
+        var tx = px + left_pad + pointer_w;
+        var ty = row_y + max(0, (item_h - line_h) * 0.5) + 5*s;
+        var _label_text = _active_labels[i];
+        if (string(p.mode) == "options" && i == 1) _label_text = __pause_dialog_speed_label();
+        if (string(p.mode) == "input" && i == 0) _label_text = __pause_deadzone_label();
+        draw_text(tx, ty, _label_text);
     }
 }
 
@@ -180,15 +281,20 @@ function __pause_do_pokemon(pid){
 
 
 function __pause_do_options(pid){
-    // Example: cycle dialog speed 1-3 and persist
-    if (!variable_global_exists("DIALOG_SPEED")) global.DIALOG_SPEED = 2;
-    global.DIALOG_SPEED = (global.DIALOG_SPEED % 3) + 1;
+    var p = global.PAUSE[pid];
+    p.mode = "options";
+    p.options_sel = 0;
+}
 
-    // if you have controls_save(), persist speed
-    ini_open(working_directory + "/options.ini");
-    ini_write_real("Dialog","speed", global.DIALOG_SPEED);
-    ini_close();
+function __pause_do_poke_index(pid){
     pause_toggle(pid);
+    try {
+        if (!is_undefined(dialog2p_show_now)) {
+            dialog2p_show_now(pid, { text: "Poke-Index menu coming soon." });
+            return;
+        }
+    } catch (e_poke_index_dialog) {}
+    try { show_debug_message("[pause] Poke-Index menu coming soon."); } catch (e_poke_index_dbg) {}
 }
 
 function __pause_do_save(pid){
@@ -199,6 +305,41 @@ function __pause_do_save(pid){
     ini_write_real("Dialog","speed", global.DIALOG_SPEED);
     ini_close();
     pause_toggle(pid);
+}
+
+function __pause_adjust_dialog_speed(_dir){
+    if (!variable_global_exists("DIALOG_SPEED")) global.DIALOG_SPEED = 2;
+    var _step = (is_real(_dir) ? floor(_dir) : 1);
+    if (_step == 0) _step = 1;
+    global.DIALOG_SPEED += _step;
+    if (global.DIALOG_SPEED > 3) global.DIALOG_SPEED = 1;
+    if (global.DIALOG_SPEED < 1) global.DIALOG_SPEED = 3;
+    if (!is_undefined(controls_save)) controls_save();
+}
+
+function __pause_dialog_speed_label(){
+    var _label = "TEXT SPEED";
+    var _suffix = "MID";
+    if (!variable_global_exists("DIALOG_SPEED")) global.DIALOG_SPEED = 2;
+    switch (clamp(global.DIALOG_SPEED, 1, 3)){
+        case 1: _suffix = "SLOW"; break;
+        case 2: _suffix = "MID"; break;
+        case 3: _suffix = "FAST"; break;
+    }
+    return _label + " " + _suffix;
+}
+
+function __pause_adjust_deadzone(_delta){
+    if (!variable_global_exists("CTRL") || !is_struct(CTRL)) return;
+    var _step = (is_real(_delta) ? _delta : 0);
+    CTRL.deadzone = clamp(CTRL.deadzone + _step, 0.05, 0.95);
+    if (!is_undefined(controls_save)) controls_save();
+}
+
+function __pause_deadzone_label(){
+    var _pct = 25;
+    if (variable_global_exists("CTRL") && is_struct(CTRL) && is_real(CTRL.deadzone)) _pct = round(CTRL.deadzone * 100);
+    return "DEADZONE " + string(_pct) + "%";
 }
 	
 

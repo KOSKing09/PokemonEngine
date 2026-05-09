@@ -10,7 +10,7 @@ function __bag_impl_bag_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     gpu_set_blendmode(bm_normal);
 
     var _rect = _bag_rect_scaler(_rx, _ry, _rw, _rh);
-    var s = _rect.s; var ox = _rect.ox; var oy = _rect.oy;
+    var s = variable_struct_get(_rect, "s"); var ox = variable_struct_get(_rect, "ox"); var oy = variable_struct_get(_rect, "oy");
     var _tsec = current_time / 1000;
     var _pulse = 0.9 + 0.1 * sin(_tsec * 3.0);
 
@@ -68,12 +68,12 @@ function __bag_impl_bag_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     } else { draw_set_color(make_color_rgb(220,240,255)); draw_rectangle(ox + art_x*s, oy + art_y*s, ox + (art_x+art_w)*s, oy + (art_y+art_h)*s, false); }
 
     // item icon box and description and right list are handled by helper functions to keep this function tidy
-    __bag_impl_draw_item_icon_box(b, ox, oy, s, ibx, iby, ibw, ibh, desc_x, desc_y, desc_w, desc_h, list_x, list_y, list_w, list_h, C_PAPER, C_PAPER_E, _pulse);
+    __bag_impl_draw_item_icon_box(_pid, b, ox, oy, s, ibx, iby, ibw, ibh, desc_x, desc_y, desc_w, desc_h, list_x, list_y, list_w, list_h, C_PAPER, C_PAPER_E, _pulse);
     // Draw the item submenu if open
     if (is_struct(b)) __bag_impl_draw_item_submenu(b, ox, oy, s, list_x, list_y, list_w);
 }
 
-function __bag_impl_draw_item_icon_box(_b, _ox, _oy, _s, _ibx, _iby, _ibw, _ibh, _desc_x, _desc_y, _desc_w, _desc_h, _list_x, _list_y, _list_w, _list_h, _C_PAPER, _C_PAPER_E, _pulse){
+function __bag_impl_draw_item_icon_box(_pid, _b, _ox, _oy, _s, _ibx, _iby, _ibw, _ibh, _desc_x, _desc_y, _desc_w, _desc_h, _list_x, _list_y, _list_w, _list_h, _C_PAPER, _C_PAPER_E, _pulse){
     // icon box
     draw_set_color(c_white); draw_rectangle(_ox + _ibx*_s, _oy + _iby*_s, _ox + (_ibx+_ibw)*_s, _oy + (_iby+_ibh)*_s, false);
     draw_set_color(_C_PAPER_E); draw_rectangle(_ox + _ibx*_s - _s, _oy + _iby*_s - _s, _ox + (_ibx+_ibw)*_s + _s, _oy + (_iby+_ibh)*_s + _s, true);
@@ -103,7 +103,7 @@ function __bag_impl_draw_item_icon_box(_b, _ox, _oy, _s, _ibx, _iby, _ibw, _ibh,
     __bag_impl_draw_description(_b, _ox, _oy, _s, _desc_x, _desc_y, _desc_w, _desc_h, _C_PAPER, _C_PAPER_E);
 
     // right list
-    __bag_impl_draw_right_list(_b, _ox, _oy, _s, _list_x, _list_y, _list_w, _list_h, _C_PAPER, _C_PAPER_E, _pulse);
+    __bag_impl_draw_right_list(_pid, _b, _ox, _oy, _s, _list_x, _list_y, _list_w, _list_h, _C_PAPER, _C_PAPER_E, _pulse);
 }
 
 function __bag_impl_draw_description(_b, _ox, _oy, _s, _desc_x, _desc_y, _desc_w, _desc_h, _C_PAPER, _C_PAPER_E){
@@ -144,7 +144,7 @@ function __bag_impl_wrap_lines(_text, _max_w){
     return _out;
 }
 
-function __bag_impl_draw_right_list(_b, _ox, _oy, _s, _list_x, _list_y, _list_w, _list_h, _C_PAPER, _C_PAPER_E, _pulse){
+function __bag_impl_draw_right_list(_pid, _b, _ox, _oy, _s, _list_x, _list_y, _list_w, _list_h, _C_PAPER, _C_PAPER_E, _pulse){
     var lx1 = _ox + _list_x*_s, ly1 = _oy + _list_y*_s, lx2 = _ox + (_list_x+_list_w)*_s, ly2 = _oy + (_list_y+_list_h)*_s;
     draw_set_color(_C_PAPER); draw_rectangle(lx1, ly1, lx2, ly2, false);
     draw_set_color(_C_PAPER_E); draw_rectangle(lx1 - _s, ly1 - _s, lx2 + _s, ly2 + _s, true);
@@ -161,6 +161,7 @@ function __bag_impl_draw_right_list(_b, _ox, _oy, _s, _list_x, _list_y, _list_w,
         var row_top = _oy + (_list_y + 8 + r*row_h) * _s;
         var fh = string_height("A");
         var yline = row_top + (row_h * _s - fh) * 0.5;
+        var _is_registered = !is_undefined(bag_registered_matches_row) && bag_registered_matches_row(_pid, _lc3[idx]);
 
         if (idx == sel){
             var sel_x1 = _ox + (_list_x + 2) * _s;
@@ -178,7 +179,8 @@ function __bag_impl_draw_right_list(_b, _ox, _oy, _s, _list_x, _list_y, _list_w,
         }
 
         draw_set_color(c_white);
-        draw_text(_ox + (_list_x + 8) * _s, yline, nm);
+        if (_is_registered) draw_text(_ox + (_list_x + 8) * _s, yline, "R");
+        draw_text(_ox + (_list_x + 16) * _s, yline, nm);
             draw_set_color(c_white);
         var qty_anchor = _ox + (_list_x + _list_w - 8) * _s;
         var qty_x = qty_anchor - string_width(qty) + 6 * _s;
@@ -192,13 +194,18 @@ function __bag_impl_draw_right_list(_b, _ox, _oy, _s, _list_x, _list_y, _list_w,
 function __bag_impl_draw_item_submenu(_b, _ox, _oy, _s, _list_x, _list_y, _list_w){
     if (!variable_struct_exists(_b, "item_menu_open") || !_b.item_menu_open) return;
     // Build labels dynamically so we can hide 'Give' for non-holdable items
-    var labels = ["Use","Discard","Cancel"];
+    var labels = ["Use","Register","Discard","Cancel"];
     var lst = _b.items[_b.page];
     var row = clamp(_b.item_menu_row, 0, max(0, array_length(lst) - 1));
     var it = (array_length(lst) > 0 && row < array_length(lst)) ? lst[row] : undefined;
     if (!is_undefined(bag__item_is_holdable) && bag__item_is_holdable(it)){
         // Insert 'Give' as the second option
         array_insert(labels, 1, "Give");
+    }
+    if (variable_struct_exists(_b, "registered_item_id") && is_struct(it) && variable_struct_exists(it, "item_id") && floor(variable_struct_get(_b, "registered_item_id")) == floor(variable_struct_get(it, "item_id"))){
+        for (var _label_i = 0; _label_i < array_length(labels); ++_label_i){
+            if (labels[_label_i] == "Register") { labels[_label_i] = "Deselect"; break; }
+        }
     }
     var menu_sel = clamp(_b.item_menu_sel, 0, array_length(labels) - 1);
     var box_w = 72, box_h = 14 * array_length(labels);

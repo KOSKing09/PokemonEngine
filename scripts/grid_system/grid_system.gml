@@ -16,6 +16,8 @@ function grid_init(_inst, _tile=16, _walk=1, _run=2){
     g.dir         = 2;        // 0 up,1 right,2 down,3 left
     g.tx          = 0;        // target pixel x
     g.ty          = 0;        // target pixel y
+    g.buffer_dir  = -1;       // most recent requested direction while moving
+    g.buffer_ttl  = 0;        // frames left before buffered direction expires
 
     if (!variable_struct_exists(g, "block_cb")) g.block_cb = undefined;
 
@@ -78,26 +80,54 @@ function grid_try_start(_inst, _dir){
     return true;
 }
 
+function __grid_requested_dir(_pid){
+    if (controls_pressed(_pid, "MoveUp")) return 0;
+    if (controls_pressed(_pid, "MoveRight")) return 1;
+    if (controls_pressed(_pid, "MoveDown")) return 2;
+    if (controls_pressed(_pid, "MoveLeft")) return 3;
+
+    if (controls_down(_pid, "MoveUp")) return 0;
+    if (controls_down(_pid, "MoveRight")) return 1;
+    if (controls_down(_pid, "MoveDown")) return 2;
+    if (controls_down(_pid, "MoveLeft")) return 3;
+
+    return -1;
+}
+
+function __grid_dir_is_held(_pid, _dir){
+    switch (_dir){
+        case 0: return controls_down(_pid, "MoveUp");
+        case 1: return controls_down(_pid, "MoveRight");
+        case 2: return controls_down(_pid, "MoveDown");
+        case 3: return controls_down(_pid, "MoveLeft");
+    }
+    return false;
+}
+
 /// grid_step(inst, pid)
 function grid_step(_inst, _pid){
     if (!(variable_instance_exists(_inst,"grid") && is_struct(_inst.grid))) return;
     var g = _inst.grid;
     var ts = g.tile;
     var spd = controls_down(_pid, "Run") ? g.run_speed : g.walk_speed;
+    var _desired_dir = __grid_requested_dir(_pid);
+
+    if (g.buffer_ttl > 0) g.buffer_ttl -= 1;
+    else if (g.buffer_ttl < 0) g.buffer_ttl = 0;
+    if (_desired_dir >= 0){
+        g.buffer_dir = _desired_dir;
+        g.buffer_ttl = 8;
+    } else if (g.buffer_ttl <= 0){
+        g.buffer_dir = -1;
+    }
 
     switch (g.state){
         case "idle":
-            var mvL = controls_down(_pid, "MoveLeft");
-            var mvR = controls_down(_pid, "MoveRight");
-            var mvU = controls_down(_pid, "MoveUp");
-            var mvD = controls_down(_pid, "MoveDown");
-
-            // Priority: vertical then horizontal (classic feel)
             var started = false;
-            if (mvU)  started = grid_try_start(_inst, 0);
-            if (!started && mvD) started = grid_try_start(_inst, 2);
-            if (!started && mvL) started = grid_try_start(_inst, 3);
-            if (!started && mvR) started = grid_try_start(_inst, 1);
+            if (_desired_dir >= 0){
+                g.dir = _desired_dir;
+                started = grid_try_start(_inst, _desired_dir);
+            }
 
             if (!started) grid_snap_to_tile(_inst);
         break;
@@ -125,17 +155,26 @@ function grid_step(_inst, _pid){
 
             // reached target tile?
             if (_inst.x == g.tx && _inst.y == g.ty){
+                _inst.x = g.tx;
+                _inst.y = g.ty;
                 g.state = "idle";
 
-                // optional auto-continue if still holding same dir
-                var hold = false;
-                switch (g.dir){
-                    case 0: hold = controls_down(_pid, "MoveUp");    break;
-                    case 1: hold = controls_down(_pid, "MoveRight"); break;
-                    case 2: hold = controls_down(_pid, "MoveDown");  break;
-                    case 3: hold = controls_down(_pid, "MoveLeft");  break;
+                var _next_dir = -1;
+                if (g.buffer_ttl > 0 && g.buffer_dir >= 0){
+                    _next_dir = g.buffer_dir;
+                } else if (__grid_dir_is_held(_pid, g.dir)){
+                    _next_dir = g.dir;
                 }
-                if (hold) grid_try_start(_inst, g.dir);
+
+                if (_next_dir >= 0){
+                    g.dir = _next_dir;
+                    if (grid_try_start(_inst, _next_dir)){
+                        if (_next_dir == g.buffer_dir){
+                            g.buffer_dir = -1;
+                            g.buffer_ttl = 0;
+                        }
+                    }
+                }
             }
         break;
     }

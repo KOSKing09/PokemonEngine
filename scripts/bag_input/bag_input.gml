@@ -6,9 +6,14 @@ function __bag_impl_bags_update(){
     for (var pid = 0; pid < _players; pid++) {
         var b = global.BAGS[pid]; if (!is_struct(b)) continue;
 
-        // Open bag when Inventory pressed. When already open, close with Run (B) like the party menu.
+        // Inventory is a registered-item button in the field. Open the bag via the pause menu.
         if (!b.open){
-            if (controls_pressed(pid, "Inventory")) { b.open = true; b.spin_ticks = 18; }
+            var _can_use_registered = true;
+            if (!is_undefined(pause_is_open) && pause_is_open(pid)) _can_use_registered = false;
+            if (!is_undefined(party_is_open) && party_is_open(pid)) _can_use_registered = false;
+            if (!is_undefined(dialog2p_is_open) && dialog2p_is_open(pid)) _can_use_registered = false;
+            if (!is_undefined(battle_is_open) && battle_is_open(pid)) _can_use_registered = false;
+            if (_can_use_registered && controls_pressed(pid, "Inventory") && !is_undefined(bag_registered_use)) bag_registered_use(pid);
         } else {
             if (controls_pressed(pid, "Run") && (variable_struct_exists(b, "lock") ? b.lock == 0 : true)) { b.open = false; if (variable_struct_exists(b, "lock")) b.lock = 2; }
         }
@@ -123,8 +128,15 @@ function __bag_impl_bag_item_menu_update(_pid){
     // Build dynamic labels to match drawing so indices remain consistent
     var _rowNav = clamp(b.item_menu_row, 0, max(0, n - 1));
     var _itNav = (n > 0 && _rowNav < n) ? lst[_rowNav] : undefined;
-    var _labelsNav = ["Use","Discard","Cancel"];
+    var _labelsNav = ["Use","Register","Discard","Cancel"];
     if (!is_undefined(bag__item_is_holdable) && bag__item_is_holdable(_itNav)) array_insert(_labelsNav, 1, "Give");
+    if (!is_undefined(bag_registered_matches_row) && bag_registered_matches_row(_pid, _itNav)){
+        var _register_idx = -1;
+        for (var _li = 0; _li < array_length(_labelsNav); ++_li){
+            if (_labelsNav[_li] == "Register") { _register_idx = _li; break; }
+        }
+        if (_register_idx >= 0) _labelsNav[_register_idx] = "Deselect";
+    }
     var _maxIdx = array_length(_labelsNav) - 1;
     // navigate submenu using dynamic bounds
     if (controls_pressed(_pid, "MoveDown")){
@@ -162,6 +174,10 @@ function __bag_impl_bag_item_menu_update(_pid){
                 P.give_pending = { bag_pid: _pid, page: b.page, row: row, item_id: it.item_id, item_real_name: _realnm_pending };
                 P.lock = 4;
             }
+        } else if (action == "Register"){
+            if (!is_undefined(bag_registered_set)) bag_registered_set(_pid, it);
+        } else if (action == "Deselect"){
+            if (!is_undefined(bag_registered_clear)) bag_registered_clear(_pid);
         } else if (action == "Discard"){
             bag_inventory_remove_item(_pid, it.item_id, 1);
             bags_seed_from_items(_pid);

@@ -31,7 +31,7 @@ function bags_init(_players){
 function bag__ensure_props(_s, _names, _defs){ if (!is_undefined(__bag_impl__ensure_props)) return __bag_impl__ensure_props(_s,_names,_defs); }
 
 // Return a fresh default bag struct (used in multiple places)
-function bag__default_bag(){ if (!is_undefined(__bag_impl__default_bag)) return __bag_impl__default_bag(); return { open:false, mode:"bag", page:0, sel:0, scroll:0, spin_ticks:0, items:[[],[],[],[],[]], sys_qty:[], item_menu_open:false, item_menu_sel:0, item_menu_row:0, lock:0 }; }
+function bag__default_bag(){ if (!is_undefined(__bag_impl__default_bag)) return __bag_impl__default_bag(); return { open:false, mode:"bag", page:0, sel:0, scroll:0, spin_ticks:0, items:[[],[],[],[],[]], sys_qty:[], item_menu_open:false, item_menu_sel:0, item_menu_row:0, lock:0, registered_item_id:-1, registered_item_name:"", registered_item_real_name:"" }; }
 
 // Return a project placeholder sprite index if present, else fall back to PKICONS.missing_icon32 (or -1)
 function bag__get_item_placeholder(){ if (!is_undefined(__bag_impl__get_item_placeholder)) return __bag_impl__get_item_placeholder(); var ph = asset_get_index("spr_item_placeholder"); if (ph == -1 && variable_global_exists("PKICONS") && is_struct(PKICONS) && variable_struct_exists(PKICONS, "missing_icon32")) ph = variable_struct_get(PKICONS, "missing_icon32"); return ph; }
@@ -294,6 +294,91 @@ function bag_open(_pid) { if (is_array(global.BAGS) && array_length(global.BAGS)
 function bag_close(_pid){ if (is_array(global.BAGS) && array_length(global.BAGS) > _pid) global.BAGS[_pid].open = false; }
 function bag_toggle(_pid){ if (!variable_global_exists("BAGS") || !is_array(global.BAGS) || array_length(global.BAGS) <= _pid) return; global.BAGS[_pid].open = !global.BAGS[_pid].open; }
 
+function bag_registered_clear(_pid){
+    var _b = bag_inventory_ensure(_pid);
+    _b.registered_item_id = -1;
+    _b.registered_item_name = "";
+    _b.registered_item_real_name = "";
+}
+
+function bag_registered_set(_pid, _row){
+    var _b = bag_inventory_ensure(_pid);
+    if (!is_struct(_row) || !variable_struct_exists(_row, "item_id")) return false;
+    variable_struct_set(_b, "registered_item_id", floor(variable_struct_get(_row, "item_id")));
+    variable_struct_set(_b, "registered_item_name", variable_struct_exists(_row, "name") ? string(variable_struct_get(_row, "name")) : "");
+    variable_struct_set(_b, "registered_item_real_name", variable_struct_exists(_row, "real_name") ? string(variable_struct_get(_row, "real_name")) : string(variable_struct_get(_b, "registered_item_name")));
+    return true;
+}
+
+function bag_registered_matches_row(_pid, _row){
+    if (!is_struct(_row) || !variable_struct_exists(_row, "item_id")) return false;
+    var _b = bag_inventory_ensure(_pid);
+    if (!variable_struct_exists(_b, "registered_item_id")) return false;
+    return floor(variable_struct_get(_row, "item_id")) == floor(variable_struct_get(_b, "registered_item_id"));
+}
+
+function bag_registered_find_row(_pid, _item_id){
+    var _iid = is_real(_item_id) ? floor(_item_id) : -1;
+    if (_iid <= 0) return undefined;
+    var _b = bag_inventory_ensure(_pid);
+    if (bag_inventory_get_qty(_pid, _iid) <= 0) return undefined;
+
+    var _pages = variable_struct_exists(_b, "items") ? variable_struct_get(_b, "items") : [];
+    if (is_array(_pages)){
+        for (var _p = 0; _p < array_length(_pages); ++_p){
+            var _arr = _pages[_p];
+            if (!is_array(_arr)) continue;
+            for (var _i = 0; _i < array_length(_arr); ++_i){
+                var _row = _arr[_i];
+                if (is_struct(_row) && variable_struct_exists(_row, "item_id") && floor(_row.item_id) == _iid) return _row;
+            }
+        }
+    }
+
+    var _it = undefined;
+    if (variable_global_exists("_items") && is_array(global._items) && _iid < array_length(global._items)) _it = global._items[_iid];
+    if (!is_struct(_it)) return undefined;
+
+    var _desc = bag__resolve_item_desc(_iid);
+    var _icon = bag__get_item_placeholder();
+    var _lookup_name = undefined;
+    if (variable_struct_exists(_it, "identifier") && string_length(string_trim(variable_struct_get(_it, "identifier"))) > 0) _lookup_name = string(variable_struct_get(_it, "identifier"));
+    else if (variable_struct_exists(_it, "name") && string_length(string_trim(variable_struct_get(_it, "name"))) > 0) _lookup_name = string(variable_struct_get(_it, "name"));
+    if (!is_undefined(pkicons_get_item_icon_by_name) && !is_undefined(_lookup_name)){
+        var _spr = pkicons_get_item_icon_by_name(_lookup_name);
+        if (!is_undefined(_spr) && sprite_exists(_spr)) _icon = _spr;
+    }
+
+    var _name = variable_struct_exists(_it, "name") ? bag__clean_display_name(variable_struct_get(_it, "name")) : string(_iid);
+    var _real_name = !is_undefined(_lookup_name) ? _lookup_name : _name;
+    return { name:_name, real_name:_real_name, qty:bag_inventory_get_qty(_pid, _iid), desc:_desc, icon:_icon, item_id:_iid };
+}
+
+function bag_registered_use(_pid){
+    var _b = bag_inventory_ensure(_pid);
+    var _iid = variable_struct_exists(_b, "registered_item_id") ? floor(variable_struct_get(_b, "registered_item_id")) : -1;
+    if (_iid <= 0){
+        try { dialog2p_show_now(_pid, "No item registered."); } catch (e_no_registered_now) { try { dialog2p_show(_pid, "No item registered."); } catch (e_no_registered) {} }
+        return false;
+    }
+
+    if (bag_inventory_get_qty(_pid, _iid) <= 0){
+        bag_registered_clear(_pid);
+        try { dialog2p_show_now(_pid, "The registered item is no longer in the Bag."); } catch (e_missing_registered_now) { try { dialog2p_show(_pid, "The registered item is no longer in the Bag."); } catch (e_missing_registered) {} }
+        return false;
+    }
+
+    var _row = bag_registered_find_row(_pid, _iid);
+    if (!is_struct(_row)){
+        bag_registered_clear(_pid);
+        try { dialog2p_show_now(_pid, "The registered item could not be found."); } catch (e_missing_row_now) { try { dialog2p_show(_pid, "The registered item could not be found."); } catch (e_missing_row) {} }
+        return false;
+    }
+
+    if (is_undefined(bag__use_item_on_self)) return false;
+    return bag__use_item_on_self(_pid, _row);
+}
+
 // Open the bag in a battle-aware mode. This sets a mode flag so the bag UI
 // and Use/Give/Discard behaviors can adapt while a battle is active.
 function bag_open_for_battle(_pid){
@@ -518,10 +603,11 @@ function bag__use_item_on_self(_pid, _row){
                 if (!is_undefined(__battle_target_candidate_select_index)) target_sel = __battle_target_candidate_select_index(target_candidates, default_target);
                 variable_struct_set(_B, "_target_pick_index", target_sel);
                 try { variable_struct_set(_B, "_input_grace_until", current_time + 180); } catch (e_ball_target_grace) {}
-                if (is_struct(_B.sys_ui)){
-                    variable_struct_set(_B.sys_ui, "menu", "target");
-                    variable_struct_set(_B.sys_ui, "selX", target_sel mod 2);
-                    variable_struct_set(_B.sys_ui, "selY", target_sel div 2);
+                var _sys_ui = variable_struct_exists(_B, "sys_ui") ? variable_struct_get(_B, "sys_ui") : undefined;
+                if (is_struct(_sys_ui)){
+                    variable_struct_set(_sys_ui, "menu", "target");
+                    variable_struct_set(_sys_ui, "selX", target_sel mod 2);
+                    variable_struct_set(_sys_ui, "selY", target_sel div 2);
                 }
                 return true;
             }
@@ -652,7 +738,7 @@ function bag_inventory_ensure(_pid){
             _b = bag__default_bag();
             global.BAGS[_pid] = _b;
         } else {
-            bag__ensure_props(_b, ["items","sys_qty","page","sel","scroll","spin_ticks","mode","open","item_menu_open","item_menu_sel","item_menu_row","lock"], [bag__empty_items(), [], 0, 0, 0, 0, "bag", false, false, 0, 0, 0]);
+            bag__ensure_props(_b, ["items","sys_qty","page","sel","scroll","spin_ticks","mode","open","item_menu_open","item_menu_sel","item_menu_row","lock","registered_item_id","registered_item_name","registered_item_real_name"], [bag__empty_items(), [], 0, 0, 0, 0, "bag", false, false, 0, 0, 0, -1, "", ""]);
         }
     return _b;
 }
