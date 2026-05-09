@@ -200,6 +200,11 @@ function status_system_apply_status(mon, status_id, opts){
                 inst.source = _src;
             }
         }
+        if (variable_struct_exists(opts, "display_name") && !is_undefined(variable_struct_get(opts, "display_name"))) {
+            variable_struct_set(inst, "display_name", string(variable_struct_get(opts, "display_name")));
+        } else if (variable_struct_exists(opts, "move_name") && !is_undefined(variable_struct_get(opts, "move_name"))) {
+            variable_struct_set(inst, "display_name", string(variable_struct_get(opts, "move_name")));
+        }
     }
     // honor skip_first_tick option so statuses applied mid-turn don't immediately tick
     if (is_struct(opts) && variable_struct_exists(opts, "skip_first_tick") && variable_struct_get(opts, "skip_first_tick") == true){
@@ -732,6 +737,7 @@ function __status_apply_percent_damage(mon, pct, sid){
     // Also request a small in-battle dialog similar to Emerald: "Pikachu is hurt by poison!"
     try {
         var stname = (is_string(sid) && string_length(sid) > 0) ? sid : "";
+        var _status_display_name = "";
         // If no explicit sid provided, attempt to select a present status id for context
         if (string_length(stname) == 0 && is_struct(mon) && variable_struct_exists(mon, "statuses")){
             var _ss = variable_struct_get(mon, "statuses");
@@ -745,8 +751,18 @@ function __status_apply_percent_damage(mon, pct, sid){
                 }
             }
         }
+        if (string_length(stname) > 0 && is_struct(mon) && variable_struct_exists(mon, "statuses")){
+            var _ss_name = variable_struct_get(mon, "statuses");
+            if (is_struct(_ss_name) && variable_struct_exists(_ss_name, stname)){
+                var _st_inst = variable_struct_get(_ss_name, stname);
+                if (is_struct(_st_inst) && variable_struct_exists(_st_inst, "display_name")){
+                    _status_display_name = string_trim(string(variable_struct_get(_st_inst, "display_name")));
+                }
+            }
+        }
         var dmg_msg = " is hurt by its status!";
-        if (string_length(stname) > 0) dmg_msg = " is hurt by " + string_upper(string(stname)) + "!";
+        if (string_length(_status_display_name) > 0) dmg_msg = " was hurt by " + string(_status_display_name) + "!";
+        else if (string_length(stname) > 0) dmg_msg = " is hurt by " + string_upper(string(stname)) + "!";
     var _dlg_txt = string(__status_mon_display_name(mon)) + " " + string(dmg_msg) + " (-" + string(dmg) + ")";
     __status_request_dialog_for_mon(mon, _dlg_txt, false);
     // Play tick sound for the status if available (e.g., poison/leech)

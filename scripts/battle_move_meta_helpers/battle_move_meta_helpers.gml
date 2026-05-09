@@ -209,6 +209,9 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                         if (variable_struct_exists(_mm, "duration") && is_real(variable_struct_get(_mm, "duration"))) variable_struct_set(opts, "duration", variable_struct_get(_mm, "duration"));
                                         // source info useful for later (who applied)
                                         try { variable_struct_set(opts, "source", _A); } catch (e_src) {}
+                                        try {
+                                            if (string(stid) == "trap") variable_struct_set(opts, "display_name", __battle_move_name(_move_id));
+                                        } catch (e_trap_name) {}
                                         // For trap-like statuses (Bind/Wrap/Clamp/Sand Tomb) ensure the
                                         // first tick doesn't immediately apply damage in the same turn
                                         // the move was used. The status system honors skip_first_tick.

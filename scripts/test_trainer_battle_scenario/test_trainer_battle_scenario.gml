@@ -228,6 +228,21 @@ function __status_smoke_dialog_text(_pid){
     return _l0 + "\n" + _l1;
 }
 
+function __status_smoke_pending_status_text(_pid){
+    if (!battle_is_open(_pid)) return "";
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !variable_struct_exists(_B, "_pending_status_msgs")) return "";
+    var _pending = variable_struct_get(_B, "_pending_status_msgs");
+    if (!is_array(_pending) || array_length(_pending) <= 0) return "";
+    var _joined = "";
+    for (var _i = 0; _i < array_length(_pending); ++_i){
+        var _line = string(_pending[_i]);
+        if (string_length(_joined) > 0) _joined += "\n";
+        _joined += _line;
+    }
+    return _joined;
+}
+
 function __status_smoke_last_move_damage(_actor, _move_id){
     if (!is_struct(_actor)) return 0;
     try {
@@ -324,6 +339,28 @@ function __status_smoke_count_hit_effect_overlays(_pid, _target_index = undefine
             }
             _count += 1;
         }
+    }
+    return _count;
+}
+
+function __status_smoke_count_orbit_states(_pid, _target_index = undefined, _sprite = undefined){
+    var _count = 0;
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !variable_struct_exists(_B, "_anim_queue") || !is_struct(variable_struct_get(_B, "_anim_queue"))) return 0;
+    var _aq = variable_struct_get(_B, "_anim_queue");
+    if (!variable_struct_exists(_aq, "draw_states") || !is_array(variable_struct_get(_aq, "draw_states"))) return 0;
+    var _states = variable_struct_get(_aq, "draw_states");
+    for (var _si = 0; _si < array_length(_states); ++_si){
+        var _st = _states[_si];
+        if (!is_struct(_st)) continue;
+        if (!variable_struct_exists(_st, "kind") || string_lower(string(variable_struct_get(_st, "kind"))) != "sprite_orbit") continue;
+        if (is_real(_target_index)){
+            if (!variable_struct_exists(_st, "target_index") || !is_real(variable_struct_get(_st, "target_index")) || floor(variable_struct_get(_st, "target_index")) != floor(_target_index)) continue;
+        }
+        if (!is_undefined(_sprite)){
+            if (!variable_struct_exists(_st, "sprite") || variable_struct_get(_st, "sprite") != _sprite) continue;
+        }
+        _count += 1;
     }
     return _count;
 }
@@ -1860,6 +1897,85 @@ function test_battle_visual_target_smoke_update(_pid = 0){
     // Direct smoke completes synchronously in start().
 }
 
+function test_battle_confusion_visual_smoke_start(_auto_close = false){
+    var _pid = 0;
+    if (battle_is_open(_pid)) battle_close(_pid);
+    var _S = {
+        pid: _pid,
+        tag: "confusion-visual",
+        global_name: "DEV_CONFUSION_VISUAL_SMOKE",
+        auto_close: (_auto_close == true),
+        state: "running",
+        turn_counter: 0,
+        pass_count: 0,
+        fail_count: 0,
+        started_ms: current_time
+    };
+    global.DEV_CONFUSION_VISUAL_SMOKE = _S;
+    show_debug_message("[smoke][confusion-visual] starting direct confusion dialog/orbit smoke");
+
+    var _basic_hit_id = __status_smoke_find_move_id(["pound", "scratch", "tackle", "wing-attack", "wing_attack"], 1);
+    if (_basic_hit_id < 0){
+        __status_smoke_assert(_S, false, "Resolved a basic damaging move for the confusion visual smoke");
+        __status_smoke_finish(_pid, _S, "missing-move");
+        return false;
+    }
+
+    var _hero = __effect_smoke_mon(133, 26, 120, [_basic_hit_id, -1, -1, -1]);
+    var _foe = __effect_smoke_mon(19, 22, 120, [150, -1, -1, -1]);
+    variable_struct_set(_hero, "name", "Confused Hero");
+    variable_struct_set(_foe, "name", "Target Dummy");
+    var _B = __effect_smoke_slot(_pid, _hero, _foe, "trainer");
+    __status_smoke_bind_current_battle(_pid, _S);
+
+    var _actors = variable_struct_get(_B, "actor");
+    var _hero_actor = _actors[0];
+    __status_smoke_clear_anim_queue(_pid);
+    __status_smoke_reset_visual_actor(_hero_actor);
+    __status_smoke_reset_visual_actor(_actors[1]);
+
+    try {
+        var _hero_status_target = _hero_actor;
+        if (variable_struct_exists(_hero_actor, "mon") && is_struct(variable_struct_get(_hero_actor, "mon"))) _hero_status_target = variable_struct_get(_hero_actor, "mon");
+        status_system_ensure_mon(_hero_status_target);
+        var _ss_inner = variable_struct_get(_hero_status_target, "statuses");
+        var _conf_inst = { id: "confusion", applied_ms: current_time, turns: 2, stacks: 1, source: undefined };
+        variable_struct_set(_ss_inner, "confusion", _conf_inst);
+        if (!variable_struct_exists(_hero_actor, "statuses") || !is_struct(variable_struct_get(_hero_actor, "statuses"))) variable_struct_set(_hero_actor, "statuses", {});
+        variable_struct_set(variable_struct_get(_hero_actor, "statuses"), "confusion", _conf_inst);
+        variable_struct_set(_hero_actor, "_confusion_turn_pending_roll", false);
+    } catch (e_conf_setup) {
+        __status_smoke_assert(_S, false, "Smoke setup created a confusion status on the acting battler");
+        __status_smoke_finish(_pid, _S, "setup-failed");
+        return false;
+    }
+
+    var _result = __battle_perform_action_impl(_pid, { slot: 0, move_id: _basic_hit_id, actor_index: 0, target_index: 1 });
+    if (!is_undefined(battle_anim_queue_tick)) battle_anim_queue_tick(_pid);
+
+    var _dlg_open = (!is_undefined(dialog2p_is_open) && dialog2p_is_open(_pid));
+    var _dlg_text = __status_smoke_dialog_text(_pid);
+    var _dlg_text_l = string_lower(_dlg_text);
+    var _orbit_count = __status_smoke_count_orbit_states(_pid, 0, spr_confused);
+    var _hold_turn = (variable_struct_exists(_B, "_hold_current_action_for_status_dialog") && variable_struct_get(_B, "_hold_current_action_for_status_dialog") == true);
+    var _pending_roll = (variable_struct_exists(_hero_actor, "_confusion_turn_pending_roll") && variable_struct_get(_hero_actor, "_confusion_turn_pending_roll") == true);
+
+    __status_smoke_assert(_S, string_length(string(_result)) == 0, "Confusion pre-turn dialog paused the action before the move result text");
+    __status_smoke_assert(_S, _dlg_open, "Confusion smoke opened the battle dialog for the pre-turn confusion message");
+    __status_smoke_assert(_S, string_pos("confused hero", _dlg_text_l) > 0 && string_pos("confused", _dlg_text_l) > 0, "Confusion smoke showed the wrapped 'is confused' dialog text");
+    __status_smoke_assert(_S, _orbit_count >= 1, "Confusion smoke queued an orbiting spr_confused animation above the acting battler");
+    __status_smoke_assert(_S, _hold_turn, "Confusion smoke held the current action until the dialog closes");
+    __status_smoke_assert(_S, _pending_roll, "Confusion smoke marked the battler to resume with the self-hit roll after the dialog");
+
+    var _fails = variable_struct_get(_S, "fail_count");
+    __status_smoke_finish(_pid, _S, (_fails == 0) ? "completed" : "failed");
+    return (_fails == 0);
+}
+
+function test_battle_confusion_visual_smoke_update(_pid = 0){
+    // Direct smoke completes synchronously in start().
+}
+
 function __effect_smoke_mon(_species, _level, _hp_max, _moves){
     var _mon = pokemon_factory_create(_species, _level, {});
     variable_struct_set(_mon, "hp_max", _hp_max);
@@ -3374,8 +3490,11 @@ function test_battle_effect_27_42_smoke_start(_auto_close = false){
     status_system_tick_statuses(_A, undefined);
     var _trap_src_after = __battle_hp_now(_D);
     var _trap_tgt_after = __battle_hp_now(_A);
+    var _trap_msg = string_lower(__status_smoke_dialog_text(_pid) + "\n" + __status_smoke_pending_status_text(_pid));
+    var _trap_name = string_lower(__battle_move_name(20));
     var _trap_ok = _trap_applied && (!_switch_ok_trap) && (!_switch_staged_trap) && (_trap_tgt_after < _trap_tgt_before) && (_trap_src_after == _trap_src_before);
     __status_smoke_assert(_S, _trap_ok, "effect 43 trap blocked switching, dealt residual damage, and did not heal the source");
+    __status_smoke_assert(_S, string_pos(_trap_name, _trap_msg) > 0, "effect 43 trap residual dialog names the applied trapping move");
 
     var _fails = variable_struct_get(_S, "fail_count");
     __status_smoke_finish(_pid, _S, (_fails == 0) ? "completed" : "failed");

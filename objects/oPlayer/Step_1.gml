@@ -128,6 +128,11 @@ if (variable_global_exists("DEV_AUTO_VISUAL_TARGET_SMOKE") && global.DEV_AUTO_VI
     test_battle_visual_target_smoke_start(true);
 }
 
+if (variable_global_exists("DEV_AUTO_CONFUSION_VISUAL_SMOKE") && global.DEV_AUTO_CONFUSION_VISUAL_SMOKE) {
+    global.DEV_AUTO_CONFUSION_VISUAL_SMOKE = false;
+    test_battle_confusion_visual_smoke_start(true);
+}
+
 if (variable_global_exists("DEV_AUTO_EFFECT_131_155_SMOKE") && global.DEV_AUTO_EFFECT_131_155_SMOKE) {
     global.DEV_AUTO_EFFECT_131_155_SMOKE = false;
     test_battle_effect_131_155_smoke_start(true);
@@ -214,6 +219,7 @@ test_battle_doubles_forced_player_switch_smoke_update(0);
 test_battle_doubles_enemy_faint_auto_send_smoke_update(0);
 test_battle_burn_poison_residual_smoke_update(0);
 test_battle_visual_target_smoke_update(0);
+test_battle_confusion_visual_smoke_update(0);
 test_battle_effect_131_155_smoke_update(0);
 test_battle_effect_159_176_smoke_update(0);
 test_battle_effect_27_42_smoke_update(0);

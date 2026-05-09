@@ -1844,6 +1844,23 @@ function __battle_check_can_act(_user, _move_id){
                     var _pid_conf_announce = __battle_guess_pid_for_entities(_user, _user);
                     var _shown_conf = false;
                     try {
+                        __battle_request_animation_safe(_pid_conf_announce, {
+                            type: "move",
+                            user: _user,
+                            target: _user,
+                            target_index: _actor_idx_conf,
+                            visual_kind: "confused_ducks",
+                            sprite: spr_confused,
+                            duration: 1900,
+                            offset_y: -30,
+                            orbit_count: 3,
+                            orbit_radius_x: 22,
+                            orbit_radius_y: 8,
+                            spin_speed: 1.05,
+                            tint: c_white
+                        });
+                    } catch (e_conf_turn_anim) {}
+                    try {
                         if (is_real(_pid_conf_announce) && !is_undefined(dialog2p_show_now)){
                             dialog2p_show_now(_pid_conf_announce, { text: _conf_name + " is confused!" });
                             _shown_conf = true;

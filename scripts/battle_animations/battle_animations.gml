@@ -672,6 +672,19 @@ function __battle_anim_queue_normalize(_slot, _spec){
                 _out.duration = __battle_anim_duration_for_family(_out.family, _effect_visual_profile.duration);
                 if (is_real(_effect_visual_profile.duration)) _out.duration = max(_out.duration, floor(_effect_visual_profile.duration));
             }
+            // Allow callers to provide a bespoke move visual (for example the
+            // pre-turn confusion orbit) instead of relying solely on move-id-derived effects.
+            if (variable_struct_exists(_spec, "visual_kind")) _out.visual_kind = variable_struct_get(_spec, "visual_kind");
+            if (variable_struct_exists(_spec, "sprite")) _out.sprite = variable_struct_get(_spec, "sprite");
+            if (variable_struct_exists(_spec, "scale") && is_real(variable_struct_get(_spec, "scale"))) _out.scale = real(variable_struct_get(_spec, "scale"));
+            if (variable_struct_exists(_spec, "offset_x") && is_real(variable_struct_get(_spec, "offset_x"))) _out.offset_x = variable_struct_get(_spec, "offset_x");
+            if (variable_struct_exists(_spec, "offset_y") && is_real(variable_struct_get(_spec, "offset_y"))) _out.offset_y = variable_struct_get(_spec, "offset_y");
+            if (variable_struct_exists(_spec, "orbit_count") && is_real(variable_struct_get(_spec, "orbit_count"))) _out.orbit_count = floor(variable_struct_get(_spec, "orbit_count"));
+            if (variable_struct_exists(_spec, "orbit_radius_x") && is_real(variable_struct_get(_spec, "orbit_radius_x"))) _out.orbit_radius_x = variable_struct_get(_spec, "orbit_radius_x");
+            if (variable_struct_exists(_spec, "orbit_radius_y") && is_real(variable_struct_get(_spec, "orbit_radius_y"))) _out.orbit_radius_y = variable_struct_get(_spec, "orbit_radius_y");
+            if (variable_struct_exists(_spec, "spin_speed") && is_real(variable_struct_get(_spec, "spin_speed"))) _out.spin_speed = real(variable_struct_get(_spec, "spin_speed"));
+            if (variable_struct_exists(_spec, "tint") && is_real(variable_struct_get(_spec, "tint"))) _out.tint = variable_struct_get(_spec, "tint");
+            if (variable_struct_exists(_spec, "duration") && is_real(variable_struct_get(_spec, "duration"))) _out.duration = max(1, floor(variable_struct_get(_spec, "duration")));
             var _actor_index_move = undefined;
             if (variable_struct_exists(_spec, "actor") && is_struct(variable_struct_get(_spec, "actor")) && variable_struct_exists(variable_struct_get(_spec, "actor"), "actor_index") && is_real(variable_struct_get(variable_struct_get(_spec, "actor"), "actor_index"))){
                 _actor_index_move = variable_struct_get(variable_struct_get(_spec, "actor"), "actor_index");
@@ -969,6 +982,25 @@ function __battle_anim_queue_build_draw_state(_pid, _slot, _entry){
         var _offset_x_fx = (variable_struct_exists(_entry, "offset_x") && is_real(_entry.offset_x)) ? __battle_anim_queue_wu(_pid, _entry.offset_x, _entry.offset_x) : 0;
         var _offset_y_fx = (variable_struct_exists(_entry, "offset_y") && is_real(_entry.offset_y)) ? __battle_anim_queue_hu(_pid, _entry.offset_y, _entry.offset_y) : 0;
         var _tint_fx = (variable_struct_exists(_entry, "tint") && is_real(_entry.tint)) ? _entry.tint : c_white;
+
+        if (_visual_kind == "confused_ducks"){
+            if (is_undefined(_sprite_fx)) _sprite_fx = __battle_anim_sprite_from_names(["spr_confused"]);
+            return {
+                kind: "sprite_orbit",
+                target_index: _idx_fx,
+                sprite: _sprite_fx,
+                progress: _prog,
+                alpha: 1 - max(0, (_prog - 0.82) / 0.18),
+                scale: _scale_fx,
+                offset_x: _offset_x_fx,
+                offset_y: _offset_y_fx,
+                orbit_count: (variable_struct_exists(_entry, "orbit_count") && is_real(_entry.orbit_count)) ? floor(_entry.orbit_count) : 3,
+                orbit_radius_x: (variable_struct_exists(_entry, "orbit_radius_x") && is_real(_entry.orbit_radius_x)) ? __battle_anim_queue_wu(_pid, _entry.orbit_radius_x, _entry.orbit_radius_x) : __battle_anim_queue_wu(_pid, 22, 22),
+                orbit_radius_y: (variable_struct_exists(_entry, "orbit_radius_y") && is_real(_entry.orbit_radius_y)) ? __battle_anim_queue_hu(_pid, _entry.orbit_radius_y, _entry.orbit_radius_y) : __battle_anim_queue_hu(_pid, 8, 8),
+                spin_speed: (variable_struct_exists(_entry, "spin_speed") && is_real(_entry.spin_speed)) ? real(_entry.spin_speed) : 1.35,
+                tint: _tint_fx
+            };
+        }
 
         if (_visual_kind == "sprite_overlay"){
             var _spr_count_fx = 1;
