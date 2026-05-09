@@ -256,6 +256,45 @@ function party_model_store_caught_mon(_pid, _mon){
     return { ok:true, location:"pc", box_index:_target_box, slot_index:_target_slot, mon:_stored };
 }
 
+function party_model_set_stored_mon_nickname(_pid, _store_info, _nick){
+    if (!is_struct(_store_info) || !variable_struct_exists(_store_info, "location")) return false;
+    var _location = string(variable_struct_get(_store_info, "location"));
+    if (_location == "party"){
+        if (!variable_struct_exists(_store_info, "slot_index") || !is_real(variable_struct_get(_store_info, "slot_index"))) return false;
+        return party_set_nickname(_pid, floor(variable_struct_get(_store_info, "slot_index")), _nick);
+    }
+    if (_location != "pc") return false;
+
+    if (!variable_struct_exists(_store_info, "box_index") || !is_real(variable_struct_get(_store_info, "box_index"))) return false;
+    if (!variable_struct_exists(_store_info, "slot_index") || !is_real(variable_struct_get(_store_info, "slot_index"))) return false;
+    var _pc = party_model_pc_ensure(_pid);
+    var _box_index = floor(variable_struct_get(_store_info, "box_index"));
+    var _slot_index = floor(variable_struct_get(_store_info, "slot_index"));
+    var _boxes = variable_struct_get(_pc, "boxes");
+    if (_box_index < 0 || _box_index >= array_length(_boxes)) return false;
+    var _box = _boxes[_box_index];
+    if (!is_struct(_box) || !variable_struct_exists(_box, "mons") || !is_array(variable_struct_get(_box, "mons"))) return false;
+    var _mons = variable_struct_get(_box, "mons");
+    if (_slot_index < 0 || _slot_index >= array_length(_mons)) return false;
+    var _mon = _mons[_slot_index];
+    if (!is_struct(_mon)) return false;
+    if (!is_undefined(party_mon_ensure_name)) _mon = party_mon_ensure_name(_mon);
+    if (is_string(_nick) && string_length(string_trim(_nick)) > 0) variable_struct_set(_mon, "nickname", string_trim(_nick));
+    else variable_struct_set(_mon, "nickname", undefined);
+    _mons[_slot_index] = _mon;
+    variable_struct_set(_box, "mons", _mons);
+    _boxes[_box_index] = _box;
+    variable_struct_set(_pc, "boxes", _boxes);
+    global.PC_STORAGE[_pid] = _pc;
+    if (variable_struct_exists(_store_info, "mon") && is_struct(variable_struct_get(_store_info, "mon"))){
+        var _store_mon = variable_struct_get(_store_info, "mon");
+        if (is_string(_nick) && string_length(string_trim(_nick)) > 0) variable_struct_set(_store_mon, "nickname", string_trim(_nick));
+        else variable_struct_set(_store_mon, "nickname", undefined);
+        variable_struct_set(_store_info, "mon", _store_mon);
+    }
+    return true;
+}
+
 // Update or replace a mon struct at `_index` in the given player's party.
 // Preserves existing slot object where possible (in-place field copy).
 // Performs defensive normalization (hp_max >= current hp).

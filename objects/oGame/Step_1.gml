@@ -1,9 +1,19 @@
 controls_update();
 
+var _vk_block_0 = (!is_undefined(virtual_keyboard_blocks_input) && virtual_keyboard_blocks_input(0));
+var _vk_block_1 = (!is_undefined(virtual_keyboard_blocks_input) && virtual_keyboard_blocks_input(1));
+var _vk_block_any = (_vk_block_0 || _vk_block_1);
+
 // open bag from player objects (you already do via Inventory)
-bags_update();
-pause_update();
-party_update();     // alongside your bags_update();
+if (!_vk_block_any){
+	bags_update();
+	pause_update();
+	party_update();
+}
+evolution_update(0);
+if (variable_global_exists("EVOLUTION") && is_array(global.EVOLUTION) && array_length(global.EVOLUTION) > 1) evolution_update(1);
+virtual_keyboard_update(0);
+if (variable_global_exists("VKEYBOARD") && is_array(global.VKEYBOARD) && array_length(global.VKEYBOARD) > 1) virtual_keyboard_update(1);
 
 // Allow dialog system to drain any queued messages when boxes are closed
 if (!is_undefined(dialog2p_step)){

@@ -1,0 +1,13 @@
+{
+  "$GMScript":"v1",
+  "%Name":"virtual_keyboard_system",
+  "isCompatibility":false,
+  "isDnD":false,
+  "name":"virtual_keyboard_system",
+  "parent":{
+    "name":"UI",
+    "path":"folders/Scripts/UI.yy",
+  },
+  "resourceType":"GMScript",
+  "resourceVersion":"2.0",
+}

@@ -186,6 +186,7 @@ global.DEV_AUTO_ACCURACY_SMOKE = false;
 global.DEV_AUTO_EFFECT_195_SMOKE = false;
 global.DEV_AUTO_EFFECT_210_SMOKE = false;
 global.DEV_AUTO_EFFECT_211_229_SMOKE = false;
+global.DEV_AUTO_EVOLUTION_SMOKE = false;
 global.DEV_FORCE_CRIT_ROLL_100 = -1;
 global.DEV_FORCE_ACCURACY_HIT = false;
 global.DEV_SMOKE_EXIT_GAME = false;
@@ -219,6 +220,8 @@ var players_active = max(1, (variable_global_exists("PAUSE_PLAYERS_ACTIVE") ? gl
 scr_controls();   // creates global CTRL, loads options.ini
 pause_init();     // pause system
 dialog2p_init();  // dialog system (if you’re using it)
+evolution_init(); // evolution scene manager
+virtual_keyboard_init();
 
 // Controls tweak (optional)
 CTRL.deadzone = 0.25;

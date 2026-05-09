@@ -945,6 +945,11 @@ function __battle_finalize_catch_impl(_B, _caught){
         if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, _msg);
         else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, _msg, _msg, "any");
     } catch (e_msg) {}
+    try {
+        if (is_struct(_store) && variable_struct_exists(_store, "ok") && _store.ok && !is_undefined(virtual_keyboard_request_caught_nickname)){
+            virtual_keyboard_request_caught_nickname(_pid, _store, _caught_name);
+        }
+    } catch (e_vk_req) {}
 
     if (is_array(_B.actor) && _caught_target_idx >= 0 && _caught_target_idx < array_length(_B.actor)){
         _B.actor[_caught_target_idx] = undefined;

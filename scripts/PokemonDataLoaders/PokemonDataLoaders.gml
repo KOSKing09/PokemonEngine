@@ -1169,6 +1169,8 @@ function data_load_all_structs_ext(){
     // Growth rates table + Experience
     data_load_growth_rates_structs();
     data_load_experience_structs();
+    data_load_evolution_triggers_structs();
+    data_load_pokemon_evolution_structs();
     // Items + item categories
     data_load_items_structs();
     data_load_item_categorys_structs();
@@ -1577,6 +1579,134 @@ function scr_get_exp_next_for_mon(_mon){
     // lookup for level+1
     var next = scr_get_exp_for_level(gid, lvl + 1);
     return is_real(next) && next >= 0 ? next : -1;
+}
+
+// ===================== EVOLUTIONS (NEW) - 2026-05-09 =====================
+
+function data_load_evolution_triggers_structs(){
+    var path = working_directory + "/data/csv/evolution_triggers.csv";
+    var g = load_csv(path);
+    if (g == -1) { data_debug("[DATA][evolution_triggers] SKIP: " + path); global._evolution_triggers = []; return; }
+
+    var H = ds_grid_height(g);
+    var ci_id = __col_find_ci(g, "id");
+    var ci_ident = __col_find_ci(g, "identifier");
+    if (ci_id < 0 || ci_ident < 0){ data_debug("[DATA][evolution_triggers] ERROR: missing id/identifier columns"); global._evolution_triggers = []; return; }
+
+    var max_id = 0;
+    for (var r = 1; r < H; ++r){
+        var _idv = __to_int_safe(__grid(g, ci_id, r, 0), 0);
+        if (_idv > max_id) max_id = _idv;
+    }
+
+    global._evolution_triggers = [];
+    array_resize(global._evolution_triggers, max_id + 1);
+    var rows = 0;
+    for (var r2 = 1; r2 < H; ++r2){
+        var _id = __to_int_safe(__grid(g, ci_id, r2, 0), 0);
+        if (_id <= 0) continue;
+        var _ident = __s_trim(__grid(g, ci_ident, r2, ""));
+        global._evolution_triggers[_id] = { id:_id, identifier:_ident };
+        rows += 1;
+    }
+    data_debug("[DATA][evolution_triggers] rows=" + string(rows));
+}
+
+function data_load_pokemon_evolution_structs(){
+    var path = working_directory + "/data/csv/pokemon_evolution.csv";
+    var g = load_csv(path);
+    if (g == -1) {
+        data_debug("[DATA][pokemon_evolution] SKIP: " + path);
+        global._pokemon_evolutions = [];
+        global._pokemon_evolutions_by_species = [];
+        return;
+    }
+
+    var H = ds_grid_height(g);
+    var ci_source = __col_find_ci(g, "id");
+    var ci_target = __col_find_ci(g, "evolved_species_id");
+    var ci_trigger = __col_find_ci(g, "evolution_trigger_id");
+    var ci_item = __col_find_ci(g, "trigger_item_id");
+    var ci_level = __col_find_ci(g, "minimum_level");
+    var ci_gender = __col_find_ci(g, "gender_id");
+    var ci_location = __col_find_ci(g, "location_id");
+    var ci_held = __col_find_ci(g, "held_item_id");
+    var ci_time = __col_find_ci(g, "time_of_day");
+    var ci_move = __col_find_ci(g, "known_move_id");
+    var ci_move_type = __col_find_ci(g, "known_move_type_id");
+    var ci_happy = __col_find_ci(g, "minimum_happiness");
+    var ci_beauty = __col_find_ci(g, "minimum_beauty");
+    var ci_affection = __col_find_ci(g, "minimum_affection");
+    var ci_relative = __col_find_ci(g, "relative_physical_stats");
+    var ci_party_species = __col_find_ci(g, "party_species_id");
+    var ci_party_type = __col_find_ci(g, "party_type_id");
+    var ci_trade_species = __col_find_ci(g, "trade_species_id");
+    var ci_rain = __col_find_ci(g, "needs_overworld_rain");
+    var ci_upside = __col_find_ci(g, "turn_upside_down");
+
+    if (ci_source < 0 || ci_target < 0 || ci_trigger < 0){
+        data_debug("[DATA][pokemon_evolution] ERROR: missing required columns");
+        global._pokemon_evolutions = [];
+        global._pokemon_evolutions_by_species = [];
+        return;
+    }
+
+    var max_source = 0;
+    for (var r = 1; r < H; ++r){
+        var _src = __to_int_safe(__grid(g, ci_source, r, 0), 0);
+        if (_src > max_source) max_source = _src;
+    }
+
+    global._pokemon_evolutions = [];
+    global._pokemon_evolutions_by_species = [];
+    array_resize(global._pokemon_evolutions_by_species, max_source + 1);
+    for (var init_i = 0; init_i <= max_source; ++init_i) global._pokemon_evolutions_by_species[init_i] = [];
+
+    var rows = 0;
+    for (var r2 = 1; r2 < H; ++r2){
+        var _source = __to_int_safe(__grid(g, ci_source, r2, 0), 0);
+        var _target = __to_int_safe(__grid(g, ci_target, r2, 0), 0);
+        var _trigger = __to_int_safe(__grid(g, ci_trigger, r2, 0), 0);
+        if (_source <= 0 || _target <= 0 || _trigger <= 0) continue;
+
+        var _row = {
+            source_species_id: _source,
+            evolved_species_id: _target,
+            evolution_trigger_id: _trigger,
+            trigger_item_id: (ci_item >= 0 ? __to_int_safe(__grid(g, ci_item, r2, 0), 0) : 0),
+            minimum_level: (ci_level >= 0 ? __to_int_safe(__grid(g, ci_level, r2, 0), 0) : 0),
+            gender_id: (ci_gender >= 0 ? __to_int_safe(__grid(g, ci_gender, r2, 0), 0) : 0),
+            location_id: (ci_location >= 0 ? __to_int_safe(__grid(g, ci_location, r2, 0), 0) : 0),
+            held_item_id: (ci_held >= 0 ? __to_int_safe(__grid(g, ci_held, r2, 0), 0) : 0),
+            time_of_day: (ci_time >= 0 ? __s_trim(__grid(g, ci_time, r2, "")) : ""),
+            known_move_id: (ci_move >= 0 ? __to_int_safe(__grid(g, ci_move, r2, 0), 0) : 0),
+            known_move_type_id: (ci_move_type >= 0 ? __to_int_safe(__grid(g, ci_move_type, r2, 0), 0) : 0),
+            minimum_happiness: (ci_happy >= 0 ? __to_int_safe(__grid(g, ci_happy, r2, 0), 0) : 0),
+            minimum_beauty: (ci_beauty >= 0 ? __to_int_safe(__grid(g, ci_beauty, r2, 0), 0) : 0),
+            minimum_affection: (ci_affection >= 0 ? __to_int_safe(__grid(g, ci_affection, r2, 0), 0) : 0),
+            relative_physical_stats: (ci_relative >= 0 ? __to_int_safe(__grid(g, ci_relative, r2, 0), 0) : 0),
+            party_species_id: (ci_party_species >= 0 ? __to_int_safe(__grid(g, ci_party_species, r2, 0), 0) : 0),
+            party_type_id: (ci_party_type >= 0 ? __to_int_safe(__grid(g, ci_party_type, r2, 0), 0) : 0),
+            trade_species_id: (ci_trade_species >= 0 ? __to_int_safe(__grid(g, ci_trade_species, r2, 0), 0) : 0),
+            needs_overworld_rain: (ci_rain >= 0 ? __to_int_safe(__grid(g, ci_rain, r2, 0), 0) : 0),
+            turn_upside_down: (ci_upside >= 0 ? __to_int_safe(__grid(g, ci_upside, r2, 0), 0) : 0)
+        };
+
+        array_push(global._pokemon_evolutions, _row);
+        array_push(global._pokemon_evolutions_by_species[_source], _row);
+        rows += 1;
+    }
+
+    data_debug("[DATA][pokemon_evolution] rows=" + string(rows));
+}
+
+function scr_get_species_evolutions(_species_id){
+    var _sid = is_real(_species_id) ? floor(_species_id) : -1;
+    if (_sid <= 0) return [];
+    if (!variable_global_exists("_pokemon_evolutions_by_species") || !is_array(global._pokemon_evolutions_by_species)) return [];
+    if (_sid >= array_length(global._pokemon_evolutions_by_species)) return [];
+    var _rows = global._pokemon_evolutions_by_species[_sid];
+    return is_array(_rows) ? _rows : [];
 }
 
 

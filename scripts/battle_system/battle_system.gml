@@ -1562,6 +1562,7 @@ function battle_update(_pid){
     if (!is_undefined(__battle_update_animations)) __battle_update_animations(_pid);
     var _levelup_panel_active = false;
     if (!is_undefined(__battle_update_levelup_panel)) _levelup_panel_active = __battle_update_levelup_panel(_pid);
+    if (!is_undefined(evolution_is_active) && evolution_is_active(_pid)) return;
 
     // If the Bag UI is open for this player, or a catch animation is active,
     // pause battle progression (turn resolution/input processing) so the
@@ -1818,6 +1819,11 @@ function battle_update(_pid){
         if (_B.phase == "intro_call"){
             _B.phase = "intro_player"; _B.phase_start_ms = now3;
         } else if (variable_struct_exists(_B, "_pending_close") && variable_struct_get(_B, "_pending_close")){
+            if (!is_undefined(virtual_keyboard_blocks_input) && virtual_keyboard_blocks_input(_pid)){
+                try { variable_struct_set(_B, "_closing", false); } catch (e_close_hold_vk1) {}
+                try { variable_struct_set(_B, "_close_start_ms", undefined); } catch (e_close_hold_vk2) {}
+                return;
+            }
             if (__battle_has_active_exp_sequence(_B)){
                 try { variable_struct_set(_B, "_closing", false); } catch (e_close_hold1) {}
                 try { variable_struct_set(_B, "_close_start_ms", undefined); } catch (e_close_hold2) {}
@@ -6350,6 +6356,10 @@ function __battle_award_exp(_pid, _amount){
     if (variable_struct_exists(T, "hp_now") || variable_struct_exists(T, "hp")) __battle_set_hp_now(A0, __battle_hp_now(T));
         if (variable_struct_exists(T, "hp_max")) A0.hp_max = T.hp_max;
         if (variable_struct_exists(T, "name")) A0.name = T.name;
+    }
+
+    if (_ups > 0 && !is_undefined(evolution_enqueue_levelup)) {
+        try { evolution_enqueue_levelup(_pid, T, A0); } catch (e_evolution_queue) {}
     }
 
     // Build dialog message for EXP gain; level-up details are shown in the side panel.

@@ -228,6 +228,185 @@ function __status_smoke_dialog_text(_pid){
     return _l0 + "\n" + _l1;
 }
 
+function __status_smoke_advance_levelup_panel(_pid, _state){
+    if (is_undefined(__battle_ensure_slot)) return false;
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !variable_struct_exists(_B, "_levelup_panel")) return false;
+    var _panel = variable_struct_get(_B, "_levelup_panel");
+    if (!is_struct(_panel) || !variable_struct_exists(_panel, "active") || variable_struct_get(_panel, "active") != true) return false;
+
+    var _now = current_time;
+    var _next_ms = (is_struct(_state) && variable_struct_exists(_state, "panel_advance_ms") && is_real(variable_struct_get(_state, "panel_advance_ms"))) ? variable_struct_get(_state, "panel_advance_ms") : -1;
+    if (is_real(_next_ms) && _next_ms > _now) return true;
+
+    if (!variable_global_exists("CTRL") || !is_struct(CTRL) || !variable_struct_exists(CTRL, "state") || !is_array(CTRL.state) || array_length(CTRL.state) <= _pid) return true;
+    var _st = CTRL.state[_pid];
+    if (!is_struct(_st) || !variable_struct_exists(_st, "pressed")) return true;
+    var _pressed = variable_struct_get(_st, "pressed");
+    if (!is_real(_pressed) || !ds_exists(_pressed, ds_type_map)) return true;
+
+    ds_map_replace(_pressed, "Interact", true);
+    ds_map_replace(_pressed, "A", true);
+    try { __battle_update_levelup_panel(_pid); } catch (e_smoke_panel) {}
+    ds_map_replace(_pressed, "Interact", false);
+    ds_map_replace(_pressed, "A", false);
+    if (is_struct(_state)) variable_struct_set(_state, "panel_advance_ms", _now + 220);
+    return true;
+}
+
+function __evolution_smoke_actor_from_mon(_mon){
+    if (!is_struct(_mon)) return undefined;
+    return {
+        mon: _mon,
+        name: (variable_struct_exists(_mon, "name") ? variable_struct_get(_mon, "name") : "Pokemon"),
+        species_id: (variable_struct_exists(_mon, "species_id") ? variable_struct_get(_mon, "species_id") : -1),
+        species: (variable_struct_exists(_mon, "species") ? variable_struct_get(_mon, "species") : "Pokemon"),
+        level: (variable_struct_exists(_mon, "level") ? variable_struct_get(_mon, "level") : 1),
+        exp: (variable_struct_exists(_mon, "exp") ? variable_struct_get(_mon, "exp") : 0),
+        exp_next: (variable_struct_exists(_mon, "exp_next") ? variable_struct_get(_mon, "exp_next") : 1),
+        hp: (variable_struct_exists(_mon, "hp") ? variable_struct_get(_mon, "hp") : 1),
+        hp_now: (variable_struct_exists(_mon, "hp_now") ? variable_struct_get(_mon, "hp_now") : ((variable_struct_exists(_mon, "hp") ? variable_struct_get(_mon, "hp") : 1))),
+        hp_max: (variable_struct_exists(_mon, "hp_max") ? variable_struct_get(_mon, "hp_max") : ((variable_struct_exists(_mon, "hp") ? variable_struct_get(_mon, "hp") : 1))),
+        maxhp: (variable_struct_exists(_mon, "maxhp") ? variable_struct_get(_mon, "maxhp") : ((variable_struct_exists(_mon, "hp_max") ? variable_struct_get(_mon, "hp_max") : 1))),
+        atk: (variable_struct_exists(_mon, "atk") ? variable_struct_get(_mon, "atk") : 1),
+        def: (variable_struct_exists(_mon, "def") ? variable_struct_get(_mon, "def") : 1),
+        spa: (variable_struct_exists(_mon, "spa") ? variable_struct_get(_mon, "spa") : 1),
+        spd: (variable_struct_exists(_mon, "spd") ? variable_struct_get(_mon, "spd") : 1),
+        spe: (variable_struct_exists(_mon, "spe") ? variable_struct_get(_mon, "spe") : 1),
+        icon: (variable_struct_exists(_mon, "icon") ? variable_struct_get(_mon, "icon") : -1),
+        type1: (variable_struct_exists(_mon, "type1") ? variable_struct_get(_mon, "type1") : -1),
+        type2: (variable_struct_exists(_mon, "type2") ? variable_struct_get(_mon, "type2") : -1),
+        types: (variable_struct_exists(_mon, "types") ? variable_struct_get(_mon, "types") : []),
+        moves: (variable_struct_exists(_mon, "moves") ? variable_struct_get(_mon, "moves") : [-1, -1, -1, -1]),
+        pps: (variable_struct_exists(_mon, "pps") ? variable_struct_get(_mon, "pps") : [0, 0, 0, 0]),
+        shiny: (variable_struct_exists(_mon, "shiny") ? variable_struct_get(_mon, "shiny") : false)
+    };
+}
+
+function test_battle_evolution_smoke_start(_auto_close = false){
+    var _pid = 0;
+    if (battle_is_open(_pid)) battle_close(_pid);
+    if (!is_undefined(evolution_init)) evolution_init();
+
+    var _hero = pokemon_factory_create(1, 15, {});
+    var _foe = pokemon_factory_create(10, 5, {});
+    if (!is_struct(_hero) || !is_struct(_foe)) {
+        show_debug_message("[smoke][evolution] FAIL could not create smoke mons");
+        return;
+    }
+
+    var _party = party_ensure(_pid);
+    if (is_struct(_party)) variable_struct_set(_party, "mons", [_hero]);
+    try { if (!is_undefined(party_apply_name_support)) party_apply_name_support(_pid); } catch (e_evo_name) {}
+    variable_struct_set(_hero, "growth_id", undefined);
+
+    var _player_actor = __evolution_smoke_actor_from_mon(_hero);
+    var _enemy_actor = __evolution_smoke_actor_from_mon(_foe);
+    var _B = __effect_smoke_slot(_pid, _player_actor, _enemy_actor, "trainer");
+    if (is_struct(_B)) {
+        variable_struct_set(_B, "theme", {
+            col_bg: make_color_rgb(184,224,200),
+            col_outline: make_color_rgb(72,88,80),
+            col_panel: make_color_rgb(208,232,224),
+            col_hp_green: make_color_rgb(120,216,88),
+            col_hp_yell: make_color_rgb(248,208,56),
+            col_hp_red: make_color_rgb(232,72,56),
+            col_text: c_white,
+            col_dialog_text: make_color_rgb(36, 52, 40),
+            col_ui_text: make_color_rgb(36, 52, 40),
+            col_ui_highlight: make_color_rgb(72, 88, 80),
+            platform_enemy_sprite: spr_opponentplatform,
+            platform_enemy_index: 3,
+            platform_enemy_scale: 1,
+            platform_enemy_offset: { x: 0, y: 0 },
+            platform_player_sprite: spr_playerplatform,
+            platform_player_index: 3,
+            platform_player_scale: 1,
+            platform_player_offset: { x: 0, y: -28 }
+        });
+        try { if (!is_undefined(__battle_theme_apply_area_type)) __battle_theme_apply_area_type(_B, "forest", {}); } catch (e_evo_theme) {}
+    }
+
+    var _target_exp = max(20, sqr(16) * 2);
+    variable_struct_set(_hero, "exp", _target_exp - 1);
+    variable_struct_set(_hero, "exp_next", _target_exp);
+    var _gain = 2;
+
+    var _S = {
+        pid: _pid,
+        tag: "evolution",
+        global_name: "DEV_EVOLUTION_SMOKE",
+        auto_close: (_auto_close == true),
+        started_ms: current_time,
+        pass_count: 0,
+        fail_count: 0,
+        dialog_advance_ms: current_time + 120,
+        mon: _hero,
+        expected_species_id: 2,
+        saw_pending: false,
+        saw_active: false,
+        saw_announce: false,
+        saw_result: false
+    };
+    global.DEV_EVOLUTION_SMOKE = _S;
+    __status_smoke_bind_current_battle(_pid, _S);
+
+    try { __battle_award_exp(_pid, _gain); } catch (e_evo_award) {
+        __status_smoke_assert(_S, false, "exp award failed: " + string(e_evo_award));
+        __status_smoke_finish(_pid, _S, "award_exp exception");
+        return;
+    }
+
+    __status_smoke_assert(_S, battle_is_open(_pid), "battle slot opened for evolution smoke");
+    __status_smoke_assert(_S, __evolution_species_id(_hero) == 1, "smoke mon starts unevolved");
+}
+
+function test_battle_evolution_smoke_update(_pid = 0){
+    if (!variable_global_exists("DEV_EVOLUTION_SMOKE")) return;
+    var _S = global.DEV_EVOLUTION_SMOKE;
+    if (!is_struct(_S)) return;
+
+    __status_smoke_advance_dialog(_pid, _S);
+    __status_smoke_advance_levelup_panel(_pid, _S);
+
+    if (current_time - variable_struct_get(_S, "started_ms") > 15000){
+        __status_smoke_assert(_S, false, "timed out waiting for evolution flow");
+        __status_smoke_finish(_pid, _S, "timeout");
+        return;
+    }
+
+    var _dialog_text = string_lower(__status_smoke_dialog_text(_pid));
+    if (string_pos("is evolving", _dialog_text) > 0) variable_struct_set(_S, "saw_announce", true);
+    if (string_pos("evolved into", _dialog_text) > 0) variable_struct_set(_S, "saw_result", true);
+    if (!is_undefined(evolution_has_pending) && evolution_has_pending(_pid)) variable_struct_set(_S, "saw_pending", true);
+    if (!is_undefined(evolution_is_active) && evolution_is_active(_pid)) variable_struct_set(_S, "saw_active", true);
+
+    var _mon = variable_struct_get(_S, "mon");
+    var _expected = variable_struct_get(_S, "expected_species_id");
+    var _actual = __evolution_species_id(_mon);
+
+    if (_actual == _expected && (!dialog2p_is_open(_pid)) && (!evolution_is_active(_pid))){
+        __status_smoke_assert(_S, variable_struct_get(_S, "saw_pending"), "evolution queue was created");
+        __status_smoke_assert(_S, variable_struct_get(_S, "saw_active"), "evolution scene became active");
+        __status_smoke_assert(_S, variable_struct_get(_S, "saw_announce"), "announce dialog was shown");
+        __status_smoke_assert(_S, variable_struct_get(_S, "saw_result"), "completion dialog was shown");
+        __status_smoke_assert(_S, true, "level-up evolution changed species to " + string(_expected));
+        __status_smoke_finish(_pid, _S, "evolution completed");
+        return;
+    }
+
+    if (current_time - variable_struct_get(_S, "started_ms") > 8000 && !variable_struct_get(_S, "saw_active") && !variable_struct_get(_S, "saw_pending")){
+        __status_smoke_assert(_S, false, "evolution never queued from battle exp");
+        __status_smoke_finish(_pid, _S, "queue missing");
+        return;
+    }
+
+    if (!battle_is_open(_pid) && _actual != _expected){
+        __status_smoke_assert(_S, false, "battle closed before evolution completed");
+        __status_smoke_finish(_pid, _S, "battle closed early");
+    }
+}
+
 function __status_smoke_pending_status_text(_pid){
     if (!battle_is_open(_pid)) return "";
     var _B = __battle_ensure_slot(_pid);

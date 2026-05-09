@@ -205,6 +205,10 @@ if (variable_global_exists("DEV_AUTO_EFFECT_211_229_SMOKE") && global.DEV_AUTO_E
     global.DEV_AUTO_EFFECT_211_229_SMOKE = false;
     test_battle_effect_211_229_smoke_start(true);
 }
+if (variable_global_exists("DEV_AUTO_EVOLUTION_SMOKE") && global.DEV_AUTO_EVOLUTION_SMOKE) {
+    global.DEV_AUTO_EVOLUTION_SMOKE = false;
+    test_battle_evolution_smoke_start(true);
+}
 
 test_battle_status_smoke_update(0);
 test_battle_heal_block_smoke_update(0);
@@ -237,6 +241,7 @@ test_battle_effect_217_smoke_update(0);
 test_battle_accuracy_smoke_update(0);
 test_battle_effect_210_smoke_update(0);
 test_battle_effect_211_229_smoke_update(0);
+test_battle_evolution_smoke_update(0);
 
 // detect closing edge: if it was open last frame and now not
 if (!variable_instance_exists(id,"_dlg_was")) _dlg_was = false;
