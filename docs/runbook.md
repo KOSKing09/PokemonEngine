@@ -9,6 +9,7 @@ This project is a GameMaker Studio project. The runtime contracts live in script
 - `docs/battle_doubles.md`: doubles/co-op format rules, actor layout, ownership routing, target helpers, and trainer doubles seams
 - `docs/bag_system.md`: bag state, inventory helpers, in-battle item use flow, and bag draw/input split
 - `docs/party_system.md`: party state, menu modes, summary flow, and party/battle integration
+- `docs/dialog_system.md`: dialog queue ownership, battle-vs-overworld rendering rules, callbacks, and split-screen draw behavior
 - `docs/description_menus.md`: where item, species, and move description text comes from and which draw/input helpers own the UI
 
 ## Open and run
@@ -25,27 +26,47 @@ The current boot path is:
   - sets up fonts and GUI size (`240x160`)
   - loads data tables
   - initializes pkicons base paths
-  - calls `party_init()`, `bags_init()`, `scr_controls()`, `pause_init()`, and `dialog2p_init()`
+  - calls `party_init()`, `bags_init()`, `scr_controls()`, `pause_init()`, `dialog2p_init()`, `evolution_init()`, and `virtual_keyboard_init()`
+- `objects/oGame/Step_1.gml`
+  - calls `controls_update()` before any input-driven UI reads
+  - blocks bag, pause, and party updates while either pid has an active virtual keyboard overlay
+  - advances `evolution_update(pid)` and `virtual_keyboard_update(pid)`
+  - drains dialog queues with `dialog2p_step(pid)` for pid `0` and pid `1` when the backing arrays exist
 - `objects/oPlayer/Step_1.gml`
-  - advances dialog queues
   - calls `battle_update(0)` when a battle is open
   - runs developer smokes gated by `global.DEV_AUTO_*` flags
+- `objects/oGame/Draw_64.gml`
+  - switches to split-screen GUI layout automatically when more than one `oPlayer` exists
+  - keeps overworld dialog on `dialog2p_draw_gui_rect(...)`
+  - keeps battle dialog inside the battle command UI instead of drawing the standalone dialog box
 
 ## Runtime contracts by system
 
 - Controls:
   - run `scr_controls()` once at boot
   - call `controls_update()` every Step before reading `controls_pressed()` or `controls_down()`
+  - controller deadzone is persisted in `options.ini` under `[Input] deadzone`
+  - pid-to-pad ownership is stored in `CTRL.pad_index = [0, 1]`
 - Party:
   - call `party_init()` at boot
   - use `party_ensure(pid)` before touching `global.PARTY[pid]`
+  - use `party_model_set_stored_mon_nickname(pid, store_info, nick)` when updating a caught mon that may already have been routed into party or PC storage
 - Battle:
   - open with `battle_open(...)` or `battle_open_trainer(...)`
   - call `battle_update(pid)` in Step
   - call `battle_draw_gui(pid)` in Draw GUI
+  - battle close waits while nickname entry is active through `virtual_keyboard_blocks_input(pid)`
 - Dialog:
   - `dialog2p_step(pid)` advances queued dialogs
   - `dialog2p_update(pid)` advances an active dialog page
+  - draw overworld dialog with `dialog2p_draw_gui_rect(...)` from Draw GUI
+  - do not use the standalone dialog renderer in battle; battle command UI owns battle message presentation
+- Virtual keyboard / caught nicknames:
+  - call `virtual_keyboard_init()` at boot
+  - call `virtual_keyboard_update(pid)` each Step
+  - call `virtual_keyboard_draw_gui(pid)` or `virtual_keyboard_draw_gui_rect(pid, rx, ry, rw, rh)` from Draw GUI
+  - use `virtual_keyboard_request_caught_nickname(pid, store_info, species_name)` after a successful catch-storage handoff
+  - treat `virtual_keyboard_blocks_input(pid)` as a gameplay/input gate for movement and overlapping menus
 - Pkicons:
   - call `pkicons_set_art96_base(...)`, `pkicons_set_icon32_base(...)`, and `pkicons_set_cries_base(...)` before relying on external assets
 
@@ -53,6 +74,14 @@ The current boot path is:
 
 - `F1` in the default debug room toggles a sample wild double battle from `objects/oPlayer/Step_1.gml`
 - The default debug startup seeds a party and bag so battle, party, and bag UIs can be exercised immediately
+
+## Split-screen usage
+
+- Split-screen is automatic when the room contains more than one `oPlayer` instance.
+- pid `0` uses the left half of the GUI and pid `1` uses the right half.
+- `objects/oGame/Draw_64.gml` is the main composition seam for split-screen UI ownership.
+- Systems with split-screen-aware draw entrypoints currently include battle, pause, bag, party, evolution, the virtual keyboard, and overworld dialog.
+- Physical keyboard character entry for the virtual keyboard is intentionally owned by the first active nickname-entry pid to avoid both sides consuming the same `keyboard_lastchar` events.
 
 ## Smoke tests
 

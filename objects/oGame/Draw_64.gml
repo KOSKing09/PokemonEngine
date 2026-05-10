@@ -17,6 +17,9 @@ if (instance_number(oPlayer) > 1) {
     if (party_is_open(0)) party_draw_gui_rect(0, 0,     0, _gw div 2, _gh);
     if (_evo0) evolution_draw_gui_rect(0, 0, 0, _gw div 2, _gh);
     if (_vk0) virtual_keyboard_draw_gui_rect(0, 0, 0, _gw div 2, _gh);
+    if (!battle_is_open(0) && !is_undefined(dialog2p_is_open) && dialog2p_is_open(0)){
+        dialog2p_draw_gui_rect(0, 0, 0, _gw div 2, _gh);
+    }
 
     // Right (P2)
     if (battle_is_open(1)){
@@ -28,6 +31,9 @@ if (instance_number(oPlayer) > 1) {
     if (party_is_open(1)) party_draw_gui_rect(1, _gw div 2, 0, _gw div 2, _gh);
     if (_evo1) evolution_draw_gui_rect(1, _gw div 2, 0, _gw div 2, _gh);
     if (_vk1) virtual_keyboard_draw_gui_rect(1, _gw div 2, 0, _gw div 2, _gh);
+    if (!battle_is_open(1) && !is_undefined(dialog2p_is_open) && dialog2p_is_open(1)){
+        dialog2p_draw_gui_rect(1, _gw div 2, 0, _gw div 2, _gh);
+    }
 } else {
     // --- Single player ---
     if (battle_is_open(0)){
@@ -41,9 +47,7 @@ if (instance_number(oPlayer) > 1) {
     if (_vk0) virtual_keyboard_draw_gui(0);
 
     // Draw any world-space dialogs last so they appear on top of party/bag UI
-    if (!is_undefined(dialog2p_is_open) && dialog2p_is_open(0)){
-        // Use the active view camera if available
-        if (is_undefined(view_camera) == false) dialog2p_draw_world(0, view_camera[0]);
-        else dialog2p_draw_world(0, camera_get_active());
+    if (!battle_is_open(0) && !is_undefined(dialog2p_is_open) && dialog2p_is_open(0)){
+        dialog2p_draw_gui_rect(0, 0, 0, _gw, _gh);
     }
 }

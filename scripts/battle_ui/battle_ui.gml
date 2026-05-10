@@ -480,8 +480,7 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
             var l1 = (i1 < array_length(d.all_lines)) ? d.all_lines[i1] : "";
             var page_str = l0 + "\n" + l1;
             var vis_str = string_copy(page_str, 1, d.char_idx);
-            
-            // Split into two visible lines
+
             var vis0 = vis_str, vis1 = "";
             var npos = string_pos("\n", vis_str);
             if (npos > 0){
@@ -495,7 +494,6 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
 
             if (variable_global_exists("FNT_POKEMON")) draw_set_font(global.FNT_POKEMON);
             var _dialog_col = (variable_struct_exists(_t, "col_dialog_text") ? variable_struct_get(_t, "col_dialog_text") : _t.col_text);
-            var _fh = (!is_undefined(__dlg_font_h) ? __dlg_font_h() : 8);
             __dlg_draw_lines_spritefont(
                 vis0,
                 vis1,
@@ -503,18 +501,6 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
                 _by + __bhu(_pid,6),
                 _dialog_col
             );
-            // Debug: note that the battle UI dialog branch executed. Only log once the page is fully visible
-            var _page_full_len = string_length(l0 + "\n" + l1);
-            if (is_real(d.char_idx) && d.char_idx >= _page_full_len){
-                // Log once per page when verbose debug enabled
-                    if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE){
-                    var _last = (variable_struct_exists(d, "_dbg_page_last") ? variable_struct_get(d, "_dbg_page_last") : -1);
-                    if (_last != d.page_idx){
-                        show_debug_message("[battle_ui][debug] drawing dialog pid=" + string(_pid) + ", vis0='" + string_copy(vis0,1,min(48,string_length(vis0))) + "', vis1='" + string_copy(vis1,1,min(48,string_length(vis1))) + "'");
-                        variable_struct_set(d, "_dbg_page_last", d.page_idx);
-                    }
-                }
-            }
         }
         return;
     }

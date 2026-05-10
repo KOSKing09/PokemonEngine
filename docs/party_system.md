@@ -17,6 +17,8 @@ This guide explains how the party UI is initialized, which public helpers are sa
 - `party_is_open(pid)`, `party_open(pid)`, `party_close(pid)`, and `party_toggle(pid)` manage visibility.
 - `party_set_swap_mode(pid, swap, forced)` and `party_clear_swap_mode(pid)` coordinate battle swap behavior.
 - `party_apply_name_support(pid)`, `party_set_nickname(pid, index, nick)`, and `party_ensure_named(pid)` manage nickname/display-name support.
+- `party_model_store_caught_mon(pid, mon)` stores a caught mon and returns storage metadata.
+- `party_model_set_stored_mon_nickname(pid, store_info, nick)` applies a nickname to the stored result whether it landed in party or PC storage.
 - `party_draw_gui(pid)` and `party_draw_gui_rect(pid, rx, ry, rw, rh)` are the stable draw entrypoints.
 
 ## State shape
@@ -119,6 +121,19 @@ Battle integration:
 - trainer about-to-send prompts also use the party list as a constrained pick screen
 
 When adding a new cross-system flow, prefer adding one explicit pending payload on the party struct rather than teaching the party UI to inspect many unrelated globals.
+
+## Caught nickname flow
+
+Caught-Pokemon naming is no longer a party-only concern. The current flow is:
+
+1. battle catch finalization stores the mon with `party_model_store_caught_mon(...)`
+2. battle calls `virtual_keyboard_request_caught_nickname(pid, store_info, species_name)`
+3. the virtual keyboard blocks overlapping movement and menu systems while active
+4. confirming the nickname applies it through `party_model_set_stored_mon_nickname(...)`
+
+This matters because a caught mon may already have been routed into PC storage before the nickname is entered. Do not assume the target is still a live party slot.
+
+If you need to change caught-mon naming behavior, start in `scripts/virtual_keyboard_system/virtual_keyboard_system.gml`, `scripts/party_model/party_model.gml`, and the catch-finalization seam in `scripts/battle_impls/battle_impls.gml`.
 
 ## Copyable examples
 

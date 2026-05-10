@@ -738,6 +738,18 @@ function __dlg_draw_lines_spritefont(_l0, _l1, _x, _y, _base_color = c_white){
     __dlg_draw_styled_text(_page_text, _x, _y, _base_color);
 }
 
+function __dlg_pause_palette(){
+    return {
+        panel_fill: make_color_rgb(236, 228, 184),
+        panel_border: make_color_rgb(52, 60, 76),
+        text: c_white,
+        accent: make_color_rgb(120, 160, 220),
+        accent_dark: make_color_rgb(40, 64, 168),
+        title_text: c_white,
+        arrow: c_red
+    };
+}
+
 
 function dialog2p_draw_world(_pid, _cam){
     // If a battle is active for this pid, prefer drawing inside the battle GUI
@@ -774,6 +786,7 @@ function dialog2p_draw_world(_pid, _cam){
     var name_h = (d.name_label != "" ? 14 : 0);
     var bw = d.box_w + pad*2;
     var bh = d.box_h + pad*2 + name_h;
+    var _pal = __dlg_pause_palette();
 
     // clamp to camera & anchor bottom-center, crisp pixels
     bw = max(32, min(bw, vw - 2*d.margin_h));
@@ -783,15 +796,15 @@ function dialog2p_draw_world(_pid, _cam){
     var py = round(vy + vh - (bh + d.margin_v));
 
     // panel
-    draw_set_color(make_color_rgb(30,34,46));
-    draw_rectangle(px, py, px + bw, py + bh, false);
-    draw_set_color(make_color_rgb(80,85,100));
+    draw_set_color(_pal.panel_fill);
     draw_roundrect(px, py, px + bw, py + bh, false);
+    draw_set_color(_pal.panel_border);
+    draw_roundrect(px - 1, py - 1, px + bw + 1, py + bh + 1, true);
 
     // name
     var y_off = 0;
     if (d.name_label != ""){
-        draw_set_color(c_white);
+        draw_set_color(_pal.title_text);
         draw_set_halign(fa_left);
         draw_text(px + pad, py + 4, d.name_label);
         y_off = 14;
@@ -824,7 +837,7 @@ function dialog2p_draw_world(_pid, _cam){
 
     var tx = round(px + text_left);
     var ty = round(py + pad + y_off);
-    __dlg_draw_lines_spritefont(vis0, vis1, tx, ty);
+    __dlg_draw_lines_spritefont(vis0, vis1, tx, ty, _pal.text);
 
     // next-page arrow
     var has_next = ((d.page_idx+1)*2) < array_length(d.all_lines);
@@ -832,7 +845,7 @@ function dialog2p_draw_world(_pid, _cam){
         if ((d.arrow_tick div 30) == 0){
             var ax = round(px + bw - pad - 12);
             var ay = round(py + bh - pad - 10);
-            draw_set_color(c_white);
+            draw_set_color(_pal.arrow);
             draw_triangle(ax, ay, ax+8, ay, ax+4, ay+6, false);
         }
     }
@@ -851,6 +864,7 @@ function dialog2p_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     var name_h = (d.name_label != "" ? 14 : 0);
     var bw = d.box_w + pad*2;
     var bh = d.box_h + pad*2 + name_h;
+    var _pal = __dlg_pause_palette();
 
     // clamp to rect & anchor bottom-center, crisp pixels
     bw = max(32, min(bw, _rw - 2*d.margin_h));
@@ -860,15 +874,15 @@ function dialog2p_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     var py = round(_ry + _rh - (bh + d.margin_v));
 
     // panel
-    draw_set_color(make_color_rgb(30,34,46));
-    draw_rectangle(px, py, px + bw, py + bh, false);
-    draw_set_color(make_color_rgb(80,85,100));
+    draw_set_color(_pal.panel_fill);
     draw_roundrect(px, py, px + bw, py + bh, false);
+    draw_set_color(_pal.panel_border);
+    draw_roundrect(px - 1, py - 1, px + bw + 1, py + bh + 1, true);
 
     // name
     var y_off = 0;
     if (d.name_label != ""){
-        draw_set_color(c_white);
+        draw_set_color(_pal.title_text);
         draw_set_halign(fa_left);
         draw_text(px + pad, py + 4, d.name_label);
         y_off = 14;
@@ -901,7 +915,7 @@ function dialog2p_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
 
     var tx = round(px + text_left);
     var ty = round(py + pad + y_off);
-    __dlg_draw_lines_spritefont(vis0, vis1, tx, ty);
+    __dlg_draw_lines_spritefont(vis0, vis1, tx, ty, _pal.text);
 
     // next-page arrow
     var has_next = ((d.page_idx+1)*2) < array_length(d.all_lines);
@@ -909,7 +923,7 @@ function dialog2p_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         if ((d.arrow_tick div 30) == 0){
             var ax = round(px + bw - pad - 12);
             var ay = round(py + bh - pad - 10);
-            draw_set_color(c_white);
+            draw_set_color(_pal.arrow);
             draw_triangle(ax, ay, ax+8, ay, ax+4, ay+6, false);
         }
     }

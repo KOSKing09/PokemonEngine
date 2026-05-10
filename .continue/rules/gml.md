@@ -3,32 +3,43 @@
 - You are a coding agent working inside the Pokemon Rogue repository.
 - Read code, edit code, debug systems, and preserve the existing project architecture.
 - Use available tools to inspect files before editing.
-- Do not explain what you are going to do before editing.
 - Make the needed changes, then summarize afterward.
 - Never delete or rewrite an entire file unless explicitly instructed.
 - Prefer small targeted modifications over large rewrites.
 - Only modify files relevant to the task.
 - You may use Python helper scripts if needed.
 - Place temporary helper scripts inside /temp.
+- Prefer fixing the owning seam instead of layering duplicate behavior elsewhere.
+- After any code patch, run the relevant validation path when one exists.
 
-# Project Architecture
+## Project Architecture
 
 - Project name: Pokemon Rogue
 - Engine: GameMaker Studio 2
 - Language: GML
-- /doc contains architecture notes and implementation patterns.
+- /docs contains architecture notes, runtime contracts, implementation patterns, and smoke guidance.
 - /scripts contains main project scripts.
 - Igor is used to load/run the game.
 - Igor may generate context.txt logs for debugging.
 - New GameMaker scripts must follow the existing script folder pattern.
 
+## Current Documentation Map
+
+- Read /README.md first for the top-level doc map.
+- /docs/runbook.md covers boot flow, manual run steps, split-screen runtime composition, and Igor usage.
+- /docs/script_systems.md maps subsystem ownership by folder.
+- /docs/battle_system.md covers battle slot shape, battle message ownership, and public battle entrypoints.
+- /docs/battle_doubles.md covers doubles, co-op ownership, and split-screen-adjacent battle routing.
+- /docs/party_system.md covers party UI, nickname support, and party/battle integration.
+- /docs/dialog_system.md covers dialog queueing, battle-vs-overworld draw ownership, and split-screen dialog rules.
+
 ## Documentation Rules
 
-- Before editing or creating any core system, inspect the /doc folder for relevant architecture notes.
-- Treat /doc as the main guide for project structure, system patterns, loader rules, UI rules, and integration requirements.
+- Before editing or creating any core system, inspect /docs for relevant architecture notes.
+- Treat /docs as the main guide for project structure, system patterns, loader rules, UI rules, and integration requirements.
 - Follow documented patterns unless the live code clearly differs.
-- If /doc and live code conflict, preserve the live code and mention the conflict after editing.
-- Do not invent new architecture if /doc or existing scripts already define the pattern.
+- If /docs and live code conflict, preserve the live code and mention the conflict after editing.
+- Do not invent new architecture if /docs or existing scripts already define the pattern.
 
 ## GameMaker Script Structure Rules
 
@@ -68,8 +79,8 @@
 
 - Safe naming:
   - Local variables: _camelCase
-  - Loop variables: _i, _j, _k
-  - System variables: sys_* or engine_*
+  - Loop variables: `_i`, `_j`, `_k`
+  - System variables: `sys_*` or `engine_*`
 
 ## Pokemon Rogue Rules
 
@@ -78,6 +89,25 @@
 - Use structs where the project uses structs.
 - Avoid ds_map unless the existing system depends on it.
 - Do not hardcode Pokemon, move, ability, or item constants when CSV loaders resolve them.
+- Split-screen is driven by Draw GUI composition in objects/oGame/Draw_64.gml, not by duplicating logic per system.
+- When more than one oPlayer exists, pid 0 owns the left GUI rect and pid 1 owns the right GUI rect.
+- Overworld dialog uses dialog2p_draw_gui_rect(...); battle dialog must stay inside the battle command UI and battle theme.
+- Do not route battle message rendering through the standalone dialog box renderer.
+- Caught-Pokemon nicknaming is handled by scripts/virtual_keyboard_system/ and can apply to either party or PC storage.
+- Use party_model_set_stored_mon_nickname(pid, store_info, nick) when naming a caught mon that has already been stored.
+- Virtual keyboard state blocks overlapping movement and menu systems through virtual_keyboard_blocks_input(pid).
+- Physical keyboard text entry for the virtual keyboard is intentionally owned by the first active nickname-entry pid during split-screen.
+
+## Runtime Contracts
+
+- Boot path lives in objects/oGame/Create_0.gml.
+- controls_update() must run every Step before reading controls_pressed(), controls_down(), or controls_released().
+- scr_controls(), party_init(), bags_init(), pause_init(), dialog2p_init(), evolution_init(), and virtual_keyboard_init() are boot-time systems.
+- objects/oGame/Step_1.gml is the main per-frame system step for bag, pause, party, evolution, virtual keyboard, and queued dialog drain.
+- battle_update(pid) must run each Step while battle_is_open(pid).
+- battle_draw_gui(pid) or battle_draw_gui_rect(pid, ...) must run from Draw GUI.
+- dialog2p_step(pid) drains queued dialog; dialog2p_update(pid) advances an open dialog.
+- virtual_keyboard_update(pid) and virtual_keyboard_draw_gui_rect(pid, ...) own caught-mon nickname entry.
 
 ## Debugging Rules
 
@@ -86,6 +116,9 @@
 - Inspect Igor context.txt logs if available.
 - Identify the root cause before editing.
 - Make the smallest safe fix.
+- For dialog bugs, check queue state, dialog2p_is_open(pid), per-frame step/update calls, then draw ownership.
+- For split-screen bugs, inspect objects/oGame/Draw_64.gml and the subsystem draw entrypoint before changing core logic.
+- For battle UI bugs, confirm whether the owning seam is battle_ui, battle_draw, battle_draw_helpers, or generic GUI composition.
 
 ## Performance Rules
 
@@ -94,7 +127,7 @@
 - Cache repeated lookups when useful.
 - Avoid expensive global searches in Step or Draw loops.
 
-# Tools
+## Tools
 
 - Use only available tools:
   - read_file
@@ -122,7 +155,14 @@
 - Use grep_search, file_glob_search, codebase, view_repo_map, or view_subdirectory to locate relevant files.
 - After editing, use view_diff.
 
-# Response Rules
+## Validation Rules
+
+- After any code patch, prefer runnable validation over diff-only inspection.
+- In this repo, the common full-project validation path is the Igor Windows VM run command from /docs/runbook.md.
+- For documentation-only changes, run the available file or markdown diagnostics if the environment exposes them.
+- If a focused smoke path exists for the touched system, prefer that before broader validation.
+
+## Response Rules
 
 - After edits, briefly state:
   - What changed
@@ -132,3 +172,12 @@
 
 - Keep responses short.
 - Do not paste massive code blocks unless requested.
+
+## Current System Pointers
+
+- Battle core: scripts/battle_system/, scripts/battle_command_helpers/, scripts/battle_ui/, scripts/battle_draw/, scripts/battle_draw_helpers/, scripts/battle_trainer/
+- Dialog core: scripts/DialogSystem/DialogSystem.gml
+- Split-screen composition: objects/oGame/Draw_64.gml
+- Boot and per-frame runtime wiring: objects/oGame/Create_0.gml and objects/oGame/Step_1.gml
+- Player movement/input seam: objects/oPlayer/Step_0.gml and objects/oPlayer/Step_1.gml
+- Caught nickname flow: scripts/virtual_keyboard_system/virtual_keyboard_system.gml, scripts/party_model/party_model.gml, scripts/battle_impls/battle_impls.gml

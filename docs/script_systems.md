@@ -8,6 +8,7 @@ This index documents the script folders by responsibility so later work can find
 - `docs/battle_doubles.md`: start here when changing doubles/co-op actor ownership, target selection, trainer doubles behavior, or scene layout
 - `docs/bag_system.md`: start here when changing bag state, item use behavior, page seeding, or bag UI layout
 - `docs/party_system.md`: start here when changing party modes, swap flow, summaries, or bag/party interactions
+- `docs/dialog_system.md`: start here when changing dialog queueing, draw ownership, battle message presentation, or split-screen dialog behavior
 - `docs/description_menus.md`: start here when changing item descriptions, move prose, flavor text, scroll behavior, or description box layout
 
 ## Core game loop and runtime
@@ -15,6 +16,7 @@ This index documents the script folders by responsibility so later work can find
 - `scripts/scr_controls/`: boot-time control singleton and per-frame input helpers
 - `scripts/pause_system/`: pause state and pause UI
 - `scripts/DialogSystem/`: dialog queue, dialog sessions, and dialog rendering helpers
+- `scripts/virtual_keyboard_system/`: caught-Pokemon nickname prompt, controller keyboard grid, and physical-keyboard bridge
 - `scripts/CutsceneSystem/`: queued cutscene execution and gating
 - `scripts/CutsceneBuilders/`: reusable cutscene payload builders
 - `scripts/camera_system/`: battle/world camera state and draw offsets
@@ -88,6 +90,8 @@ This index documents the script folders by responsibility so later work can find
 ## Ownership notes
 
 - If the change affects input semantics, start in `scripts/scr_controls/` and the caller Step event.
+- If the change affects split-screen composition or per-pid GUI ownership, start in `objects/oGame/Draw_64.gml` and then hop to the owning subsystem draw entrypoint.
+- If the change affects caught-Pokemon naming, use `scripts/virtual_keyboard_system/`, `scripts/party_model/`, and the catch-finalization code in `scripts/battle_impls/`.
 - If the change affects battle flow, start in `scripts/battle_system/` and then hop to the owning helper module.
 - If the change affects doubles or co-op routing, start in `docs/battle_doubles.md`, then use `scripts/battle_system/`, `scripts/battle_command_helpers/`, `scripts/battle_draw_helpers/`, and `scripts/battle_trainer/` as the owning seams.
 - If the change affects party data shape, use `scripts/party_model/` and `scripts/party_system/` before editing battle callers.

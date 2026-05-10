@@ -17,6 +17,8 @@ The same public entrypoints are used:
 
 The important difference is that `battle_format`, `active_per_side`, `coop_enabled`, and actor ownership fields change how the existing engine routes control.
 
+Split-screen is a separate presentation concern. It is driven by GUI composition in `objects/oGame/Draw_64.gml`, not by the doubles battle slot itself.
+
 ## Core slot structure
 
 Doubles are stored on the normal battle slot `_B` created by `__battle_ensure_slot(pid)` in `scripts/battle_system/battle_system.gml`.
@@ -149,6 +151,12 @@ Current behavior:
 - doubles queue commands for every alive player-side actor owned by the current player id
 - co-op ownership is respected through `actor_owner_pid`
 - once all commandable battlers have actions queued, the engine builds the turn queue and enters `phase = "turn"`
+
+Current split-screen/co-op usage notes:
+
+- pid ownership still flows through the normal battle slot and `player_pids`
+- GUI presentation for pid `0` and pid `1` is clipped to left/right screen halves by `battle_draw_gui_rect(...)`
+- overworld dialog is suppressed in battle, so battle text remains inside the battle command box and theme instead of the standalone dialog box
 
 ## Target selection
 
