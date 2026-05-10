@@ -19,8 +19,7 @@ var spr = spr_font_pokemon_new;
 global.FONT_CHAR_W = sprite_get_width(spr);
 global.FONT_CHAR_H = sprite_get_height(spr);
 
-// If your GUI isn’t already 240x160, this locks the bag/party layout scale.
-display_set_gui_size(240, 160);
+// Keep the real GUI size so split-screen rect drawing can scale each pane correctly.
 
 // --- DEBUG FLAGS ---------------------------------------------------------
 // Central debug master switch. False by default in production builds.
@@ -136,6 +135,8 @@ global.PARTY_ASSETS = {
     ball: "spr_bag_pokeball_small"
 };
 
+global.PAUSE_PLAYERS_ACTIVE = 2;
+
 // Region music default (used by battle system to restore pre-battle music)
 global._REGIONMUSIC = snd_Littleroot_Town;
 
@@ -145,6 +146,7 @@ party_init(); // must be before demo seed (party_ensure uses it)
 global.DEMO_FORCE_SPECIES = [188, 268, 471, 559, 17];
 scr_poke_runtime_demo_init_random(6); // seeds PARTY[0] (and [1] if present)
 dev_assign_moves_to_first(0, [240, 4, 79, 507]);
+dev_assign_moves_to_first(1, [240, 4, 79, 507]);
 
 global.DEV_FORCE_FLINCH_CHANCE = -1;
 global.DEV_FORCE_SLEEP_CHANCE = -1;
@@ -192,7 +194,7 @@ global.DEV_FORCE_ACCURACY_HIT = false;
 global.DEV_SMOKE_EXIT_GAME = false;
 
 // Initialize bags (seed with some items for demo/dev)
-bags_init(1);
+bags_init(global.PAUSE_PLAYERS_ACTIVE);
 bag_inventory_add_item(0, 4, 10);
 bag_inventory_add_item(0, 1, 10);
 bag_inventory_add_item(0, 17, 25);
@@ -203,19 +205,28 @@ bag_inventory_add_item(0, 23, 25);
 bag_inventory_add_item(0, 18, 25);
 bag_inventory_add_item(0, 182, 10);
 bags_seed_from_items(0); // refresh once
+bag_inventory_add_item(1, 4, 10);
+bag_inventory_add_item(1, 1, 10);
+bag_inventory_add_item(1, 17, 25);
+bag_inventory_add_item(1, 26, 25);
+bag_inventory_add_item(1, 25, 25);
+bag_inventory_add_item(1, 24, 25);
+bag_inventory_add_item(1, 23, 25);
+bag_inventory_add_item(1, 18, 25);
+bag_inventory_add_item(1, 182, 10);
+bags_seed_from_items(1); // refresh once
 
 // NOTE: startup debug simulation for move-learn/leveling removed.
 // To re-enable for debugging, reintroduce the DEBUG_SIMULATE_LEARN_ON_START guard and block here.
 
 // --- PLAYER SPAWN ---------------------------------------------------------
 global.p1 = instance_create_layer(ospawn.x, ospawn.y, "Instances", oPlayer);
+global.p2 = instance_create_layer(ospawn.x, ospawn.y, "Instances", oPlayer);
 // Assign instance fields in a guarded way to satisfy static analyzers/runtime differences
 try { variable_instance_set(global.p1, "pid", 0); } catch (e_var) { /* ignore */ }
 try { variable_instance_set(global.p1, "_speed", 2); } catch (e_var2) { /* ignore */ }
-
-// Active player count (used by pause system)
-var players_active = max(1, (variable_global_exists("PAUSE_PLAYERS_ACTIVE") ? global.PAUSE_PLAYERS_ACTIVE : 1));
-
+try { variable_instance_set(global.p2, "pid", 1); } catch (e_var) { /* ignore */ }
+try { variable_instance_set(global.p2, "_speed", 2); } catch (e_var2) { /* ignore */ }
 // --- SYSTEMS (controls, pause, dialog) -----------------------------------
 scr_controls();   // creates global CTRL, loads options.ini
 pause_init();     // pause system
