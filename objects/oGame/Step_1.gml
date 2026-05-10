@@ -20,5 +20,13 @@ if (!is_undefined(dialog2p_step)){
 	dialog2p_step(0);
 	if (variable_global_exists("DIALOG2P") && is_array(global.DIALOG2P) && array_length(global.DIALOG2P) > 1) dialog2p_step(1);
 }
+if (!is_undefined(dialog2p_is_open) && !is_undefined(dialog2p_update)){
+	if (dialog2p_is_open(0)) dialog2p_update(0);
+	if (variable_global_exists("DIALOG2P") && is_array(global.DIALOG2P) && array_length(global.DIALOG2P) > 1){
+		if (dialog2p_is_open(1)) dialog2p_update(1);
+	}
+}
+
+if (!is_undefined(battle_controller_update_all)) battle_controller_update_all();
 
 // (Developer F12 debug removed)

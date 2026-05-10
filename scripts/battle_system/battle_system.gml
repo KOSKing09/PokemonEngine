@@ -416,6 +416,18 @@ function battle_is_open(_pid){
     return (_B.sys_open == true);
 }
 
+/// Centralized per-frame battle controller update.
+/// Steps every open battle slot exactly once per frame from a single owner.
+function battle_controller_update_all(){
+    if (!variable_global_exists("sys_battles") || !is_array(global.sys_battles)) return;
+    for (var _pid = 0; _pid < array_length(global.sys_battles); ++_pid){
+        var _slot = global.sys_battles[_pid];
+        if (!is_struct(_slot)) continue;
+        if (!variable_struct_exists(_slot, "sys_open") || variable_struct_get(_slot, "sys_open") != true) continue;
+        battle_update(_pid);
+    }
+}
+
 
 
 // Additional guarded stubs for meta / weather / animation dispatcher helpers

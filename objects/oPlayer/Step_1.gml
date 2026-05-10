@@ -1,18 +1,9 @@
 
 // Drain any queued dialog first (opens next item if allowed), then advance if open
 if (!is_undefined(dialog2p_step)) dialog2p_step(pid);
-// Advance this player's dialog if open
-if (!is_undefined(dialog2p_is_open) && dialog2p_is_open(pid)) {
-    if (!is_undefined(dialog2p_update)) dialog2p_update(pid);
-}
-
-// battle system
-if (battle_is_open(0)){
-	battle_update(0);
-}
 
 if (keyboard_check_pressed(vk_f1)){
-	if (!battle_is_open(0)){
+    if (!battle_is_open(pid)){
     /* 
         var trainer_party = [];
         if (!is_undefined(pokemon_factory_create)){
@@ -32,7 +23,7 @@ if (keyboard_check_pressed(vk_f1)){
         };
         battle_open_trainer(0, trainer_payload);
        */
-        var _debug_party = party_ensure(0);
+        var _debug_party = party_ensure(pid);
         if (is_struct(_debug_party) && variable_struct_exists(_debug_party, "mons") && is_array(_debug_party.mons)){
             var _revived = 0;
             for (var _pi = 0; _pi < array_length(_debug_party.mons) && _revived < 2; ++_pi){
@@ -50,7 +41,7 @@ if (keyboard_check_pressed(vk_f1)){
             }
         }
         battle_open(
-            0,
+            pid,
             irandom_range(10,10),
             choose("dark water", "rocks a", "light", "grassy", "rocks b", "dirt", "river", "snowy", "grassy snow", "ice", "forest", "ugly grass", "wood bridge", "man made paths"),
             {
@@ -59,7 +50,7 @@ if (keyboard_check_pressed(vk_f1)){
             }
         );
 	}else{
-		battle_close(0);
+		battle_close(pid);
 	}
 }
 
