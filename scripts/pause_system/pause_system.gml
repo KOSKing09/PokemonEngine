@@ -51,7 +51,7 @@ function pause_update(){
     for (var pid = 0; pid < 2; pid++){
         var p = PAUSE[pid];
         var _entry_count = 5;
-        var _options_count = 3;
+        var _options_count = 4;
         var _input_count = 2;
 
         // toggle
@@ -106,6 +106,9 @@ function pause_update(){
                 if (controls_pressed(pid,"MoveLeft")) __pause_adjust_dialog_speed(-1);
                 if (controls_pressed(pid,"MoveRight")) __pause_adjust_dialog_speed(1);
             }
+            if (p.options_sel == 2){
+                if (controls_pressed(pid,"MoveLeft") || controls_pressed(pid,"MoveRight")) __pause_toggle_splitscreen_layout();
+            }
 
             if (controls_pressed(pid,"Interact")){
                 switch (p.options_sel){
@@ -117,6 +120,9 @@ function pause_update(){
                         __pause_adjust_dialog_speed(1);
                         break;
                     case 2:
+                        __pause_toggle_splitscreen_layout();
+                        break;
+                    case 3:
                         p.mode = "main";
                         p.options_sel = 0;
                         break;
@@ -178,7 +184,7 @@ function pause_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     draw_set_alpha(1);
 
     var labels = ["POKEMON","BAG","POKE-INDEX","OPTIONS","SAVE"];
-    var options_labels = ["INPUT","TEXT SPEED","BACK"];
+    var options_labels = ["INPUT","TEXT SPEED","SPLIT","BACK"];
     var input_labels = ["DEADZONE","BACK"];
     var p = global.PAUSE[_pid];
     var line_h = max(12, string_height("A") + 2);
@@ -207,7 +213,10 @@ function pause_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     for (var _i = 0; _i < array_length(_active_labels); ++_i){
         longest_label = max(longest_label, string_width(_active_labels[_i]));
     }
-    if (string(p.mode) == "options") longest_label = max(longest_label, string_width(__pause_dialog_speed_label()));
+    if (string(p.mode) == "options") {
+        longest_label = max(longest_label, string_width(__pause_dialog_speed_label()));
+        longest_label = max(longest_label, string_width(__pause_splitscreen_label()));
+    }
     if (string(p.mode) == "input") longest_label = max(longest_label, string_width(__pause_deadzone_label()));
     var pw = left_pad + pointer_w + longest_label + right_pad;
     var ph = top_pad + bottom_pad + array_length(_active_labels) * item_h + (array_length(_active_labels) - 1) * item_gap;
@@ -242,6 +251,7 @@ function pause_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         var ty = row_y + max(0, (item_h - line_h) * 0.5) + 5*s;
         var _label_text = _active_labels[i];
         if (string(p.mode) == "options" && i == 1) _label_text = __pause_dialog_speed_label();
+        if (string(p.mode) == "options" && i == 2) _label_text = __pause_splitscreen_label();
         if (string(p.mode) == "input" && i == 0) _label_text = __pause_deadzone_label();
         draw_text(tx, ty, _label_text);
     }
@@ -341,12 +351,20 @@ function __pause_deadzone_label(){
     if (variable_global_exists("CTRL") && is_struct(CTRL) && is_real(CTRL.deadzone)) _pct = round(CTRL.deadzone * 100);
     return "DEADZONE " + string(_pct) + "%";
 }
+
+function __pause_toggle_splitscreen_layout(){
+    if (!is_undefined(splitscreen_toggle_layout)) splitscreen_toggle_layout();
+}
+
+function __pause_splitscreen_label(){
+    if (!is_undefined(splitscreen_layout_label)) return splitscreen_layout_label();
+    return "SPLIT VERT";
+}
 	
 
 
 /// Legacy: who last toggled pause (for dialog system checks)
 function pause_set_owner(_pid){ global.PAUSE_OWNER = _pid; }
-
 
 
 

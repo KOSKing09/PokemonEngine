@@ -38,12 +38,18 @@ function scr_poke_runtime_demo_init_random(_count)
     // Always seed random party entries first, then optionally overwrite specific slots
     // with forced species if `global.DEMO_FORCE_SPECIES` is defined. This keeps the
     // random flavour while allowing deterministic replacements for testing.
-    scr_party_debug_seed_random(0, count);
-    if (instance_number(oPlayer) > 1) scr_party_debug_seed_random(1, count);
+    var _player_count = 1;
+    if (variable_global_exists("PAUSE_PLAYERS_ACTIVE")) _player_count = max(1, floor(global.PAUSE_PLAYERS_ACTIVE));
+    else if (instance_number(oPlayer) > 1) _player_count = 2;
+
+    for (var _pid_seed = 0; _pid_seed < _player_count; ++_pid_seed){
+        scr_party_debug_seed_random(_pid_seed, count);
+    }
 
     if (variable_global_exists("DEMO_FORCE_SPECIES") && is_array(global.DEMO_FORCE_SPECIES) && array_length(global.DEMO_FORCE_SPECIES) > 0){
-        scr_party_demo_apply_forced(0);
-        if (instance_number(oPlayer) > 1) scr_party_demo_apply_forced(1);
+        for (var _pid_force = 0; _pid_force < _player_count; ++_pid_force){
+            scr_party_demo_apply_forced(_pid_force);
+        }
     }
 }
 

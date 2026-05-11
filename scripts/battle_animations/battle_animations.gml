@@ -1305,15 +1305,15 @@ function __battle_anim_queue_draw_states(_pid, _states){
                 }
                 var _scroll = 0;
                 if (_dir > 0) _scroll = -(_frac * _tile_h); else if (_dir < 0) _scroll = (_frac * _tile_h);
-                // Draw tiled across the full battlefield rectangle
+                // Draw tiled across only this battle pane. In split-screen the GUI
+                // surface may contain both players, but _field_full is already
+                // mapped through the current battle UI rect.
                 // Use normal blending for the tiled background to avoid additive brightness
                 gpu_set_blendmode(bm_normal);
-                // Use the real GUI surface so fullscreen flashes cover the entire screen,
-                // not just the battle letterbox rect.
-                var _lx = _gui_full[0];
-                var _ty0 = _gui_full[1];
-                var _rx = _gui_full[2];
-                var _by = _gui_full[3];
+                var _lx = _field_full[0];
+                var _ty0 = _field_full[1];
+                var _rx = _field_full[2];
+                var _by = _field_full[3];
                 // Start one tile earlier to ensure full coverage at the left/top edges.
                 // Use floor-based alignment so floating GUI coords don't skip the first column.
                 var _start_y = _ty0 + _scroll - _tile_h;
@@ -1601,7 +1601,8 @@ function __battle_anim_create_catch(_B, _item_id, _caught_struct, _opts){
         enemy_orig_scale: undefined,
         enemy_scale_now: undefined,
         caught_struct: _caught_struct,
-        target_actor_index: (variable_struct_exists(_local_opts, "target_actor_index") ? floor(variable_struct_get(_local_opts, "target_actor_index")) : 1)
+        target_actor_index: (variable_struct_exists(_local_opts, "target_actor_index") ? floor(variable_struct_get(_local_opts, "target_actor_index")) : 1),
+        owner_pid: (variable_struct_exists(_local_opts, "owner_pid") && is_real(variable_struct_get(_local_opts, "owner_pid")) ? max(0, floor(variable_struct_get(_local_opts, "owner_pid"))) : undefined)
     };
 
         variable_struct_set(_B, "_catch_anim", ca);
@@ -1732,4 +1733,3 @@ function __battle_anim_draw(_pid){
     draw_set_alpha(1);
     }
 }
-

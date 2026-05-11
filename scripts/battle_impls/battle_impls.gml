@@ -913,14 +913,16 @@ function __battle_finalize_catch_impl(_B, _caught){
     if (!is_struct(_B)) return { ok:false, location:"none" };
 
     var _pid = __battle_find_pid_by_slot_impl(_B);
+    var _store_pid = _pid;
     var _caught_target_idx = -1;
     if (variable_struct_exists(_B, "_catch_anim") && is_struct(variable_struct_get(_B, "_catch_anim"))){
         var _catch_state = variable_struct_get(_B, "_catch_anim");
         if (variable_struct_exists(_catch_state, "target_actor_index") && is_real(variable_struct_get(_catch_state, "target_actor_index"))) _caught_target_idx = floor(variable_struct_get(_catch_state, "target_actor_index"));
+        if (variable_struct_exists(_catch_state, "owner_pid") && is_real(variable_struct_get(_catch_state, "owner_pid"))) _store_pid = max(0, floor(variable_struct_get(_catch_state, "owner_pid")));
     }
-    var _mon = __battle_prepare_caught_mon_impl(_pid, _caught);
+    var _mon = __battle_prepare_caught_mon_impl(_store_pid, _caught);
     var _store = { ok:false, location:"none", mon:_mon };
-    if (is_struct(_mon) && !is_undefined(party_model_store_caught_mon)) _store = party_model_store_caught_mon(_pid, _mon);
+    if (is_struct(_mon) && !is_undefined(party_model_store_caught_mon)) _store = party_model_store_caught_mon(_store_pid, _mon);
 
     var _caught_name = "Pokemon";
     if (is_struct(_mon) && variable_struct_exists(_mon, "name")) _caught_name = string(variable_struct_get(_mon, "name"));
@@ -947,7 +949,7 @@ function __battle_finalize_catch_impl(_B, _caught){
     } catch (e_msg) {}
     try {
         if (is_struct(_store) && variable_struct_exists(_store, "ok") && _store.ok && !is_undefined(virtual_keyboard_request_caught_nickname)){
-            virtual_keyboard_request_caught_nickname(_pid, _store, _caught_name);
+            virtual_keyboard_request_caught_nickname(_store_pid, _store, _caught_name);
         }
     } catch (e_vk_req) {}
 
@@ -1012,17 +1014,7 @@ function __battle_finalize_catch_impl(_B, _caught){
     _B._pending_close = true;
 
     try {
-        var _stop_res = (variable_struct_exists(_B, "_battle_music") ? variable_struct_get(_B, "_battle_music") : undefined);
-        var _bgm_handle = (variable_struct_exists(_B, "_bgm_handle") ? variable_struct_get(_B, "_bgm_handle") : undefined);
-        if (!is_undefined(_bgm_handle)) __battle_audio_stop_handle(_bgm_handle);
-    } catch (e_stop) {}
-    try { variable_struct_set(_B, "_bgm_handle", undefined); } catch (e_bgm_clear) {}
-    try {
-        var _def_music = (variable_struct_exists(_B, "_battle_defeated_music") ? variable_struct_get(_B, "_battle_defeated_music") : undefined);
-        if (!is_undefined(_def_music)){
-            var _def_handle = __battle_sound_play_safe(_def_music, true);
-            variable_struct_set(_B, "_defeated_handle", _def_handle);
-        }
+        if (!is_undefined(__battle_play_defeated_music_once)) __battle_play_defeated_music_once(_B);
     } catch (e_defmusic) {}
 
     if (variable_struct_exists(_B, "_catch_anim") && is_struct(variable_struct_get(_B, "_catch_anim"))){

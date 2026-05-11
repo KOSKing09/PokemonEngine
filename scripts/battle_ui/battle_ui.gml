@@ -471,9 +471,24 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
     var _bx = __bxu(_pid,_rxIn), _by = __byu(_pid,_ryIn), _bw = __bwu(_pid,_rwIn), _bh = __bhu(_pid,_rhIn);
 
     // Dialog rendering (clamped)
-    if (!is_undefined(dialog2p_is_open) && dialog2p_is_open(_pid)){
+    var _dialog_pid = _pid;
+    var _dialog_open = (!is_undefined(dialog2p_is_open) && dialog2p_is_open(_dialog_pid));
+    if (!_dialog_open && is_struct(_B) && variable_struct_exists(_B, "player_pids") && is_array(variable_struct_get(_B, "player_pids"))){
+        var _dialog_pids = variable_struct_get(_B, "player_pids");
+        for (var _dpi = 0; _dpi < array_length(_dialog_pids); ++_dpi){
+            var _dpid = _dialog_pids[_dpi];
+            if (!is_real(_dpid)) continue;
+            _dpid = floor(_dpid);
+            if (!is_undefined(dialog2p_is_open) && dialog2p_is_open(_dpid)){
+                _dialog_pid = _dpid;
+                _dialog_open = true;
+                break;
+            }
+        }
+    }
+    if (_dialog_open){
         __battle_panel_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn);
-        var d = global.DIALOG2P[_pid];
+        var d = (!is_undefined(dialog2p_ensure_pid)) ? dialog2p_ensure_pid(_dialog_pid) : global.DIALOG2P[_dialog_pid];
         if (is_struct(d)){
             var i0 = d.page_idx*2, i1 = i0+1;
             var l0 = (i0 < array_length(d.all_lines)) ? d.all_lines[i0] : "";
@@ -614,6 +629,32 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
     if (variable_struct_exists(_B, "_levelup_panel")){
         var _lp_tmp = variable_struct_get(_B, "_levelup_panel");
         if (is_struct(_lp_tmp) && variable_struct_exists(_lp_tmp, "active") && _lp_tmp.active) return;
+    }
+
+    if (variable_struct_exists(_B, "battle_format") && string(variable_struct_get(_B, "battle_format")) == "double"){
+        var _current_actor_owner = -1;
+        if (variable_struct_exists(_B, "_command_actor_index") && is_real(variable_struct_get(_B, "_command_actor_index")) && !is_undefined(__battle_actor_control_pid)){
+            _current_actor_owner = __battle_actor_control_pid(_pid, floor(variable_struct_get(_B, "_command_actor_index")));
+        }
+        var _actors_for_pid = (!is_undefined(__battle_command_actor_indexes)) ? __battle_command_actor_indexes(_pid) : [];
+        var _has_pending_command = false;
+        if (is_array(_actors_for_pid)){
+            for (var _wait_i = 0; _wait_i < array_length(_actors_for_pid); ++_wait_i){
+                var _queued_wait_action = (!is_undefined(__battle_find_player_turn_action)) ? __battle_find_player_turn_action(_B, _actors_for_pid[_wait_i]) : undefined;
+                if (!is_struct(_queued_wait_action)){
+                    _has_pending_command = true;
+                    break;
+                }
+            }
+        }
+        if (!_has_pending_command || (is_real(_current_actor_owner) && _current_actor_owner >= 0 && _current_actor_owner != _pid)){
+            draw_set_color(variable_struct_exists(_t, "col_ui_text") ? variable_struct_get(_t, "col_ui_text") : _t.col_text);
+            if (variable_global_exists("FNT_POKEMON_SMALL")) draw_set_font(global.FNT_POKEMON_SMALL);
+            var _wait_txt = (!_has_pending_command) ? ((variable_struct_exists(_B, "coop_enabled") && variable_struct_get(_B, "coop_enabled") == true) ? "Waiting for partner..." : "Commands ready...") : "Partner choosing...";
+            draw_text(_bx + __bwu(_pid, 8), _by + __bhu(_pid, 8), __battle_text_fit_ellipsis(_pid, _wait_txt, _bw - __bwu(_pid, 16)));
+            if (variable_global_exists("FNT_POKEMON")) draw_set_font(global.FNT_POKEMON);
+            return;
+        }
     }
 
     if (string(_B.sys_ui.menu) == "target"){

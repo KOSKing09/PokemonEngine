@@ -65,10 +65,21 @@ function dialog2p_init(){
     global.DIALOG2P_Q = [ [], [] ];
 }
 
+function dialog2p_ensure_pid(_pid){
+    if (!is_real(_pid)) _pid = 0;
+    _pid = max(0, floor(_pid));
+    if (!variable_global_exists("DIALOG2P") || !is_array(global.DIALOG2P)) global.DIALOG2P = [];
+    if (!variable_global_exists("DIALOG2P_Q") || !is_array(global.DIALOG2P_Q)) global.DIALOG2P_Q = [];
+    if (array_length(global.DIALOG2P) <= _pid) array_resize(global.DIALOG2P, _pid + 1);
+    if (array_length(global.DIALOG2P_Q) <= _pid) array_resize(global.DIALOG2P_Q, _pid + 1);
+    if (!is_struct(global.DIALOG2P[_pid])) global.DIALOG2P[_pid] = __dlg_make_session();
+    if (!is_array(global.DIALOG2P_Q[_pid])) global.DIALOG2P_Q[_pid] = [];
+    return global.DIALOG2P[_pid];
+}
+
 // ---------- Query -----------------------------------------------------------
 function dialog2p_is_open(_pid){
-    if (!variable_global_exists("DIALOG2P")) return false;
-    var d = global.DIALOG2P[_pid];
+    var d = dialog2p_ensure_pid(_pid);
     return (is_struct(d) && variable_struct_exists(d,"open")) ? d.open : false;
 }
 
@@ -115,8 +126,11 @@ function dialog2p_show(_pid, _text){
 }
 
 function dialog2p_step(_pid){
-    if (!variable_global_exists("DIALOG2P_Q")) return;
+    dialog2p_ensure_pid(_pid);
     if (dialog2p_is_open(_pid)) return;
+    if (!is_undefined(battle_any_open) && battle_any_open()){
+        if (is_undefined(battle_is_open) || !battle_is_open(_pid)) return;
+    }
     var q = global.DIALOG2P_Q[_pid];
     if (!is_array(q) || array_length(q) == 0) return;
     // Ensure faint messages remain high priority. If any faint item sits behind
@@ -200,8 +214,10 @@ function __dlg_wrap_text(_text, _box_w){
 // Internal implementation accepting optional originating item.
 function dialog2p_open_text_impl(_pid, _text, _item){
     // Ensure dialog system is initialized before accessing the session array
-    if (!variable_global_exists("DIALOG2P")) dialog2p_init();
-    var d = global.DIALOG2P[_pid];
+    var d = dialog2p_ensure_pid(_pid);
+    if (!is_undefined(battle_any_open) && battle_any_open()){
+        if (is_undefined(battle_is_open) || !battle_is_open(_pid)) return;
+    }
 
     // If a battle slot exists for this pid and a faint is pending, do not
     // immediately replace the dialog. Instead enqueue the text as a pending
@@ -335,7 +351,10 @@ function dialog2p_open_text(){
 // payload may be a string (text) or a struct with fields:
 // { text, key?, gate?, portrait?, portrait_frame?, name_label?, sfx_tick?, on_close? }
 function dialog2p_enqueue(_pid, _payload){
-    if (!variable_global_exists("DIALOG2P_Q")) dialog2p_init();
+    dialog2p_ensure_pid(_pid);
+    if (!is_undefined(battle_any_open) && battle_any_open()){
+        if (is_undefined(battle_is_open) || !battle_is_open(_pid)) return noone;
+    }
     var q = global.DIALOG2P_Q[_pid];
     var payload = _payload;
     if (is_string(payload)) payload = { text: string(payload) };
@@ -403,8 +422,7 @@ function dialog2p_show_now(_pid, _payload){
 }
 
 function dialog2p_wait_closed(_pid, _callback){
-    if (!variable_global_exists("DIALOG2P")) dialog2p_init();
-    var d = global.DIALOG2P[_pid];
+    var d = dialog2p_ensure_pid(_pid);
     if (!d.open){ // already closed
         try { if (!is_undefined(_callback) && _callback != noone) _callback(); } catch(e) {}
         return;
@@ -424,7 +442,7 @@ function dialog2p_wait_closed(_pid, _callback){
 // it defined in a dedicated resource rather than creating one dynamically.
 
 function dialog2p_set_portrait(_pid, _spr, _subimg, _name){
-    var d = global.DIALOG2P[_pid];
+    var d = dialog2p_ensure_pid(_pid);
     d.portrait       = _spr;
     d.portrait_frame = _subimg;
     d.name_label     = string(_name);
@@ -432,7 +450,7 @@ function dialog2p_set_portrait(_pid, _spr, _subimg, _name){
 
 // ---------- Update (advance/close, robust) ---------------------------------
 function dialog2p_update(_pid){
-    var d = global.DIALOG2P[_pid];
+    var d = dialog2p_ensure_pid(_pid);
     if (!d.open) return;
 
     var i0 = d.page_idx*2, i1 = i0+1;
@@ -756,7 +774,7 @@ function dialog2p_draw_world(_pid, _cam){
     // to avoid double-rendering and coordinate mismatches. The battle renderer
     // will call dialog2p_draw_gui_rect.
     if (!is_undefined(battle_is_open) && battle_is_open(_pid)) return;
-    var d = global.DIALOG2P[_pid];
+    var d = dialog2p_ensure_pid(_pid);
     if (!d.open) return;
 
     // Debug logging for dialog draw. Disabled by default; enable by setting
@@ -856,8 +874,7 @@ function dialog2p_draw_world(_pid, _cam){
 /// Draws the classic dialog box anchored to the bottom-center of the provided
 /// GUI-space rectangle. Mirrors the look/behavior of dialog2p_draw_world.
 function dialog2p_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
-    if (!variable_global_exists("DIALOG2P")) dialog2p_init();
-    var d = global.DIALOG2P[_pid];
+    var d = dialog2p_ensure_pid(_pid);
     if (!is_struct(d) || !d.open) return;
 
     var pad = d.border_pad;

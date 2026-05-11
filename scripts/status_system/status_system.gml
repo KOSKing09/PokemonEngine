@@ -821,6 +821,22 @@ function __status_request_dialog_for_mon(mon, text, priority_front){
             // Enqueue into the battle slot so the battle engine controls ordering.
             var _B = __battle_ensure_slot(pid);
             if (is_struct(_B)){
+                var _owner_pid = pid;
+                try {
+                    if (variable_struct_exists(mon, "owner_pid") && is_real(variable_struct_get(mon, "owner_pid"))) _owner_pid = max(0, floor(variable_struct_get(mon, "owner_pid")));
+                    else if (variable_struct_exists(mon, "control_pid") && is_real(variable_struct_get(mon, "control_pid"))) _owner_pid = max(0, floor(variable_struct_get(mon, "control_pid")));
+                    else if (variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor")) && !is_undefined(__battle_actor_owner_pid)){
+                        var _actors = variable_struct_get(_B, "actor");
+                        for (var _own_ai = 0; _own_ai < array_length(_actors); ++_own_ai){
+                            var _actor_probe = _actors[_own_ai];
+                            if (_actor_probe == mon || (is_struct(_actor_probe) && variable_struct_exists(_actor_probe, "mon") && variable_struct_get(_actor_probe, "mon") == mon)){
+                                var _own = __battle_actor_owner_pid(pid, _own_ai);
+                                if (is_real(_own) && _own >= 0) _owner_pid = floor(_own);
+                                break;
+                            }
+                        }
+                    }
+                } catch (e_owner_pid) { _owner_pid = pid; }
                 var pending = (variable_struct_exists(_B, "_pending_status_msgs") ? variable_struct_get(_B, "_pending_status_msgs") : undefined);
                 if (!is_array(pending)) pending = [];
                 // Split incoming text by newlines so each line becomes its own dialog entry
@@ -836,9 +852,14 @@ function __status_request_dialog_for_mon(mon, text, priority_front){
                     if (string_length(line) == 0) continue;
                     // avoid duplicates in pending
                     var _skip_line = false;
-                    for (var _i2=0; _i2<array_length(pending); ++_i2) if (pending[_i2] == line) { _skip_line = true; break; }
+                    for (var _i2=0; _i2<array_length(pending); ++_i2) {
+                        var _pending_line = pending[_i2];
+                        var _pending_text = (is_struct(_pending_line) && variable_struct_exists(_pending_line, "text")) ? string(variable_struct_get(_pending_line, "text")) : string(_pending_line);
+                        var _pending_pid = (is_struct(_pending_line) && variable_struct_exists(_pending_line, "pid") && is_real(variable_struct_get(_pending_line, "pid"))) ? floor(variable_struct_get(_pending_line, "pid")) : pid;
+                        if (_pending_text == line && _pending_pid == _owner_pid) { _skip_line = true; break; }
+                    }
                     if (!_skip_line){
-                        _lines[array_length(_lines)] = line;
+                        _lines[array_length(_lines)] = { text: line, pid: _owner_pid };
                         added_any = true;
                     }
                 }
@@ -1282,4 +1303,3 @@ function scr_status_apply_debug(pid, actor_index, status_id){
     if (!is_struct(A)) return false;
     return status_system_apply_status(A, status_id, { duration:2 });
 }
-

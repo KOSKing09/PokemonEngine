@@ -80,6 +80,20 @@ function __battle_ensure_slot(_pid){
     if (!variable_global_exists("sys_battles") || !is_array(global.sys_battles)) global.sys_battles = [];
     if (array_length(global.sys_battles) <= _pid) array_resize(global.sys_battles, _pid + 1);
     var _B = global.sys_battles[_pid];
+    if (is_struct(_B) && variable_struct_exists(_B, "sys_open") && variable_struct_get(_B, "sys_open") == true) return _B;
+    for (var _si = 0; _si < array_length(global.sys_battles); ++_si){
+        var _shared = global.sys_battles[_si];
+        if (!is_struct(_shared)) continue;
+        if (!variable_struct_exists(_shared, "sys_open") || variable_struct_get(_shared, "sys_open") != true) continue;
+        var _fmt_shared = variable_struct_exists(_shared, "battle_format") ? string_lower(string(variable_struct_get(_shared, "battle_format"))) : "single";
+        var _coop_shared = variable_struct_exists(_shared, "coop_enabled") && variable_struct_get(_shared, "coop_enabled") == true;
+        if (_fmt_shared != "double" || !_coop_shared) continue;
+        var _ppids = variable_struct_exists(_shared, "player_pids") ? variable_struct_get(_shared, "player_pids") : [];
+        if (!is_array(_ppids)) continue;
+        for (var _pi_shared = 0; _pi_shared < array_length(_ppids); ++_pi_shared){
+            if (is_real(_ppids[_pi_shared]) && floor(_ppids[_pi_shared]) == floor(_pid)) return _shared;
+        }
+    }
     if (!is_struct(_B)) {
         // Provide a conservative default shape so static analyzers can resolve fields.
         _B = {
@@ -416,6 +430,16 @@ function battle_is_open(_pid){
     return (_B.sys_open == true);
 }
 
+function battle_any_open(){
+    if (!variable_global_exists("sys_battles") || !is_array(global.sys_battles)) return false;
+    for (var _bi = 0; _bi < array_length(global.sys_battles); ++_bi){
+        var _slot = global.sys_battles[_bi];
+        if (!is_struct(_slot)) continue;
+        if (variable_struct_exists(_slot, "sys_open") && variable_struct_get(_slot, "sys_open") == true) return true;
+    }
+    return false;
+}
+
 /// Centralized per-frame battle controller update.
 /// Steps every open battle slot exactly once per frame from a single owner.
 function battle_controller_update_all(){
@@ -425,6 +449,18 @@ function battle_controller_update_all(){
         if (!is_struct(_slot)) continue;
         if (!variable_struct_exists(_slot, "sys_open") || variable_struct_get(_slot, "sys_open") != true) continue;
         battle_update(_pid);
+        var _fmt = variable_struct_exists(_slot, "battle_format") ? string_lower(string(variable_struct_get(_slot, "battle_format"))) : "single";
+        var _coop = variable_struct_exists(_slot, "coop_enabled") && variable_struct_get(_slot, "coop_enabled") == true;
+        if (_fmt == "double" && _coop && variable_struct_exists(_slot, "player_pids") && is_array(variable_struct_get(_slot, "player_pids"))){
+            var _ppids = variable_struct_get(_slot, "player_pids");
+            for (var _cpi = 0; _cpi < array_length(_ppids); ++_cpi){
+                var _cpid = _ppids[_cpi];
+                if (!is_real(_cpid) || floor(_cpid) == _pid) continue;
+                if (variable_struct_exists(_slot, "phase") && string(variable_struct_get(_slot, "phase")) == "command"){
+                    __battle_process_input(floor(_cpid));
+                }
+            }
+        }
     }
 }
 
@@ -597,6 +633,47 @@ function __battle_sound_play_safe(_res, _loop = false){
         }
     } catch (e) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] __battle_sound_play_safe error: " + string(e)); }
     return undefined;
+}
+
+function __battle_stop_bgm_for_slot(_B){
+    if (!is_struct(_B)) return;
+    try {
+        var _bgm_handle = variable_struct_exists(_B, "_bgm_handle") ? variable_struct_get(_B, "_bgm_handle") : undefined;
+        if (!is_undefined(_bgm_handle)) __battle_audio_stop_handle(_bgm_handle);
+    } catch (e_stop_bgm_slot) {}
+    try { variable_struct_set(_B, "_bgm_handle", undefined); } catch (e_clear_bgm_slot) {}
+    try { variable_struct_set(_B, "_battle_bgm_playing", false); } catch (e_flag_bgm_slot) {}
+}
+
+function __battle_start_bgm_once(_B){
+    if (!is_struct(_B)) return undefined;
+    var _already = false;
+    try { _already = (variable_struct_exists(_B, "_battle_bgm_playing") && variable_struct_get(_B, "_battle_bgm_playing") == true); } catch (e_already_bgm) { _already = false; }
+    if (_already) return variable_struct_exists(_B, "_bgm_handle") ? variable_struct_get(_B, "_bgm_handle") : undefined;
+
+    var _music = variable_struct_exists(_B, "_battle_music") ? variable_struct_get(_B, "_battle_music") : undefined;
+    if (is_undefined(_music)) return undefined;
+    var _handle = undefined;
+    try { _handle = __battle_sound_play_safe(_music, true); } catch (e_play_bgm_once) { _handle = undefined; }
+    try { variable_struct_set(_B, "_bgm_handle", _handle); } catch (e_set_bgm_once) {}
+    try { variable_struct_set(_B, "_battle_bgm_playing", true); } catch (e_flag_bgm_once) {}
+    return _handle;
+}
+
+function __battle_play_defeated_music_once(_B){
+    if (!is_struct(_B)) return undefined;
+    var _already = false;
+    try { _already = (variable_struct_exists(_B, "_defeated_music_playing") && variable_struct_get(_B, "_defeated_music_playing") == true); } catch (e_already_def) { _already = false; }
+    if (_already) return variable_struct_exists(_B, "_defeated_handle") ? variable_struct_get(_B, "_defeated_handle") : undefined;
+
+    __battle_stop_bgm_for_slot(_B);
+    var _def_res = variable_struct_exists(_B, "_battle_defeated_music") ? variable_struct_get(_B, "_battle_defeated_music") : undefined;
+    if (is_undefined(_def_res)) return undefined;
+    var _handle = undefined;
+    try { _handle = __battle_sound_play_safe(_def_res, true); } catch (e_play_def_once) { _handle = undefined; }
+    try { variable_struct_set(_B, "_defeated_handle", _handle); } catch (e_set_def_once) {}
+    try { variable_struct_set(_B, "_defeated_music_playing", true); } catch (e_flag_def_once) {}
+    return _handle;
 }
 
 // Command queue and target-pick helpers live in battle_command_helpers.gml.
@@ -887,6 +964,8 @@ function battle_open(_a0 = undefined, _a1 = undefined, _a2 = undefined, _a3 = un
     _B._battle_defeated_music = (variable_global_exists("_BATTLE_DEFEATED_OVERRIDE") ? variable_global_get("_BATTLE_DEFEATED_OVERRIDE") : snd_WildPokemonDefeated);
     _B._bgm_handle = undefined;
     _B._defeated_handle = undefined;
+    _B._battle_bgm_playing = false;
+    _B._defeated_music_playing = false;
     // Preserve any previously playing audio so we can restore it after the battle
     // NOTE: calling `audio_get_playing()` at early runtime (for example during
     // oPlayer Step) can trigger errors on some targets. Capture would be nice
@@ -906,8 +985,7 @@ function battle_open(_a0 = undefined, _a1 = undefined, _a2 = undefined, _a3 = un
     // Start background battle music (looped) if available
     if (!is_undefined(_B._battle_music)){
         try {
-            var _bh = __battle_sound_play_safe(_B._battle_music, true);
-            variable_struct_set(_B, "_bgm_handle", _bh);
+            var _bh = __battle_start_bgm_once(_B);
             if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] played bgm="+string(_B._battle_music)+" handle="+string(_bh));
         } catch (e) { variable_struct_set(_B, "_bgm_handle", undefined); if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to play bgm="+string(_B._battle_music)); }
     }
@@ -918,7 +996,9 @@ function battle_open(_a0 = undefined, _a1 = undefined, _a2 = undefined, _a3 = un
 
     // Cry/switch state & turn queue
     _B._cry_played_enemy = false;
+    _B._cry_played_enemy2 = false;
     _B._cry_played_player = false;
+    _B._cry_played_player2 = false;
     _B._cry_play_start_ms_enemy = undefined;
     _B._cry_play_start_ms_player = undefined;
     _B._switch_target_idx = undefined;
@@ -1040,7 +1120,8 @@ function battle_open(_a0 = undefined, _a1 = undefined, _a2 = undefined, _a3 = un
         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
             var g0 = (is_struct(_B.actor[0]) && variable_struct_exists(_B.actor[0], "grounded")) ? string(variable_struct_get(_B.actor[0], "grounded")) : "<unset>";
             var a0 = (is_struct(_B.actor[0]) && variable_struct_exists(_B.actor[0], "ability")) ? string(variable_struct_get(_B.actor[0], "ability")) : "<none>";
-            show_debug_message("[battle_open][grounded] player=" + string(_B.actor[0].name) + ", grounded=" + g0 + ", ability=" + a0);
+            var p0_dbg_name = (is_struct(_B.actor[0]) && variable_struct_exists(_B.actor[0], "name")) ? string(variable_struct_get(_B.actor[0], "name")) : "Pokemon";
+            show_debug_message("[battle_open][grounded] player=" + p0_dbg_name + ", grounded=" + g0 + ", ability=" + a0);
         }
     } catch (e_dbg0) {}
     // Debug: log moves on open to diagnose stale copies
@@ -1188,7 +1269,6 @@ function battle_open(_a0 = undefined, _a1 = undefined, _a2 = undefined, _a3 = un
         if (!is_undefined(cutscene_play_now) && !is_undefined(dialog2p_enqueue)){
             var _enemy_lead_name = __battle_get_side_actor(_pid, 1, 0);
             var _mon_name = is_struct(_enemy_lead_name) && variable_struct_exists(_enemy_lead_name, "name") ? string(variable_struct_get(_enemy_lead_name, "name")) : "Pokemon";
-            var _player_mon_name = string(_B.actor[0].name);
             var _key = "wild_intro:" + string(_mon_name) + ":" + string(current_time);
             var _payload = {
                 key: _key,
@@ -1253,8 +1333,9 @@ function battle_open(_a0 = undefined, _a1 = undefined, _a2 = undefined, _a3 = un
             var _enemy_lead_open_name = (is_struct(_enemy_lead_open) && variable_struct_exists(_enemy_lead_open, "name")) ? string(variable_struct_get(_enemy_lead_open, "name")) : "Pokemon";
             var _enemy_tail_open_name = (is_struct(_enemy_tail_open) && variable_struct_exists(_enemy_tail_open, "name")) ? string(variable_struct_get(_enemy_tail_open, "name")) : "Pokemon";
             var _player_tail_open_name = (is_struct(_player_tail_open) && variable_struct_exists(_player_tail_open, "name")) ? string(variable_struct_get(_player_tail_open, "name")) : "Pokemon";
-            var dlg_txt = "A wild " + _enemy_lead_open_name + " has appeared!\n\nGo. " + string(_B.actor[0].name) + "!";
-            if (_battle_format == "double" && is_struct(_enemy_tail_open) && is_struct(_player_tail_open)) dlg_txt = "Wild " + _enemy_lead_open_name + " and " + _enemy_tail_open_name + " appeared!\n\nGo. " + string(_B.actor[0].name) + " and " + _player_tail_open_name + "!";
+            var _player_lead_open_name = (is_struct(_B.actor[0]) && variable_struct_exists(_B.actor[0], "name")) ? string(variable_struct_get(_B.actor[0], "name")) : "Pokemon";
+            var dlg_txt = "A wild " + _enemy_lead_open_name + " has appeared!\n\nGo. " + _player_lead_open_name + "!";
+            if (_battle_format == "double" && is_struct(_enemy_tail_open) && is_struct(_player_tail_open)) dlg_txt = "Wild " + _enemy_lead_open_name + " and " + _enemy_tail_open_name + " appeared!\n\nGo. " + _player_lead_open_name + " and " + _player_tail_open_name + "!";
             try { dialog2p_show_now(_pid, dlg_txt); } catch (e_dlgopen) { try { dialog2p_enqueue(_pid, dlg_txt); } catch(e_){} }
             _B._dlg_active = true;
             _B._dlg_page_last = -1;
@@ -1347,6 +1428,12 @@ function battle_close(_pid){
         }
     } catch (e2) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to stop defeated handle: " + string(e2)); }
     try {
+        variable_struct_set(_B, "_bgm_handle", undefined);
+        variable_struct_set(_B, "_defeated_handle", undefined);
+        variable_struct_set(_B, "_battle_bgm_playing", false);
+        variable_struct_set(_B, "_defeated_music_playing", false);
+    } catch (e_audio_flags_clear) {}
+    try {
         var _bm_res = (variable_struct_exists(_B, "_battle_music") ? variable_struct_get(_B, "_battle_music") : undefined);
         if (!is_undefined(_bm_res) && variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] battle_music resource configured: " + string(_bm_res));
         var _bdm = (variable_struct_exists(_B, "_battle_defeated_music") ? variable_struct_get(_B, "_battle_defeated_music") : undefined);
@@ -1427,26 +1514,31 @@ function battle_close(_pid){
         }
     } catch (e_all_stop) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] error while attempting to stop defeated music: " + string(e_all_stop)); }
 
-    // Centralized restore: stop any battle audio and restore previously playing audio.
-    // If no previous audio was captured, fall back to playing the configured region music
-    try {
-        var _prev_audio_local = (variable_struct_exists(_B, "_prev_audio") ? variable_struct_get(_B, "_prev_audio") : undefined);
-        try { __battle_restore_prev_audio(_pid); } catch (e_rr) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] __battle_restore_prev_audio failed: " + string(e_rr)); }
+    // Restore overworld audio only after every active battle has closed.
+    // In split-screen singles, the other player's battle music should keep
+    // ownership of the music layer until their battle also finishes.
+    if (!battle_any_open()){
+        try {
+            var _prev_audio_local = (variable_struct_exists(_B, "_prev_audio") ? variable_struct_get(_B, "_prev_audio") : undefined);
+            try { __battle_restore_prev_audio(_pid); } catch (e_rr) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] __battle_restore_prev_audio failed: " + string(e_rr)); }
 
-        // If there was no previous audio to restore, attempt to play the region BGM if available.
-        if (is_undefined(_prev_audio_local) || _prev_audio_local == undefined) {
-            if (variable_global_exists("_REGIONMUSIC") && !is_undefined(global._REGIONMUSIC) && global._REGIONMUSIC != undefined) {
-                try {
-                    if (!is_undefined(audio_play_sound)) {
-                        audio_play_sound(global._REGIONMUSIC, 1, true);
-                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] played region music res=" + string(global._REGIONMUSIC));
+            // If there was no previous audio to restore, attempt to play the region BGM if available.
+            if (is_undefined(_prev_audio_local) || _prev_audio_local == undefined) {
+                if (variable_global_exists("_REGIONMUSIC") && !is_undefined(global._REGIONMUSIC) && global._REGIONMUSIC != undefined) {
+                    try {
+                        if (!is_undefined(audio_play_sound)) {
+                            audio_play_sound(global._REGIONMUSIC, 1, true);
+                            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] played region music res=" + string(global._REGIONMUSIC));
+                        }
+                    } catch (e_reg) {
+                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to play region music: " + string(e_reg));
                     }
-                } catch (e_reg) {
-                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to play region music: " + string(e_reg));
                 }
             }
-        }
-    } catch (e_rrall) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] restore/fallback failed: " + string(e_rrall)); }
+        } catch (e_rrall) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] restore/fallback failed: " + string(e_rrall)); }
+    } else if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) {
+        show_debug_message("[battle][audio] skipped overworld restore because another battle is still open");
+    }
 }
 
 // ===== Intro animation extension hooks =====
@@ -1564,7 +1656,7 @@ function battle_update(_pid){
             if (!is_undefined(__battle_try_catch)){
                 // Quiet: remove verbose queued-catch debug spam. Enable only when explicitly asked via DATA_DEBUG_VERBOSE.
                 if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][debug] processing queued catch pid=" + string(_pid) + ", iid=" + string((variable_struct_exists(_q, "item_id") ? variable_struct_get(_q, "item_id") : -1)) + ", mult=" + string(variable_struct_get(_q, "ball_mult")));
-                __battle_try_catch(_pid, variable_struct_get(_q, "ball_mult"), (variable_struct_exists(_q, "item_id") ? variable_struct_get(_q, "item_id") : undefined), (variable_struct_exists(_q, "target_index") ? variable_struct_get(_q, "target_index") : undefined));
+                __battle_try_catch(_pid, variable_struct_get(_q, "ball_mult"), (variable_struct_exists(_q, "item_id") ? variable_struct_get(_q, "item_id") : undefined), (variable_struct_exists(_q, "target_index") ? variable_struct_get(_q, "target_index") : undefined), (variable_struct_exists(_q, "owner_pid") ? variable_struct_get(_q, "owner_pid") : _pid));
             }
         }
         _B._queued_catch = undefined;
@@ -1657,10 +1749,34 @@ function battle_update(_pid){
 
     // (Do not pause update here during closing; we handle closing below so the fade can complete and then close.)
 
-    var dlg_open = (is_undefined(dialog2p_is_open) ? false : dialog2p_is_open(_pid));
+    var _dialog_pids = [_pid];
+    if (is_struct(_B) && variable_struct_exists(_B, "player_pids") && is_array(variable_struct_get(_B, "player_pids"))){
+        var _battle_dialog_pids = variable_struct_get(_B, "player_pids");
+        for (var _bdpi = 0; _bdpi < array_length(_battle_dialog_pids); ++_bdpi){
+            var _bdp = _battle_dialog_pids[_bdpi];
+            if (!is_real(_bdp)) continue;
+            _bdp = floor(_bdp);
+            var _bdp_seen = false;
+            for (var _bdps = 0; _bdps < array_length(_dialog_pids); ++_bdps){
+                if (_dialog_pids[_bdps] == _bdp){ _bdp_seen = true; break; }
+            }
+            if (!_bdp_seen) array_push(_dialog_pids, _bdp);
+        }
+    }
+    var _dialog_pid_open = -1;
+    for (var _bdpo = 0; _bdpo < array_length(_dialog_pids); ++_bdpo){
+        var _dialog_pid_probe = _dialog_pids[_bdpo];
+        if (!is_real(_dialog_pid_probe)) continue;
+        if (!is_undefined(dialog2p_step)) dialog2p_step(_dialog_pid_probe);
+        if (!is_undefined(dialog2p_is_open) && dialog2p_is_open(_dialog_pid_probe)){
+            _dialog_pid_open = _dialog_pid_probe;
+            break;
+        }
+    }
+    var dlg_open = (_dialog_pid_open >= 0);
     if (dlg_open){
-        if (!is_undefined(dialog2p_update)) dialog2p_update(_pid);
-    var d = global.DIALOG2P[_pid];
+        if (!is_undefined(dialog2p_update)) dialog2p_update(_dialog_pid_open);
+    var d = (!is_undefined(dialog2p_ensure_pid)) ? dialog2p_ensure_pid(_dialog_pid_open) : global.DIALOG2P[_dialog_pid_open];
     var page = 0;
     if (is_struct(d) && variable_struct_exists(d, "page_idx")) page = variable_struct_get(d, "page_idx");
 
@@ -1710,7 +1826,13 @@ function battle_update(_pid){
     var _faint_active_flag = false;
     try { if (variable_struct_exists(_B, "_faint_dialog_active") && variable_struct_get(_B, "_faint_dialog_active")) _faint_active_flag = true; } catch (e_fa) { _faint_active_flag = false; }
     var _faint_queue_flag = false;
-    try { if (!is_undefined(dialog2p_queue_has_faint) && dialog2p_queue_has_faint(_pid)) _faint_queue_flag = true; } catch (e_fq) { _faint_queue_flag = false; }
+    try {
+        if (!is_undefined(dialog2p_queue_has_faint)){
+            for (var _fqpi = 0; _fqpi < array_length(_dialog_pids); ++_fqpi){
+                if (dialog2p_queue_has_faint(_dialog_pids[_fqpi])){ _faint_queue_flag = true; break; }
+            }
+        }
+    } catch (e_fq) { _faint_queue_flag = false; }
         if (_faint_active_flag || _faint_queue_flag){
             _B._dlg_active = true;
             return;
@@ -1736,7 +1858,12 @@ function battle_update(_pid){
                 // If the dialog system still reports open, wait (it will call
                 // this handler again when it closes). Otherwise, and if the
                 // delay has expired, open the party UI now.
-                var _dlg_open_now = (is_undefined(dialog2p_is_open) ? false : dialog2p_is_open(_pid));
+                var _dlg_open_now = false;
+                if (!is_undefined(dialog2p_is_open)){
+                    for (var _dnow_i = 0; _dnow_i < array_length(_dialog_pids); ++_dnow_i){
+                        if (dialog2p_is_open(_dialog_pids[_dnow_i])){ _dlg_open_now = true; break; }
+                    }
+                }
                     try { if (_dlg_open_now && variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_system] pending_open_party waiting for dialog to close pid=" + string(_pid)); } catch(e_dbgg) {}
                 if (_delay_ok && !_dlg_open_now){
                     // Guard: if battle is already marked as a loss OR there is no usable Pok�mon,
@@ -1858,9 +1985,11 @@ function battle_update(_pid){
                         if (variable_struct_exists(_pack_c, "consumed") && is_real(variable_struct_get(_pack_c, "consumed"))) _cons_c = max(1, floor(variable_struct_get(_pack_c, "consumed")));
                     } else {
                         var _arr_c = variable_struct_get(_B, "_pending_status_msgs");
-                        _text_c = _arr_c[0];
+                        _text_c = __battle_pending_msg_text(_arr_c[0]);
                         _cons_c = 1;
                     }
+                    var _first_msg_c_arr = variable_struct_get(_B, "_pending_status_msgs");
+                    var _msg_pid_c = (is_struct(_pack_c) && variable_struct_exists(_pack_c, "pid") && is_real(variable_struct_get(_pack_c, "pid"))) ? max(0, floor(variable_struct_get(_pack_c, "pid"))) : __battle_pending_msg_pid(_first_msg_c_arr[0], _pid);
                     // If we've already shown a 'used' line this turn and this pending
                     // message is exactly that same line, drop it instead of showing again.
                     try {
@@ -1878,7 +2007,7 @@ function battle_update(_pid){
                     var _new_c = [];
                     for (var _ii_c = _cons_c; _ii_c < array_length(_old_c); ++_ii_c) _new_c[array_length(_new_c)] = _old_c[_ii_c];
                     variable_struct_set(_B, "_pending_status_msgs", _new_c);
-                    try { dialog2p_show_now(_pid, _text_c); } catch (e_msgc) { try { dialog2p_enqueue(_pid, _text_c); } catch(e_){} }
+                    try { dialog2p_show_now(_msg_pid_c, _text_c); } catch (e_msgc) { try { dialog2p_enqueue(_msg_pid_c, _text_c); } catch(e_){} }
                     return;
                 }
             } catch (e_preclose_msg) {}
@@ -1956,9 +2085,11 @@ function battle_update(_pid){
                         if (variable_struct_exists(_pack_g, "consumed") && is_real(variable_struct_get(_pack_g, "consumed"))) _cons_g = max(1, floor(variable_struct_get(_pack_g, "consumed")));
                     } else {
                         var _arr_g = variable_struct_get(_B, "_pending_status_msgs");
-                        _text_g = _arr_g[0];
+                        _text_g = __battle_pending_msg_text(_arr_g[0]);
                         _cons_g = 1;
                     }
+                    var _first_msg_g_arr = variable_struct_get(_B, "_pending_status_msgs");
+                    var _msg_pid_g = (is_struct(_pack_g) && variable_struct_exists(_pack_g, "pid") && is_real(variable_struct_get(_pack_g, "pid"))) ? max(0, floor(variable_struct_get(_pack_g, "pid"))) : __battle_pending_msg_pid(_first_msg_g_arr[0], _pid);
                     // Drop duplicate 'used' message if it was already shown earlier.
                     try {
                         var _lus_shown_g = (variable_struct_exists(_B, "_last_used_dialog_shown") && variable_struct_get(_B, "_last_used_dialog_shown"));
@@ -1975,7 +2106,7 @@ function battle_update(_pid){
                     var _new_g = [];
                     for (var _ii_g = _cons_g; _ii_g < array_length(_old_g); ++_ii_g) _new_g[array_length(_new_g)] = _old_g[_ii_g];
                     variable_struct_set(_B, "_pending_status_msgs", _new_g);
-                    try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, _text_g); else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, _text_g, _text_g, "any"); } catch (e_msgg) {}
+                    try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_msg_pid_g, _text_g); else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_msg_pid_g, _text_g, _text_g, "any"); } catch (e_msgg) {}
                     return;
                 }
             } catch (e_preclose_msg_g) {}
@@ -2036,9 +2167,10 @@ function battle_update(_pid){
                         _text_to_show = variable_struct_get(pack, "text");
                         if (variable_struct_exists(pack, "consumed") && is_real(variable_struct_get(pack, "consumed"))) _consume_n = max(1, floor(variable_struct_get(pack, "consumed")));
                     } else {
-                        _text_to_show = _ps[0];
+                        _text_to_show = __battle_pending_msg_text(_ps[0]);
                         _consume_n = 1;
                     }
+                    var _msg_pid_show = (is_struct(pack) && variable_struct_exists(pack, "pid") && is_real(variable_struct_get(pack, "pid"))) ? max(0, floor(variable_struct_get(pack, "pid"))) : __battle_pending_msg_pid(_ps[0], _pid);
                     // If duplicate of an already-shown 'used' line, drop it silently.
                     try {
                         var _lus_shown = (variable_struct_exists(_B, "_last_used_dialog_shown") && variable_struct_get(_B, "_last_used_dialog_shown"));
@@ -2084,8 +2216,8 @@ function battle_update(_pid){
                                             var _ent = _po_arr[_pi];
                                             try {
                                                 if (!is_undefined(__battle_trigger_stat_overlay)){
-                                                    try { __battle_trigger_stat_overlay(_pid, _ent.actor, _ent.overlay_changes, _ent.actor_idx); } catch (e_tr) {}
-                                                    try { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][stat_overlay] triggered for pid=" + string(_pid) + ", actor_idx=" + string(_ent.actor_idx) + ", changes=" + string(_ent.overlay_changes)); } catch(e_dbg3) {}
+                                                    try { __battle_trigger_stat_overlay(_msg_pid_show, _ent.actor, _ent.overlay_changes, _ent.actor_idx); } catch (e_tr) {}
+                                                    try { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][stat_overlay] triggered for pid=" + string(_msg_pid_show) + ", actor_idx=" + string(_ent.actor_idx) + ", changes=" + string(_ent.overlay_changes)); } catch(e_dbg3) {}
                                                 }
                                             } catch (e_tr_outer) {}
                                         } else {
@@ -2096,7 +2228,7 @@ function battle_update(_pid){
                                 }
                             } catch (e_po_cons) {}
                         } catch (e_pp) {}
-                        dialog2p_show_now(_pid, _text_to_show);
+                        dialog2p_show_now(_msg_pid_show, _text_to_show);
                     } catch (e_p) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][pending_status] failed to show: " + string(e_p)); }
                     return;
                 }
@@ -2108,7 +2240,8 @@ function battle_update(_pid){
             var _iid_temp = (variable_struct_exists(_pi_temp, "item_id") ? variable_struct_get(_pi_temp, "item_id") : undefined);
             var _mult_temp = (variable_struct_exists(_pi_temp, "ball_mult") ? variable_struct_get(_pi_temp, "ball_mult") : undefined);
             var _target_temp = (variable_struct_exists(_pi_temp, "target_index") ? variable_struct_get(_pi_temp, "target_index") : undefined);
-            if (!is_undefined(__battle_try_catch)) __battle_try_catch(_pid, _mult_temp, _iid_temp, _target_temp);
+            var _owner_temp = (variable_struct_exists(_pi_temp, "owner_pid") ? variable_struct_get(_pi_temp, "owner_pid") : _pid);
+            if (!is_undefined(__battle_try_catch)) __battle_try_catch(_pid, _mult_temp, _iid_temp, _target_temp, _owner_temp);
             _B._pending_item_use = undefined;
             // Let the animation run; __battle_step_turn_if_ready will pause execution while catch anim is active.
             return;
@@ -2668,6 +2801,20 @@ function __battle_process_input(_pid){
         if (!variable_struct_exists(_B, "_command_actor_index") || !is_real(variable_struct_get(_B, "_command_actor_index"))){
             var _first_actor = __battle_next_command_actor_index(_pid, -1);
             variable_struct_set(_B, "_command_actor_index", (_first_actor >= 0) ? _first_actor : 0);
+        }
+        var _cur_actor_for_pid = floor(variable_struct_get(_B, "_command_actor_index"));
+        var _cur_owner_for_pid = __battle_actor_control_pid(_pid, _cur_actor_for_pid);
+        var _cur_ready_for_pid = is_struct(__battle_find_player_turn_action(_B, _cur_actor_for_pid));
+        if (is_real(_cur_owner_for_pid) && _cur_owner_for_pid != _pid && !_cur_ready_for_pid) return;
+        if (!is_real(_cur_owner_for_pid) || _cur_ready_for_pid){
+            var _next_for_pid = __battle_next_command_actor_index(_pid, -1);
+            if (_next_for_pid < 0) return;
+            variable_struct_set(_B, "_command_actor_index", _next_for_pid);
+            if (is_struct(_B.sys_ui)){
+                variable_struct_set(_B.sys_ui, "menu", "root");
+                variable_struct_set(_B.sys_ui, "selX", 0);
+                variable_struct_set(_B.sys_ui, "selY", 0);
+            }
         }
     }
 
@@ -3727,13 +3874,14 @@ function __battle_step_turn_if_ready(_pid){
                     _text_to_show2 = variable_struct_get(pack2, "text");
                     if (variable_struct_exists(pack2, "consumed") && is_real(variable_struct_get(pack2, "consumed"))) _consume_n2 = max(1, floor(variable_struct_get(pack2, "consumed")));
                 } else {
-                    _text_to_show2 = _psend[0];
+                    _text_to_show2 = __battle_pending_msg_text(_psend[0]);
                     _consume_n2 = 1;
                 }
+                var _msg_pid2 = (is_struct(pack2) && variable_struct_exists(pack2, "pid") && is_real(variable_struct_get(pack2, "pid"))) ? max(0, floor(variable_struct_get(pack2, "pid"))) : __battle_pending_msg_pid(_psend[0], _pid);
                 var _new = [];
                 for (var _ii = _consume_n2; _ii < array_length(_psend); ++_ii) _new[array_length(_new)] = _psend[_ii];
                 variable_struct_set(_B, "_pending_status_msgs", _new);
-                try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, _text_to_show2); else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, _text_to_show2, _text_to_show2, "any"); } catch (e_pend) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][pending_status_endturn] failed to show: " + string(e_pend)); }
+                try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_msg_pid2, _text_to_show2); else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_msg_pid2, _text_to_show2, _text_to_show2, "any"); } catch (e_pend) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][pending_status_endturn] failed to show: " + string(e_pend)); }
                 return;
             }
         }
@@ -3792,36 +3940,7 @@ function __battle_step_turn_if_ready(_pid){
                 __battle_trainer_handle_defeat(_pid);
                 try { variable_struct_set(A1, "_faint_awarded_enemy", true); } catch (e_flag_ep) {}
                 _B.result = "win";
-                try { if (!is_undefined(_B._bgm_handle)) __battle_audio_stop_handle(_B._bgm_handle); } catch (e_stop_ep) {}
-                _B._bgm_handle = undefined;
-                var _def_res_ep = undefined;
-                try { if (variable_struct_exists(_B, "_battle_defeated_music")) _def_res_ep = variable_struct_get(_B, "_battle_defeated_music"); } catch (e_get_def) { _def_res_ep = undefined; }
-                if (!is_undefined(_def_res_ep)){
-                    try {
-                        if (!is_undefined(audio_is_playing)){
-                            var _isPlaying_ep = false;
-                            try {
-                                var _tmp_bh_ep = (variable_struct_exists(_B, "_bgm_handle") ? variable_struct_get(_B, "_bgm_handle") : undefined);
-                                if (!is_undefined(_tmp_bh_ep)) _isPlaying_ep = audio_is_playing(_tmp_bh_ep);
-                                else {
-                                    var _tmp_res_ep = (variable_struct_exists(_B, "_battle_music") ? variable_struct_get(_B, "_battle_music") : undefined);
-                                    if (!is_undefined(_tmp_res_ep)) _isPlaying_ep = audio_is_playing(_tmp_res_ep);
-                                }
-                            } catch (e_ip_ep) { _isPlaying_ep = false; }
-                            if (_isPlaying_ep){
-                                try {
-                                    var _stop_res_ep = (variable_struct_exists(_B, "_battle_music") ? variable_struct_get(_B, "_battle_music") : undefined);
-                                                var _bh_ep = (variable_struct_exists(_B, "_bgm_handle") ? variable_struct_get(_B, "_bgm_handle") : undefined);
-                                                if (!is_undefined(_bh_ep)) __battle_audio_stop_handle(_bh_ep);
-                                } catch (e_s_ep) {}
-                            }
-                        }
-                    } catch (e_top_ep) {}
-                    try {
-                        var _dh_ep = __battle_sound_play_safe(_def_res_ep, true);
-                        variable_struct_set(_B, "_defeated_handle", _dh_ep);
-                    } catch (e_play_ep) {}
-                }
+                try { if (!is_undefined(__battle_play_defeated_music_once)) __battle_play_defeated_music_once(_B); } catch (e_play_ep) {}
                 try { variable_struct_set(_B, "_pending_open_party", false); } catch (e_po_ep) {}
                 try {
                     if (variable_struct_exists(_B, "_trainer_pending_send")) variable_struct_remove(_B, "_trainer_pending_send");
@@ -4042,48 +4161,7 @@ function __battle_step_turn_if_ready(_pid){
     }
 
     _B.result = "win";
-    try {
-        if (!is_undefined(_B._bgm_handle)) __battle_audio_stop_handle(_B._bgm_handle);
-    } catch (e_stop) {}
-    _B._bgm_handle = undefined;
-    try {
-        var _def_res = (variable_struct_exists(_B, "_battle_defeated_music") ? variable_struct_get(_B, "_battle_defeated_music") : undefined);
-    } catch (e_def) { var _def_res = undefined; }
-    if (!is_undefined(_def_res)){
-        try {
-            if (!is_undefined(audio_is_playing)){
-                var _isPlaying = false;
-                try {
-                    var _tmp_bh = (variable_struct_exists(_B, "_bgm_handle") ? variable_struct_get(_B, "_bgm_handle") : undefined);
-                    if (!is_undefined(_tmp_bh)) _isPlaying = audio_is_playing(_tmp_bh);
-                    else {
-                        var _tmp_res = (variable_struct_exists(_B, "_battle_music") ? variable_struct_get(_B, "_battle_music") : undefined);
-                        if (!is_undefined(_tmp_res)) _isPlaying = audio_is_playing(_tmp_res);
-                        else _isPlaying = false;
-                    }
-                } catch (e_ip) { _isPlaying = false; }
-                if (_isPlaying){
-                    try {
-                        var _stop_res = (variable_struct_exists(_B, "_battle_music") ? variable_struct_get(_B, "_battle_music") : undefined);
-                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] stopping _stop_res=" + string(_stop_res));
-                        var _bh = (variable_struct_exists(_B, "_bgm_handle") ? variable_struct_get(_B, "_bgm_handle") : undefined);
-                        if (!is_undefined(_bh)){
-                            __battle_audio_stop_handle(_bh);
-                            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] __battle_audio_stop_handle called on bgm_handle");
-                        }
-                    } catch (e_s) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to stop bgm: " + string(e_s)); }
-                }
-            }
-        } catch (e_top) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] error checking audio_is_playing: " + string(e_top)); }
-
-        try {
-            var _dh = __battle_sound_play_safe(_def_res, true);
-            variable_struct_set(_B, "_defeated_handle", _dh);
-            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] played defeated_res="+string(_def_res)+" handle="+string(_dh));
-        } catch (e) {
-            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to play defeated_res="+string(_def_res)+" err="+string(e));
-        }
-    }
+    try { if (!is_undefined(__battle_play_defeated_music_once)) __battle_play_defeated_music_once(_B); } catch (e_def_once) {}
 
     try { variable_struct_set(_B, "_pending_open_party", false); } catch (e_clp) {}
     _B._pending_close = true;
@@ -5061,6 +5139,14 @@ function __battle_check_play_cries(_pid){
             }
             _B._cry_played_enemy = true;
         }
+        if (p >= 1 && variable_struct_exists(_B, "battle_format") && string(variable_struct_get(_B, "battle_format")) == "double" && (!variable_struct_exists(_B, "_cry_played_enemy2") || !_B._cry_played_enemy2)){
+            var _enemy_tail = __battle_get_side_actor(_pid, 1, 1);
+            if (!is_undefined(pkicons_play_cry_by_mon) && is_struct(_enemy_tail) && variable_struct_exists(_enemy_tail, "mon")){
+                var _aud_e2 = pkicons_play_cry_by_mon(variable_struct_get(_enemy_tail, "mon"));
+                if (is_real(_aud_e2) && _aud_e2 >= 0) { }
+            }
+            _B._cry_played_enemy2 = true;
+        }
     }
 
     if (string(_B.phase) == "intro_player"){
@@ -5073,6 +5159,14 @@ function __battle_check_play_cries(_pid){
             }
             _B._cry_played_player = true;
             _B._cry_queued_from_switch = false;
+        }
+        if (p2 >= 1 && variable_struct_exists(_B, "battle_format") && string(variable_struct_get(_B, "battle_format")) == "double" && (!variable_struct_exists(_B, "_cry_played_player2") || !_B._cry_played_player2)){
+            var _player_tail = __battle_get_side_actor(_pid, 0, 1);
+            if (!is_undefined(pkicons_play_cry_by_mon) && is_struct(_player_tail) && variable_struct_exists(_player_tail, "mon")){
+                var _aud_p2 = pkicons_play_cry_by_mon(variable_struct_get(_player_tail, "mon"));
+                if (is_real(_aud_p2) && _aud_p2 >= 0) { }
+            }
+            _B._cry_played_player2 = true;
         }
     }
 
@@ -5251,7 +5345,7 @@ function battle_switch_to(_pid, _party_idx, _opts){
         // Ensure dialog doesn't immediately advance from the same input press
         try {
             if (!is_undefined(dialog2p_is_open) && dialog2p_is_open(_pid) && variable_global_exists("DIALOG2P")){
-                var _sess = global.DIALOG2P[_pid];
+                var _sess = (!is_undefined(dialog2p_ensure_pid)) ? dialog2p_ensure_pid(_pid) : global.DIALOG2P[_pid];
                 if (is_struct(_sess)) variable_struct_set(_sess, "_open_grace_until", current_time + 300);
             }
         } catch (e_g) {}
@@ -5346,12 +5440,24 @@ function __battle_apply_baton_pass_payload(_B, _actor, _actor_index){
 
 // Detect if a status message line looks like a stat stage change (e.g., "NAME ATK +1").
 function __battle_is_stat_status_line(_s){
-    var t = string_upper(string_trim(string(_s)));
+    var _txt = _s;
+    if (is_struct(_s) && variable_struct_exists(_s, "text")) _txt = variable_struct_get(_s, "text");
+    var t = string_upper(string_trim(string(_txt)));
     if (string_length(t) <= 0) return false;
     // Treat typical stat tokens as indicators; include ACCURACY/EVASION.
     var tokens = [" ATK ", " DEF ", " SPA ", " SPD ", " SPE ", " ACCURACY", " EVASION"];
     for (var i = 0; i < array_length(tokens); ++i){ if (string_pos(tokens[i], t) > 0) return true; }
     return false;
+}
+
+function __battle_pending_msg_text(_msg){
+    if (is_struct(_msg) && variable_struct_exists(_msg, "text")) return string(variable_struct_get(_msg, "text"));
+    return string(_msg);
+}
+
+function __battle_pending_msg_pid(_msg, _fallback_pid){
+    if (is_struct(_msg) && variable_struct_exists(_msg, "pid") && is_real(variable_struct_get(_msg, "pid"))) return max(0, floor(variable_struct_get(_msg, "pid")));
+    return _fallback_pid;
 }
 
 // From the head of _B._pending_status_msgs, coalesce consecutive stat lines into a single multi-line string.
@@ -5362,14 +5468,16 @@ function __battle_coalesce_head_stat_msgs(_B){
     if (!is_array(arr) || array_length(arr) <= 0) return undefined;
     var first = arr[0];
     if (!__battle_is_stat_status_line(first)){
-        return { text: first, consumed: 1 };
+        return { text: __battle_pending_msg_text(first), consumed: 1, pid: (is_struct(first) && variable_struct_exists(first, "pid") ? variable_struct_get(first, "pid") : undefined) };
     }
+    var first_pid = __battle_pending_msg_pid(first, undefined);
     var lines = [];
     var consumed = 0;
     for (var i = 0; i < array_length(arr); ++i){
         var _line = arr[i];
-        if (__battle_is_stat_status_line(_line)){
-            lines[array_length(lines)] = string_trim(string(_line));
+        var _line_pid = __battle_pending_msg_pid(_line, first_pid);
+        if (__battle_is_stat_status_line(_line) && (is_undefined(first_pid) || _line_pid == first_pid)){
+            lines[array_length(lines)] = string_trim(__battle_pending_msg_text(_line));
             consumed += 1;
         } else break;
     }
@@ -5378,7 +5486,7 @@ function __battle_coalesce_head_stat_msgs(_B){
         if (j > 0) combined += "\n";
         combined += lines[j];
     }
-    return { text: combined, consumed: max(1, consumed) };
+    return { text: combined, consumed: max(1, consumed), pid: first_pid };
 }
 
 // ===== Actor creation =====
@@ -6338,7 +6446,10 @@ function __battle_award_exp(_pid, _amount){
                 { label: "SP.DEF", from: old_spd, to: variable_struct_get(T, "spd") },
                 { label: "SPEED", from: old_spe, to: variable_struct_get(T, "spe") }
             ];
-            var _stepInfo = { level: T.level, deltas: _deltas, rows: _step_rows, mon_name: string(variable_struct_exists(T, "name") ? variable_struct_get(T, "name") : A0.name) };
+            var _level_name = "Pokemon";
+            if (variable_struct_exists(T, "name")) _level_name = string(variable_struct_get(T, "name"));
+            else if (is_struct(A0) && variable_struct_exists(A0, "name")) _level_name = string(variable_struct_get(A0, "name"));
+            var _stepInfo = { level: T.level, deltas: _deltas, rows: _step_rows, mon_name: _level_name };
             array_push(variable_struct_get(_B, "_level_stat_bumps_queue"), _stepInfo);
 
             // recompute next threshold for the new level
@@ -6412,9 +6523,10 @@ function __battle_award_exp(_pid, _amount){
 
 
 // ===== Catch Flow (stub): success scales with foe HP% =====
-function __battle_try_catch(_pid, _ball_mult, _item_id, _target_index){
+function __battle_try_catch(_pid, _ball_mult, _item_id, _target_index, _owner_pid = undefined){
     var _B = __battle_ensure_slot(_pid);
     if (!is_struct(_B)) return false;
+    var _catch_owner_pid = (is_real(_owner_pid) ? max(0, floor(_owner_pid)) : max(0, floor(_pid)));
 
     // Block capture attempts outright during trainer battles. This guard covers any
     // code path that bypasses the bag validation and calls into the catch logic
@@ -6520,7 +6632,12 @@ function __battle_try_catch(_pid, _ball_mult, _item_id, _target_index){
 
     // Delegate creation to modular animation helper
     if (!is_undefined(__battle_anim_create_catch)){
-        __battle_anim_create_catch(_B, _item_id, caught, { hop_total: hop_total, success: success, break_hop: break_hop, throw_dur:380, impact_dur:220, hop_dur:700, hop_pause:350, target_actor_index: target_idx, land_x: land_x, land_y: land_y });
+        __battle_anim_create_catch(_B, _item_id, caught, { hop_total: hop_total, success: success, break_hop: break_hop, throw_dur:380, impact_dur:220, hop_dur:700, hop_pause:350, target_actor_index: target_idx, owner_pid: _catch_owner_pid, land_x: land_x, land_y: land_y });
+        if (variable_struct_exists(_B, "_catch_anim") && is_struct(variable_struct_get(_B, "_catch_anim"))){
+            var _catch_anim_owner = variable_struct_get(_B, "_catch_anim");
+            variable_struct_set(_catch_anim_owner, "owner_pid", _catch_owner_pid);
+            variable_struct_set(_B, "_catch_anim", _catch_anim_owner);
+        }
     } else {
         // fallback to inline struct if helper missing (backcompat)
         _B._catch_anim = {
@@ -6546,6 +6663,7 @@ function __battle_try_catch(_pid, _ball_mult, _item_id, _target_index){
             enemy_scale_now: undefined,
             caught_struct: caught,
             target_actor_index: target_idx,
+            owner_pid: _catch_owner_pid,
             land_x: land_x,
             land_y: land_y
         };

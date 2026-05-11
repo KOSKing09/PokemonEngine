@@ -489,13 +489,18 @@ function __battle_perform_action_impl(_pid, _step){
         var item_id = (variable_struct_exists(_step, "item_id") ? variable_struct_get(_step, "item_id") : undefined);
         var ball_mult = (variable_struct_exists(_step, "ball_mult") ? variable_struct_get(_step, "ball_mult") : undefined);
         var target_index = (variable_struct_exists(_step, "target_index") ? variable_struct_get(_step, "target_index") : undefined);
-        if (is_real(_pid) && is_real(item_id) && item_id > 0 && !is_undefined(bag_inventory_remove_item)){
-            bag_inventory_remove_item(_pid, item_id, 1);
-            if (!is_undefined(bags_seed_from_items)) bags_seed_from_items(_pid);
+        var action_pid = _pid;
+        if (variable_struct_exists(_step, "actor_index") && is_real(variable_struct_get(_step, "actor_index")) && !is_undefined(__battle_actor_owner_pid)){
+            var _owner_pid = __battle_actor_owner_pid(_pid, variable_struct_get(_step, "actor_index"));
+            if (is_real(_owner_pid) && _owner_pid >= 0) action_pid = floor(_owner_pid);
+        }
+        if (is_real(action_pid) && is_real(item_id) && item_id > 0 && !is_undefined(bag_inventory_remove_item)){
+            bag_inventory_remove_item(action_pid, item_id, 1);
+            if (!is_undefined(bags_seed_from_items)) bags_seed_from_items(action_pid);
         }
 
         var started_catch = false;
-        if (!is_undefined(__battle_try_catch)) started_catch = __battle_try_catch(_pid, ball_mult, item_id, target_index);
+        if (!is_undefined(__battle_try_catch)) started_catch = __battle_try_catch(action_pid, ball_mult, item_id, target_index, action_pid);
         if (started_catch) return "";
 
         var disp = "item";

@@ -1,4 +1,10 @@
 /// oCamera2P Step
+if (is_undefined(__apply_ports)){
+    split_layout = "";
+} else {
+    __apply_ports();
+}
+
 function __hard_center(_cam, _tgt, _shake, _snap){
     if (!instance_exists(_tgt)) return;
 
@@ -20,7 +26,7 @@ function __hard_center(_cam, _tgt, _shake, _snap){
 }
 
 __hard_center(cam1, target1, shake1, pixel_snap);
-__hard_center(cam2, target2, shake2, pixel_snap);
+if (view_visible[1]) __hard_center(cam2, target2, shake2, pixel_snap);
 
 /* how to shake cameras!
 with (oCamera2P) {
