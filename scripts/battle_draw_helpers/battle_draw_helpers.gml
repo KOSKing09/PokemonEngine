@@ -1093,6 +1093,34 @@ function __battle_draw_ball_overlay(_pid, _B){
     }
 }
 
+function __battle_player_intro_segment(_B, _actorIndex){
+    var _count = 1;
+    if (is_struct(_B) && variable_struct_exists(_B, "battle_format") && string(variable_struct_get(_B, "battle_format")) == "double") _count = 2;
+    var _slot = clamp(__battle_actor_slot(_actorIndex), 0, _count - 1);
+    var _span = 1 / max(1, _count);
+    return {
+        count: _count,
+        slot: _slot,
+        start: _slot * _span,
+        finish: (_slot + 1) * _span
+    };
+}
+
+function __battle_player_intro_anim_sprite(_pid, _B, _actorIndex){
+    var _owner_pid = (!is_undefined(__battle_actor_control_pid) ? __battle_actor_control_pid(_pid, _actorIndex) : 0);
+    if (!is_real(_owner_pid) || _owner_pid < 0) _owner_pid = 0;
+    if (!is_undefined(player_by_pid)){
+        var _owner_inst = player_by_pid(_owner_pid);
+        if (_owner_inst != noone && variable_instance_exists(_owner_inst, "battleAnim")){
+            var _owner_anim = variable_instance_get(_owner_inst, "battleAnim");
+            if (is_real(_owner_anim) && sprite_exists(_owner_anim)) return _owner_anim;
+        }
+    }
+    if (variable_struct_exists(_B, "caller_battleAnim") && !is_undefined(variable_struct_get(_B, "caller_battleAnim")) && sprite_exists(variable_struct_get(_B, "caller_battleAnim"))) return variable_struct_get(_B, "caller_battleAnim");
+    if (variable_global_exists("battleAnim") && sprite_exists(global.battleAnim)) return global.battleAnim;
+    return undefined;
+}
+
 function __battle_draw_player(_pid, _B, _actorIndex, mx, my, tx, ty, _skip_platform){
     var scale_us = 1.1;
     var P = undefined;
@@ -1126,7 +1154,8 @@ function __battle_draw_player(_pid, _B, _actorIndex, mx, my, tx, ty, _skip_platf
     var _player_scale_mult = (is_struct(_player_layout) && variable_struct_exists(_player_layout, "scale_mult") && is_real(variable_struct_get(_player_layout, "scale_mult"))) ? real(variable_struct_get(_player_layout, "scale_mult")) : 1;
     var drawScaleP = scale_us * _player_scale_mult * ui_s;
     var _player_phase = string(_B.phase);
-    var _suppress_player_platform = (__battle_actor_slot(_actorIndex) == 0 && _player_phase == "intro_call");
+    var _player_intro_seg = __battle_player_intro_segment(_B, _actorIndex);
+    var _suppress_player_platform = (_player_phase == "intro_call");
     if (is_undefined(_skip_platform)) _skip_platform = false;
     // Freeze detection for player (affects breathing and tint)
     var _has_freeze_p = false;
@@ -1265,28 +1294,31 @@ function __battle_draw_player(_pid, _B, _actorIndex, mx, my, tx, ty, _skip_platf
         }
     } catch (e_nudge_p) {}
 
-    var __is_lead_player = (__battle_actor_slot(_actorIndex) == 0);
-    if (__is_lead_player && string(_B.phase) == "intro_call"){
+    if (string(_B.phase) == "intro_call"){
         var p2 = (variable_struct_exists(_B,"phase_progress") ? _B.phase_progress : 0);
+        if (p2 < variable_struct_get(_player_intro_seg, "start") || p2 >= variable_struct_get(_player_intro_seg, "finish")) return;
+        var _seg_prog_call = clamp((p2 - variable_struct_get(_player_intro_seg, "start")) / max(0.001, variable_struct_get(_player_intro_seg, "finish") - variable_struct_get(_player_intro_seg, "start")), 0, 1);
         var slide_frac = 0.35;
         var start_log = -40;
         var start_px = __bxu(_pid, start_log);
         var target_px = tx;
-        var trainer_x_px = (p2 < slide_frac) ? floor(lerp(start_px, target_px, 1 - (1 - (p2 / slide_frac)) * (1 - (p2 / slide_frac)))) : tx;
+        var trainer_x_px = (_seg_prog_call < slide_frac) ? floor(lerp(start_px, target_px, 1 - (1 - (_seg_prog_call / slide_frac)) * (1 - (_seg_prog_call / slide_frac)))) : tx;
 
         var _phase = string(_B.phase);
         var _anim_phase_allowed = (_phase == "intro_call" || _phase == "switch_in");
-        if (_anim_phase_allowed && variable_struct_exists(_B, "caller_battleAnim") && !is_undefined(_B.caller_battleAnim) && sprite_exists(_B.caller_battleAnim)){
-            var bs = _B.caller_battleAnim;
+        var _player_intro_anim = __battle_player_intro_anim_sprite(_pid, _B, _actorIndex);
+        if (_anim_phase_allowed && !is_undefined(_player_intro_anim) && sprite_exists(_player_intro_anim)){
+            var bs = _player_intro_anim;
             var frames = max(1, sprite_get_number(bs));
             var now_ms = current_time;
             var call_start = (variable_struct_exists(_B, "phase_start_ms") ? _B.phase_start_ms : now_ms);
             var call_dur = max(1, real(_B.phase_durs.call));
             var hold_ms = 0;
             if (variable_struct_exists(_B, "phase_holds") && variable_struct_exists(_B.phase_holds, "call")) hold_ms = max(0, real(_B.phase_holds.call));
-            var slide_ms = floor(call_dur * slide_frac);
-            var anim_ms = call_dur - slide_ms;
-            var elapsed_ms = now_ms - call_start;
+            var segment_ms = max(1, floor(call_dur / max(1, variable_struct_get(_player_intro_seg, "count"))));
+            var slide_ms = floor(segment_ms * slide_frac);
+            var anim_ms = segment_ms - slide_ms;
+            var elapsed_ms = clamp((now_ms - call_start) - floor(variable_struct_get(_player_intro_seg, "slot") * segment_ms), 0, segment_ms + hold_ms);
 
             var draw_frame = 0;
             if (elapsed_ms < slide_ms){ draw_frame = 0; }
@@ -1303,52 +1335,22 @@ function __battle_draw_player(_pid, _B, _actorIndex, mx, my, tx, ty, _skip_platf
 
             var bx = trainer_x_px - (sprite_get_width(bs)*ui_s)/2;
             var by = ty - (sprite_get_height(bs)*ui_s)/2;
-            // One-time diagnostic per battle to avoid spamming every frame
             draw_sprite_ext(bs, draw_frame, bx, by, ui_s, ui_s, 0, c_white, 1);
-            if (string(_B.phase) == "intro_call") return;
         }
-
-        if (_anim_phase_allowed && variable_global_exists("battleAnim") && sprite_exists(global.battleAnim)){
-            var bs2 = global.battleAnim;
-            var frames2 = max(1, sprite_get_number(bs2));
-            var now_ms2 = current_time;
-            var call_start2 = (variable_struct_exists(_B, "phase_start_ms") ? _B.phase_start_ms : now_ms2);
-            var call_dur2 = max(1, real(_B.phase_durs.call));
-            var hold_ms2 = 0;
-            if (variable_struct_exists(_B, "phase_holds") && variable_struct_exists(_B.phase_holds, "call")) hold_ms2 = max(0, real(_B.phase_holds.call));
-            var slide_ms2 = floor(call_dur2 * slide_frac);
-            var anim_ms2 = call_dur2 - slide_ms2;
-            var elapsed_ms2 = now_ms2 - call_start2;
-
-            var draw_frame2 = 0;
-            if (elapsed_ms2 < slide_ms2){ draw_frame2 = 0; }
-            else if (elapsed_ms2 < slide_ms2 + anim_ms2){
-                var anim_elapsed2 = elapsed_ms2 - slide_ms2;
-                if (frames2 <= 1){ draw_frame2 = 0; }
-                else {
-                    var prog2 = clamp(anim_elapsed2 / max(1, anim_ms2), 0, 0.999999);
-                    draw_frame2 = floor(prog2 * frames2);
-                    if (draw_frame2 >= frames2) draw_frame2 = frames2 - 1;
-                }
-            } else if (elapsed_ms2 < slide_ms2 + anim_ms2 + hold_ms2){ draw_frame2 = max(0, frames2 - 1); }
-            else { draw_frame2 = max(0, frames2 - 1); }
-
-            var bx2 = trainer_x_px - (sprite_get_width(bs2)*ui_s)/2;
-            var by2 = ty - (sprite_get_height(bs2)*ui_s)/2;
-            draw_sprite_ext(bs2, draw_frame2, bx2, by2, ui_s, ui_s, 0, c_white, 1);
-            if (string(_B.phase) == "intro_call") return;
-        }
+        return;
     }
 
-    if (__is_lead_player && string(_B.phase) == "intro_player"){
+    if (string(_B.phase) == "intro_player"){
         var p3 = (variable_struct_exists(_B,"phase_progress") ? _B.phase_progress : 0);
+        if (p3 < variable_struct_get(_player_intro_seg, "start")) return;
+        var _seg_prog_player = clamp((p3 - variable_struct_get(_player_intro_seg, "start")) / max(0.001, variable_struct_get(_player_intro_seg, "finish") - variable_struct_get(_player_intro_seg, "start")), 0, 1);
         var throw_split = 0.58;
-        var throw_prog_p = clamp(p3 / throw_split, 0, 1);
-        var reveal_prog_p = clamp((p3 - throw_split) / max(0.001, 1 - throw_split), 0, 1);
+        var throw_prog_p = clamp(_seg_prog_player / throw_split, 0, 1);
+        var reveal_prog_p = clamp((_seg_prog_player - throw_split) / max(0.001, 1 - throw_split), 0, 1);
         var t3 = 1 - (1 - reveal_prog_p) * (1 - reveal_prog_p);
         var minScale = 0.55;
         var targetScale = drawScaleP;
-        var curScale = (p3 < throw_split) ? 0 : lerp(minScale * ui_s, targetScale, t3);
+        var curScale = (_seg_prog_player < throw_split) ? 0 : lerp(minScale * ui_s, targetScale, t3);
         // Position intro using the same origin/platform math as normal draw
         var draw_x2 = mx + (origin_x_p - (w * 0.5)) * curScale;
         var platform_bottom_intro = platform_bottom_player;
@@ -1386,6 +1388,7 @@ function __battle_draw_player(_pid, _B, _actorIndex, mx, my, tx, ty, _skip_platf
                 draw_text(mx - fw/2, my - fh/2 - __bhu(_pid,6), _player_name);
             }
         }
+        return;
     } else if (string(_B.phase) == "command" || string(_B.phase) == "turn"){
         var _breath_amp_p = 0.03;
         var _breath_period_p = 2000;
@@ -1431,7 +1434,7 @@ function __battle_draw_player(_pid, _B, _actorIndex, mx, my, tx, ty, _skip_platf
     }
 
     // switch_in visuals
-    if (__is_lead_player && string(_B.phase) == "switch_in"){
+    if (__battle_actor_slot(_actorIndex) == 0 && string(_B.phase) == "switch_in"){
         var prog = (variable_struct_exists(_B, "phase_progress") ? _B.phase_progress : 0);
         var out_prog = min(1, prog * 2);
         var in_prog = max(0, (prog - 0.5) * 2);

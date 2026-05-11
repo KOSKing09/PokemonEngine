@@ -140,8 +140,8 @@ global.PARTY_ASSETS = {
 global._REGIONMUSIC = snd_Littleroot_Town;
 
 // --- PARTY / BAGS / PLAYERS -----------------------------------------------
-if (!variable_global_exists("PAUSE_PLAYERS_ACTIVE")) global.PAUSE_PLAYERS_ACTIVE = 2;
-else global.PAUSE_PLAYERS_ACTIVE = max(2, floor(global.PAUSE_PLAYERS_ACTIVE));
+if (!variable_global_exists("PAUSE_PLAYERS_ACTIVE")) global.PAUSE_PLAYERS_ACTIVE = 1;
+else global.PAUSE_PLAYERS_ACTIVE = clamp(floor(global.PAUSE_PLAYERS_ACTIVE), 1, 2);
 party_init(); // must be before demo seed (party_ensure uses it)
 // global.DEMO_FORCE_SPECIES = [250, 249]; // optional override
 global.DEMO_FORCE_SPECIES = [188, 268, 471, 559, 17];
@@ -168,6 +168,8 @@ global.DEV_AUTO_LOVE_GIFT_SMOKE = false;
 global.DEV_AUTO_FIELD_SWITCH_SMOKE = false;
 global.DEV_AUTO_FORCED_PLAYER_SWITCH_SMOKE = false;
 global.DEV_AUTO_DOUBLES_ENEMY_FAINT_SEND_SMOKE = false;
+global.DEV_AUTO_COOP_DOUBLE_WILD_SMOKE = false;
+global.DEV_AUTO_COOP_DOUBLE_TRAINER_SMOKE = false;
 global.DEV_AUTO_BURN_POISON_RESIDUAL_SMOKE = false;
 global.DEV_AUTO_VISUAL_TARGET_SMOKE = false;
 global.DEV_AUTO_EFFECT_131_155_SMOKE = false;
@@ -220,18 +222,17 @@ bags_seed_from_items(1); // refresh once
 // To re-enable for debugging, reintroduce the DEBUG_SIMULATE_LEARN_ON_START guard and block here.
 
 // --- PLAYER SPAWN ---------------------------------------------------------
-global.p1 = instance_create_layer(ospawn.x, ospawn.y, "Instances", oPlayer);
-global.p2 = instance_create_layer(ospawn.x, ospawn.y, "Instances", oPlayer);
+global.p1 = instance_create_layer(ospawn.x + 8, ospawn.y + 8, "Instances", oPlayer);
+global.p2 = noone;
 // Assign instance fields in a guarded way to satisfy static analyzers/runtime differences
 try { variable_instance_set(global.p1, "pid", 0); } catch (e_var) { /* ignore */ }
 try { variable_instance_set(global.p1, "_speed", 2); } catch (e_var2) { /* ignore */ }
-try { variable_instance_set(global.p2, "pid", 1); } catch (e_var) { /* ignore */ }
-try { variable_instance_set(global.p2, "_speed", 2); } catch (e_var2) { /* ignore */ }
 // Active player count (used by pause system)
 var players_active = max(1, (variable_global_exists("PAUSE_PLAYERS_ACTIVE") ? global.PAUSE_PLAYERS_ACTIVE : 1));
 
 // --- SYSTEMS (controls, pause, dialog) -----------------------------------
 scr_controls();   // creates global CTRL, loads options.ini
+if (!is_undefined(multiplayer_sync_runtime)) multiplayer_sync_runtime();
 pause_init();     // pause system
 dialog2p_init();  // dialog system (if you’re using it)
 evolution_init(); // evolution scene manager

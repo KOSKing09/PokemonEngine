@@ -127,6 +127,7 @@ function controls_load(){
     if (string_lower(string(global.SPLITSCREEN_LAYOUT)) != "horizontal") global.SPLITSCREEN_LAYOUT = "vertical";
 
     ini_close();
+    if (!is_undefined(multiplayer_load_options)) multiplayer_load_options();
 }
 
 function controls_save(){
@@ -169,6 +170,7 @@ function controls_save(){
     ini_write_string("Display", "splitscreen_layout", string(global.SPLITSCREEN_LAYOUT));
 
     ini_close();
+    if (!is_undefined(multiplayer_save_options)) multiplayer_save_options();
 }
 
 // ---- Queries for objects ---------------------------------------------------

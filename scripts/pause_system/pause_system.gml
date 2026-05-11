@@ -7,8 +7,8 @@ globalvar PAUSE;
 
 function pause_init(){
     global.PAUSE = [
-        { open:false, sel:0, t:0, mode:"main", options_sel:0, input_sel:0 },
-        { open:false, sel:0, t:0, mode:"main", options_sel:0, input_sel:0 }
+        { open:false, sel:0, t:0, mode:"main", options_sel:0, input_sel:0, multiplayer_sel:0 },
+        { open:false, sel:0, t:0, mode:"main", options_sel:0, input_sel:0, multiplayer_sel:0 }
     ];
 
     // safe legacy owner setup
@@ -27,6 +27,7 @@ function pause_toggle(pid){
         p.mode = "main";
         p.options_sel = 0;
         p.input_sel = 0;
+        p.multiplayer_sel = 0;
     }
     pause_set_owner(pid); // record owner for dialog’s legacy check
 }
@@ -50,12 +51,18 @@ function world_is_paused_both(){
 function pause_update(){
     for (var pid = 0; pid < 2; pid++){
         var p = PAUSE[pid];
-        var _entry_count = 5;
-        var _options_count = 4;
+        var _main_labels = __pause_main_labels(pid);
+        var _entry_count = array_length(_main_labels);
+        var _options_count = 5;
         var _input_count = 2;
+        var _multiplayer_count = 5;
 
         // toggle
         if (controls_pressed(pid,"Pause")){
+            if (pid == 1 && !multiplayer_player_joined(1)){
+                multiplayer_spawn_player(1);
+                continue;
+            }
             pause_toggle(pid);
             continue;
         }
@@ -123,6 +130,10 @@ function pause_update(){
                         __pause_toggle_splitscreen_layout();
                         break;
                     case 3:
+                        p.mode = "multiplayer";
+                        p.multiplayer_sel = 0;
+                        break;
+                    case 4:
                         p.mode = "main";
                         p.options_sel = 0;
                         break;
@@ -132,6 +143,45 @@ function pause_update(){
             if (controls_pressed(pid,"Run") || controls_pressed(pid,"Back")){
                 p.mode = "main";
                 p.options_sel = 0;
+            }
+            continue;
+        }
+
+        if (string(p.mode) == "multiplayer"){
+            if (controls_pressed(pid,"MoveDown") || controls_pressed(pid,"MoveRight")) p.multiplayer_sel = (p.multiplayer_sel + 1) mod _multiplayer_count;
+            if (controls_pressed(pid,"MoveUp") || controls_pressed(pid,"MoveLeft")){
+                p.multiplayer_sel -= 1;
+                if (p.multiplayer_sel < 0) p.multiplayer_sel = _multiplayer_count - 1;
+            }
+
+            if (p.multiplayer_sel == 0 && (controls_pressed(pid,"MoveLeft") || controls_pressed(pid,"MoveRight"))) multiplayer_toggle_queue_mode();
+            if (p.multiplayer_sel == 1 && (controls_pressed(pid,"MoveLeft") || controls_pressed(pid,"MoveRight"))) multiplayer_toggle_request_pid();
+            if (p.multiplayer_sel == 2 && (controls_pressed(pid,"MoveLeft") || controls_pressed(pid,"MoveRight"))) multiplayer_toggle_versus_format();
+
+            if (controls_pressed(pid,"Interact")){
+                switch (p.multiplayer_sel){
+                    case 0:
+                        multiplayer_toggle_queue_mode();
+                        break;
+                    case 1:
+                        multiplayer_toggle_request_pid();
+                        break;
+                    case 2:
+                        multiplayer_toggle_versus_format();
+                        break;
+                    case 3:
+                        __pause_do_multiplayer_versus(pid);
+                        break;
+                    case 4:
+                        p.mode = "options";
+                        p.multiplayer_sel = 0;
+                        break;
+                }
+            }
+
+            if (controls_pressed(pid,"Run") || controls_pressed(pid,"Back")){
+                p.mode = "options";
+                p.multiplayer_sel = 0;
             }
             continue;
         }
@@ -157,6 +207,7 @@ function pause_update(){
                 case 2: __pause_do_poke_index(pid); break;
                 case 3: __pause_do_options(pid); break;
                 case 4: __pause_do_save(pid); break;
+                case 5: __pause_do_drop_out(pid); break;
 			}
 		}
 
@@ -183,8 +234,9 @@ function pause_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     draw_rectangle(_rx, _ry, _rx + _rw, _ry + _rh, false);
     draw_set_alpha(1);
 
-    var labels = ["POKEMON","BAG","POKE-INDEX","OPTIONS","SAVE"];
-    var options_labels = ["INPUT","TEXT SPEED","SPLIT","BACK"];
+    var labels = __pause_main_labels(_pid);
+    var options_labels = ["INPUT","TEXT SPEED","SPLIT","MULTIPLAYER","BACK"];
+    var multiplayer_labels = ["QUEUE","REQUEST SIDE","VERSUS FORMAT","START VERSUS","BACK"];
     var input_labels = ["DEADZONE","BACK"];
     var p = global.PAUSE[_pid];
     var line_h = max(12, string_height("A") + 2);
@@ -204,6 +256,10 @@ function pause_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         _active_labels = options_labels;
         _active_sel = p.options_sel;
         _title = "OPTIONS";
+    } else if (string(p.mode) == "multiplayer"){
+        _active_labels = multiplayer_labels;
+        _active_sel = p.multiplayer_sel;
+        _title = "MULTIPLAYER";
     } else if (string(p.mode) == "input"){
         _active_labels = input_labels;
         _active_sel = p.input_sel;
@@ -216,6 +272,11 @@ function pause_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     if (string(p.mode) == "options") {
         longest_label = max(longest_label, string_width(__pause_dialog_speed_label()));
         longest_label = max(longest_label, string_width(__pause_splitscreen_label()));
+    }
+    if (string(p.mode) == "multiplayer") {
+        longest_label = max(longest_label, string_width(__pause_multiplayer_queue_label()));
+        longest_label = max(longest_label, string_width(__pause_multiplayer_request_label()));
+        longest_label = max(longest_label, string_width(__pause_multiplayer_versus_label()));
     }
     if (string(p.mode) == "input") longest_label = max(longest_label, string_width(__pause_deadzone_label()));
     var pw = left_pad + pointer_w + longest_label + right_pad;
@@ -252,6 +313,9 @@ function pause_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         var _label_text = _active_labels[i];
         if (string(p.mode) == "options" && i == 1) _label_text = __pause_dialog_speed_label();
         if (string(p.mode) == "options" && i == 2) _label_text = __pause_splitscreen_label();
+        if (string(p.mode) == "multiplayer" && i == 0) _label_text = __pause_multiplayer_queue_label();
+        if (string(p.mode) == "multiplayer" && i == 1) _label_text = __pause_multiplayer_request_label();
+        if (string(p.mode) == "multiplayer" && i == 2) _label_text = __pause_multiplayer_versus_label();
         if (string(p.mode) == "input" && i == 0) _label_text = __pause_deadzone_label();
         draw_text(tx, ty, _label_text);
     }
@@ -296,6 +360,12 @@ function __pause_do_options(pid){
     p.options_sel = 0;
 }
 
+function __pause_main_labels(_pid){
+    var _labels = ["POKEMON","BAG","POKE-INDEX","OPTIONS","SAVE"];
+    if (_pid == 1 && multiplayer_player_joined(1)) array_push(_labels, "DROP OUT");
+    return _labels;
+}
+
 function __pause_do_poke_index(pid){
     pause_toggle(pid);
     try {
@@ -325,6 +395,37 @@ function __pause_adjust_dialog_speed(_dir){
     if (global.DIALOG_SPEED > 3) global.DIALOG_SPEED = 1;
     if (global.DIALOG_SPEED < 1) global.DIALOG_SPEED = 3;
     if (!is_undefined(controls_save)) controls_save();
+}
+
+function __pause_do_drop_out(_pid){
+    if (_pid != 1) return false;
+    if (multiplayer_battle_open()){
+        if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, "Finish the current battle before dropping out.");
+        return false;
+    }
+    var _dropped = multiplayer_drop_player(1);
+    if (_dropped) pause_toggle(_pid);
+    return _dropped;
+}
+
+function __pause_do_multiplayer_versus(_pid){
+    if (!multiplayer_player_joined(1)){
+        if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, "Player 2 can drop in with Start before versus is available.");
+        return false;
+    }
+    return multiplayer_start_versus_battle(_pid);
+}
+
+function __pause_multiplayer_queue_label(){
+    return "QUEUE " + string_upper(multiplayer_queue_mode());
+}
+
+function __pause_multiplayer_request_label(){
+    return "CO-OP SCREEN P" + string(multiplayer_request_pid() + 1);
+}
+
+function __pause_multiplayer_versus_label(){
+    return "VERSUS " + string_upper(multiplayer_versus_format());
 }
 
 function __pause_dialog_speed_label(){

@@ -1913,6 +1913,176 @@ function test_battle_doubles_enemy_faint_auto_send_smoke_update(_pid = 0){
     }
 }
 
+function __coop_smoke_seed_party(_pid, _names, _species, _moves, _level){
+    var _party = party_ensure(_pid);
+    if (!is_struct(_party)) return false;
+    if (!variable_struct_exists(_party, "mons") || !is_array(variable_struct_get(_party, "mons"))) return false;
+
+    var _mons = variable_struct_get(_party, "mons");
+    var _count = min(array_length(_names), array_length(_species));
+    for (var _i = 0; _i < _count; ++_i){
+        var _mon = pokemon_factory_create(_species[_i], _level, {});
+        if (!is_struct(_mon)) return false;
+        variable_struct_set(_mon, "name", string(_names[_i]));
+        if (is_array(_moves) && _i < array_length(_moves) && is_array(_moves[_i])) __dev_assign_moves_to_mon(_mon, _moves[_i]);
+        _mons[_i] = _mon;
+    }
+    variable_struct_set(_party, "mons", _mons);
+    global.PARTY[_pid] = _party;
+    return true;
+}
+
+function __coop_smoke_begin(_tag, _global_name, _battle_kind, _auto_close){
+    var _pid = 0;
+    if (battle_is_open(0)) battle_close(0);
+    if (battle_is_open(1)) battle_close(1);
+
+    var _p0_ok = __coop_smoke_seed_party(0,
+        ["Coop Lead A", "Coop Bench A"],
+        [133, 25],
+        [[33, 45, -1, -1], [98, 39, -1, -1]],
+        24
+    );
+    var _p1_ok = __coop_smoke_seed_party(1,
+        ["Coop Lead B", "Coop Bench B"],
+        [10, 16],
+        [[33, 28, -1, -1], [45, 19, -1, -1]],
+        24
+    );
+    if (!_p0_ok || !_p1_ok){
+        show_debug_message("[smoke][" + _tag + "] FAIL unable to seed co-op parties");
+        return false;
+    }
+
+    if (_battle_kind == "trainer"){
+        var _trainer_party = [];
+        var _enemy0 = pokemon_factory_create(263, 24, {});
+        var _enemy1 = pokemon_factory_create(19, 24, {});
+        variable_struct_set(_enemy0, "name", "Trainer Foe A");
+        variable_struct_set(_enemy1, "name", "Trainer Foe B");
+        __dev_assign_moves_to_mon(_enemy0, [33, -1, -1, -1]);
+        __dev_assign_moves_to_mon(_enemy1, [33, -1, -1, -1]);
+        array_push(_trainer_party, _enemy0);
+        array_push(_trainer_party, _enemy1);
+        battle_open_trainer(_pid, {
+            trainer_name: "Co-op Trainer Smoke",
+            sprite: (variable_global_exists("spr_PokemonEmeraldTrainers") ? variable_global_get("spr_PokemonEmeraldTrainers") : undefined),
+            sprite_index: 12,
+            party: _trainer_party,
+            area_type: "forest",
+            battle_format: "double",
+            coop_enabled: true,
+            player_pids: [0, 1],
+            trainer_reward: 0
+        });
+    } else {
+        battle_open(_pid, 24, "forest", {
+            battle_type: "wild",
+            battle_format: "double",
+            coop_enabled: true,
+            player_pids: [0, 1]
+        });
+    }
+
+    var _state = {
+        pid: _pid,
+        tag: _tag,
+        global_name: _global_name,
+        auto_close: (_auto_close == true),
+        state: "opening",
+        pass_count: 0,
+        fail_count: 0,
+        turn_counter: 0,
+        dialog_advance_ms: -1,
+        battle_kind: _battle_kind
+    };
+    variable_global_set(_global_name, _state);
+    __status_smoke_bind_current_battle(_pid, _state);
+    show_debug_message("[smoke][" + _tag + "] starting co-op doubles " + _battle_kind + " smoke");
+    return true;
+}
+
+function __coop_smoke_update(_global_name, _pid){
+    if (!variable_global_exists(_global_name)) return;
+    var _S = variable_global_get(_global_name);
+    if (!is_struct(_S)) return;
+    if (_pid != variable_struct_get(_S, "pid")) return;
+
+    variable_struct_set(_S, "turn_counter", variable_struct_get(_S, "turn_counter") + 1);
+    if (variable_struct_get(_S, "turn_counter") > 5400){
+        __status_smoke_assert(_S, false, "timed out waiting for co-op doubles smoke to finish");
+        __status_smoke_finish(_pid, _S, "timeout");
+        return;
+    }
+    if (!battle_is_open(0)) return;
+
+    __status_smoke_advance_dialog(0, _S);
+    __status_smoke_advance_dialog(1, _S);
+
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B)) return;
+    if (!variable_struct_exists(_B, "phase") || string(variable_struct_get(_B, "phase")) != "command") return;
+
+    var _B1 = __battle_ensure_slot(1);
+    __status_smoke_assert(_S, battle_is_open(0) && battle_is_open(1), "Co-op doubles battle resolved as open for both player ids");
+    __status_smoke_assert(_S, _B1 == _B, "Player 1 resolves to the shared co-op battle slot");
+    __status_smoke_assert(_S, variable_struct_exists(_B, "battle_format") && string(variable_struct_get(_B, "battle_format")) == "double", "Co-op battle stayed in doubles format");
+    __status_smoke_assert(_S, variable_struct_exists(_B, "coop_enabled") && variable_struct_get(_B, "coop_enabled") == true, "Co-op doubles battle kept co-op routing enabled");
+    __status_smoke_assert(_S, !is_undefined(battle_uses_shared_screen) && battle_uses_shared_screen(0) && battle_uses_shared_screen(1), "Co-op doubles battle requests the shared battle screen for both players");
+
+    var _player_pids_ok = false;
+    if (variable_struct_exists(_B, "player_pids") && is_array(variable_struct_get(_B, "player_pids"))){
+        var _ppids = variable_struct_get(_B, "player_pids");
+        _player_pids_ok = (array_length(_ppids) >= 2 && _ppids[0] == 0 && _ppids[1] == 1);
+    }
+    __status_smoke_assert(_S, _player_pids_ok, "Co-op doubles battle stored both player ids on the slot");
+
+    var _owners_ok = false;
+    if (variable_struct_exists(_B, "actor_owner_pid") && is_array(variable_struct_get(_B, "actor_owner_pid"))){
+        var _owners = variable_struct_get(_B, "actor_owner_pid");
+        _owners_ok = (array_length(_owners) >= 2 && _owners[0] == 0 && _owners[1] == 1);
+    }
+    __status_smoke_assert(_S, _owners_ok, "Player-side active battlers are owned by pid 0 and pid 1 respectively");
+
+    var _actors_ok = false;
+    if (variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor"))){
+        var _actors = variable_struct_get(_B, "actor");
+        _actors_ok = (array_length(_actors) >= 4 && is_struct(_actors[0]) && is_struct(_actors[1]) && is_struct(_actors[2]) && is_struct(_actors[3]));
+    }
+    __status_smoke_assert(_S, _actors_ok, "Co-op doubles battle opened with four active battler slots populated");
+
+    var _battle_kind = string(variable_struct_get(_S, "battle_kind"));
+    if (_battle_kind == "trainer"){
+        var _trainer_ok = false;
+        if (variable_struct_exists(_B, "_trainer_party_active_indices") && is_array(variable_struct_get(_B, "_trainer_party_active_indices"))){
+            var _active = variable_struct_get(_B, "_trainer_party_active_indices");
+            _trainer_ok = (array_length(_active) >= 2 && is_real(_active[0]) && is_real(_active[1]));
+        }
+        __status_smoke_assert(_S, variable_struct_exists(_B, "battle_type") && string(variable_struct_get(_B, "battle_type")) == "trainer", "Co-op trainer smoke opened a trainer battle");
+        __status_smoke_assert(_S, _trainer_ok, "Co-op trainer smoke populated doubles trainer active indices");
+    } else {
+        __status_smoke_assert(_S, variable_struct_exists(_B, "battle_type") && string(variable_struct_get(_B, "battle_type")) == "wild", "Co-op wild smoke opened a wild battle");
+    }
+
+    __status_smoke_finish(_pid, _S, "completed");
+}
+
+function test_battle_coop_double_wild_smoke_start(_auto_close = false){
+    return __coop_smoke_begin("coop-double-wild", "DEV_COOP_DOUBLE_WILD_SMOKE", "wild", _auto_close);
+}
+
+function test_battle_coop_double_wild_smoke_update(_pid = 0){
+    __coop_smoke_update("DEV_COOP_DOUBLE_WILD_SMOKE", _pid);
+}
+
+function test_battle_coop_double_trainer_smoke_start(_auto_close = false){
+    return __coop_smoke_begin("coop-double-trainer", "DEV_COOP_DOUBLE_TRAINER_SMOKE", "trainer", _auto_close);
+}
+
+function test_battle_coop_double_trainer_smoke_update(_pid = 0){
+    __coop_smoke_update("DEV_COOP_DOUBLE_TRAINER_SMOKE", _pid);
+}
+
 function test_battle_burn_poison_residual_smoke_start(_auto_close = false){
     var _pid = 0;
     if (battle_is_open(_pid)) battle_close(_pid);

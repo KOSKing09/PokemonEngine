@@ -42,6 +42,7 @@ function battle_uses_shared_screen(_pid){
     var _B = __battle_ensure_slot(_pid);
     if (!is_struct(_B)) return false;
     if (!variable_struct_exists(_B, "sys_open") || variable_struct_get(_B, "sys_open") != true) return false;
+    if (variable_struct_exists(_B, "versus_enabled") && variable_struct_get(_B, "versus_enabled") == true) return true;
     var _fmt = variable_struct_exists(_B, "battle_format") ? string_lower(string(variable_struct_get(_B, "battle_format"))) : "single";
     var _coop = variable_struct_exists(_B, "coop_enabled") && variable_struct_get(_B, "coop_enabled") == true;
     return (_fmt == "double" && _coop);

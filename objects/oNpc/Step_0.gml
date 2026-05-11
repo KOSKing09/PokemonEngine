@@ -1,0 +1,1 @@
+if (!is_undefined(overworld_npc_step)) overworld_npc_step(id);

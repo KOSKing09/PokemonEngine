@@ -109,6 +109,16 @@ if (variable_global_exists("DEV_AUTO_DOUBLES_ENEMY_FAINT_SEND_SMOKE") && global.
     test_battle_doubles_enemy_faint_auto_send_smoke_start(true);
 }
 
+if (variable_global_exists("DEV_AUTO_COOP_DOUBLE_WILD_SMOKE") && global.DEV_AUTO_COOP_DOUBLE_WILD_SMOKE) {
+    global.DEV_AUTO_COOP_DOUBLE_WILD_SMOKE = false;
+    test_battle_coop_double_wild_smoke_start(true);
+}
+
+if (variable_global_exists("DEV_AUTO_COOP_DOUBLE_TRAINER_SMOKE") && global.DEV_AUTO_COOP_DOUBLE_TRAINER_SMOKE) {
+    global.DEV_AUTO_COOP_DOUBLE_TRAINER_SMOKE = false;
+    test_battle_coop_double_trainer_smoke_start(true);
+}
+
 if (variable_global_exists("DEV_AUTO_BURN_POISON_RESIDUAL_SMOKE") && global.DEV_AUTO_BURN_POISON_RESIDUAL_SMOKE) {
     global.DEV_AUTO_BURN_POISON_RESIDUAL_SMOKE = false;
     test_battle_burn_poison_residual_smoke_start(true);
@@ -212,6 +222,8 @@ test_battle_love_gift_smoke_update(0);
 test_battle_field_switch_smoke_update(0);
 test_battle_doubles_forced_player_switch_smoke_update(0);
 test_battle_doubles_enemy_faint_auto_send_smoke_update(0);
+test_battle_coop_double_wild_smoke_update(0);
+test_battle_coop_double_trainer_smoke_update(0);
 test_battle_burn_poison_residual_smoke_update(0);
 test_battle_visual_target_smoke_update(0);
 test_battle_confusion_visual_smoke_update(0);
@@ -245,22 +257,33 @@ if (talk_cd > 0) talk_cd--;
 // open when close to a box, but respect cooldown
 
 if (!is_undefined(dialog2p_is_open) && !dialog2p_is_open(pid)) {
-    var box = instance_nearest(x, y, oDialogBox);
-    if (box != noone && point_distance(x, y, box.x, box.y) <= 16) {
-            if (controls_pressed(pid,"Interact") && talk_cd <= 0) {
-            if (!variable_global_exists("DIALOG_SPEED")) global.DIALOG_SPEED = 2;
-            var box_text = "";
-            if (instance_exists(box) && variable_instance_exists(box, "text")) {
-                box_text = string(variable_instance_get(box, "text"));
-            }
-            try {
-                if (!is_undefined(dialog2p_show_now)) {
-                    dialog2p_show_now(pid, box_text);
-                } else if (!is_undefined(dialog2p_enqueue_text)) {
-                    dialog2p_enqueue_text(pid, box_text, box_text, "any");
-                }
-            } catch (e_) {}
-            talk_cd = ceil(game_get_speed(gamespeed_fps) * 0.25); // ~0.25s lockout
+    if (controls_pressed(pid,"Interact") && talk_cd <= 0) {
+        var _handled_interact = false;
+        if (!is_undefined(overworld_find_interactable_npc) && !is_undefined(overworld_npc_interact)) {
+            var _npc = overworld_find_interactable_npc(id, 18);
+            if (_npc != noone) _handled_interact = overworld_npc_interact(_npc, pid);
         }
+
+        if (!_handled_interact) {
+            var box = instance_nearest(x, y, oDialogBox);
+            if (box != noone && point_distance(x, y, box.x, box.y) <= 16) {
+                if (!variable_global_exists("DIALOG_SPEED")) global.DIALOG_SPEED = 2;
+                var box_text = "";
+                if (instance_exists(box) && variable_instance_exists(box, "text")) {
+                    box_text = string(variable_instance_get(box, "text"));
+                }
+                try {
+                    if (!is_undefined(dialog2p_show_now)) {
+                        dialog2p_show_now(pid, box_text);
+                        _handled_interact = true;
+                    } else if (!is_undefined(dialog2p_enqueue_text)) {
+                        dialog2p_enqueue_text(pid, box_text, box_text, "any");
+                        _handled_interact = true;
+                    }
+                } catch (e_) {}
+            }
+        }
+
+        if (_handled_interact) talk_cd = ceil(game_get_speed(gamespeed_fps) * 0.25); // ~0.25s lockout
     }
 }
