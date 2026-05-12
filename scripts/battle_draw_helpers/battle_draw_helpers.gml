@@ -206,14 +206,19 @@ function __battle_get_target_selector_rect(_pid, _B, _actorIndex){
 }
 
 function __battle_draw_target_selector(_pid, _B, _cam_offx, _cam_offy){
-    if (!is_struct(_B) || !variable_struct_exists(_B, "sys_ui") || !is_struct(variable_struct_get(_B, "sys_ui"))) return;
-    if (string(variable_struct_get(_B.sys_ui, "menu")) != "target") return;
+    if (!is_struct(_B)) return;
+    var _ui = !is_undefined(__battle_command_ui_state) ? __battle_command_ui_state(_B, _pid) : ((variable_struct_exists(_B, "sys_ui") && is_struct(variable_struct_get(_B, "sys_ui"))) ? variable_struct_get(_B, "sys_ui") : undefined);
+    if (!is_struct(_ui)) return;
+    if (string(variable_struct_get(_ui, "menu")) != "target") return;
 
-    var _targets = (variable_struct_exists(_B, "_target_pick_targets") ? variable_struct_get(_B, "_target_pick_targets") : undefined);
+    var _versus = (variable_struct_exists(_B, "versus_enabled") && variable_struct_get(_B, "versus_enabled") == true);
+    var _targets = _versus ? (variable_struct_exists(_ui, "target_pick_targets") ? variable_struct_get(_ui, "target_pick_targets") : undefined) : (variable_struct_exists(_B, "_target_pick_targets") ? variable_struct_get(_B, "_target_pick_targets") : undefined);
     if (!is_array(_targets) || array_length(_targets) <= 0) return;
 
     var _sel_idx = 0;
-    if (variable_struct_exists(_B, "_target_pick_index") && is_real(variable_struct_get(_B, "_target_pick_index"))) _sel_idx = max(0, floor(variable_struct_get(_B, "_target_pick_index")));
+    if (_versus){
+        if (variable_struct_exists(_ui, "target_pick_index") && is_real(variable_struct_get(_ui, "target_pick_index"))) _sel_idx = max(0, floor(variable_struct_get(_ui, "target_pick_index")));
+    } else if (variable_struct_exists(_B, "_target_pick_index") && is_real(variable_struct_get(_B, "_target_pick_index"))) _sel_idx = max(0, floor(variable_struct_get(_B, "_target_pick_index")));
     if (_sel_idx < 0 || _sel_idx >= array_length(_targets)) _sel_idx = 0;
 
     var _actorIndex = _targets[_sel_idx];

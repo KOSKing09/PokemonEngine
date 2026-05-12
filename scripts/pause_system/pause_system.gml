@@ -419,10 +419,13 @@ function __pause_do_multiplayer_versus(_pid){
     var _format = multiplayer_versus_format();
     var _target_count = (_format == "double") ? 2 : 1;
     var _enemy_party = __multiplayer_collect_versus_party(1, _target_count);
-    if (array_length(_enemy_party) <= 0){
+    if (array_length(_enemy_party) < _target_count){
         var _player_name = "Player 2";
         if (variable_global_exists("PLAYER2_NAME")) _player_name = string(global.PLAYER2_NAME);
-        if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, _player_name + " doesnt have pokemon");
+        var _need_msg = (_target_count > 1)
+            ? (_player_name + " needs at least " + string(_target_count) + " usable pokemon for a " + string_upper(_format) + " battle.")
+            : (_player_name + " doesnt have pokemon");
+        if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, _need_msg);
         return false;
     }
 

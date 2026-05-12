@@ -360,12 +360,18 @@ function multiplayer_request_versus_battle(_pid){
     var _target_count = (_format == "double") ? 2 : 1;
     var _requester_party = __multiplayer_collect_versus_party(_requester_pid, _target_count);
     var _responder_party = __multiplayer_collect_versus_party(_responder_pid, _target_count);
-    if (array_length(_requester_party) <= 0){
-        if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_requester_pid, __multiplayer_player_label(_requester_pid) + " doesnt have pokemon");
+    if (array_length(_requester_party) < _target_count){
+        var _requester_need_msg = (_target_count > 1)
+            ? (__multiplayer_player_label(_requester_pid) + " needs at least " + string(_target_count) + " usable pokemon for a " + __multiplayer_versus_format_label(_format) + " battle.")
+            : (__multiplayer_player_label(_requester_pid) + " doesnt have pokemon");
+        if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_requester_pid, _requester_need_msg);
         return false;
     }
-    if (array_length(_responder_party) <= 0){
-        if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_requester_pid, __multiplayer_player_label(_responder_pid) + " doesnt have pokemon");
+    if (array_length(_responder_party) < _target_count){
+        var _responder_need_msg = (_target_count > 1)
+            ? (__multiplayer_player_label(_responder_pid) + " needs at least " + string(_target_count) + " usable pokemon for a " + __multiplayer_versus_format_label(_format) + " battle.")
+            : (__multiplayer_player_label(_responder_pid) + " doesnt have pokemon");
+        if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_requester_pid, _responder_need_msg);
         return false;
     }
 
@@ -434,7 +440,7 @@ function multiplayer_update_versus_request(_pid){
     if (_response == "accept"){
         if (!is_undefined(pause_is_open) && pause_is_open(0)) pause_toggle(0);
         if (!is_undefined(pause_is_open) && pause_is_open(1)) pause_toggle(1);
-        var _started = multiplayer_start_versus_battle(_requester_pid);
+        var _started = multiplayer_start_versus_battle(_requester_pid, _battle_format);
         multiplayer_clear_versus_request();
         if (!_started && !is_undefined(dialog2p_show_now)) dialog2p_show_now(_responder_pid, "Battle could not be started.");
         return _started;
@@ -464,13 +470,15 @@ function __multiplayer_collect_versus_party(_pid, _max_count){
     return _out;
 }
 
-function multiplayer_start_versus_battle(_pid){
+function multiplayer_start_versus_battle(_pid, _format_override = undefined){
     if (!multiplayer_player_joined(1)) return false;
     if (multiplayer_battle_open()) return false;
     if (is_undefined(battle_open_trainer) || is_undefined(__battle_ensure_slot)) return false;
 
-    var _format = multiplayer_versus_format();
+    var _format = is_undefined(_format_override) ? multiplayer_versus_format() : string_lower(string(_format_override));
+    if (_format != "double") _format = "single";
     var _target_count = (_format == "double") ? 2 : 1;
+    var _player_party = __multiplayer_collect_versus_party(0, _target_count);
     var _enemy_party = __multiplayer_collect_versus_party(1, _target_count);
     var _p2 = player_by_pid(1);
     var _p1_name = variable_global_exists("PLAYER_NAME") ? string(global.PLAYER_NAME) : "PLAYER 1";
@@ -478,7 +486,8 @@ function multiplayer_start_versus_battle(_pid){
     var _trainer_sprite = (_p2 != noone && variable_instance_exists(_p2, "trainerSprite")) ? variable_instance_get(_p2, "trainerSprite") : undefined;
     var _trainer_subimg = (_p2 != noone && variable_instance_exists(_p2, "trainerSubimg")) ? variable_instance_get(_p2, "trainerSubimg") : 0;
     var _trainer_scale = (_p2 != noone && variable_instance_exists(_p2, "trainerScale")) ? variable_instance_get(_p2, "trainerScale") : 1;
-    if (array_length(_enemy_party) <= 0) return false;
+    if (array_length(_player_party) < _target_count) return false;
+    if (array_length(_enemy_party) < _target_count) return false;
 
     battle_open_trainer(0, {
         trainer_name: _p2_name,

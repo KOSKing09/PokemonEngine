@@ -714,7 +714,7 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
         if (!_vs_has_pending_command || (is_real(_vs_current_owner) && _vs_current_owner >= 0 && _vs_current_owner != _pid)) return;
     }
 
-    if (variable_struct_exists(_B, "battle_format") && string(variable_struct_get(_B, "battle_format")) == "double"){
+    if (!_versus && variable_struct_exists(_B, "battle_format") && string(variable_struct_get(_B, "battle_format")) == "double"){
         var _current_actor_owner = -1;
         if (variable_struct_exists(_B, "_command_actor_index") && is_real(variable_struct_get(_B, "_command_actor_index")) && !is_undefined(__battle_actor_control_pid)){
             _current_actor_owner = __battle_actor_control_pid(_pid, floor(variable_struct_get(_B, "_command_actor_index")));

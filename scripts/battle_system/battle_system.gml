@@ -5399,6 +5399,45 @@ function __battle_on_phase_enter(_pid, _phase){
         try { variable_struct_set(_B, "_command_pending_action", undefined); } catch (e_cmd_pending) {}
         try { variable_struct_set(_B, "_target_pick_targets", undefined); } catch (e_cmd_targets) {}
         try {
+            if (variable_struct_exists(_B, "sys_ui") && is_struct(variable_struct_get(_B, "sys_ui"))){
+                var _sys_ui = variable_struct_get(_B, "sys_ui");
+                variable_struct_set(_sys_ui, "menu", "root");
+                if (!_preserve_actions || !variable_struct_exists(_sys_ui, "selX") || !is_real(variable_struct_get(_sys_ui, "selX"))) variable_struct_set(_sys_ui, "selX", 0);
+                if (!_preserve_actions || !variable_struct_exists(_sys_ui, "selY") || !is_real(variable_struct_get(_sys_ui, "selY"))) variable_struct_set(_sys_ui, "selY", 0);
+            }
+        } catch (e_cmd_sys_ui) {}
+        try {
+            if (variable_struct_exists(_B, "versus_enabled") && variable_struct_get(_B, "versus_enabled") == true){
+                var _player_pids_cmd = (variable_struct_exists(_B, "player_pids") && is_array(variable_struct_get(_B, "player_pids"))) ? variable_struct_get(_B, "player_pids") : [0, 1];
+                if (!variable_struct_exists(_B, "_versus_ui") || !is_array(variable_struct_get(_B, "_versus_ui")) || array_length(variable_struct_get(_B, "_versus_ui")) < 2){
+                    variable_struct_set(_B, "_versus_ui", [
+                        { menu:"root", selX:0, selY:0, command_actor_index:0, command_pending_action:undefined, target_pick_targets:undefined, target_pick_index:0 },
+                        { menu:"root", selX:0, selY:0, command_actor_index:0, command_pending_action:undefined, target_pick_targets:undefined, target_pick_index:0 }
+                    ]);
+                }
+                var _vs_ui_cmd = variable_struct_get(_B, "_versus_ui");
+                for (var _uii = 0; _uii < min(2, array_length(_vs_ui_cmd)); ++_uii){
+                    var _ui_cmd = _vs_ui_cmd[_uii];
+                    if (!is_struct(_ui_cmd)) _ui_cmd = { menu:"root", selX:0, selY:0, command_actor_index:0, command_pending_action:undefined, target_pick_targets:undefined, target_pick_index:0 };
+                    variable_struct_set(_ui_cmd, "menu", "root");
+                    variable_struct_set(_ui_cmd, "command_pending_action", undefined);
+                    variable_struct_set(_ui_cmd, "target_pick_targets", undefined);
+                    variable_struct_set(_ui_cmd, "target_pick_index", 0);
+                    if (!_preserve_actions){
+                        variable_struct_set(_ui_cmd, "selX", 0);
+                        variable_struct_set(_ui_cmd, "selY", 0);
+                    }
+                    if (!_preserve_actions || !variable_struct_exists(_ui_cmd, "command_actor_index") || !is_real(variable_struct_get(_ui_cmd, "command_actor_index"))){
+                        var _ui_pid = (_uii < array_length(_player_pids_cmd) && is_real(_player_pids_cmd[_uii])) ? floor(_player_pids_cmd[_uii]) : _uii;
+                        var _first_ui_actor = __battle_next_command_actor_index(_ui_pid, -1);
+                        variable_struct_set(_ui_cmd, "command_actor_index", (_first_ui_actor >= 0) ? _first_ui_actor : 0);
+                    }
+                    _vs_ui_cmd[_uii] = _ui_cmd;
+                }
+                variable_struct_set(_B, "_versus_ui", _vs_ui_cmd);
+            }
+        } catch (e_cmd_vs_ui) {}
+        try {
             if (!_preserve_actions || !variable_struct_exists(_B, "_command_actor_index") || !is_real(variable_struct_get(_B, "_command_actor_index"))){
                 var _first_actor = __battle_next_command_actor_index(_pid, -1);
                 variable_struct_set(_B, "_command_actor_index", (_first_actor >= 0) ? _first_actor : 0);
