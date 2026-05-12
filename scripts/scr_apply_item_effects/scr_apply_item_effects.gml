@@ -323,6 +323,117 @@ function __item_effects_restore_pp(_actor, _mon, _params){
     return result;
 }
 
+function __item_effects_mon_maxhp(_mon){
+    if (!is_struct(_mon)) return 1;
+    if (variable_struct_exists(_mon, "hp_max") && is_real(_mon.hp_max)) return max(1, floor(_mon.hp_max));
+    if (variable_struct_exists(_mon, "maxhp") && is_real(_mon.maxhp)) return max(1, floor(_mon.maxhp));
+    if (variable_struct_exists(_mon, "hp") && is_real(_mon.hp)) return max(1, floor(_mon.hp));
+    return 1;
+}
+
+function __item_effects_recalc_mon_stats(_mon){
+    if (!is_struct(_mon) || is_undefined(scr_poke_stats) || is_undefined(scr_compute_stat)) return;
+    var sid = -1;
+    if (variable_struct_exists(_mon, "species_id") && is_real(_mon.species_id)) sid = floor(_mon.species_id);
+    else if (variable_struct_exists(_mon, "id") && is_real(_mon.id)) sid = floor(_mon.id);
+    if (sid <= 0) return;
+    var level = (variable_struct_exists(_mon, "level") && is_real(_mon.level)) ? floor(_mon.level) : 1;
+    var st = scr_poke_stats(sid);
+    if (!is_struct(st)) return;
+    if (!variable_struct_exists(_mon, "iv") || !is_struct(_mon.iv)){
+        if (!is_undefined(scr_init_mon_iv_ev)) scr_init_mon_iv_ev(_mon);
+    }
+    if (!variable_struct_exists(_mon, "ev") || !is_struct(_mon.ev)){
+        if (!is_undefined(scr_init_mon_iv_ev)) scr_init_mon_iv_ev(_mon);
+    }
+    var iv = variable_struct_exists(_mon, "iv") && is_struct(_mon.iv) ? _mon.iv : {};
+    var ev = variable_struct_exists(_mon, "ev") && is_struct(_mon.ev) ? _mon.ev : {};
+    var old_max = __item_effects_mon_maxhp(_mon);
+    var old_hp = __battle_hp_now(_mon);
+    var hpv = scr_compute_stat(st.hp, variable_struct_exists(iv, "hp") ? iv.hp : 0, variable_struct_exists(ev, "hp") ? ev.hp : 0, level, true);
+    var atkv = scr_compute_stat(st.atk, variable_struct_exists(iv, "atk") ? iv.atk : 0, variable_struct_exists(ev, "atk") ? ev.atk : 0, level, false);
+    var defv = scr_compute_stat(st.def, variable_struct_exists(iv, "def") ? iv.def : 0, variable_struct_exists(ev, "def") ? ev.def : 0, level, false);
+    var spav = scr_compute_stat(st.spa, variable_struct_exists(iv, "spa") ? iv.spa : 0, variable_struct_exists(ev, "spa") ? ev.spa : 0, level, false);
+    var spdv = scr_compute_stat(st.spd, variable_struct_exists(iv, "spd") ? iv.spd : 0, variable_struct_exists(ev, "spd") ? ev.spd : 0, level, false);
+    var spev = scr_compute_stat(st.spe, variable_struct_exists(iv, "spe") ? iv.spe : 0, variable_struct_exists(ev, "spe") ? ev.spe : 0, level, false);
+    _mon.hp_max = hpv;
+    _mon.maxhp = hpv;
+    _mon.atk = atkv;
+    _mon.def = defv;
+    _mon.spa = spav;
+    _mon.spd = spdv;
+    _mon.spe = spev;
+    var delta = hpv - old_max;
+    __battle_set_hp_now(_mon, clamp(old_hp + delta, 1, hpv));
+}
+
+function __item_effects_adjust_ev(_mon, _stat, _amount){
+    if (!is_struct(_mon) || !is_string(_stat) || !is_real(_amount)) return 0;
+    if (!variable_struct_exists(_mon, "ev") || !is_struct(_mon.ev)){
+        if (!is_undefined(scr_init_mon_iv_ev)) scr_init_mon_iv_ev(_mon);
+        if (!variable_struct_exists(_mon, "ev") || !is_struct(_mon.ev)) _mon.ev = { hp:0, atk:0, def:0, spa:0, spd:0, spe:0 };
+    }
+    if (!variable_struct_exists(_mon, "ev_total") || !is_real(_mon.ev_total)) _mon.ev_total = 0;
+    var ev = _mon.ev;
+    var cur = (variable_struct_exists(ev, _stat) && is_real(variable_struct_get(ev, _stat))) ? floor(variable_struct_get(ev, _stat)) : 0;
+    var total = max(0, floor(_mon.ev_total));
+    var changed = 0;
+    if (_amount > 0){
+        changed = min(floor(_amount), max(0, 252 - cur), max(0, 510 - total));
+    } else if (_amount < 0){
+        changed = -min(abs(floor(_amount)), max(0, cur));
+    }
+    if (changed == 0) return 0;
+    variable_struct_set(ev, _stat, cur + changed);
+    _mon.ev = ev;
+    _mon.ev_total = clamp(total + changed, 0, 510);
+    __item_effects_recalc_mon_stats(_mon);
+    return changed;
+}
+
+function __item_effects_apply_pp_up(_mon, _amount){
+    if (!is_struct(_mon) || !is_real(_amount) || _amount <= 0) return false;
+    if (!variable_struct_exists(_mon, "moves") || !is_array(_mon.moves)) return false;
+    if (!variable_struct_exists(_mon, "pp_ups") || !is_array(_mon.pp_ups)) _mon.pp_ups = [0,0,0,0];
+    if (!variable_struct_exists(_mon, "pps") || !is_array(_mon.pps)) _mon.pps = [0,0,0,0];
+    var best = -1;
+    for (var i = 0; i < min(4, array_length(_mon.moves)); i++){
+        var mid = _mon.moves[i];
+        if (!is_real(mid) || mid <= 0) continue;
+        var ups = (i < array_length(_mon.pp_ups) && is_real(_mon.pp_ups[i])) ? floor(_mon.pp_ups[i]) : 0;
+        if (ups < 3){ best = i; break; }
+    }
+    if (best < 0) return false;
+    while (array_length(_mon.pp_ups) < 4) array_push(_mon.pp_ups, 0);
+    while (array_length(_mon.pps) < 4) array_push(_mon.pps, 0);
+    var before = is_real(_mon.pp_ups[best]) ? floor(_mon.pp_ups[best]) : 0;
+    var after = clamp(before + floor(_amount), 0, 3);
+    if (after <= before) return false;
+    _mon.pp_ups[best] = after;
+    var mid2 = _mon.moves[best];
+    var base_pp = __item_effects_move_pp_cap(mid2, 1);
+    var add_pp = max(1, floor(base_pp * 0.2)) * (after - before);
+    _mon.pps[best] = (is_real(_mon.pps[best]) ? _mon.pps[best] : 0) + add_pp;
+    return true;
+}
+
+function __item_effects_find_item_evolution(_mon, _item_id){
+    if (!is_struct(_mon) || !is_real(_item_id) || !variable_global_exists("_pokemon_evolutions") || !is_array(global._pokemon_evolutions)) return undefined;
+    var sid = -1;
+    if (variable_struct_exists(_mon, "species_id") && is_real(_mon.species_id)) sid = floor(_mon.species_id);
+    else if (variable_struct_exists(_mon, "id") && is_real(_mon.id)) sid = floor(_mon.id);
+    if (sid <= 0) return undefined;
+    for (var i = 0; i < array_length(global._pokemon_evolutions); i++){
+        var row = global._pokemon_evolutions[i];
+        if (!is_struct(row)) continue;
+        if (!variable_struct_exists(row, "source_species_id") || row.source_species_id != sid) continue;
+        if (!variable_struct_exists(row, "trigger_item_id") || row.trigger_item_id != _item_id) continue;
+        if (variable_struct_exists(row, "gender_id") && is_real(row.gender_id) && row.gender_id > 0 && variable_struct_exists(_mon, "gender_id") && is_real(_mon.gender_id) && _mon.gender_id != row.gender_id) continue;
+        return row;
+    }
+    return undefined;
+}
+
 // Apply item effects resolved by data_load_item_effects_structs
 // Returns a struct: { applied:bool, healed:amount, revived:bool, cured:[status], messages:[str], pp_restored:real }
 function scr_apply_item_effects(_item_id, _mon, _actor){
@@ -442,9 +553,9 @@ function scr_apply_item_effects(_item_id, _mon, _actor){
                     for (var mrf = 0; mrf < array_length(status_res_full.messages); ++mrf) array_push(out.messages, status_res_full.messages[mrf]);
                 }
             }
-        } else if (t == "revive" || t == "revive_half" || t == "revive_full"){
+        } else if (t == "revive" || t == "revive_half" || t == "revive_full" || t == "revive_all"){
             var mode = "half";
-            if (t == "revive_full" || (is_struct(p) && variable_struct_exists(p, "mode") && string_lower(string(variable_struct_get(p, "mode"))) == "full")) mode = "full";
+            if (t == "revive_full" || t == "revive_all" || (is_struct(p) && variable_struct_exists(p, "mode") && string_lower(string(variable_struct_get(p, "mode"))) == "full")) mode = "full";
             if (is_struct(_actor)){
                 var current_actor = __battle_hp_now(_actor);
                 var maxhp_actor_rev = (variable_struct_exists(_actor, "hp_max") ? variable_struct_get(_actor, "hp_max") : (variable_struct_exists(_actor, "maxhp") ? variable_struct_get(_actor, "maxhp") : 100));
@@ -492,6 +603,79 @@ function scr_apply_item_effects(_item_id, _mon, _actor){
             if (pp_res.restored){
                 total_pp_restored += pp_res.total;
                 for (var rpm = 0; rpm < array_length(pp_res.messages); ++rpm) array_push(out.messages, pp_res.messages[rpm]);
+            }
+        } else if (t == "ev_raise" || t == "ev_drop"){
+            var ev_stat = (is_struct(p) && variable_struct_exists(p, "stat")) ? string(variable_struct_get(p, "stat")) : "";
+            var ev_amt = (is_struct(p) && variable_struct_exists(p, "amount") && is_real(variable_struct_get(p, "amount"))) ? floor(variable_struct_get(p, "amount")) : 10;
+            if (t == "ev_drop") ev_amt = -abs(ev_amt);
+            var ev_changed = __item_effects_adjust_ev(_mon, ev_stat, ev_amt);
+            if (ev_changed != 0){
+                out.applied = true;
+                array_push(out.messages, (ev_changed > 0 ? "Effort rose" : "Effort fell"));
+            }
+        } else if (t == "level_up"){
+            if (is_struct(_mon) && (!variable_struct_exists(_mon, "level") || _mon.level < 100)){
+                var cur_lv = (variable_struct_exists(_mon, "level") && is_real(_mon.level)) ? floor(_mon.level) : 1;
+                _mon.level = min(100, cur_lv + 1);
+                if (!is_undefined(scr_get_exp_for_level)){
+                    var gid = variable_struct_exists(_mon, "growth_id") && is_real(_mon.growth_id) ? _mon.growth_id : -1;
+                    var exp_cur = scr_get_exp_for_level(gid, _mon.level);
+                    var exp_next = scr_get_exp_for_level(gid, min(100, _mon.level + 1));
+                    if (is_real(exp_cur) && exp_cur >= 0) _mon.exp = exp_cur;
+                    if (is_real(exp_next) && exp_next > 0) _mon.exp_next = exp_next;
+                }
+                __item_effects_recalc_mon_stats(_mon);
+                out.applied = true;
+                array_push(out.messages, "Level rose to " + string(_mon.level));
+            }
+        } else if (t == "pp_up"){
+            var pp_amt = (is_struct(p) && variable_struct_exists(p, "amount") && is_real(variable_struct_get(p, "amount"))) ? floor(variable_struct_get(p, "amount")) : 1;
+            if (__item_effects_apply_pp_up(_mon, pp_amt)){
+                out.applied = true;
+                array_push(out.messages, "Move PP rose");
+            }
+        } else if (t == "evolve_item"){
+            var evo_row = __item_effects_find_item_evolution(_mon, _item_id);
+            if (is_struct(evo_row)){
+                var target_species = variable_struct_get(evo_row, "evolved_species_id");
+                var did_evolve = false;
+                if (!is_undefined(__evolution_apply_to_mon)) did_evolve = __evolution_apply_to_mon(_mon, target_species);
+                if (did_evolve){
+                    out.applied = true;
+                    array_push(out.messages, "Evolution triggered");
+                }
+            }
+        } else if (t == "battle_stage"){
+            if (is_struct(_actor)){
+                var bs_stat = (is_struct(p) && variable_struct_exists(p, "stat")) ? string(variable_struct_get(p, "stat")) : "";
+                var bs_amt = (is_struct(p) && variable_struct_exists(p, "amount") && is_real(variable_struct_get(p, "amount"))) ? floor(variable_struct_get(p, "amount")) : 1;
+                if (string_length(bs_stat) > 0){
+                    if (!variable_struct_exists(_actor, "_stages") || !is_struct(_actor._stages)) _actor._stages = {};
+                    var stg = _actor._stages;
+                    var prev_stage = (variable_struct_exists(stg, bs_stat) && is_real(variable_struct_get(stg, bs_stat))) ? variable_struct_get(stg, bs_stat) : 0;
+                    var next_stage = clamp(prev_stage + bs_amt, -6, 6);
+                    if (next_stage != prev_stage){
+                        variable_struct_set(stg, bs_stat, next_stage);
+                        _actor._stages = stg;
+                        out.applied = true;
+                        array_push(out.messages, "Stats rose");
+                    }
+                }
+            }
+        } else if (t == "dire_hit"){
+            if (is_struct(_actor)){
+                var crit_add = (is_struct(p) && variable_struct_exists(p, "stages") && is_real(variable_struct_get(p, "stages"))) ? floor(variable_struct_get(p, "stages")) : 1;
+                var prev_crit = (variable_struct_exists(_actor, "_focus_energy_level") && is_real(_actor._focus_energy_level)) ? floor(_actor._focus_energy_level) : 0;
+                _actor._focus_energy_level = clamp(prev_crit + crit_add, 0, 3);
+                out.applied = true;
+                array_push(out.messages, "Critical-hit ratio rose");
+            }
+        } else if (t == "guard_spec"){
+            if (is_struct(_actor)){
+                var turns = (is_struct(p) && variable_struct_exists(p, "turns") && is_real(variable_struct_get(p, "turns"))) ? floor(variable_struct_get(p, "turns")) : 5;
+                _actor._guard_spec_turns = max(turns, 1);
+                out.applied = true;
+                array_push(out.messages, "Protected from stat drops");
             }
         }
     }

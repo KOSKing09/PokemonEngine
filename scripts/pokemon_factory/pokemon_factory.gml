@@ -393,6 +393,17 @@ function pokemon_factory_create(_sid, _level, _opts){
     mon.maxhp = mon.hp_max;
     mon.hp = mon.hp_max;
     mon.hp_now = mon.hp_max;
+    try {
+        if ((!variable_struct_exists(mon, "ability_id") || !is_real(mon.ability_id)) && !is_undefined(scr_poke_pick_ability)){
+            var _ability_id = scr_poke_pick_ability(_s, _s * 1000 + L);
+            if (is_real(_ability_id) && _ability_id > 0){
+                mon.ability_id = _ability_id;
+                if (!is_undefined(scr_ability_name_by_id)) mon.ability = scr_ability_name_by_id(_ability_id);
+            }
+        } else if (variable_struct_exists(mon, "ability_id") && is_real(mon.ability_id) && (!variable_struct_exists(mon, "ability") || string_length(string(mon.ability)) <= 0) && !is_undefined(scr_ability_name_by_id)){
+            mon.ability = scr_ability_name_by_id(mon.ability_id);
+        }
+    } catch (e_ability_assign) {}
     // Populate a per-mon `learnset` for convenience: list of move IDs the species can learn up to this level.
     // This allows UI code that prefers a per-mon learnset (mon.learnset) to work without additional fallbacks.
     if (!is_undefined(scr_poke_moves_upto_level)){

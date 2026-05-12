@@ -144,6 +144,22 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                     }
                 }
 
+                    // Process random status families (e.g., newer moves such as Dire Claw).
+                    if (variable_struct_exists(_mm, "random_statuses") && is_array(variable_struct_get(_mm, "random_statuses")) && !is_undefined(status_system_apply_status)){
+                        var _status_choices = variable_struct_get(_mm, "random_statuses");
+                        var _choice_count = array_length(_status_choices);
+                        var _rs_chance = (variable_struct_exists(_mm, "chance") && is_real(variable_struct_get(_mm, "chance"))) ? real(variable_struct_get(_mm, "chance")) : 100;
+                        _rs_chance = clamp(floor(_rs_chance), 0, 100);
+                        if (!is_undefined(__status_dev_override_chance)) _rs_chance = __status_dev_override_chance("random_status", _rs_chance);
+                        if (_choice_count > 0 && irandom(99) < _rs_chance){
+                            var _picked_status = string(_status_choices[irandom(_choice_count - 1)]);
+                            var _rs_opts = {};
+                            try { variable_struct_set(_rs_opts, "source", _A); } catch (e_rs_src) {}
+                            if (variable_struct_exists(_mm, "duration") && is_real(variable_struct_get(_mm, "duration"))) variable_struct_set(_rs_opts, "duration", variable_struct_get(_mm, "duration"));
+                            try { status_system_apply_status(_D, _picked_status, _rs_opts); } catch (e_rs_apply) {}
+                        }
+                    }
+
                     // Process status application (e.g., Sleep Powder, Poison Powder)
                     if (variable_struct_exists(_mm, "status") && string_length(string(variable_struct_get(_mm, "status"))) > 0){
                         var stid = string(variable_struct_get(_mm, "status"));

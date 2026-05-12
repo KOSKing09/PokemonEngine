@@ -341,6 +341,38 @@ function __party_move_name(_id){
     return "Move#" + string(_id);
 }
 
+function __party_mon_species_id(_mon){
+    if (!is_struct(_mon)) return -1;
+    var raw = -1;
+    if (variable_struct_exists(_mon, "species_id")) raw = variable_struct_get(_mon, "species_id");
+    else if (variable_struct_exists(_mon, "species")) raw = variable_struct_get(_mon, "species");
+    else if (variable_struct_exists(_mon, "pokemon_id")) raw = variable_struct_get(_mon, "pokemon_id");
+    else if (variable_struct_exists(_mon, "_id")) raw = variable_struct_get(_mon, "_id");
+    if (is_real(raw)) return floor(raw);
+    if (is_string(raw)){
+        var txt = string_trim(raw);
+        if (string_length(txt) <= 0) return -1;
+        var parsed = -1;
+        try { parsed = real(txt); } catch (e_species_parse) { parsed = -1; }
+        if (is_real(parsed)) return floor(parsed);
+    }
+    return -1;
+}
+
+function party__machine_can_teach(_mon, _move_id){
+    if (!is_struct(_mon) || !is_real(_move_id) || _move_id <= 0) return false;
+    var sid = __party_mon_species_id(_mon);
+    if (sid <= 0) return true;
+    if (!variable_global_exists("_species_machine_moves") || !is_array(global._species_machine_moves)) return true;
+    if (sid >= array_length(global._species_machine_moves)) return false;
+    var arr = global._species_machine_moves[sid];
+    if (!is_array(arr) || array_length(arr) <= 0) return false;
+    for (var i = 0; i < array_length(arr); i++){
+        if (arr[i] == _move_id) return true;
+    }
+    return false;
+}
+
 // Return an ordered array of move IDs this mon can currently learn.
 // Filters out TM/HM entries and those with a required level higher than the mon's level.
 function __party_get_learnset_for_mon(_mon){

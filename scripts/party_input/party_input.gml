@@ -544,6 +544,66 @@ function __party_impl_party_update(){
                 if (controls_pressed(_pid,"Interact") && _P.lock == 0){
                     var gp = (is_struct(_P) && variable_struct_exists(_P, "give_pending") ? _P.give_pending : undefined);
                     var up = (is_struct(_P) && variable_struct_exists(_P, "use_pending") ? _P.use_pending : undefined);
+                    var tp = (is_struct(_P) && variable_struct_exists(_P, "teach_pending") ? _P.teach_pending : undefined);
+                    if (!is_undefined(tp) && is_struct(tp)){
+                        var tbpid = variable_struct_exists(tp, "bag_pid") ? variable_struct_get(tp, "bag_pid") : -1;
+                        var titem_id = variable_struct_exists(tp, "item_id") ? variable_struct_get(tp, "item_id") : -1;
+                        var tmove_id = variable_struct_exists(tp, "move_id") ? variable_struct_get(tp, "move_id") : -1;
+                        var tconsume = variable_struct_exists(tp, "consumes") ? variable_struct_get(tp, "consumes") : false;
+                        var tmon = _P.mons[_P.sel]; if (!is_struct(tmon)) tmon = _P.mons[_P.sel] = {};
+                        var can_teach = true;
+                        if (!is_undefined(party__machine_can_teach)) can_teach = party__machine_can_teach(tmon, tmove_id);
+                        if (!can_teach){
+                            var no_msg = "It won't have any effect.";
+                            try { dialog2p_show_now(_pid, no_msg); } catch (e_tm_no_now) { try { dialog2p_enqueue(_pid, no_msg); } catch (e_tm_no_queue) {} }
+                            _P.lock = 4;
+                            return;
+                        }
+
+                        var learn_res = scr_move_learn_try(tmon, tmove_id);
+                        if (is_struct(learn_res) && string(learn_res.status) == "learned"){
+                            if (is_real(_P.sel) && _P.sel >= 0){
+                                party_model_update_mon(_pid, _P.sel, tmon);
+                                if (is_array(_P.mons) && _P.sel < array_length(_P.mons)) _P.mons[_P.sel] = tmon;
+                            }
+                            if (tconsume && tbpid >= 0 && titem_id > 0){
+                                bag_inventory_remove_item(tbpid, titem_id, 1);
+                                bags_seed_from_items(tbpid);
+                            }
+                            _P.teach_pending = undefined;
+                            if (!is_undefined(party_close)) party_close(_pid);
+                            var learned_msg = __party_move_name(tmove_id) + " learned!";
+                            try { dialog2p_show_now(_pid, learned_msg); } catch (e_tm_learn_now) { try { dialog2p_enqueue(_pid, learned_msg); } catch (e_tm_learn_queue) {} }
+                            _P.mode = "list"; _P.lock = 2;
+                            return;
+                        }
+                        if (is_struct(learn_res) && string(learn_res.status) == "need_replace"){
+                            var lp_tm = {
+                                move_id: tmove_id,
+                                step: "list",
+                                scroll: 0,
+                                list_sel: 0,
+                                list_scroll: 0,
+                                source_item_id: titem_id,
+                                source_bag_pid: tbpid,
+                                source_consumes: tconsume,
+                                source_machine: true
+                            };
+                            variable_struct_set(_P, "learn_pending", lp_tm);
+                            _P.teach_pending = undefined;
+                            _P.mode = "summary_forget";
+                            _P.lock = 4;
+                            _P.sum_move_sel = 0;
+                            _P.sum_learn_sel = 0;
+                            return;
+                        }
+
+                        _P.teach_pending = undefined;
+                        var skipped_msg = __party_move_name(tmove_id) + " is already known.";
+                        try { dialog2p_show_now(_pid, skipped_msg); } catch (e_tm_skip_now) { try { dialog2p_enqueue(_pid, skipped_msg); } catch (e_tm_skip_queue) {} }
+                        _P.mode = "list"; _P.lock = 2;
+                        return;
+                    }
                     // First handle use_pending (consumable application)
                     if (!is_undefined(up) && is_struct(up)){
                         var bpid = variable_struct_exists(up, "bag_pid") ? variable_struct_get(up, "bag_pid") : -1;
@@ -618,6 +678,10 @@ function __party_impl_party_update(){
                             }
 
                             if (is_struct(res) && res.applied){
+                                if (is_real(_P.sel) && _P.sel >= 0){
+                                    party_model_update_mon(_pid, _P.sel, target_mon);
+                                    if (is_array(_P.mons) && _P.sel < array_length(_P.mons)) _P.mons[_P.sel] = target_mon;
+                                }
                                 // Remove item and refresh bag
                                 bag_inventory_remove_item(bpid, item_id, 1);
                                 bags_seed_from_items(bpid);
@@ -1033,6 +1097,10 @@ function __party_impl_party_update(){
                     var _nl_now = array_length(_lr_now);
                     _P.sum_learn_sel = clamp(_P.sum_learn_sel, 0, max(0, _nl_now - 1));
                     var _chosen_now = (_nl_now > 0) ? _lr_now[_P.sum_learn_sel] : -1;
+                    var _lp_machine_now = (variable_struct_exists(_P, "learn_pending") ? variable_struct_get(_P, "learn_pending") : undefined);
+                    if (is_struct(_lp_machine_now) && variable_struct_exists(_lp_machine_now, "source_machine") && variable_struct_get(_lp_machine_now, "source_machine") == true && variable_struct_exists(_lp_machine_now, "move_id")){
+                        _chosen_now = variable_struct_get(_lp_machine_now, "move_id");
+                    }
                     // debug removed
                     if (_chosen_now != -1){
                         // Prevent replacing with a move that's already known in another slot
@@ -1058,6 +1126,16 @@ function __party_impl_party_update(){
                         }
                         // Clear the learn flow and return to moves view
                         if (variable_struct_exists(_P, "learn_pending") && is_struct(variable_struct_get(_P, "learn_pending"))){
+                            var _lp_done = variable_struct_get(_P, "learn_pending");
+                            if (is_struct(_lp_done) && variable_struct_exists(_lp_done, "source_machine") && variable_struct_get(_lp_done, "source_machine") == true){
+                                var _src_bag = variable_struct_exists(_lp_done, "source_bag_pid") ? variable_struct_get(_lp_done, "source_bag_pid") : -1;
+                                var _src_item = variable_struct_exists(_lp_done, "source_item_id") ? variable_struct_get(_lp_done, "source_item_id") : -1;
+                                var _src_consume = variable_struct_exists(_lp_done, "source_consumes") ? variable_struct_get(_lp_done, "source_consumes") : false;
+                                if (_src_consume && _src_bag >= 0 && _src_item > 0){
+                                    bag_inventory_remove_item(_src_bag, _src_item, 1);
+                                    bags_seed_from_items(_src_bag);
+                                }
+                            }
                             variable_struct_set(_P, "learn_pending", undefined);
                         }
                         _P.mode = "summary_moves"; _P.lock = 4;
@@ -1146,6 +1224,10 @@ function __party_impl_party_update(){
                     var _nl_now = array_length(_lr_now);
                     _P.sum_learn_sel = clamp(_P.sum_learn_sel, 0, max(0, _nl_now - 1));
                     var _chosen_now = (_nl_now > 0) ? _lr_now[_P.sum_learn_sel] : -1;
+                    var _lp_machine_now2 = (variable_struct_exists(_P, "learn_pending") ? variable_struct_get(_P, "learn_pending") : undefined);
+                    if (is_struct(_lp_machine_now2) && variable_struct_exists(_lp_machine_now2, "source_machine") && variable_struct_get(_lp_machine_now2, "source_machine") == true && variable_struct_exists(_lp_machine_now2, "move_id")){
+                        _chosen_now = variable_struct_get(_lp_machine_now2, "move_id");
+                    }
                     // debug removed
                     if (_chosen_now != -1){
                         // Apply replacement into the selected slot and return to moves summary
@@ -1158,6 +1240,16 @@ function __party_impl_party_update(){
                         }
                         // Clear the learn flow and return to moves view
                         if (variable_struct_exists(_P, "learn_pending") && is_struct(variable_struct_get(_P, "learn_pending"))){
+                            var _lp_done2 = variable_struct_get(_P, "learn_pending");
+                            if (is_struct(_lp_done2) && variable_struct_exists(_lp_done2, "source_machine") && variable_struct_get(_lp_done2, "source_machine") == true){
+                                var _src_bag2 = variable_struct_exists(_lp_done2, "source_bag_pid") ? variable_struct_get(_lp_done2, "source_bag_pid") : -1;
+                                var _src_item2 = variable_struct_exists(_lp_done2, "source_item_id") ? variable_struct_get(_lp_done2, "source_item_id") : -1;
+                                var _src_consume2 = variable_struct_exists(_lp_done2, "source_consumes") ? variable_struct_get(_lp_done2, "source_consumes") : false;
+                                if (_src_consume2 && _src_bag2 >= 0 && _src_item2 > 0){
+                                    bag_inventory_remove_item(_src_bag2, _src_item2, 1);
+                                    bags_seed_from_items(_src_bag2);
+                                }
+                            }
                             variable_struct_set(_P, "learn_pending", undefined);
                         }
                         _P.mode = "summary_moves"; _P.lock = 4;

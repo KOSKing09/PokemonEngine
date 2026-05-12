@@ -570,7 +570,9 @@ function data_load_moves_structs(){
     // header-aware columns (optional)
     var ci_effect = __col_find_ci(g, "effect_id");
     var ci_effect_chance = __col_find_ci(g, "effect_chance");
-        var ci_target = __col_find_ci(g, "target_id");
+    var ci_target = __col_find_ci(g, "target_id");
+    var ci_accuracy = __col_find_ci(g, "accuracy");
+    var ci_damage_class = __col_find_ci(g, "damage_class_id");
     // size by max id
     var max_id = 0;
     for (var _r = 1; _r < H; _r++){
@@ -586,16 +588,17 @@ function data_load_moves_structs(){
         var _type = __to_int_safe(__grid(g,3,_r,0), 0);
         var _power= __to_int_safe(__grid(g,4,_r,0), 0);
         var _pp   = __to_int_safe(__grid(g,5,_r,0), 0);
+        var _acc  = (ci_accuracy >= 0) ? __to_int_safe(__grid(g, ci_accuracy, _r, 0), 0) : __to_int_safe(__grid(g, 6, _r, 0), 0);
         var _prio = __to_int_safe(__grid(g,7,_r,0), 0);
-            var _target = (ci_target >= 0) ? __to_int_safe(__grid(g, ci_target, _r, 0), 0) : __to_int_safe(__grid(g, 8, _r, 0), 0);
-        var _dcls = __to_int_safe(__grid(g,8,_r,0), 0);
+        var _target = (ci_target >= 0) ? __to_int_safe(__grid(g, ci_target, _r, 0), 0) : __to_int_safe(__grid(g, 8, _r, 0), 0);
+        var _dcls = (ci_damage_class >= 0) ? __to_int_safe(__grid(g, ci_damage_class, _r, 0), 0) : __to_int_safe(__grid(g, 9, _r, 0), 0);
         // effect_id/effect_chance fallback: many dumps lack headers; use PokeAPI column indices if headers absent
         // PokeAPI moves.csv columns (0-based):
             // 0=id, 1=identifier, 2=generation_id, 3=type_id, 4=power, 5=pp, 6=accuracy, 7=priority, 8=target_id, 9=damage_class_id, 10=effect_id, 11=effect_chance, ...
         // Some exports shift effect_id to index 10; use 10/11 as safe defaults when headers missing.
         var _eff  = (ci_effect >= 0) ? __to_int_safe(__grid(g, ci_effect, _r, 0), 0) : __to_int_safe(__grid(g, 10, _r, 0), 0);
         var _effc = (ci_effect_chance >= 0) ? __to_int_safe(__grid(g, ci_effect_chance, _r, 0), 0) : __to_int_safe(__grid(g, 11, _r, 0), 0);
-            global._moves[_id] = { id:_id, identifier:_ident, type_id:_type, power:_power, pp:_pp, priority:_prio, target_id:_target, damage_class_id:_dcls, effect_id:_eff, effect_chance:_effc };
+        global._moves[_id] = { id:_id, identifier:_ident, type_id:_type, power:_power, pp:_pp, accuracy:_acc, priority:_prio, target_id:_target, damage_class_id:_dcls, effect_id:_eff, effect_chance:_effc };
         _rows++;
     }
     data_debug("[DATA][moves] rows=" + string(_rows));
@@ -822,6 +825,111 @@ function data_map_move_effects_to_meta(){
             data_debug("[DATA][move_effect_map] move=" + string(midc) + s);
         }
     }
+}
+
+// Some newer rows in the bundled moves.csv are present before their companion
+// move_meta/effect rows. Fill conservative metadata so those moves at least
+// route through the existing generic battle handlers instead of becoming no-ops.
+function data_map_late_moves_to_meta(){
+    if (!variable_global_exists("_moves") || !is_array(global._moves)) return;
+    if (!variable_global_exists("_move_meta") || !is_array(global._move_meta)) global._move_meta = [];
+    if (array_length(global._move_meta) < array_length(global._moves)) array_resize(global._move_meta, array_length(global._moves));
+
+    function __late_set(_mid, _effect_id, _meta){
+        if (!is_real(_mid) || _mid <= 0 || _mid >= array_length(global._moves)) return false;
+        var _mv = global._moves[_mid];
+        if (!is_struct(_mv)) return false;
+
+        if (is_real(_effect_id) && _effect_id > 0){
+            var _cur_eid = (variable_struct_exists(_mv, "effect_id") && is_real(variable_struct_get(_mv, "effect_id"))) ? floor(variable_struct_get(_mv, "effect_id")) : 0;
+            if (_cur_eid <= 0){
+                variable_struct_set(_mv, "effect_id", floor(_effect_id));
+                global._moves[_mid] = _mv;
+            }
+        }
+
+        if (!is_struct(global._move_meta[_mid])) global._move_meta[_mid] = {};
+        var _mm = global._move_meta[_mid];
+        if (is_real(_effect_id) && _effect_id > 0 && (!variable_struct_exists(_mm, "effect_id") || !is_real(variable_struct_get(_mm, "effect_id")))) variable_struct_set(_mm, "effect_id", floor(_effect_id));
+        if (is_struct(_meta)){
+            var _keys = variable_struct_get_names(_meta);
+            for (var _ki = 0; _ki < array_length(_keys); ++_ki){
+                var _key = _keys[_ki];
+                if (!variable_struct_exists(_mm, _key) || is_undefined(variable_struct_get(_mm, _key))){
+                    variable_struct_set(_mm, _key, variable_struct_get(_meta, _key));
+                }
+            }
+        }
+        global._move_meta[_mid] = _mm;
+        return true;
+    }
+
+    var filled = 0;
+    for (var _mid = 0; _mid < array_length(global._moves); ++_mid){
+        var _mv_auto = global._moves[_mid];
+        if (!is_struct(_mv_auto)) continue;
+        var _eid_auto = (variable_struct_exists(_mv_auto, "effect_id") && is_real(variable_struct_get(_mv_auto, "effect_id"))) ? floor(variable_struct_get(_mv_auto, "effect_id")) : 0;
+        var _pow_auto = (variable_struct_exists(_mv_auto, "power") && is_real(variable_struct_get(_mv_auto, "power"))) ? floor(variable_struct_get(_mv_auto, "power")) : 0;
+        if (_eid_auto <= 0 && _pow_auto > 0){
+            if (__late_set(_mid, 1, {})) filled += 1;
+        }
+    }
+
+    // Legends: Arceus / Scarlet-Violet rows that lack companion metadata in the
+    // shipped CSVs. Stat ids: 2 Atk, 3 Def, 4 SpA, 5 SpD, 6 Spe, 7 Acc, 8 Eva.
+    filled += __late_set(827, 1, { random_statuses:["poison","paralysis","sleep"], chance:50 }); // Dire Claw
+    filled += __late_set(828, 1, { stat_changes:[{ stat_id:3, change:1 }] }); // Psyshield Bash
+    filled += __late_set(830, 267, {}); // Stone Axe -> Stealth Rock
+    filled += __late_set(832, 1, { stat_changes:[{ stat_id:4, change:1 }] }); // Mystical Power
+    filled += __late_set(834, 49, { drain:-33 }); // Wave Crash
+    filled += __late_set(837, 51, { stat_changes:[{ stat_id:2, change:1 },{ stat_id:3, change:1 },{ stat_id:6, change:1 }] }); // Victory Dance
+    filled += __late_set(838, 405, { stat_changes:[{ stat_id:3, change:-1 },{ stat_id:5, change:-1 }] }); // Headlong Rush
+    filled += __late_set(839, 1, { status:"poison", chance:30 }); // Barb Barrage
+    filled += __late_set(840, 44, { crit_rate:1, stat_changes:[{ stat_id:6, change:1 }] }); // Esper Wing
+    filled += __late_set(841, 1, { stat_changes:[{ stat_id:2, change:-1 }] }); // Bitter Malice
+    filled += __late_set(842, 51, { stat_changes:[{ stat_id:3, change:2 }] }); // Shelter
+    filled += __late_set(843, 44, { crit_rate:1, flinch:true, flinch_chance:30, stat_changes:[{ stat_id:3, change:-1 }] }); // Triple Arrows
+    filled += __late_set(844, 1, { status:"burn", chance:30 }); // Infernal Parade
+    filled += __late_set(845, 113, {}); // Ceaseless Edge -> Spikes
+    filled += __late_set(849, 33, { healing:25 }); // Lunar Blessing, partial support
+    filled += __late_set(850, 51, { stat_changes:[{ stat_id:4, change:1 },{ stat_id:5, change:1 }] }); // Take Heart
+    filled += __late_set(852, 112, {}); // Silk Trap -> Protect-family
+    filled += __late_set(853, 1, { status:"confusion", chance:30 }); // Axe Kick
+    filled += __late_set(855, 1, { stat_changes:[{ stat_id:5, change:-2 }] }); // Lumina Crash
+    filled += __late_set(858, 51, { stat_changes:[{ stat_id:2, change:2 },{ stat_id:3, change:-2 }] }); // Spicy Extract
+    filled += __late_set(859, 405, { stat_changes:[{ stat_id:6, change:-2 }] }); // Spin Out
+    filled += __late_set(860, 30, { min_hits:10, max_hits:10 }); // Population Bomb
+    filled += __late_set(865, 45, { min_hits:3, max_hits:3 }); // Triple Dive
+    filled += __late_set(866, 1, { status:"poison", chance:100 }); // Mortal Spin
+    filled += __late_set(868, 51, { stat_changes:[{ stat_id:2, change:2 },{ stat_id:4, change:2 },{ stat_id:6, change:2 }] }); // Fillet Away, HP cost not modeled
+    filled += __late_set(870, 44, { crit_rate:6 }); // Flower Trick, approximate guaranteed crit
+    filled += __late_set(871, 1, { stat_changes:[{ stat_id:4, change:1 }] }); // Torch Song
+    filled += __late_set(872, 1, { stat_changes:[{ stat_id:6, change:1 }] }); // Aqua Step
+    filled += __late_set(874, 405, { stat_changes:[{ stat_id:4, change:-1 }] }); // Make It Rain
+    filled += __late_set(881, 1, { weather:"snow", weather_duration:5 }); // Chilly Reception, switch not modeled
+    filled += __late_set(882, 51, { stat_changes:[{ stat_id:2, change:1 },{ stat_id:6, change:1 }] }); // Tidy Up, hazard clear not modeled
+    filled += __late_set(883, 1, { weather:"snow", weather_duration:5 }); // Snowscape
+    filled += __late_set(884, 1, { stat_changes:[{ stat_id:6, change:-1 }] }); // Pounce
+    filled += __late_set(885, 1, { stat_changes:[{ stat_id:6, change:1 }] }); // Trailblaze
+    filled += __late_set(886, 1, { stat_changes:[{ stat_id:2, change:-1 }] }); // Chilling Water
+    filled += __late_set(888, 45, { min_hits:2, max_hits:2 }); // Twin Beam
+    filled += __late_set(890, 405, { stat_changes:[{ stat_id:3, change:-1 },{ stat_id:5, change:-1 }] }); // Armor Cannon
+    filled += __late_set(891, 4, { drain:50 }); // Bitter Blade
+    filled += __late_set(895, 44, { crit_rate:1 }); // Aqua Cutter
+    filled += __late_set(896, 1, { status:"burn", chance:30 }); // Blazing Torque
+    filled += __late_set(897, 1, { status:"sleep", chance:10 }); // Wicked Torque
+    filled += __late_set(898, 1, { status:"poison", chance:30 }); // Noxious Torque
+    filled += __late_set(899, 1, { status:"paralysis", chance:30 }); // Combat Torque
+    filled += __late_set(900, 1, { status:"confusion", chance:30 }); // Magical Torque
+    filled += __late_set(902, 4, { drain:50, status:"burn", chance:20 }); // Matcha Gotcha
+    filled += __late_set(903, 1, { stat_changes:[{ stat_id:6, change:-1 }] }); // Syrup Bomb
+    filled += __late_set(905, 40, { stat_changes:[{ stat_id:4, change:1 }] }); // Electro Shot, charge metadata
+    filled += __late_set(908, 112, {}); // Burning Bulwark -> Protect-family
+    filled += __late_set(911, 45, { min_hits:2, max_hits:2 }); // Tachyon Cutter
+    filled += __late_set(917, 1, { status:"heal-block", chance:100, duration:2 }); // Psychic Noise
+    filled += __late_set(919, 203, { status:"toxic", chance:50 }); // Malignant Chain
+
+    data_debug("[DATA][late_moves] synthesized_meta=" + string(filled));
 }
 
 // UPDATED: Move flavor text (PokeAPI) -> move_flavor_text.csv (EN, latest version_group_id)
@@ -1150,6 +1258,68 @@ function data_load_species_moves_structs() {
     );
 }
 
+function data_load_machine_moves_structs(){
+    global._machine_item_to_move = [];
+    global._machine_item_to_version = [];
+    global._species_machine_moves = [];
+
+    var machine_path = working_directory + "/data/csv/machines.csv";
+    var machine_grid = load_csv(machine_path);
+    if (machine_grid != -1){
+        var mh = ds_grid_height(machine_grid);
+        var machine_rows = 0;
+        for (var mr = 1; mr < mh; mr++){
+            var version_group_id = __to_int_safe(__grid(machine_grid, 1, mr, 0), 0);
+            var item_id = __to_int_safe(__grid(machine_grid, 2, mr, 0), 0);
+            var move_id = __to_int_safe(__grid(machine_grid, 3, mr, 0), 0);
+            if (item_id <= 0 || move_id <= 0) continue;
+            if (item_id >= array_length(global._machine_item_to_move)) array_resize(global._machine_item_to_move, item_id + 1);
+            if (item_id >= array_length(global._machine_item_to_version)) array_resize(global._machine_item_to_version, item_id + 1);
+            var existing_version = global._machine_item_to_version[item_id];
+            var should_take = (!is_real(global._machine_item_to_move[item_id]) || global._machine_item_to_move[item_id] <= 0);
+            if (version_group_id == 6) should_take = true;
+            else if (is_real(existing_version) && existing_version == 6) should_take = false;
+            if (should_take){
+                if (!is_real(global._machine_item_to_move[item_id]) || global._machine_item_to_move[item_id] <= 0) machine_rows++;
+                global._machine_item_to_move[item_id] = move_id;
+                global._machine_item_to_version[item_id] = version_group_id;
+            }
+        }
+        data_debug("[DATA][machines] items=" + string(machine_rows));
+    } else {
+        data_debug("[DATA][machines] SKIP: " + machine_path);
+    }
+
+    var pm_path = working_directory + "/data/csv/pokemon_moves.csv";
+    var pm_grid = load_csv(pm_path);
+    if (pm_grid == -1){
+        data_debug("[DATA][machine_compat] SKIP: " + pm_path);
+        return;
+    }
+
+    var ph = ds_grid_height(pm_grid);
+    var compat_rows = 0;
+    for (var pr = 1; pr < ph; pr++){
+        var species_id = __to_int_safe(__grid(pm_grid, 0, pr, 0), 0);
+        var tm_move_id = __to_int_safe(__grid(pm_grid, 2, pr, 0), 0);
+        var method_id = __to_int_safe(__grid(pm_grid, 3, pr, 0), 0);
+        if (species_id <= 0 || tm_move_id <= 0 || method_id != 4) continue;
+        if (species_id >= array_length(global._species_machine_moves)) array_resize(global._species_machine_moves, species_id + 1);
+        var arr = global._species_machine_moves[species_id];
+        if (!is_array(arr)) arr = [];
+        var found = false;
+        for (var ai = 0; ai < array_length(arr); ai++){
+            if (arr[ai] == tm_move_id){ found = true; break; }
+        }
+        if (!found){
+            array_push(arr, tm_move_id);
+            global._species_machine_moves[species_id] = arr;
+            compat_rows++;
+        }
+    }
+    data_debug("[DATA][machine_compat] rows=" + string(compat_rows));
+}
+
 function data_load_all_structs_ext(){
     // Guard: avoid running extended CSV loads more than once per process.
     if (variable_global_exists("_data_structs_ext_loaded") && global._data_structs_ext_loaded){
@@ -1174,6 +1344,7 @@ function data_load_all_structs_ext(){
     // Items + item categories
     data_load_items_structs();
     data_load_item_categorys_structs();
+    data_load_machine_moves_structs();
     // Item flags: map + prose
     // Ensure prose table loads first so map normalization can resolve numeric codes
     data_load_item_flag_prose_structs();
@@ -1191,6 +1362,7 @@ function data_load_all_structs_ext(){
     // Synthesize move_meta entries from moves.effect_id where possible so the battle
     // system can rely on global._move_meta for recoil/drain/multi-hit effects.
     if (is_undefined(data_map_move_effects_to_meta) == false) data_map_move_effects_to_meta();
+    if (is_undefined(data_map_late_moves_to_meta) == false) data_map_late_moves_to_meta();
     // Mark ext loader as completed
     global._data_structs_ext_loaded = true;
 }
@@ -2160,6 +2332,69 @@ function data_load_item_effects_structs(){
         if (string_pos("each move", s_lower) > 0 || string_pos("all moves", s_lower) > 0 || string_pos("every move", s_lower) > 0 || string_pos("all of its moves", s_lower) > 0 || string_pos("all four moves", s_lower) > 0)
             scope_hint_pp = "all";
 
+        var _has_item_evo = false;
+        if (variable_global_exists("_pokemon_evolutions") && is_array(global._pokemon_evolutions)){
+            for (var _evi = 0; _evi < array_length(global._pokemon_evolutions); _evi++){
+                var _evrow = global._pokemon_evolutions[_evi];
+                if (is_struct(_evrow) && variable_struct_exists(_evrow, "trigger_item_id") && variable_struct_get(_evrow, "trigger_item_id") == iid){
+                    _has_item_evo = true;
+                    break;
+                }
+            }
+        }
+        if (_has_item_evo){ effects[array_length(effects)] = { type:"evolve_item", params:{} }; global._item_effects[iid] = effects; continue; }
+
+        if (string_pos("causes a level-up", s_lower) > 0){ effects[array_length(effects)] = { type:"level_up", params:{} }; global._item_effects[iid] = effects; continue; }
+
+        var _ev_stat = "";
+        if (string_pos("hp effort", s_lower) > 0) _ev_stat = "hp";
+        else if (string_pos("attack effort", s_lower) > 0 && string_pos("special attack", s_lower) <= 0) _ev_stat = "atk";
+        else if (string_pos("defense effort", s_lower) > 0 && string_pos("special defense", s_lower) <= 0) _ev_stat = "def";
+        else if (string_pos("special attack effort", s_lower) > 0) _ev_stat = "spa";
+        else if (string_pos("special defense effort", s_lower) > 0) _ev_stat = "spd";
+        else if (string_pos("speed effort", s_lower) > 0) _ev_stat = "spe";
+        if (string_length(_ev_stat) > 0){
+            if (string_pos("drops", s_lower) > 0) effects[array_length(effects)] = { type:"ev_drop", params:{ stat:_ev_stat, amount:10 } };
+            else effects[array_length(effects)] = { type:"ev_raise", params:{ stat:_ev_stat, amount:10 } };
+            global._item_effects[iid] = effects;
+            continue;
+        }
+
+        if (string_pos("max pp by 20", s_lower) > 0){ effects[array_length(effects)] = { type:"pp_up", params:{ amount:1 } }; global._item_effects[iid] = effects; continue; }
+        if (string_pos("max pp by 60", s_lower) > 0){ effects[array_length(effects)] = { type:"pp_up", params:{ amount:3 } }; global._item_effects[iid] = effects; continue; }
+
+        if (string_pos("ends a wild battle", s_lower) > 0){ effects[array_length(effects)] = { type:"escape_battle", params:{} }; global._item_effects[iid] = effects; continue; }
+        if (string_pos("prevents wild encounters", s_lower) > 0){
+            var _repel_steps = 250;
+            if (string_pos("100 steps", s_lower) > 0) _repel_steps = 100;
+            else if (string_pos("200 steps", s_lower) > 0) _repel_steps = 200;
+            else if (string_pos("250 steps", s_lower) > 0) _repel_steps = 250;
+            effects[array_length(effects)] = { type:"repel", params:{ steps:_repel_steps } };
+            global._item_effects[iid] = effects;
+            continue;
+        }
+        if (string_pos("halves the wild", s_lower) > 0 && string_pos("encounter rate", s_lower) > 0){ effects[array_length(effects)] = { type:"encounter_rate", params:{ multiplier:0.5, steps:250 } }; global._item_effects[iid] = effects; continue; }
+        if (string_pos("doubles the wild", s_lower) > 0 && string_pos("encounter rate", s_lower) > 0){ effects[array_length(effects)] = { type:"encounter_rate", params:{ multiplier:2, steps:250 } }; global._item_effects[iid] = effects; continue; }
+
+        var _stage_stat = "";
+        if (string_pos("attack", s_lower) > 0 && string_pos("special attack", s_lower) <= 0) _stage_stat = "atk";
+        else if (string_pos("defense", s_lower) > 0 && string_pos("special defense", s_lower) <= 0) _stage_stat = "def";
+        else if (string_pos("special attack", s_lower) > 0) _stage_stat = "spa";
+        else if (string_pos("special defense", s_lower) > 0) _stage_stat = "spd";
+        else if (string_pos("speed", s_lower) > 0) _stage_stat = "spe";
+        else if (string_pos("accuracy", s_lower) > 0) _stage_stat = "accuracy";
+        if (string_pos("critical", s_lower) > 0 && string_pos("battle", s_lower) > 0){ effects[array_length(effects)] = { type:"dire_hit", params:{ stages:1 } }; global._item_effects[iid] = effects; continue; }
+        if (string_pos("prevents stat changes", s_lower) > 0){ effects[array_length(effects)] = { type:"guard_spec", params:{ turns:5 } }; global._item_effects[iid] = effects; continue; }
+        if (string_length(_stage_stat) > 0 && string_pos("stage", s_lower) > 0 && string_pos("battle", s_lower) > 0){
+            var _stage_amount = 1;
+            if (string_pos("two", s_lower) > 0) _stage_amount = 2;
+            else if (string_pos("three", s_lower) > 0) _stage_amount = 3;
+            else if (string_pos("six", s_lower) > 0) _stage_amount = 6;
+            effects[array_length(effects)] = { type:"battle_stage", params:{ stat:_stage_stat, amount:_stage_amount } };
+            global._item_effects[iid] = effects;
+            continue;
+        }
+
         // Apply each pattern in sequence
         // heal_flat
     var m = string_pos(s, "Restores ");
@@ -2188,7 +2423,20 @@ function data_load_item_effects_structs(){
 
         // cure all / full-restore
         if (string_pos("cures any status ailment", s_lower) > 0 && string_pos("restores hp to full", s_lower) > 0){ effects[ array_length(effects) ] = { type:"full_restore", params:{} }; global._item_effects[iid] = effects; continue; }
-        if (string_pos("cures any status ailment", s_lower) > 0){ effects[ array_length(effects) ] = { type:"cure_all", params:{} }; global._item_effects[iid] = effects; continue; }
+        if (string_pos("cures any status ailment", s_lower) > 0 || string_pos("cures all major status", s_lower) > 0 || string_pos("cures major status", s_lower) > 0 || string_pos("to cure any status", s_lower) > 0){ effects[ array_length(effects) ] = { type:"cure_all", params:{} }; global._item_effects[iid] = effects; continue; }
+
+        if (string_pos("to cure", s_lower) > 0){
+            var held_after = string_delete(s, 1, string_pos("to cure", s_lower) - 1);
+            held_after = string_delete(held_after, 1, string_length("to cure"));
+            var held_end = string_pos(".", held_after);
+            var held_status = (held_end > 0) ? string_copy(held_after, 1, held_end - 1) : string_trim(held_after);
+            held_status = string_lower(string_trim(held_status));
+            if (string_length(held_status) >= 2 && string_copy(held_status, 1, 2) == "a ") held_status = string_delete(held_status, 1, 2);
+            held_status = string_replace_all(held_status, "frozen", "freeze");
+            held_status = string_replace_all(held_status, "a burn", "burn");
+            held_status = string_replace_all(held_status, " ", "-");
+            if (string_length(held_status) > 0){ effects[ array_length(effects) ] = { type:"cure_status", params:{ status:held_status } }; global._item_effects[iid] = effects; continue; }
+        }
 
         // simple single-status cure (e.g., "Cures poison.")
         var cure_prefix = "Cures ";

@@ -195,6 +195,13 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
         }
     } catch (e_acc_gate) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][accuracy] gate failed: " + string(e_acc_gate)); }
 
+    try {
+        if (!is_undefined(__battle_apply_ability_heal_or_block) && __battle_apply_ability_heal_or_block(_pid, _target_index, _A, _D, _move_id)){
+            var _hp_ability_block = __battle_hp_now(_D);
+            return [0, _hp_ability_block, _hp_ability_block];
+        }
+    } catch (e_ability_block) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][ability] immunity gate failed: " + string(e_ability_block)); }
+
     // Present: after accuracy resolves, either heal the target or deal random damage.
     try {
         if (is_real(_move_id) && _move_id == 217){
@@ -359,6 +366,14 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
         }
     } catch (e_mult) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][sound] type mult calc failed: " + string(e_mult)); }
 
+    try {
+        if (is_real(dmg) && dmg > 0 && !is_undefined(__battle_actor_has_any_ability) && __battle_actor_has_any_ability(_D, ["wonder-guard"]) && is_real(mult) && mult <= 1.0){
+            var _wg_name = (is_struct(_D) && variable_struct_exists(_D, "name")) ? string(variable_struct_get(_D, "name")) : "The target";
+            dialog_queue(_wg_name + "'s Wonder Guard protected it!");
+            return [0, before, before];
+        }
+    } catch (e_wonder_guard) {}
+
     // Special-case move semantics that alter computed damage before application
     try {
         // Apply move-specific multipliers prior to special fixed-damage overrides
@@ -464,6 +479,18 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
                 }
             }
         }
+
+        try {
+            if (is_real(dmg) && dmg > 0 && !is_undefined(__battle_actor_has_any_ability) && __battle_actor_has_any_ability(_D, ["sturdy"])){
+                var _sturdy_max = __battle_hp_max(_D);
+                if (before >= _sturdy_max && before - dmg <= 0){
+                    dmg = max(0, before - 1);
+                    var _sturdy_name = (is_struct(_D) && variable_struct_exists(_D, "name")) ? string(variable_struct_get(_D, "name")) : "The target";
+                    dialog_queue(_sturdy_name + " held on with Sturdy!");
+                }
+            }
+        } catch (e_sturdy) {}
+
         // Terrain effects: adjust damage or cancel based on battlefield terrain
         try {
             var terr = "";

@@ -289,6 +289,42 @@ function bag__item_effect_types(_iid){
     return types;
 }
 
+function bag__effect_types_has(_types, _needle){
+    if (!is_array(_types)) return false;
+    for (var i = 0; i < array_length(_types); i++){
+        if (string(_types[i]) == string(_needle)) return true;
+    }
+    return false;
+}
+
+function bag__machine_move_id(_iid, _it){
+    if (!is_real(_iid) || _iid <= 0) return -1;
+    if (variable_global_exists("_machine_item_to_move") && is_array(global._machine_item_to_move) && _iid < array_length(global._machine_item_to_move)){
+        var mapped = global._machine_item_to_move[_iid];
+        if (is_real(mapped) && mapped > 0) return floor(mapped);
+    }
+    var ident = "";
+    if (is_struct(_it)){
+        if (variable_struct_exists(_it, "identifier")) ident = string_lower(string(variable_struct_get(_it, "identifier")));
+        else if (variable_struct_exists(_it, "name")) ident = string_lower(string(variable_struct_get(_it, "name")));
+    }
+    if (string_length(ident) >= 4){
+        var prefix = string_copy(ident, 1, 2);
+        if (prefix == "tm" || prefix == "hm"){
+            return -2;
+        }
+    }
+    return -1;
+}
+
+function bag__machine_consumes_on_use(_iid, _ident, _flag_set){
+    var ident = string_lower(string(_ident));
+    if (string_copy(ident, 1, 2) == "hm") return false;
+    if (is_struct(_flag_set) && (variable_struct_exists(_flag_set, "consumable") || variable_struct_exists(_flag_set, "consumed"))) return true;
+    if (string_copy(ident, 1, 2) == "tm") return true;
+    return false;
+}
+
 function bag_is_open(_pid) { return (variable_global_exists("BAGS") && is_array(global.BAGS) && array_length(global.BAGS) > _pid && global.BAGS[_pid].open); }
 function bag_open(_pid) { if (is_array(global.BAGS) && array_length(global.BAGS) > _pid) global.BAGS[_pid].open = true; }
 function bag_close(_pid){ if (is_array(global.BAGS) && array_length(global.BAGS) > _pid) global.BAGS[_pid].open = false; }
@@ -465,13 +501,19 @@ function bag__use_item_on_self(_pid, _row){
 
     var effect_types = bag__item_effect_types(iid);
     var recognized_party_consumable = false;
+    var recognized_direct_item = false;
     if (is_array(effect_types)){
         for (var et_i = 0; et_i < array_length(effect_types); ++et_i){
             var etype = effect_types[et_i];
             if (!is_string(etype)) continue;
             if (etype == "heal_flat" || etype == "heal_full" || etype == "full_restore" || etype == "revive" || etype == "revive_half" || etype == "revive_full" || etype == "revive_all" || etype == "cure_status" || etype == "cure_all" || etype == "restore_pp"){
                 recognized_party_consumable = true;
-                break;
+            }
+            if (etype == "ev_raise" || etype == "ev_drop" || etype == "level_up" || etype == "pp_up" || etype == "evolve_item"){
+                recognized_party_consumable = true;
+            }
+            if (etype == "escape_battle" || etype == "repel" || etype == "encounter_rate" || etype == "battle_stage" || etype == "dire_hit" || etype == "guard_spec"){
+                recognized_direct_item = true;
             }
         }
     }
@@ -492,7 +534,7 @@ function bag__use_item_on_self(_pid, _row){
     // That made some items unusable outside battle when flag maps existed but didn't include a 'consumable' hint.
     // Change: only block when we're currently *in* a battle. Outside battle, prefer to allow out-of-battle handlers
     // (party selection / consumable application) so players can use items like Potions even if flags are incomplete.
-    if (is_array(flag_arr) && array_length(flag_arr) > 0 && !usable_in_battle && !is_consumable_flagged && !recognized_party_consumable){
+    if (is_array(flag_arr) && array_length(flag_arr) > 0 && !usable_in_battle && !is_consumable_flagged && !recognized_party_consumable && !recognized_direct_item){
         if (inBattle){
             show_debug_message("[bag][debug] abort: item has flags but not usable_in_battle and not consumable (iid=" + string(iid) + ")");
             out_txt += "\nYou can't use that here.";
@@ -516,6 +558,120 @@ function bag__use_item_on_self(_pid, _row){
             }
         }
         show_debug_message("[bag][debug] use_item_on_self iid=" + string(iid) + ", flag_arr=" + string(flag_arr) + ", usable_in_battle=" + string(usable_in_battle) + ", is_consumable_flagged=" + string(is_consumable_flagged) + ", ident=" + string(ident) + ", recognized_party=" + string(recognized_party_consumable) + ", effects=[" + eff_dbg + "]");
+    }
+
+    if (recognized_direct_item){
+        if (bag__effect_types_has(effect_types, "repel") || bag__effect_types_has(effect_types, "encounter_rate")){
+            if (inBattle){
+                out_txt += "\nYou can't use that here.";
+                try { dialog2p_show(_pid, out_txt); } catch (e_field_in_battle) {}
+                return false;
+            }
+            if (!variable_global_exists("BAG_FIELD_EFFECTS") || !is_array(global.BAG_FIELD_EFFECTS)) global.BAG_FIELD_EFFECTS = [];
+            if (array_length(global.BAG_FIELD_EFFECTS) <= _pid) array_resize(global.BAG_FIELD_EFFECTS, _pid + 1);
+            var _field = global.BAG_FIELD_EFFECTS[_pid];
+            if (!is_struct(_field)) _field = { repel_steps:0, encounter_rate_steps:0, encounter_rate_multiplier:1 };
+            var _effs_field = (variable_global_exists("_item_effects") && is_array(global._item_effects) && iid < array_length(global._item_effects)) ? global._item_effects[iid] : [];
+            for (var _fei = 0; _fei < array_length(_effs_field); _fei++){
+                var _fe = _effs_field[_fei];
+                if (!is_struct(_fe)) continue;
+                var _ft = variable_struct_exists(_fe, "type") ? string(_fe.type) : "";
+                var _fp = variable_struct_exists(_fe, "params") ? _fe.params : {};
+                if (_ft == "repel"){
+                    _field.repel_steps = (is_struct(_fp) && variable_struct_exists(_fp, "steps")) ? max(1, floor(_fp.steps)) : 250;
+                } else if (_ft == "encounter_rate"){
+                    _field.encounter_rate_steps = (is_struct(_fp) && variable_struct_exists(_fp, "steps")) ? max(1, floor(_fp.steps)) : 250;
+                    _field.encounter_rate_multiplier = (is_struct(_fp) && variable_struct_exists(_fp, "multiplier")) ? real(_fp.multiplier) : 1;
+                }
+            }
+            global.BAG_FIELD_EFFECTS[_pid] = _field;
+            bag_inventory_remove_item(_pid, iid, 1);
+            bags_seed_from_items(_pid);
+            bag_close(_pid);
+            try { dialog2p_show(_pid, out_txt + "\nIt took effect."); } catch (e_field_dialog) {}
+            return true;
+        }
+
+        if (bag__effect_types_has(effect_types, "escape_battle")){
+            if (!inBattle || !is_struct(_B)){
+                out_txt += "\nYou can't use that here.";
+                try { dialog2p_show(_pid, out_txt); } catch (e_escape_no_battle) {}
+                return false;
+            }
+            var _battle_mode_direct = variable_struct_exists(_B, "battle_type") ? string_lower(string(_B.battle_type)) : "wild";
+            if (_battle_mode_direct == "trainer"){
+                out_txt += "\nYou can't escape from this battle.";
+                try { dialog2p_show(_pid, out_txt); } catch (e_escape_trainer) {}
+                return false;
+            }
+            _B.result = "escaped";
+            _B._pending_close = true;
+            bag_inventory_remove_item(_pid, iid, 1);
+            bags_seed_from_items(_pid);
+            bag_close(_pid);
+            try { dialog2p_show(_pid, out_txt + "\nGot away safely!"); } catch (e_escape_dialog) {}
+            return true;
+        }
+
+        if (bag__effect_types_has(effect_types, "battle_stage") || bag__effect_types_has(effect_types, "dire_hit") || bag__effect_types_has(effect_types, "guard_spec")){
+            if (!inBattle || !is_struct(_B)){
+                out_txt += "\nYou can't use that here.";
+                try { dialog2p_show(_pid, out_txt); } catch (e_x_no_battle) {}
+                return false;
+            }
+            var _actors_direct = variable_struct_exists(_B, "actor") ? _B.actor : undefined;
+            var _A_direct = (is_array(_actors_direct) && array_length(_actors_direct) > 0) ? _actors_direct[0] : undefined;
+            var _M_direct = (is_struct(_A_direct) && variable_struct_exists(_A_direct, "mon") && is_struct(_A_direct.mon)) ? _A_direct.mon : _A_direct;
+            var _res_direct = (!is_undefined(scr_apply_item_effects)) ? scr_apply_item_effects(iid, _M_direct, _A_direct) : { applied:false };
+            if (is_struct(_res_direct) && _res_direct.applied){
+                bag_inventory_remove_item(_pid, iid, 1);
+                bags_seed_from_items(_pid);
+                bag_close(_pid);
+                var _detail_direct = out_txt;
+                if (variable_struct_exists(_res_direct, "messages") && is_array(_res_direct.messages) && array_length(_res_direct.messages) > 0) _detail_direct += "\n" + string(_res_direct.messages[0]);
+                try { dialog2p_show(_pid, _detail_direct); } catch (e_x_dialog) {}
+                return true;
+            }
+            out_txt += "\nBut it had no effect!";
+            try { dialog2p_show(_pid, out_txt); } catch (e_x_no_effect) {}
+            return false;
+        }
+    }
+
+    var machine_move_id = bag__machine_move_id(iid, it);
+    if (machine_move_id != -1){
+        if (inBattle){
+            out_txt += "\nYou can't use that here.";
+            try { dialog2p_show(_pid, out_txt); } catch (e_machine_battle) {}
+            return false;
+        }
+        if (machine_move_id <= 0){
+            out_txt += "\nThe machine data is missing for this item.";
+            try { dialog2p_show(_pid, out_txt); } catch (e_machine_missing) {}
+            return false;
+        }
+        if (!is_undefined(party_open) && !is_undefined(party_ensure)){
+            var _b_machine = bag_inventory_ensure(_pid);
+            bag_close(_pid);
+            party_open(_pid);
+            var P_machine = party_ensure(_pid);
+            if (is_struct(P_machine)){
+                P_machine.mode = "select_item";
+                P_machine.lock = 4;
+                P_machine.teach_pending = {
+                    bag_pid: _pid,
+                    page: _b_machine.page,
+                    row: _b_machine.sel,
+                    item_id: iid,
+                    item_real_name: (variable_struct_exists(_row, "real_name") ? variable_struct_get(_row, "real_name") : ident),
+                    move_id: machine_move_id,
+                    consumes: bag__machine_consumes_on_use(iid, ident, flag_set),
+                    out_prefix: out_txt
+                };
+                P_machine.use_pending = undefined;
+            }
+            return true;
+        }
     }
 
     // Pokéball behavior — only allowed on wild opponents (battle-only)

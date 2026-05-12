@@ -370,13 +370,7 @@ function __pause_main_labels(_pid){
 
 function __pause_do_poke_index(pid){
     pause_toggle(pid);
-    try {
-        if (!is_undefined(dialog2p_show_now)) {
-            dialog2p_show_now(pid, { text: "Poke-Index menu coming soon." });
-            return;
-        }
-    } catch (e_poke_index_dialog) {}
-    try { show_debug_message("[pause] Poke-Index menu coming soon."); } catch (e_poke_index_dbg) {}
+    if (!is_undefined(poke_index_open)) poke_index_open(pid);
 }
 
 function __pause_do_save(pid){
@@ -482,7 +476,6 @@ function __pause_splitscreen_label(){
 
 /// Legacy: who last toggled pause (for dialog system checks)
 function pause_set_owner(_pid){ global.PAUSE_OWNER = _pid; }
-
 
 
 

@@ -232,6 +232,35 @@ function status_system_apply_status(mon, status_id, opts){
         }
     } catch (e_block) { /* ignore any errors and continue */ }
     try {
+        var _sid_ability = string_lower(string(status_id));
+        var _ability_actor = mon;
+        if (!is_struct(_ability_actor) || !(variable_struct_exists(_ability_actor, "ability") || variable_struct_exists(_ability_actor, "ability_id"))){
+            var _pid_ability = __status_find_battle_pid(mon);
+            if (!is_undefined(_pid_ability)){
+                var _B_ability = __battle_ensure_slot(_pid_ability);
+                if (is_struct(_B_ability) && variable_struct_exists(_B_ability, "actor") && is_array(variable_struct_get(_B_ability, "actor"))){
+                    var _acts_ability = variable_struct_get(_B_ability, "actor");
+                    for (var _abi = 0; _abi < array_length(_acts_ability); ++_abi){
+                        var _cand_ability = _acts_ability[_abi];
+                        if (!is_struct(_cand_ability)) continue;
+                        if (_cand_ability == mon || (variable_struct_exists(_cand_ability, "mon") && is_struct(variable_struct_get(_cand_ability, "mon")) && variable_struct_get(_cand_ability, "mon") == _target_mon)){
+                            _ability_actor = _cand_ability;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if (!is_undefined(__battle_actor_has_any_ability)){
+            if ((_sid_ability == "poison" || _sid_ability == "toxic") && __battle_actor_has_any_ability(_ability_actor, ["immunity"])) return false;
+            if (_sid_ability == "burn" && __battle_actor_has_any_ability(_ability_actor, ["water-veil", "water-bubble"])) return false;
+            if ((_sid_ability == "paralysis" || _sid_ability == "paralyze") && __battle_actor_has_any_ability(_ability_actor, ["limber"])) return false;
+            if (_sid_ability == "sleep" && __battle_actor_has_any_ability(_ability_actor, ["insomnia", "vital-spirit", "sweet-veil"])) return false;
+            if (_sid_ability == "freeze" && __battle_actor_has_any_ability(_ability_actor, ["magma-armor"])) return false;
+            if (_sid_ability == "confusion" && __battle_actor_has_any_ability(_ability_actor, ["own-tempo"])) return false;
+        }
+    } catch (e_ability_status_guard) {}
+    try {
         var _sid_guard = string_lower(string(status_id));
         var _is_major_guard = (_sid_guard == "sleep" || _sid_guard == "burn" || _sid_guard == "poison" || _sid_guard == "toxic" || _sid_guard == "paralysis" || _sid_guard == "freeze");
         if (_is_major_guard){

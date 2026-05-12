@@ -197,6 +197,7 @@ global.DEV_SMOKE_EXIT_GAME = false;
 
 // Initialize bags (seed with some items for demo/dev)
 bags_init(2);
+poke_index_init(2);
 bag_inventory_add_item(0, 4, 10);
 bag_inventory_add_item(0, 1, 10);
 bag_inventory_add_item(0, 17, 25);

@@ -2850,6 +2850,68 @@ function test_battle_effect_item_ability_smoke_start(_auto_close = false){
         string(variable_struct_get(_A, "ability")) == "levitate" && string(variable_struct_get(_D, "ability")) == "synchronize",
         "item family Skill Swap exchanged both abilities");
 
+    // Battle abilities affect live damage/status resolution.
+    global.DEV_FORCE_ACCURACY_HIT = true;
+    global.DEV_FORCE_CRIT_ROLL_100 = 100;
+    var _before = 0;
+
+    _A = __effect_smoke_mon(133, 30, 120, [33, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 180, [150, -1, -1, -1]);
+    variable_struct_set(_A, "atk", 80);
+    variable_struct_set(_D, "def", 70);
+    __effect_smoke_slot(_pid, _A, _D);
+    _before = __battle_hp_now(_D);
+    __battle_apply_move_damage(_pid, 1, _A, _D, 33, 40);
+    var _normal_damage = _before - __battle_hp_now(_D);
+
+    _A = __effect_smoke_mon(133, 30, 120, [33, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 180, [150, -1, -1, -1]);
+    variable_struct_set(_A, "atk", 80);
+    variable_struct_set(_A, "ability", "huge-power");
+    variable_struct_set(_D, "def", 70);
+    __effect_smoke_slot(_pid, _A, _D);
+    _before = __battle_hp_now(_D);
+    __battle_apply_move_damage(_pid, 1, _A, _D, 33, 40);
+    var _huge_damage = _before - __battle_hp_now(_D);
+    __status_smoke_assert(_S, _normal_damage > 0 && _huge_damage > _normal_damage, "battle ability Huge Power increased physical damage");
+
+    _A = __effect_smoke_mon(133, 30, 120, [55, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 120, [150, -1, -1, -1]);
+    variable_struct_set(_D, "ability", "water-absorb");
+    __effect_smoke_slot(_pid, _A, _D);
+    __battle_set_hp_now(_D, 60);
+    __battle_apply_move_damage(_pid, 1, _A, _D, 55, 40);
+    __status_smoke_assert(_S, __battle_hp_now(_D) == 90, "battle ability Water Absorb blocked Water damage and healed");
+
+    _A = __effect_smoke_mon(133, 30, 120, [33, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 100, [150, -1, -1, -1]);
+    variable_struct_set(_A, "atk", 220);
+    variable_struct_set(_D, "def", 1);
+    variable_struct_set(_D, "ability", "sturdy");
+    __effect_smoke_slot(_pid, _A, _D);
+    __battle_apply_move_damage(_pid, 1, _A, _D, 33, 120);
+    __status_smoke_assert(_S, __battle_hp_now(_D) == 1, "battle ability Sturdy prevented a full-HP knockout");
+
+    _D = __effect_smoke_mon(10, 30, 100, [150, -1, -1, -1]);
+    variable_struct_set(_D, "ability", "limber");
+    var _para_blocked = !status_system_apply_status(_D, "paralysis", { source: _A });
+    __status_smoke_assert(_S, _para_blocked, "battle ability Limber blocked paralysis");
+
+    _A = __effect_smoke_mon(133, 30, 120, [150, -1, -1, -1]);
+    _D = __effect_smoke_mon(10, 30, 120, [150, -1, -1, -1]);
+    variable_struct_set(_A, "ability", "intimidate");
+    __effect_smoke_slot(_pid, _A, _D);
+    __battle_apply_entry_abilities(_pid, 0);
+    var _intimidate_stage = 0;
+    try {
+        var _stages_intim = variable_struct_get(_D, "_stages");
+        if (is_struct(_stages_intim) && variable_struct_exists(_stages_intim, "atk")) _intimidate_stage = variable_struct_get(_stages_intim, "atk");
+    } catch (e_intim_stage) {}
+    __status_smoke_assert(_S, _intimidate_stage == -1, "battle ability Intimidate lowered opposing Attack on entry");
+
+    global.DEV_FORCE_ACCURACY_HIT = false;
+    global.DEV_FORCE_CRIT_ROLL_100 = -1;
+
     // Knock Off removes the target item and Recycle restores it.
     _A = __effect_smoke_mon(133, 30, 120, [282, -1, -1, -1]);
     _D = __effect_smoke_mon(10, 30, 180, [278, -1, -1, -1]);

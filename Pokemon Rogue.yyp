@@ -2,7 +2,7 @@
   "$GMProject":"v1",
   "%Name":"Pokemon Rogue",
   "AudioGroups":[
-    {"$GMAudioGroup":"","%Name":"audiogroup_default","name":"audiogroup_default","resourceType":"GMAudioGroup","resourceVersion":"2.0","targets":-1,},
+    {"$GMAudioGroup":"v1","%Name":"audiogroup_default","exportDir":"","name":"audiogroup_default","resourceType":"GMAudioGroup","resourceVersion":"2.0","targets":-1,},
   ],
   "configs":{
     "children":[],
@@ -53,6 +53,7 @@
     {"$GMFolder":"","%Name":"BAG","folderPath":"folders/Sprites/UI/BAG.yy","name":"BAG","resourceType":"GMFolder","resourceVersion":"2.0",},
     {"$GMFolder":"","%Name":"BATTLE","folderPath":"folders/Sprites/UI/BATTLE.yy","name":"BATTLE","resourceType":"GMFolder","resourceVersion":"2.0",},
     {"$GMFolder":"","%Name":"FONT","folderPath":"folders/Sprites/UI/FONT.yy","name":"FONT","resourceType":"GMFolder","resourceVersion":"2.0",},
+    {"$GMFolder":"","%Name":"POKEDEX","folderPath":"folders/Sprites/UI/POKEDEX.yy","name":"POKEDEX","resourceType":"GMFolder","resourceVersion":"2.0",},
     {"$GMFolder":"","%Name":"Tile Sets","folderPath":"folders/Tile Sets.yy","name":"Tile Sets","resourceType":"GMFolder","resourceVersion":"2.0",},
     {"$GMFolder":"","%Name":"Timelines","folderPath":"folders/Timelines.yy","name":"Timelines","resourceType":"GMFolder","resourceVersion":"2.0",},
   ],
@@ -349,6 +350,7 @@
     {"id":{"name":"sbush","path":"sprites/sbush/sbush.yy",},},
     {"id":{"name":"Screenshot_2026_04_29_131950","path":"sprites/Screenshot_2026_04_29_131950/Screenshot_2026_04_29_131950.yy",},},
     {"id":{"name":"sequipmentpouche","path":"sprites/sequipmentpouche/sequipmentpouche.yy",},},
+    {"id":{"name":"spokedexUI","path":"sprites/spokedexUI/spokedexUI.yy",},},
     {"id":{"name":"spokemon_bag_UI","path":"sprites/spokemon_bag_UI/spokemon_bag_UI.yy",},},
     {"id":{"name":"spokemonfont_small","path":"sprites/spokemonfont_small/spokemonfont_small.yy",},},
     {"id":{"name":"spr_angry","path":"sprites/spr_angry/spr_angry.yy",},},

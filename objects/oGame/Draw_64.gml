@@ -26,6 +26,8 @@ if (_shared_battle){
     if (pause_is_open(1)) pause_draw_gui_rect(1, 0, 0, _sw, _sh);
     if (bag_is_open(0)) bag_draw_gui_rect(0, 0, 0, _sw, _sh);
     if (bag_is_open(1)) bag_draw_gui_rect(1, 0, 0, _sw, _sh);
+    if (poke_index_is_open(0)) poke_index_draw_gui_rect(0, 0, 0, _sw, _sh);
+    if (poke_index_is_open(1)) poke_index_draw_gui_rect(1, 0, 0, _sw, _sh);
     if (party_is_open(0)) party_draw_gui_rect(0, 0, 0, _sw, _sh);
     if (party_is_open(1)) party_draw_gui_rect(1, 0, 0, _sw, _sh);
     if (_evo0) evolution_draw_gui_rect(0, 0, 0, _sw, _sh);
@@ -44,6 +46,7 @@ if (_shared_battle){
     }
     if (pause_is_open(1)) pause_draw_gui_rect(1, _r1[0], _r1[1], _r1[2], _r1[3]);
     if (bag_is_open(1))   bag_draw_gui_rect(1, _r1[0], _r1[1], _r1[2], _r1[3]);
+    if (poke_index_is_open(1)) poke_index_draw_gui_rect(1, _r1[0], _r1[1], _r1[2], _r1[3]);
     if (party_is_open(1)) party_draw_gui_rect(1, _r1[0], _r1[1], _r1[2], _r1[3]);
     if (_evo1) evolution_draw_gui_rect(1, _r1[0], _r1[1], _r1[2], _r1[3]);
     if (_vk1) virtual_keyboard_draw_gui_rect(1, _r1[0], _r1[1], _r1[2], _r1[3]);
@@ -58,6 +61,7 @@ if (_shared_battle){
     }
     if (pause_is_open(0)) pause_draw_gui_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
     if (bag_is_open(0))   bag_draw_gui_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
+    if (poke_index_is_open(0)) poke_index_draw_gui_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
     if (party_is_open(0)) party_draw_gui_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
     if (_evo0) evolution_draw_gui_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
     if (_vk0) virtual_keyboard_draw_gui_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
@@ -72,6 +76,7 @@ if (_shared_battle){
     }
     if (pause_is_open(0)) pause_draw_gui(0);  // your full-screen wrapper
     if (bag_is_open(0))   bag_draw_gui(0);                    // your full-screen wrapper
+    if (poke_index_is_open(0)) poke_index_draw_gui(0);
     if (party_is_open(0)) party_draw_gui(0);
     if (_evo0) evolution_draw_gui(0);
     if (_vk0) virtual_keyboard_draw_gui(0);

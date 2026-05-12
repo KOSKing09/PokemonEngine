@@ -533,7 +533,7 @@ function __battle_perform_action_impl(_pid, _step){
         }
     }
 
-    var _is_protect_like = (is_real(move_id) && (move_id == 182 || move_id == 197));
+    var _is_protect_like = (is_real(move_id) && (move_id == 182 || move_id == 197 || move_id == 852 || move_id == 908));
     var _is_endure_like = (is_real(move_id) && move_id == 203);
     var _is_guard_like = (_is_protect_like || _is_endure_like);
     var _turn_now = 0;
@@ -2746,7 +2746,7 @@ function __battle_perform_action_impl(_pid, _step){
         // Special-case: Jump Kick / High Jump Kick — if the move missed (dmgh == 0),
         // apply miss recoil equal to 50% of the attacker's max HP.
         try {
-            if (is_real(move_id) && (move_id == 26 || move_id == 136) && is_struct(A)){
+            if (is_real(move_id) && (move_id == 26 || move_id == 136 || move_id == 853 || move_id == 916) && is_struct(A)){
                 if (!is_real(dmgh) || dmgh <= 0){
                     // attacker actor index discovery
                     var atk_idx = undefined;

@@ -793,6 +793,7 @@ function __battle_trainer_update_switch_anim(_pid){
                     if (!is_undefined(__fn_entry_haz_sw)) __fn_entry_haz_sw(_pid, actor_index);
                 } catch (e_haz_sw) {}
                 try { __battle_apply_pending_healing_wish_to_actor(_pid, actor_index, new_actor); } catch (e_hw_enemy_anim) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][healing-wish] enemy anim apply failed: " + string(e_hw_enemy_anim)); }
+                try { if (!is_undefined(__battle_apply_entry_abilities)) __battle_apply_entry_abilities(_pid, actor_index); } catch (e_ability_enemy_anim) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][ability] enemy anim entry failed: " + string(e_ability_enemy_anim)); }
                 try {
                     variable_struct_set(_B, "_cry_played_enemy", false);
                     try { __battle_apply_pending_healing_wish_to_actor(_pid, actor_index, new_actor); } catch (e_hw_enemy_pending) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][healing-wish] enemy pending apply failed: " + string(e_hw_enemy_pending)); }
@@ -890,6 +891,7 @@ function __battle_trainer_apply_pending_send(_pid){
             }
             if (!is_undefined(__fn_entry_haz)) __fn_entry_haz(_pid, actor_index);
         } catch (e_haz) {}
+        try { if (!is_undefined(__battle_apply_entry_abilities)) __battle_apply_entry_abilities(_pid, actor_index); } catch (e_ability_enemy_send) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][ability] enemy send entry failed: " + string(e_ability_enemy_send)); }
         try { variable_struct_set(_B, "_cry_played_enemy", false); variable_struct_set(_B, "_cry_play_start_ms_enemy", current_time); } catch (e_cr) {}
     }
     try {
@@ -1082,6 +1084,7 @@ if (is_undefined(__battle_trainer_perform_switch_action)){
                 if (!is_undefined(__fn_entry_haz_trainer)) __fn_entry_haz_trainer(_pid, 1);
             } catch (e_haz) {}
             try { __battle_apply_pending_healing_wish_to_actor(_pid, 1, new_actor); } catch (e_hw_enemy_direct) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][healing-wish] enemy direct apply failed: " + string(e_hw_enemy_direct)); }
+            try { if (!is_undefined(__battle_apply_entry_abilities)) __battle_apply_entry_abilities(_pid, 1); } catch (e_ability_enemy_direct) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][ability] enemy direct entry failed: " + string(e_ability_enemy_direct)); }
             try {
                 variable_struct_set(_B, "_cry_played_enemy", false);
                 variable_struct_set(_B, "_cry_play_start_ms_enemy", current_time);

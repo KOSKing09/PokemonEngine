@@ -933,6 +933,7 @@ function overworld_encounter_can_start(_pid){
         }
     }
     if (!is_undefined(bag_is_open) && bag_is_open(_pid)) return false;
+    if (!is_undefined(poke_index_is_open) && poke_index_is_open(_pid)) return false;
     if (!is_undefined(pause_is_open) && pause_is_open(_pid)) return false;
     if (!is_undefined(party_is_open) && party_is_open(_pid)) return false;
     return true;
@@ -981,7 +982,24 @@ function overworld_encounter_step(_inst){
     }
     variable_instance_set(_inst, "_encounter_inside_pids", _inside_states);
     if (!_can_trigger) return false;
-    if (random(1) > variable_instance_get(_inst, "encounter_chance")) return false;
+    var _chance = variable_instance_get(_inst, "encounter_chance");
+    if (variable_global_exists("BAG_FIELD_EFFECTS") && is_array(global.BAG_FIELD_EFFECTS) && _trigger_pid >= 0 && _trigger_pid < array_length(global.BAG_FIELD_EFFECTS)){
+        var _field_fx = global.BAG_FIELD_EFFECTS[_trigger_pid];
+        if (is_struct(_field_fx)){
+            if (variable_struct_exists(_field_fx, "repel_steps") && is_real(variable_struct_get(_field_fx, "repel_steps")) && variable_struct_get(_field_fx, "repel_steps") > 0){
+                variable_struct_set(_field_fx, "repel_steps", max(0, floor(variable_struct_get(_field_fx, "repel_steps")) - 1));
+                global.BAG_FIELD_EFFECTS[_trigger_pid] = _field_fx;
+                return false;
+            }
+            if (variable_struct_exists(_field_fx, "encounter_rate_steps") && is_real(variable_struct_get(_field_fx, "encounter_rate_steps")) && variable_struct_get(_field_fx, "encounter_rate_steps") > 0){
+                var _mult = (variable_struct_exists(_field_fx, "encounter_rate_multiplier") && is_real(variable_struct_get(_field_fx, "encounter_rate_multiplier"))) ? real(variable_struct_get(_field_fx, "encounter_rate_multiplier")) : 1;
+                _chance *= max(0, _mult);
+                variable_struct_set(_field_fx, "encounter_rate_steps", max(0, floor(variable_struct_get(_field_fx, "encounter_rate_steps")) - 1));
+                global.BAG_FIELD_EFFECTS[_trigger_pid] = _field_fx;
+            }
+        }
+    }
+    if (random(1) > _chance) return false;
 
     _coop = multiplayer_should_start_coop_for_pid(_trigger_pid, _inst_coop);
     if (_coop && _p1 == noone) _coop = false;

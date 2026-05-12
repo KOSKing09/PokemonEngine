@@ -9,6 +9,7 @@ if (!_vk_block_any){
 	bags_update();
 	pause_update();
 	party_update();
+	poke_index_update();
 }
 evolution_update(0);
 if (variable_global_exists("EVOLUTION") && is_array(global.EVOLUTION) && array_length(global.EVOLUTION) > 1) evolution_update(1);

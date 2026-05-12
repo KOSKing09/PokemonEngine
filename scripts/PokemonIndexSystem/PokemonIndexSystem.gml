@@ -604,3 +604,498 @@ function scr_poke_type_str(_sid){
     if (array_length(names) > 0){ out = names[0]; for (var xi=1; xi<array_length(names); ++xi) out += "/" + names[xi]; }
     return out;
 }
+
+// ============================================================================
+// Poke-Index UI / player discovery state
+// ============================================================================
+
+function poke_index_init(_players){
+    var _n = (argument_count > 0) ? max(1, floor(_players)) : 1;
+    if (!variable_global_exists("POKE_INDEX") || !is_array(global.POKE_INDEX)) global.POKE_INDEX = [];
+    if (array_length(global.POKE_INDEX) < _n) array_resize(global.POKE_INDEX, _n);
+    for (var _pid = 0; _pid < _n; ++_pid){
+        poke_index_ensure(_pid);
+        poke_index_seed_party_discovery(_pid);
+    }
+}
+
+function poke_index__default_state(){
+    return {
+        open:false,
+        sel:0,
+        scroll:0,
+        page:"list",
+        filter:0,
+        lock:0,
+        seen:[],
+        caught:[]
+    };
+}
+
+function poke_index_ensure(_pid){
+    var _p = max(0, floor(_pid));
+    if (!variable_global_exists("POKE_INDEX") || !is_array(global.POKE_INDEX)) global.POKE_INDEX = [];
+    if (array_length(global.POKE_INDEX) <= _p) array_resize(global.POKE_INDEX, _p + 1);
+    var _S = global.POKE_INDEX[_p];
+    if (!is_struct(_S)) _S = poke_index__default_state();
+    if (!variable_struct_exists(_S, "open")) _S.open = false;
+    if (!variable_struct_exists(_S, "sel")) _S.sel = 0;
+    if (!variable_struct_exists(_S, "scroll")) _S.scroll = 0;
+    if (!variable_struct_exists(_S, "page")) _S.page = "list";
+    if (!variable_struct_exists(_S, "filter")) _S.filter = 0;
+    if (!variable_struct_exists(_S, "lock")) _S.lock = 0;
+    if (!variable_struct_exists(_S, "seen") || !is_array(_S.seen)) _S.seen = [];
+    if (!variable_struct_exists(_S, "caught") || !is_array(_S.caught)) _S.caught = [];
+    global.POKE_INDEX[_p] = _S;
+    return _S;
+}
+
+function poke_index_is_open(_pid){
+    if (!variable_global_exists("POKE_INDEX") || !is_array(global.POKE_INDEX)) return false;
+    if (_pid < 0 || _pid >= array_length(global.POKE_INDEX)) return false;
+    var _S = global.POKE_INDEX[_pid];
+    return is_struct(_S) && variable_struct_exists(_S, "open") && _S.open;
+}
+
+function poke_index_open(_pid){
+    var _S = poke_index_ensure(_pid);
+    poke_index_seed_party_discovery(_pid);
+    _S.open = true;
+    _S.page = "list";
+    _S.lock = 2;
+    poke_index__clamp_state(_pid, _S);
+}
+
+function poke_index_close(_pid){
+    var _S = poke_index_ensure(_pid);
+    _S.open = false;
+    _S.page = "list";
+    _S.lock = 2;
+}
+
+function poke_index_toggle(_pid){
+    if (poke_index_is_open(_pid)) poke_index_close(_pid); else poke_index_open(_pid);
+}
+
+function poke_index_mark_seen(_pid, _species_id){
+    var _sid = floor(_species_id);
+    if (_sid <= 0) return false;
+    var _S = poke_index_ensure(_pid);
+    if (array_length(_S.seen) <= _sid) array_resize(_S.seen, _sid + 1);
+    _S.seen[_sid] = true;
+    return true;
+}
+
+function poke_index_mark_caught(_pid, _species_id){
+    var _sid = floor(_species_id);
+    if (_sid <= 0) return false;
+    var _S = poke_index_ensure(_pid);
+    if (array_length(_S.seen) <= _sid) array_resize(_S.seen, _sid + 1);
+    if (array_length(_S.caught) <= _sid) array_resize(_S.caught, _sid + 1);
+    _S.seen[_sid] = true;
+    _S.caught[_sid] = true;
+    return true;
+}
+
+function poke_index_has_seen(_pid, _species_id){
+    var _S = poke_index_ensure(_pid);
+    var _sid = floor(_species_id);
+    return (_sid >= 0 && _sid < array_length(_S.seen) && _S.seen[_sid] == true);
+}
+
+function poke_index_has_caught(_pid, _species_id){
+    var _S = poke_index_ensure(_pid);
+    var _sid = floor(_species_id);
+    return (_sid >= 0 && _sid < array_length(_S.caught) && _S.caught[_sid] == true);
+}
+
+function poke_index_mark_mon_seen(_pid, _mon){
+    var _sid = poke_index__species_from_mon(_mon);
+    if (_sid > 0) return poke_index_mark_seen(_pid, _sid);
+    return false;
+}
+
+function poke_index_mark_mon_caught(_pid, _mon){
+    var _sid = poke_index__species_from_mon(_mon);
+    if (_sid > 0) return poke_index_mark_caught(_pid, _sid);
+    return false;
+}
+
+function poke_index_seed_party_discovery(_pid){
+    if (is_undefined(party_model_get_mons)) return false;
+    var _mons = party_model_get_mons(_pid);
+    if (!is_array(_mons)) return false;
+    for (var _i = 0; _i < array_length(_mons); ++_i){
+        var _mon = _mons[_i];
+        if (is_struct(_mon)) poke_index_mark_mon_caught(_pid, _mon);
+    }
+    return true;
+}
+
+function poke_index__species_from_mon(_mon){
+    if (!is_struct(_mon)) return -1;
+    if (variable_struct_exists(_mon, "species_id") && is_real(_mon.species_id)) return floor(_mon.species_id);
+    if (variable_struct_exists(_mon, "species") && is_real(_mon.species)) return floor(_mon.species);
+    if (variable_struct_exists(_mon, "id") && is_real(_mon.id)) return floor(_mon.id);
+    if (variable_struct_exists(_mon, "mon") && is_struct(_mon.mon)) return poke_index__species_from_mon(_mon.mon);
+    return -1;
+}
+
+function poke_index__species_ids(){
+    var _out = [];
+    if (variable_global_exists("_id_list") && is_array(global._id_list)){
+        for (var _i = 0; _i < array_length(global._id_list); ++_i){
+            if (is_real(global._id_list[_i]) && global._id_list[_i] > 0) array_push(_out, floor(global._id_list[_i]));
+        }
+        return _out;
+    }
+    if (variable_global_exists("_pokemon") && is_array(global._pokemon)){
+        for (var _p = 0; _p < array_length(global._pokemon); ++_p){
+            var _rec = global._pokemon[_p];
+            if (is_struct(_rec) && variable_struct_exists(_rec, "_id") && is_real(_rec._id) && _rec._id > 0) array_push(_out, floor(_rec._id));
+        }
+    }
+    return _out;
+}
+
+function poke_index__display_name(_sid, _known){
+    if (!_known) return "----------";
+    var _name = "";
+    if (!is_undefined(scr_poke_name_by_id)) _name = scr_poke_name_by_id(_sid);
+    if (string_length(string_trim(_name)) <= 0 && variable_global_exists("_pokemon") && is_array(global._pokemon) && _sid >= 0 && _sid < array_length(global._pokemon)){
+        var _rec = global._pokemon[_sid];
+        if (is_struct(_rec) && variable_struct_exists(_rec, "identifier")) _name = string(_rec.identifier);
+    }
+    _name = string_replace_all(string(_name), "-", " ");
+    if (string_length(_name) <= 0) return "Pokemon";
+    return string_upper(string_copy(_name, 1, 1)) + string_delete(_name, 1, 1);
+}
+
+function poke_index__rows(){
+    var _ids = poke_index__species_ids();
+    var _rows = [];
+    for (var _i = 0; _i < array_length(_ids); ++_i){
+        var _sid = _ids[_i];
+        array_push(_rows, { species_id:_sid, dex_no:_sid });
+    }
+    return _rows;
+}
+
+function poke_index__filter_label(_filter){
+    var _f = floor(_filter);
+    if (_f == 1) return "SEEN";
+    if (_f == 2) return "UNSEEN";
+    return "ALL";
+}
+
+function poke_index__filtered_rows(_pid, _S){
+    var _base = poke_index__rows();
+    var _filter = 0;
+    if (is_struct(_S) && variable_struct_exists(_S, "filter")) _filter = floor(_S.filter);
+    if (_filter < 0 || _filter > 2) _filter = 0;
+    var _out = [];
+    for (var _i = 0; _i < array_length(_base); ++_i){
+        var _row = _base[_i];
+        var _sid = variable_struct_get(_row, "species_id");
+        var _is_seen = poke_index_has_seen(_pid, _sid);
+        if (_filter == 1 && !_is_seen) continue;
+        if (_filter == 2 && _is_seen) continue;
+        array_push(_out, _row);
+    }
+    return _out;
+}
+
+function poke_index__clamp_state(_pid, _S){
+    var _rows = poke_index__filtered_rows(_pid, _S);
+    var _n = array_length(_rows);
+    _S.sel = clamp(_S.sel, 0, max(0, _n - 1));
+    _S.scroll = clamp(_S.scroll, 0, max(0, _n - 8));
+    if (_S.sel < _S.scroll) _S.scroll = _S.sel;
+    if (_S.sel >= _S.scroll + 8) _S.scroll = max(0, _S.sel - 7);
+}
+
+function poke_index_update(){
+    if (!variable_global_exists("POKE_INDEX") || !is_array(global.POKE_INDEX)) return;
+    for (var _pid = 0; _pid < array_length(global.POKE_INDEX); ++_pid){
+        var _S = global.POKE_INDEX[_pid];
+        if (!is_struct(_S) || !_S.open) continue;
+
+        var _rows = poke_index__filtered_rows(_pid, _S);
+        var _n = array_length(_rows);
+        if (_S.lock > 0) _S.lock--;
+
+        if (controls_pressed(_pid, "Run") || controls_pressed(_pid, "Back")){
+            if (string(_S.page) == "area") {
+                _S.page = "list";
+                _S.lock = 2;
+            } else if (_S.lock <= 0) {
+                poke_index_close(_pid);
+            }
+            continue;
+        }
+
+        if (string(_S.page) == "area"){
+            if (controls_pressed(_pid, "Interact") && _S.lock <= 0){
+                _S.page = "list";
+                _S.lock = 2;
+            }
+            continue;
+        }
+
+        if (controls_pressed(_pid, "MoveRight")){
+            _S.filter += 1;
+            if (_S.filter > 2) _S.filter = 0;
+            _S.sel = 0;
+            _S.scroll = 0;
+            _rows = poke_index__filtered_rows(_pid, _S);
+            _n = array_length(_rows);
+        }
+        if (controls_pressed(_pid, "MoveLeft")){
+            _S.filter -= 1;
+            if (_S.filter < 0) _S.filter = 2;
+            _S.sel = 0;
+            _S.scroll = 0;
+            _rows = poke_index__filtered_rows(_pid, _S);
+            _n = array_length(_rows);
+        }
+
+        if (_n > 0 && controls_pressed(_pid, "MoveDown")) _S.sel = clamp(_S.sel + 1, 0, _n - 1);
+        if (_n > 0 && controls_pressed(_pid, "MoveUp")) _S.sel = clamp(_S.sel - 1, 0, _n - 1);
+        poke_index__clamp_state(_pid, _S);
+
+        if (controls_pressed(_pid, "Interact") && _S.lock <= 0 && _n > 0){
+            _S.page = "area";
+            _S.lock = 2;
+        }
+    }
+}
+
+function poke_index__location_label(_raw){
+    var _s = string_replace_all(string(_raw), "_", " ");
+    _s = string_replace_all(_s, "-", " ");
+    if (string_length(_s) <= 0) return "Unknown";
+    return string_upper(string_copy(_s, 1, 1)) + string_delete(_s, 1, 1);
+}
+
+function poke_index_locations_for_species(_species_id){
+    var _sid = floor(_species_id);
+    var _out = [];
+    if (!variable_global_exists("OVERWORLD_ENCOUNTERS") || !is_struct(global.OVERWORLD_ENCOUNTERS)){
+        if (!is_undefined(overworld_encounter_tables_init)) overworld_encounter_tables_init();
+    }
+    if (!variable_global_exists("OVERWORLD_ENCOUNTERS") || !is_struct(global.OVERWORLD_ENCOUNTERS)) return _out;
+    var _E = global.OVERWORLD_ENCOUNTERS;
+    if (!variable_struct_exists(_E, "tables") || !is_struct(_E.tables)) return _out;
+
+    var _regions = variable_struct_get_names(_E.tables);
+    for (var _ri = 0; _ri < array_length(_regions); ++_ri){
+        var _region_key = _regions[_ri];
+        var _region = variable_struct_get(_E.tables, _region_key);
+        if (!is_struct(_region)) continue;
+        var _habitats = variable_struct_get_names(_region);
+        for (var _hi = 0; _hi < array_length(_habitats); ++_hi){
+            var _habitat_key = _habitats[_hi];
+            var _table = variable_struct_get(_region, _habitat_key);
+            if (!is_array(_table)) continue;
+            var _min_level = 999;
+            var _max_level = -1;
+            var _found = false;
+            for (var _ei = 0; _ei < array_length(_table); ++_ei){
+                var _entry = _table[_ei];
+                if (!is_struct(_entry)) continue;
+                var _entry_sid = -1;
+                if (variable_struct_exists(_entry, "species_id") && is_real(_entry.species_id)) _entry_sid = floor(_entry.species_id);
+                else if (variable_struct_exists(_entry, "id") && is_real(_entry.id)) _entry_sid = floor(_entry.id);
+                else if (variable_struct_exists(_entry, "species") && is_real(_entry.species)) _entry_sid = floor(_entry.species);
+                if (_entry_sid != _sid) continue;
+                _found = true;
+                var _lo = (variable_struct_exists(_entry, "min_level") && is_real(_entry.min_level)) ? floor(_entry.min_level) : 1;
+                var _hi_level = (variable_struct_exists(_entry, "max_level") && is_real(_entry.max_level)) ? floor(_entry.max_level) : _lo;
+                _min_level = min(_min_level, _lo);
+                _max_level = max(_max_level, _hi_level);
+            }
+            if (_found){
+                var _label = poke_index__location_label(_region_key) + " - " + poke_index__location_label(_habitat_key);
+                var _lvl = (_max_level >= _min_level && _min_level < 999) ? ("Lv." + string(_min_level) + "-" + string(_max_level)) : "";
+                array_push(_out, { region:_region_key, habitat:_habitat_key, label:_label, levels:_lvl });
+            }
+        }
+    }
+    return _out;
+}
+
+function poke_index__wrap_lines(_text, _max_w){
+    var _out = [];
+    var _words = string_split(string(_text), " ");
+    var _line = "";
+    for (var _i = 0; _i < array_length(_words); ++_i){
+        var _w = _words[_i];
+        var _try = (_line == "") ? _w : (_line + " " + _w);
+        if (string_width(_try) <= _max_w) _line = _try;
+        else {
+            if (_line != "") array_push(_out, _line);
+            _line = _w;
+        }
+    }
+    if (_line != "") array_push(_out, _line);
+    if (array_length(_out) <= 0) array_push(_out, "");
+    return _out;
+}
+
+function poke_index_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
+    if (!poke_index_is_open(_pid)) return;
+    var _S = poke_index_ensure(_pid);
+    var _rows = poke_index__filtered_rows(_pid, _S);
+    poke_index__clamp_state(_pid, _S);
+    _rows = poke_index__filtered_rows(_pid, _S);
+
+    draw_set_alpha(1);
+    draw_set_color(c_white);
+    gpu_set_blendmode(bm_normal);
+    if (variable_global_exists("FNT_POKEMON")) draw_set_font(global.FNT_POKEMON); else draw_set_font(-1);
+
+    var _s = max(1, min(floor(_rw / 240), floor(_rh / 160)));
+    var _ox = _rx + (_rw - 240 * _s) div 2;
+    var _oy = _ry + (_rh - 160 * _s) div 2;
+    var _text_dy = 5 * _s;
+    var _t = current_time / 1000;
+    var _pulse = 0.75 + 0.25 * sin(_t * 5);
+
+    var C_BG1 = make_color_rgb(80, 176, 152);
+    var C_BG2 = make_color_rgb(56, 144, 136);
+    var C_PANEL = make_color_rgb(240, 232, 184);
+    var C_EDGE = make_color_rgb(40, 72, 88);
+    var C_SEL = make_color_rgb(232, 96, 72);
+    var C_MAP = make_color_rgb(120, 200, 144);
+
+    for (var _yy = 0; _yy < 160; _yy += 8){
+        draw_set_color(((_yy div 8) & 1) ? C_BG1 : C_BG2);
+        draw_rectangle(_ox, _oy + _yy * _s, _ox + 240 * _s, _oy + (_yy + 8) * _s, false);
+    }
+
+    draw_set_color(C_EDGE);
+    draw_rectangle(_ox + 4 * _s, _oy + 4 * _s, _ox + 236 * _s, _oy + 156 * _s, false);
+    draw_set_color(C_PANEL);
+    draw_rectangle(_ox + 7 * _s, _oy + 7 * _s, _ox + 233 * _s, _oy + 153 * _s, false);
+
+    draw_set_color(C_EDGE);
+    draw_text(_ox + 14 * _s, _oy + 11 * _s + _text_dy, "POKE-INDEX");
+    draw_text(_ox + 152 * _s, _oy + 11 * _s + _text_dy, poke_index__filter_label(_S.filter));
+    draw_text(_ox + 190 * _s, _oy + 11 * _s + _text_dy, "SEEN " + string(poke_index_seen_count(_pid)));
+
+    if (array_length(_rows) <= 0){
+        draw_set_color(c_white);
+        draw_text(_ox + 24 * _s, _oy + 72 * _s + _text_dy, "No Pokemon data.");
+        return;
+    }
+
+    var _row = _rows[_S.sel];
+    var _sid = variable_struct_get(_row, "species_id");
+    var _seen = poke_index_has_seen(_pid, _sid);
+    var _got = poke_index_has_caught(_pid, _sid);
+
+    if (string(_S.page) == "area"){
+        poke_index__draw_area_page(_pid, _S, _sid, _seen, _got, _ox, _oy, _s, _text_dy, C_EDGE, C_PANEL, C_MAP);
+        return;
+    }
+
+    var _list_x = 12, _list_y = 30, _list_w = 132, _list_h = 112;
+    var _info_x = 150, _info_y = 30, _info_w = 74, _info_h = 112;
+    draw_set_color(c_white);
+    draw_rectangle(_ox + _list_x * _s, _oy + _list_y * _s, _ox + (_list_x + _list_w) * _s, _oy + (_list_y + _list_h) * _s, false);
+    draw_set_color(C_EDGE);
+    draw_rectangle(_ox + _list_x * _s - _s, _oy + _list_y * _s - _s, _ox + (_list_x + _list_w) * _s + _s, _oy + (_list_y + _list_h) * _s + _s, true);
+
+    var _line_h = max(12, string_height("A") + 2);
+    var _caught_marks = _S.caught;
+    for (var _r = 0; _r < 8; ++_r){
+        var _idx = _S.scroll + _r;
+        if (_idx >= array_length(_rows)) break;
+        var _row_entry = _rows[_idx];
+        var _rsid = variable_struct_get(_row_entry, "species_id");
+        var _known = poke_index_has_seen(_pid, _rsid);
+        var _row_got = false;
+        if (_rsid >= 0 && _rsid < array_length(_caught_marks)){
+            if (_caught_marks[_rsid] == true) _row_got = true;
+        }
+        var _row_y = _oy + (_list_y + 7 + _r * _line_h) * _s;
+        if (_idx == _S.sel){
+            draw_set_alpha(_pulse);
+            draw_set_color(C_SEL);
+            draw_rectangle(_ox + (_list_x + 3) * _s, _row_y - 1 * _s, _ox + (_list_x + _list_w - 3) * _s, _row_y + (_line_h - 1) * _s, false);
+            draw_set_alpha(1);
+        }
+        draw_set_color(c_white);
+        var _cursor_txt = " ";
+        if (_idx == _S.sel) _cursor_txt = ">";
+        draw_text(_ox + (_list_x + 6) * _s, _row_y + _text_dy, _cursor_txt);
+        draw_text(_ox + (_list_x + 18) * _s, _row_y + _text_dy, string_format(_rsid, 3, 0));
+        draw_text(_ox + (_list_x + 46) * _s, _row_y + _text_dy, poke_index__display_name(_rsid, _known));
+        if (_row_got){
+            draw_text(_ox + (_list_x + _list_w - 14) * _s, _row_y + _text_dy, "*");
+        }
+    }
+
+    draw_set_color(C_MAP);
+    draw_rectangle(_ox + _info_x * _s, _oy + _info_y * _s, _ox + (_info_x + _info_w) * _s, _oy + (_info_y + _info_h) * _s, false);
+    draw_set_color(C_EDGE);
+    draw_rectangle(_ox + _info_x * _s - _s, _oy + _info_y * _s - _s, _ox + (_info_x + _info_w) * _s + _s, _oy + (_info_y + _info_h) * _s + _s, true);
+    draw_set_color(c_white);
+    draw_text(_ox + (_info_x + 6) * _s, _oy + (_info_y + 8) * _s + _text_dy, "No." + string_format(_sid, 3, 0));
+    draw_text(_ox + (_info_x + 6) * _s, _oy + (_info_y + 22) * _s + _text_dy, poke_index__display_name(_sid, _seen));
+    var _status_txt = "UNKNOWN";
+    if (_seen) _status_txt = "SEEN";
+    if (_got) _status_txt = "CAUGHT";
+    draw_text(_ox + (_info_x + 6) * _s, _oy + (_info_y + 38) * _s + _text_dy, _status_txt);
+    if (_seen){
+        var _type_txt = "";
+        if (!is_undefined(scr_poke_type_str)) _type_txt = scr_poke_type_str(_sid);
+        var _lines = poke_index__wrap_lines(_type_txt, (_info_w - 12) * _s);
+        for (var _li = 0; _li < min(2, array_length(_lines)); ++_li) draw_text(_ox + (_info_x + 6) * _s, _oy + (_info_y + 54 + _li * 12) * _s + _text_dy, _lines[_li]);
+    }
+    draw_text(_ox + (_info_x + 6) * _s, _oy + (_info_y + 92) * _s + _text_dy, "AREA");
+}
+
+function poke_index__draw_area_page(_pid, _S, _sid, _seen, _got, _ox, _oy, _s, _text_dy, _C_EDGE, _C_PANEL, _C_MAP){
+    draw_set_color(_C_EDGE);
+    draw_text(_ox + 14 * _s, _oy + 30 * _s + _text_dy, "AREA");
+    draw_set_color(c_white);
+    draw_text(_ox + 14 * _s, _oy + 44 * _s + _text_dy, "No." + string_format(_sid, 3, 0) + " " + poke_index__display_name(_sid, _seen));
+
+    draw_set_color(_C_MAP);
+    draw_rectangle(_ox + 14 * _s, _oy + 62 * _s, _ox + 226 * _s, _oy + 136 * _s, false);
+    draw_set_color(_C_EDGE);
+    draw_rectangle(_ox + 14 * _s - _s, _oy + 62 * _s - _s, _ox + 226 * _s + _s, _oy + 136 * _s + _s, true);
+
+    draw_set_color(c_white);
+    if (!_seen){
+        draw_text(_ox + 24 * _s, _oy + 88 * _s + _text_dy, "Area unknown.");
+        return;
+    }
+
+    var _locs = poke_index_locations_for_species(_sid);
+    if (array_length(_locs) <= 0){
+        draw_text(_ox + 24 * _s, _oy + 88 * _s + _text_dy, "No known wild area.");
+        return;
+    }
+    var _max_rows = 5;
+    for (var _i = 0; _i < min(_max_rows, array_length(_locs)); ++_i){
+        var _loc = _locs[_i];
+        var _txt = _loc.label;
+        if (variable_struct_exists(_loc, "levels") && string_length(_loc.levels) > 0) _txt += " " + _loc.levels;
+        draw_text(_ox + 22 * _s, _oy + (72 + _i * 12) * _s + _text_dy, _txt);
+    }
+}
+
+function poke_index_draw_gui(_pid){
+    var _gw = display_get_gui_width();
+    var _gh = display_get_gui_height();
+    poke_index_draw_gui_rect(_pid, 0, 0, _gw, _gh);
+}
+
+function poke_index_seen_count(_pid){
+    var _S = poke_index_ensure(_pid);
+    var _n = 0;
+    for (var _i = 0; _i < array_length(_S.seen); ++_i) if (_S.seen[_i] == true) _n++;
+    return _n;
+}

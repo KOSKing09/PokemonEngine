@@ -11,6 +11,7 @@ function __bag_impl_bags_update(){
             var _can_use_registered = true;
             if (!is_undefined(pause_is_open) && pause_is_open(pid)) _can_use_registered = false;
             if (!is_undefined(party_is_open) && party_is_open(pid)) _can_use_registered = false;
+            if (!is_undefined(poke_index_is_open) && poke_index_is_open(pid)) _can_use_registered = false;
             if (!is_undefined(dialog2p_is_open) && dialog2p_is_open(pid)) _can_use_registered = false;
             if (!is_undefined(battle_is_open) && battle_is_open(pid)) _can_use_registered = false;
             if (_can_use_registered && controls_pressed(pid, "Inventory") && !is_undefined(bag_registered_use)) bag_registered_use(pid);
