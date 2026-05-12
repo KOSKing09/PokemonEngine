@@ -69,6 +69,8 @@ function pause_update(){
         if (!p.open) continue;
         p.t++;
 
+        if (!is_undefined(dialog2p_is_open) && dialog2p_is_open(pid)) continue;
+
         if (!variable_global_exists("DIALOG_SPEED")) global.DIALOG_SPEED = 2;
 
         if (string(p.mode) == "input"){
@@ -413,7 +415,18 @@ function __pause_do_multiplayer_versus(_pid){
         if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, "Player 2 can drop in with Start before versus is available.");
         return false;
     }
-    return multiplayer_start_versus_battle(_pid);
+
+    var _format = multiplayer_versus_format();
+    var _target_count = (_format == "double") ? 2 : 1;
+    var _enemy_party = __multiplayer_collect_versus_party(1, _target_count);
+    if (array_length(_enemy_party) <= 0){
+        var _player_name = "Player 2";
+        if (variable_global_exists("PLAYER2_NAME")) _player_name = string(global.PLAYER2_NAME);
+        if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, _player_name + " doesnt have pokemon");
+        return false;
+    }
+
+    return multiplayer_request_versus_battle(_pid);
 }
 
 function __pause_multiplayer_queue_label(){

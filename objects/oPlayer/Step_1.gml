@@ -1,6 +1,7 @@
 
 // Drain any queued dialog first (opens next item if allowed), then advance if open
 if (!is_undefined(dialog2p_step)) dialog2p_step(pid);
+if (!is_undefined(multiplayer_update_versus_request)) multiplayer_update_versus_request(pid);
 
 if (keyboard_check_pressed(vk_f1)){
     if (!battle_is_open(pid)){

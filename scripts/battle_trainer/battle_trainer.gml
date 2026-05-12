@@ -1159,6 +1159,62 @@ function __battle_trainer_intro_dialog_open(_pid){
     return false;
 }
 
+function __battle_trainer_intro_dialog_pids(_B, _pid){
+    var _out = [max(0, floor(_pid))];
+    if (is_struct(_B) && variable_struct_exists(_B, "player_pids") && is_array(variable_struct_get(_B, "player_pids"))){
+        var _ppids = variable_struct_get(_B, "player_pids");
+        _out = [];
+        for (var _i = 0; _i < array_length(_ppids); ++_i){
+            if (!is_real(_ppids[_i])) continue;
+            array_push(_out, max(0, floor(_ppids[_i])));
+        }
+    }
+    return _out;
+}
+
+function __battle_trainer_intro_all_dialogs_closed(_B, _pid){
+    var _pids = __battle_trainer_intro_dialog_pids(_B, _pid);
+    for (var _i = 0; _i < array_length(_pids); ++_i){
+        if (__battle_trainer_intro_dialog_open(_pids[_i])) return false;
+    }
+    return true;
+}
+
+function __battle_trainer_intro_trainer_name_for_pid(_B, _pid, _fallback){
+    var _name = string(_fallback);
+    if (is_struct(_B) && variable_struct_exists(_B, "_versus_trainer_names") && is_array(variable_struct_get(_B, "_versus_trainer_names"))){
+        var _names = variable_struct_get(_B, "_versus_trainer_names");
+        if (_pid >= 0 && _pid < array_length(_names) && is_string(_names[_pid])) _name = _names[_pid];
+    }
+    return _name;
+}
+
+function __battle_trainer_intro_enemy_name_for_pid(_B, _pid, _fallback){
+    var _name = string(_fallback);
+    if (!is_struct(_B) || !variable_struct_exists(_B, "actor") || !is_array(variable_struct_get(_B, "actor"))) return _name;
+    var _actors = variable_struct_get(_B, "actor");
+    for (var _i = 0; _i < array_length(_actors); ++_i){
+        var _owner = (!is_undefined(__battle_actor_owner_pid) ? __battle_actor_owner_pid(_pid, _i) : -1);
+        if (!is_real(_owner) || floor(_owner) == floor(_pid)) continue;
+        var _actor = _actors[_i];
+        if (is_struct(_actor) && variable_struct_exists(_actor, "name")) return string(variable_struct_get(_actor, "name"));
+    }
+    return _name;
+}
+
+function __battle_trainer_intro_player_name_for_pid(_B, _pid, _fallback){
+    var _name = string(_fallback);
+    if (!is_struct(_B) || !variable_struct_exists(_B, "actor") || !is_array(variable_struct_get(_B, "actor"))) return _name;
+    var _actors = variable_struct_get(_B, "actor");
+    for (var _i = 0; _i < array_length(_actors); ++_i){
+        var _owner = (!is_undefined(__battle_actor_owner_pid) ? __battle_actor_owner_pid(_pid, _i) : -1);
+        if (!is_real(_owner) || floor(_owner) != floor(_pid)) continue;
+        var _actor = _actors[_i];
+        if (is_struct(_actor) && variable_struct_exists(_actor, "name")) return string(variable_struct_get(_actor, "name"));
+    }
+    return _name;
+}
+
 // Update tick for the trainer intro animation; advances timelines and dialog.
 function __battle_trainer_intro_update(_pid, _B){
     if (!is_struct(_B) || !variable_struct_exists(_B, "_trainer_intro")) return;
@@ -1189,13 +1245,18 @@ function __battle_trainer_intro_update(_pid, _B){
     if (state == "dialog1"){
         var shown1 = (variable_struct_exists(intro, "_dialog1_shown") && intro._dialog1_shown);
         if (!shown1){
-            __battle_trainer_intro_show_dialog(_pid, string(intro.trainer_name) + " would like to battle!");
+            var _dialog_pids = __battle_trainer_intro_dialog_pids(_B, _pid);
+            for (var _di = 0; _di < array_length(_dialog_pids); ++_di){
+                var _dialog_pid = _dialog_pids[_di];
+                var _intro_trainer_name = __battle_trainer_intro_trainer_name_for_pid(_B, _dialog_pid, intro.trainer_name);
+                __battle_trainer_intro_show_dialog(_dialog_pid, _intro_trainer_name + " would like to battle!");
+            }
             variable_struct_set(intro, "_dialog1_shown", true);
         }
         variable_struct_set(intro, "state", "wait_dialog1");
     } else if (state == "wait_dialog1"){
         variable_struct_set(intro, "hide_enemy_mon", true);
-        if (!__battle_trainer_intro_dialog_open(_pid)) variable_struct_set(intro, "state", "throw_prep");
+        if (__battle_trainer_intro_all_dialogs_closed(_B, _pid)) variable_struct_set(intro, "state", "throw_prep");
     } else if (state == "throw_prep"){
         var start_ms = current_time;
         variable_struct_set(intro, "_throw_start_ms", start_ms);
@@ -1207,7 +1268,12 @@ function __battle_trainer_intro_update(_pid, _B){
         variable_struct_set(intro, "_slide_out_duration", slide_dur);
         variable_struct_set(intro, "_slide_out_progress", 0);
         if (!(variable_struct_exists(intro, "_dialog2_shown") && intro._dialog2_shown)){
-            __battle_trainer_intro_show_dialog(_pid, "Go " + string(intro.enemy_mon_name) + "!");
+            var _dialog_pids2 = __battle_trainer_intro_dialog_pids(_B, _pid);
+            for (var _di2 = 0; _di2 < array_length(_dialog_pids2); ++_di2){
+                var _dialog_pid2 = _dialog_pids2[_di2];
+                var _enemy_name = __battle_trainer_intro_enemy_name_for_pid(_B, _dialog_pid2, intro.enemy_mon_name);
+                __battle_trainer_intro_show_dialog(_dialog_pid2, "Go " + _enemy_name + "!");
+            }
             variable_struct_set(intro, "_dialog2_shown", true);
         }
         variable_struct_set(intro, "state", "throw");
@@ -1241,9 +1307,14 @@ function __battle_trainer_intro_update(_pid, _B){
             variable_struct_set(intro, "_enemy_scale_progress", 1);
             variable_struct_set(intro, "enemy_scale_mult", 1);
         }
-        if (!__battle_trainer_intro_dialog_open(_pid)){
+        if (__battle_trainer_intro_all_dialogs_closed(_B, _pid)){
             if (!(variable_struct_exists(intro, "_player_dialog_shown") && intro._player_dialog_shown)){
-                __battle_trainer_intro_show_dialog(_pid, "Go " + string(intro.player_mon_name) + "!");
+                var _dialog_pids3 = __battle_trainer_intro_dialog_pids(_B, _pid);
+                for (var _di3 = 0; _di3 < array_length(_dialog_pids3); ++_di3){
+                    var _dialog_pid3 = _dialog_pids3[_di3];
+                    var _player_name = __battle_trainer_intro_player_name_for_pid(_B, _dialog_pid3, intro.player_mon_name);
+                    __battle_trainer_intro_show_dialog(_dialog_pid3, "Go " + _player_name + "!");
+                }
                 variable_struct_set(intro, "_player_dialog_shown", true);
             }
             _B.phase = "intro_call";
@@ -1259,7 +1330,7 @@ function __battle_trainer_intro_update(_pid, _B){
             _B.phase_start_ms = now;
             _B.phase_progress = 0;
         }
-        if (!__battle_trainer_intro_dialog_open(_pid)){
+        if (__battle_trainer_intro_all_dialogs_closed(_B, _pid)){
             variable_struct_set(intro, "state", "cleanup");
             _B.phase = "intro_call";
             _B.phase_start_ms = now;
@@ -1321,11 +1392,7 @@ function __battle_trainer_intro_draw(_pid, _B){
     var enemy_center_x = trainer_target_x;
     var enemy_center_y = trainer_target_y;
 
-    var enemy_actor_draw = undefined;
-    if (variable_struct_exists(_B, "actor")){
-        var __actors_draw = variable_struct_get(_B, "actor");
-        if (is_array(__actors_draw) && array_length(__actors_draw) > 1) enemy_actor_draw = __actors_draw[1];
-    }
+    var enemy_actor_draw = (!is_undefined(__battle_get_side_actor) ? __battle_get_side_actor(_pid, 1, 0) : undefined);
 
     var enemy_sprite_w = 64;
     var enemy_sprite_h = 64;

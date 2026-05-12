@@ -203,8 +203,9 @@ function __battle_target_pick_index(_B){
 
 function __battle_side_has_alive_actor(_pid, _side){
     var _B = __battle_ensure_slot(_pid);
-    if (!is_struct(_B) || !is_array(_B.actor)) return false;
-    for (var _i = 0; _i < array_length(_B.actor); ++_i){
+    if (!is_struct(_B) || !variable_struct_exists(_B, "actor") || !is_array(variable_struct_get(_B, "actor"))) return false;
+    var _actors = variable_struct_get(_B, "actor");
+    for (var _i = 0; _i < array_length(_actors); ++_i){
         if (__battle_actor_side(_i) != floor(_side)) continue;
         if (__battle_actor_index_alive(_pid, _i)) return true;
     }
@@ -215,13 +216,38 @@ function __battle_commit_player_action(_pid, _action){
     var _B = __battle_ensure_slot(_pid);
     if (!is_struct(_B) || !is_struct(_action)) return false;
     var _versus = (variable_struct_exists(_B, "versus_enabled") && variable_struct_get(_B, "versus_enabled") == true);
+    var _UI = undefined;
+    if (_versus){
+        if (!variable_struct_exists(_B, "_versus_ui") || !is_array(variable_struct_get(_B, "_versus_ui")) || array_length(variable_struct_get(_B, "_versus_ui")) < 2){
+            variable_struct_set(_B, "_versus_ui", [
+                { menu:"root", selX:0, selY:0, command_actor_index:0, command_pending_action:undefined, target_pick_targets:undefined, target_pick_index:0 },
+                { menu:"root", selX:0, selY:0, command_actor_index:0, command_pending_action:undefined, target_pick_targets:undefined, target_pick_index:0 }
+            ]);
+        }
+        var _ui_list = variable_struct_get(_B, "_versus_ui");
+        var _ui_index = clamp(floor(_pid), 0, 1);
+        _UI = _ui_list[_ui_index];
+        if (!is_struct(_UI)){
+            _UI = { menu:"root", selX:0, selY:0, command_actor_index:0, command_pending_action:undefined, target_pick_targets:undefined, target_pick_index:0 };
+            _ui_list[_ui_index] = _UI;
+            variable_struct_set(_B, "_versus_ui", _ui_list);
+        }
+    } else if (variable_struct_exists(_B, "sys_ui")) {
+        _UI = variable_struct_get(_B, "sys_ui");
+    }
 
     __battle_store_player_turn_action(_B, _action);
     if (variable_struct_exists(_action, "actor_index") && variable_struct_get(_action, "actor_index") == 0) variable_struct_set(_B, "turn_action_player", _action);
 
-    variable_struct_set(_B, "_command_pending_action", undefined);
-    variable_struct_set(_B, "_target_pick_targets", undefined);
-    variable_struct_set(_B, "_target_pick_index", 0);
+    if (_versus && is_struct(_UI)){
+        variable_struct_set(_UI, "command_pending_action", undefined);
+        variable_struct_set(_UI, "target_pick_targets", undefined);
+        variable_struct_set(_UI, "target_pick_index", 0);
+    } else {
+        variable_struct_set(_B, "_command_pending_action", undefined);
+        variable_struct_set(_B, "_target_pick_targets", undefined);
+        variable_struct_set(_B, "_target_pick_index", 0);
+    }
 
     if (__battle_all_command_actions_ready(_pid)){
         if (!_versus) variable_struct_set(_B, "turn_action_enemy", __battle_enemy_choose_action(_pid));
@@ -235,12 +261,14 @@ function __battle_commit_player_action(_pid, _action){
 
     var _actor_index = (variable_struct_exists(_action, "actor_index") && is_real(variable_struct_get(_action, "actor_index"))) ? floor(variable_struct_get(_action, "actor_index")) : -1;
     var _next_actor = __battle_next_command_actor_index(_pid, _actor_index);
-    if (_next_actor >= 0) variable_struct_set(_B, "_command_actor_index", _next_actor);
-    var _sys_ui = (variable_struct_exists(_B, "sys_ui") ? variable_struct_get(_B, "sys_ui") : undefined);
-    if (is_struct(_sys_ui)){
-        variable_struct_set(_sys_ui, "menu", "root");
-        variable_struct_set(_sys_ui, "selX", 0);
-        variable_struct_set(_sys_ui, "selY", 0);
+    if (_next_actor >= 0){
+        if (_versus && is_struct(_UI)) variable_struct_set(_UI, "command_actor_index", _next_actor);
+        else variable_struct_set(_B, "_command_actor_index", _next_actor);
+    }
+    if (is_struct(_UI)){
+        variable_struct_set(_UI, "menu", "root");
+        variable_struct_set(_UI, "selX", 0);
+        variable_struct_set(_UI, "selY", 0);
     }
     return false;
 }

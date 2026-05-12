@@ -465,36 +465,95 @@ function __battle_player_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_A,_label,_compac
     if (_restore_font2 != -1) draw_set_font(_restore_font2);
 }
 
+function __battle_ui_state_for_pid(_B, _pid){
+    if (!is_struct(_B)) return undefined;
+    if (!variable_struct_exists(_B, "sys_ui") || !is_struct(variable_struct_get(_B, "sys_ui"))){
+        variable_struct_set(_B, "sys_ui", { menu:"root", selX:0, selY:0, msg_list:undefined });
+    }
+
+    var _versus = variable_struct_exists(_B, "versus_enabled") && variable_struct_get(_B, "versus_enabled") == true;
+    if (!_versus) return variable_struct_get(_B, "sys_ui");
+
+    if (!variable_struct_exists(_B, "_versus_ui") || !is_array(variable_struct_get(_B, "_versus_ui")) || array_length(variable_struct_get(_B, "_versus_ui")) < 2){
+        variable_struct_set(_B, "_versus_ui", [
+            { menu:"root", selX:0, selY:0, command_actor_index:0, command_pending_action:undefined, target_pick_targets:undefined, target_pick_index:0 },
+            { menu:"root", selX:0, selY:0, command_actor_index:0, command_pending_action:undefined, target_pick_targets:undefined, target_pick_index:0 }
+        ]);
+    }
+
+    var _ui_list = variable_struct_get(_B, "_versus_ui");
+    var _ui_index = clamp(floor(_pid), 0, 1);
+    var _ui = _ui_list[_ui_index];
+    if (!is_struct(_ui)) _ui = { menu:"root", selX:0, selY:0, command_actor_index:0, command_pending_action:undefined, target_pick_targets:undefined, target_pick_index:0 };
+    if (!variable_struct_exists(_ui, "menu") || string_length(string(variable_struct_get(_ui, "menu"))) <= 0) variable_struct_set(_ui, "menu", "root");
+    if (!variable_struct_exists(_ui, "selX") || !is_real(variable_struct_get(_ui, "selX"))) variable_struct_set(_ui, "selX", 0);
+    if (!variable_struct_exists(_ui, "selY") || !is_real(variable_struct_get(_ui, "selY"))) variable_struct_set(_ui, "selY", 0);
+    if (!variable_struct_exists(_ui, "command_actor_index") || !is_real(variable_struct_get(_ui, "command_actor_index"))) variable_struct_set(_ui, "command_actor_index", 0);
+    if (!variable_struct_exists(_ui, "target_pick_index") || !is_real(variable_struct_get(_ui, "target_pick_index"))) variable_struct_set(_ui, "target_pick_index", 0);
+    _ui_list[_ui_index] = _ui;
+    variable_struct_set(_B, "_versus_ui", _ui_list);
+    return _ui;
+}
+
 function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
     var _B = __battle_ensure_slot(_pid);
+    var _UI = __battle_ui_state_for_pid(_B, _pid);
     var _t  = _B.theme;
+    var _versus = is_struct(_B) && variable_struct_exists(_B, "versus_enabled") && variable_struct_get(_B, "versus_enabled") == true;
     var _bx = __bxu(_pid,_rxIn), _by = __byu(_pid,_ryIn), _bw = __bwu(_pid,_rwIn), _bh = __bhu(_pid,_rhIn);
 
     // Dialog rendering (clamped)
     var _dialog_pid = _pid;
+    var _dialog_pid_open = -1;
     var _dialog_open = (!is_undefined(dialog2p_is_open) && dialog2p_is_open(_dialog_pid));
-    if (!_dialog_open && is_struct(_B) && variable_struct_exists(_B, "player_pids") && is_array(variable_struct_get(_B, "player_pids"))){
+    if (_dialog_open) _dialog_pid_open = _dialog_pid;
+    var _any_dialog_open = _dialog_open;
+    var _has_own_dialog_queue = false;
+    var _has_own_pending_status = false;
+    try {
+        if (variable_global_exists("DIALOG2P_Q") && is_array(global.DIALOG2P_Q) && array_length(global.DIALOG2P_Q) > _pid){
+            var _own_q = global.DIALOG2P_Q[_pid];
+            _has_own_dialog_queue = (is_array(_own_q) && array_length(_own_q) > 0);
+        }
+    } catch (e_dialog_q) { _has_own_dialog_queue = false; }
+    try {
+        if (variable_struct_exists(_B, "_pending_status_msgs") && is_array(variable_struct_get(_B, "_pending_status_msgs"))){
+            var _own_pending = variable_struct_get(_B, "_pending_status_msgs");
+            for (var _op_i = 0; _op_i < array_length(_own_pending); ++_op_i){
+                var _op_msg = _own_pending[_op_i];
+                if (!is_undefined(__battle_pending_msg_pid) && __battle_pending_msg_pid(_op_msg, -1) == _pid){
+                    _has_own_pending_status = true;
+                    break;
+                }
+            }
+        }
+    } catch (e_dialog_pending) { _has_own_pending_status = false; }
+    if (is_struct(_B) && variable_struct_exists(_B, "player_pids") && is_array(variable_struct_get(_B, "player_pids"))){
         var _dialog_pids = variable_struct_get(_B, "player_pids");
         for (var _dpi = 0; _dpi < array_length(_dialog_pids); ++_dpi){
             var _dpid = _dialog_pids[_dpi];
             if (!is_real(_dpid)) continue;
             _dpid = floor(_dpid);
             if (!is_undefined(dialog2p_is_open) && dialog2p_is_open(_dpid)){
-                _dialog_pid = _dpid;
-                _dialog_open = true;
-                break;
+                _any_dialog_open = true;
+                if (_dialog_pid_open < 0) _dialog_pid_open = _dpid;
             }
         }
     }
+    if (!_dialog_open && _dialog_pid_open >= 0 && !_has_own_dialog_queue && !_has_own_pending_status) _dialog_pid = _dialog_pid_open;
+    _dialog_open = (_dialog_pid >= 0 && !is_undefined(dialog2p_is_open) && dialog2p_is_open(_dialog_pid));
     if (_dialog_open){
         __battle_panel_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn);
         var d = (!is_undefined(dialog2p_ensure_pid)) ? dialog2p_ensure_pid(_dialog_pid) : global.DIALOG2P[_dialog_pid];
         if (is_struct(d)){
-            var i0 = d.page_idx*2, i1 = i0+1;
-            var l0 = (i0 < array_length(d.all_lines)) ? d.all_lines[i0] : "";
-            var l1 = (i1 < array_length(d.all_lines)) ? d.all_lines[i1] : "";
+            var _page_idx = variable_struct_exists(d, "page_idx") ? variable_struct_get(d, "page_idx") : 0;
+            var _all_lines = (variable_struct_exists(d, "all_lines") && is_array(variable_struct_get(d, "all_lines"))) ? variable_struct_get(d, "all_lines") : [];
+            var _char_idx = variable_struct_exists(d, "char_idx") ? variable_struct_get(d, "char_idx") : 0;
+            var i0 = _page_idx*2, i1 = i0+1;
+            var l0 = (i0 < array_length(_all_lines)) ? _all_lines[i0] : "";
+            var l1 = (i1 < array_length(_all_lines)) ? _all_lines[i1] : "";
             var page_str = l0 + "\n" + l1;
-            var vis_str = string_copy(page_str, 1, d.char_idx);
+            var vis_str = string_copy(page_str, 1, _char_idx);
 
             var vis0 = vis_str, vis1 = "";
             var npos = string_pos("\n", vis_str);
@@ -517,6 +576,10 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
                 _dialog_col
             );
         }
+        return;
+    }
+    if (_any_dialog_open){
+        __battle_panel_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn);
         return;
     }
 
@@ -597,6 +660,7 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
         if (variable_struct_exists(_B, "_suppress_wait_for_dialog_close") && variable_struct_get(_B, "_suppress_wait_for_dialog_close")) return;
         if (variable_struct_exists(_B, "_action_active") && variable_struct_get(_B, "_action_active")) return;
     } catch (e_introguard) {}
+    try { if (!is_undefined(__battle_has_forced_switch_lock) && __battle_has_forced_switch_lock(_pid)) return; } catch (e_forced_ui_guard) {}
     // If a closing fade is active, hide command UI entirely
     try { if (variable_struct_exists(_B, "_closing") && variable_struct_get(_B, "_closing")) return; } catch (e_closeguard) {}
 
@@ -631,6 +695,25 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
         if (is_struct(_lp_tmp) && variable_struct_exists(_lp_tmp, "active") && _lp_tmp.active) return;
     }
 
+    if (_versus && string(variable_struct_get(_B, "phase")) == "command"){
+        var _vs_current_owner = -1;
+        if (variable_struct_exists(_UI, "command_actor_index") && is_real(variable_struct_get(_UI, "command_actor_index")) && !is_undefined(__battle_actor_control_pid)){
+            _vs_current_owner = __battle_actor_control_pid(_pid, floor(variable_struct_get(_UI, "command_actor_index")));
+        }
+        var _vs_actors_for_pid = (!is_undefined(__battle_command_actor_indexes)) ? __battle_command_actor_indexes(_pid) : [];
+        var _vs_has_pending_command = false;
+        if (is_array(_vs_actors_for_pid)){
+            for (var _vs_wait_i = 0; _vs_wait_i < array_length(_vs_actors_for_pid); ++_vs_wait_i){
+                var _vs_queued_action = (!is_undefined(__battle_find_player_turn_action)) ? __battle_find_player_turn_action(_B, _vs_actors_for_pid[_vs_wait_i]) : undefined;
+                if (!is_struct(_vs_queued_action)){
+                    _vs_has_pending_command = true;
+                    break;
+                }
+            }
+        }
+        if (!_vs_has_pending_command || (is_real(_vs_current_owner) && _vs_current_owner >= 0 && _vs_current_owner != _pid)) return;
+    }
+
     if (variable_struct_exists(_B, "battle_format") && string(variable_struct_get(_B, "battle_format")) == "double"){
         var _current_actor_owner = -1;
         if (variable_struct_exists(_B, "_command_actor_index") && is_real(variable_struct_get(_B, "_command_actor_index")) && !is_undefined(__battle_actor_control_pid)){
@@ -657,12 +740,12 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
         }
     }
 
-    if (string(_B.sys_ui.menu) == "target"){
+    if (string(variable_struct_get(_UI, "menu")) == "target"){
         var _restore_font_target = -1;
         if (variable_global_exists("FNT_POKEMON")) _restore_font_target = global.FNT_POKEMON;
         if (variable_global_exists("FNT_POKEMON_SMALL")) draw_set_font(global.FNT_POKEMON_SMALL);
         var _target_msg = "Choose a target";
-        var _actor_idx = (variable_struct_exists(_B, "_command_actor_index") && is_real(variable_struct_get(_B, "_command_actor_index"))) ? floor(variable_struct_get(_B, "_command_actor_index")) : 0;
+        var _actor_idx = (variable_struct_exists(_UI, "command_actor_index") && is_real(variable_struct_get(_UI, "command_actor_index"))) ? floor(variable_struct_get(_UI, "command_actor_index")) : ((variable_struct_exists(_B, "_command_actor_index") && is_real(variable_struct_get(_B, "_command_actor_index"))) ? floor(variable_struct_get(_B, "_command_actor_index")) : 0);
         if (variable_struct_exists(_B, "battle_format") && string(variable_struct_get(_B, "battle_format")) == "double") _target_msg = "P" + string(__battle_actor_slot(_actor_idx) + 1) + ": choose a target";
         draw_set_color(variable_struct_exists(_t, "col_ui_text") ? variable_struct_get(_t, "col_ui_text") : _t.col_text);
         draw_text(_bx + __bwu(_pid, 8), _by + __bhu(_pid, 8), _target_msg);
@@ -672,12 +755,12 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
     }
 
     // FIGHT submenu
-    if (string(_B.sys_ui.menu) == "fight"){
+    if (string(variable_struct_get(_UI, "menu")) == "fight"){
         var restoreFont = -1;
         if (variable_global_exists("FNT_POKEMON")) restoreFont = global.FNT_POKEMON;
         if (variable_global_exists("FNT_POKEMON_SMALL")) draw_set_font(global.FNT_POKEMON_SMALL);
 
-        var _command_actor_idx = (variable_struct_exists(_B, "_command_actor_index") && is_real(variable_struct_get(_B, "_command_actor_index"))) ? floor(variable_struct_get(_B, "_command_actor_index")) : 0;
+        var _command_actor_idx = (variable_struct_exists(_UI, "command_actor_index") && is_real(variable_struct_get(_UI, "command_actor_index"))) ? floor(variable_struct_get(_UI, "command_actor_index")) : ((variable_struct_exists(_B, "_command_actor_index") && is_real(variable_struct_get(_B, "_command_actor_index"))) ? floor(variable_struct_get(_B, "_command_actor_index")) : 0);
         var A = _B.actor[_command_actor_idx];
         if (variable_struct_exists(_B, "battle_format") && string(variable_struct_get(_B, "battle_format")) == "double"){
             var _actor_label = "P" + string(__battle_actor_slot(_command_actor_idx) + 1);

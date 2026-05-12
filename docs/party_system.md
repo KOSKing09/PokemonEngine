@@ -40,6 +40,81 @@ Common fields:
 - `give_pending` and `use_pending`: temporary payloads passed in from the bag system
 - `_battle_swap_mode`, `_battle_swap_mode_forced`, `_battle_baton_pass_mode`: battle-owned flags for switch behavior
 
+## Player/Party Layering
+
+Player instances and party data are separate layers.
+
+- `oPlayer` stores movement, input-facing state, skin, and runtime presentation fields like `pid`, `battleAnim`, and directional sprites.
+- `global.PARTY[pid]` stores the actual team for that player.
+- `P.mons` is the authoritative array of Pokemon structs for that player.
+- Battle, bag, party UI, and catch flows all read mons through `party_ensure(pid)` and `party_model_*` helpers, not from the player instance.
+
+Practical rule:
+
+- If you want to give a player Pokemon, write to `global.PARTY[pid].mons` through the model helpers.
+- Do not add mon structs to `oPlayer` and expect the rest of the systems to see them.
+
+Common ownership path:
+
+- `pid` on `oPlayer`
+- `global.PARTY[pid]`
+- `global.PARTY[pid].mons[index]`
+
+For co-op drop-in, player 2 now gets their party seeded on join if `PARTY[1]` is still empty.
+
+## Adding Pokemon
+
+There are two supported ways to add a Pokemon to a player.
+
+1. Build a mon with `pokemon_factory_create(...)`, then store it with `party_model_add_mon(pid, mon)`.
+2. Use the demo seed helpers when you want a quick test party.
+
+Recommended API flow:
+
+- `party_ensure(pid)` to ensure the container exists
+- `pokemon_factory_create(species_id, level, opts)` to build the mon struct
+- `party_model_copy_mon(mon)` if you want a detached copy
+- `party_model_add_mon(pid, mon)` to append it
+- `party_model_update_mon(pid, index, mon)` to replace or mutate an existing slot
+
+Example: add one specific Pokemon to player 1.
+
+```gml
+var _pid = 0;
+party_ensure(_pid);
+
+var _mon = pokemon_factory_create(25, 12, {
+    ot: "YOU",
+    idno: 25012,
+    shiny: false
+});
+
+party_model_add_mon(_pid, party_model_copy_mon(_mon));
+```
+
+Example: replace slot 0 for player 2.
+
+```gml
+var _pid = 1;
+party_ensure(_pid);
+
+var _mon = pokemon_factory_create(133, 10, {
+    ot: "P2",
+    idno: 11010,
+    shiny: false
+});
+
+party_model_update_mon(_pid, 0, party_model_copy_mon(_mon));
+```
+
+Example: give player 2 a full quick test party.
+
+```gml
+multiplayer_seed_party_if_missing(1, 6);
+```
+
+That helper is intended for multiplayer drop-in and dev smoke paths. For production content, prefer explicit `pokemon_factory_create(...)` plus `party_model_add_mon(...)`.
+
 ## Ownership map
 
 - `scripts/party_system/party_system.gml`: public wrappers, state defaults, summary text selection helpers, and learn-flow helpers

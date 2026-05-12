@@ -1028,7 +1028,18 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                     if (!is_undefined(pkicons_get_art96_by_mon) && !is_undefined(pkicons_get_art96_subimg_by_mon) && is_struct(_att_mon)){
                                         _spr_att = pkicons_get_art96_by_mon(_att_mon);
                                         // prefer back-facing image for player-side actors
-                                        var _att_is_player = (is_real(_act_idx_qa_live) && !is_undefined(__battle_actor_side)) ? (__battle_actor_side(_act_idx_qa_live) == 0) : (is_struct(_live_attacker_qa) && variable_struct_exists(_live_attacker_qa, "actor_index") && __battle_actor_side(variable_struct_get(_live_attacker_qa, "actor_index")) == 0);
+                                        var _att_is_player = false;
+                                        if (is_real(_act_idx_qa_live) && !is_undefined(__battle_actor_view_side_slot)){
+                                            var _qa_view = __battle_actor_view_side_slot(_pid, _act_idx_qa_live);
+                                            _att_is_player = (is_struct(_qa_view) && variable_struct_exists(_qa_view, "side") && variable_struct_get(_qa_view, "side") == 0);
+                                        } else if (is_real(_act_idx_qa_live) && !is_undefined(__battle_actor_side)){
+                                            _att_is_player = (__battle_actor_side(_act_idx_qa_live) == 0);
+                                        } else if (is_struct(_live_attacker_qa) && variable_struct_exists(_live_attacker_qa, "actor_index") && !is_undefined(__battle_actor_view_side_slot)){
+                                            var _qa_view_fallback = __battle_actor_view_side_slot(_pid, variable_struct_get(_live_attacker_qa, "actor_index"));
+                                            _att_is_player = (is_struct(_qa_view_fallback) && variable_struct_exists(_qa_view_fallback, "side") && variable_struct_get(_qa_view_fallback, "side") == 0);
+                                        } else if (is_struct(_live_attacker_qa) && variable_struct_exists(_live_attacker_qa, "actor_index") && !is_undefined(__battle_actor_side)){
+                                            _att_is_player = (__battle_actor_side(variable_struct_get(_live_attacker_qa, "actor_index")) == 0);
+                                        }
                                         try { _frame_att = pkicons_get_art96_subimg_by_mon(_att_mon, _att_is_player); } catch (e_fa) { _frame_att = 0; }
                                     }
                                 } catch (e_res) { _spr_att = undefined; _frame_att = 0; }

@@ -98,9 +98,57 @@ function multiplayer_ensure_state(){
     if (_versus_format != "double") _versus_format = "single";
     variable_struct_set(_M, "versus_format", _versus_format);
 
+    if (!variable_struct_exists(_M, "versus_request") || !is_struct(variable_struct_get(_M, "versus_request"))){
+        variable_struct_set(_M, "versus_request", {
+            active: false,
+            requester_pid: -1,
+            responder_pid: -1,
+            prompt_shown: false,
+            prompt_closed_ms: -1,
+            response: "",
+            battle_format: "single"
+        });
+    } else {
+        var _VR = variable_struct_get(_M, "versus_request");
+        if (!variable_struct_exists(_VR, "active")) variable_struct_set(_VR, "active", false);
+        if (!variable_struct_exists(_VR, "requester_pid") || !is_real(variable_struct_get(_VR, "requester_pid"))) variable_struct_set(_VR, "requester_pid", -1);
+        if (!variable_struct_exists(_VR, "responder_pid") || !is_real(variable_struct_get(_VR, "responder_pid"))) variable_struct_set(_VR, "responder_pid", -1);
+        if (!variable_struct_exists(_VR, "prompt_shown")) variable_struct_set(_VR, "prompt_shown", false);
+        if (!variable_struct_exists(_VR, "prompt_closed_ms") || !is_real(variable_struct_get(_VR, "prompt_closed_ms"))) variable_struct_set(_VR, "prompt_closed_ms", -1);
+        if (!variable_struct_exists(_VR, "response")) variable_struct_set(_VR, "response", "");
+        if (!variable_struct_exists(_VR, "battle_format")) variable_struct_set(_VR, "battle_format", "single");
+        variable_struct_set(_M, "versus_request", _VR);
+    }
+
     global.MULTIPLAYER = _M;
     if (!variable_global_exists("p2")) global.p2 = noone;
     return _M;
+}
+
+function __multiplayer_player_label(_pid){
+    var _label = "PLAYER " + string(max(0, floor(_pid)) + 1);
+    if (floor(_pid) == 0 && variable_global_exists("PLAYER_NAME")) _label = string(global.PLAYER_NAME);
+    if (floor(_pid) == 1 && variable_global_exists("PLAYER2_NAME")) _label = string(global.PLAYER2_NAME);
+    return _label;
+}
+
+function __multiplayer_versus_format_label(_format){
+    return (string_lower(string(_format)) == "double") ? "DOUBLE" : "SINGLE";
+}
+
+function multiplayer_clear_versus_request(){
+    var _M = multiplayer_ensure_state();
+    variable_struct_set(_M, "versus_request", {
+        active: false,
+        requester_pid: -1,
+        responder_pid: -1,
+        prompt_shown: false,
+        prompt_closed_ms: -1,
+        response: "",
+        battle_format: "single"
+    });
+    global.MULTIPLAYER = _M;
+    return false;
 }
 
 function multiplayer_load_options(){
@@ -232,17 +280,36 @@ function __multiplayer_spawn_y(){
     return 16;
 }
 
+function multiplayer_seed_party_if_missing(_pid, _count = 6){
+    var _target_pid = max(0, floor(_pid));
+    var _mons = (!is_undefined(party_model_get_mons) ? party_model_get_mons(_target_pid) : []);
+    if (is_array(_mons) && array_length(_mons) > 0) return array_length(_mons);
+
+    if (!is_undefined(scr_party_debug_seed_random)){
+        scr_party_debug_seed_random(_target_pid, max(1, floor(_count)));
+        if (variable_global_exists("DEMO_FORCE_SPECIES") && is_array(global.DEMO_FORCE_SPECIES) && !is_undefined(scr_party_demo_apply_forced)){
+            scr_party_demo_apply_forced(_target_pid);
+        }
+    }
+
+    if (!is_undefined(party_apply_name_support)) party_apply_name_support(_target_pid);
+    _mons = (!is_undefined(party_model_get_mons) ? party_model_get_mons(_target_pid) : []);
+    return is_array(_mons) ? array_length(_mons) : 0;
+}
+
 function multiplayer_spawn_player(_pid){
     var _target_pid = (is_real(_pid) ? floor(_pid) : 1);
     if (_target_pid != 1) return player_by_pid(_target_pid);
     var _existing = player_by_pid(_target_pid);
     if (_existing != noone){
+        multiplayer_seed_party_if_missing(_target_pid);
         multiplayer_sync_runtime();
         return _existing;
     }
     var _spawned = instance_create_layer(__multiplayer_spawn_x(), __multiplayer_spawn_y(), "Instances", oPlayer);
     try { variable_instance_set(_spawned, "pid", _target_pid); } catch (e_multi_pid) {}
     try { variable_instance_set(_spawned, "_speed", 2); } catch (e_multi_speed) {}
+    multiplayer_seed_party_if_missing(_target_pid);
     multiplayer_sync_runtime();
     return _spawned;
 }
@@ -276,6 +343,113 @@ function multiplayer_battle_open(){
     return false;
 }
 
+function multiplayer_request_versus_battle(_pid){
+    var _requester_pid = max(0, floor(_pid));
+    var _responder_pid = (_requester_pid == 0) ? 1 : 0;
+    if (!multiplayer_player_joined(_responder_pid)) return false;
+    if (multiplayer_battle_open()) return false;
+
+    var _M = multiplayer_ensure_state();
+    var _VR = variable_struct_get(_M, "versus_request");
+    if (is_struct(_VR) && variable_struct_exists(_VR, "active") && variable_struct_get(_VR, "active") == true){
+        if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_requester_pid, "A battle request is already pending.");
+        return false;
+    }
+
+    var _format = multiplayer_versus_format();
+    var _target_count = (_format == "double") ? 2 : 1;
+    var _requester_party = __multiplayer_collect_versus_party(_requester_pid, _target_count);
+    var _responder_party = __multiplayer_collect_versus_party(_responder_pid, _target_count);
+    if (array_length(_requester_party) <= 0){
+        if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_requester_pid, __multiplayer_player_label(_requester_pid) + " doesnt have pokemon");
+        return false;
+    }
+    if (array_length(_responder_party) <= 0){
+        if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_requester_pid, __multiplayer_player_label(_responder_pid) + " doesnt have pokemon");
+        return false;
+    }
+
+    variable_struct_set(_VR, "active", true);
+    variable_struct_set(_VR, "requester_pid", _requester_pid);
+    variable_struct_set(_VR, "responder_pid", _responder_pid);
+    variable_struct_set(_VR, "prompt_shown", false);
+    variable_struct_set(_VR, "prompt_closed_ms", -1);
+    variable_struct_set(_VR, "response", "");
+    variable_struct_set(_VR, "battle_format", _format);
+    variable_struct_set(_M, "versus_request", _VR);
+    global.MULTIPLAYER = _M;
+
+    if (!is_undefined(pause_is_open) && pause_is_open(_requester_pid)) pause_toggle(_requester_pid);
+    if (!is_undefined(pause_is_open) && pause_is_open(_responder_pid)) pause_toggle(_responder_pid);
+    if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_requester_pid, __multiplayer_versus_format_label(_format) + " battle request sent to " + __multiplayer_player_label(_responder_pid) + ".");
+    return true;
+}
+
+function multiplayer_update_versus_request(_pid){
+    var _self_pid = max(0, floor(_pid));
+    var _M = multiplayer_ensure_state();
+    var _VR = variable_struct_get(_M, "versus_request");
+    if (!is_struct(_VR) || !variable_struct_exists(_VR, "active") || variable_struct_get(_VR, "active") != true) return false;
+
+    var _requester_pid = max(0, floor(variable_struct_get(_VR, "requester_pid")));
+    var _responder_pid = max(0, floor(variable_struct_get(_VR, "responder_pid")));
+    var _battle_format = variable_struct_exists(_VR, "battle_format") ? string(variable_struct_get(_VR, "battle_format")) : multiplayer_versus_format();
+    var _battle_label = __multiplayer_versus_format_label(_battle_format);
+    if (!multiplayer_player_joined(_requester_pid) || !multiplayer_player_joined(_responder_pid) || multiplayer_battle_open()){
+        multiplayer_clear_versus_request();
+        return false;
+    }
+    if (_self_pid != _responder_pid) return false;
+
+    if (!variable_struct_get(_VR, "prompt_shown")){
+        if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_responder_pid, __multiplayer_player_label(_requester_pid) + " wants a " + _battle_label + " battle!\nPress Interact to accept.\nPress Back to decline.");
+        variable_struct_set(_VR, "prompt_shown", true);
+        variable_struct_set(_VR, "prompt_closed_ms", -1);
+        variable_struct_set(_VR, "response", "");
+        variable_struct_set(_M, "versus_request", _VR);
+        global.MULTIPLAYER = _M;
+        return true;
+    }
+
+    var _prompt_open = (!is_undefined(dialog2p_is_open) && dialog2p_is_open(_responder_pid));
+    if (_prompt_open){
+        if (controls_pressed(_responder_pid, "Interact")) variable_struct_set(_VR, "response", "accept");
+        if (controls_pressed(_responder_pid, "Back")) variable_struct_set(_VR, "response", "decline");
+        variable_struct_set(_VR, "prompt_closed_ms", -1);
+        variable_struct_set(_M, "versus_request", _VR);
+        global.MULTIPLAYER = _M;
+        return true;
+    }
+
+    var _prompt_closed_ms = variable_struct_get(_VR, "prompt_closed_ms");
+    if (!is_real(_prompt_closed_ms) || _prompt_closed_ms < 0){
+        variable_struct_set(_VR, "prompt_closed_ms", (is_real(current_time) ? current_time + 150 : 150));
+        variable_struct_set(_M, "versus_request", _VR);
+        global.MULTIPLAYER = _M;
+        return true;
+    }
+    if (is_real(current_time) && current_time < _prompt_closed_ms) return true;
+
+    var _response = string_lower(string(variable_struct_get(_VR, "response")));
+    if (_response == "accept"){
+        if (!is_undefined(pause_is_open) && pause_is_open(0)) pause_toggle(0);
+        if (!is_undefined(pause_is_open) && pause_is_open(1)) pause_toggle(1);
+        var _started = multiplayer_start_versus_battle(_requester_pid);
+        multiplayer_clear_versus_request();
+        if (!_started && !is_undefined(dialog2p_show_now)) dialog2p_show_now(_responder_pid, "Battle could not be started.");
+        return _started;
+    }
+
+    if (_response == "decline"){
+        if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_requester_pid, __multiplayer_player_label(_responder_pid) + " has declined to battle in a " + _battle_label + " battle.");
+        if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_responder_pid, _battle_label + " battle request declined.");
+        multiplayer_clear_versus_request();
+        return false;
+    }
+
+    return false;
+}
+
 function __multiplayer_collect_versus_party(_pid, _max_count){
     var _P = party_ensure(_pid);
     var _out = [];
@@ -299,13 +473,15 @@ function multiplayer_start_versus_battle(_pid){
     var _target_count = (_format == "double") ? 2 : 1;
     var _enemy_party = __multiplayer_collect_versus_party(1, _target_count);
     var _p2 = player_by_pid(1);
+    var _p1_name = variable_global_exists("PLAYER_NAME") ? string(global.PLAYER_NAME) : "PLAYER 1";
+    var _p2_name = variable_global_exists("PLAYER2_NAME") ? string(global.PLAYER2_NAME) : "PLAYER 2";
     var _trainer_sprite = (_p2 != noone && variable_instance_exists(_p2, "trainerSprite")) ? variable_instance_get(_p2, "trainerSprite") : undefined;
     var _trainer_subimg = (_p2 != noone && variable_instance_exists(_p2, "trainerSubimg")) ? variable_instance_get(_p2, "trainerSubimg") : 0;
     var _trainer_scale = (_p2 != noone && variable_instance_exists(_p2, "trainerScale")) ? variable_instance_get(_p2, "trainerScale") : 1;
     if (array_length(_enemy_party) <= 0) return false;
 
     battle_open_trainer(0, {
-        trainer_name: "PLAYER 2",
+        trainer_name: _p2_name,
         trainer_sprite: _trainer_sprite,
         sprite_index: _trainer_subimg,
         sprite_scale: _trainer_scale,
@@ -318,10 +494,13 @@ function multiplayer_start_versus_battle(_pid){
     var _B = __battle_ensure_slot(0);
     if (!is_struct(_B)) return false;
     variable_struct_set(_B, "versus_enabled", true);
+    variable_struct_set(_B, "_versus_trainer_names", [_p2_name, _p1_name]);
     variable_struct_set(_B, "player_pids", [0, 1]);
     variable_struct_set(_B, "coop_enabled", false);
     if (_format == "double") variable_struct_set(_B, "actor_owner_pid", [0, 0, 1, 1]);
     else variable_struct_set(_B, "actor_owner_pid", [0, 1, -1, -1]);
+    if (!is_undefined(__battle_bind_shared_slot_aliases)) __battle_bind_shared_slot_aliases(_B, 0);
+    if (!is_undefined(splitscreen_apply_gui_size)) splitscreen_apply_gui_size();
     return true;
 }
 

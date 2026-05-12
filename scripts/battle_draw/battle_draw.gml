@@ -11,8 +11,12 @@ function __battle_draw_battlers(_pid, _B) {
     }
 
     var _is_double_scene = (variable_struct_exists(_B, "battle_format") && string(variable_struct_get(_B, "battle_format")) == "double");
-    var _enemy_draw_order = _is_double_scene ? [2, 3] : [1];
-    var _player_draw_order = _is_double_scene ? [0, 1] : [0];
+    var _enemy_draw_order = _is_double_scene
+        ? [__battle_actor_index_for_side_slot(_pid, 1, 0), __battle_actor_index_for_side_slot(_pid, 1, 1)]
+        : [__battle_actor_index_for_side_slot(_pid, 1, 0)];
+    var _player_draw_order = _is_double_scene
+        ? [__battle_actor_index_for_side_slot(_pid, 0, 0), __battle_actor_index_for_side_slot(_pid, 0, 1)]
+        : [__battle_actor_index_for_side_slot(_pid, 0, 0)];
 
     for (var _ed = 0; _ed < array_length(_enemy_draw_order); ++_ed){
         var _enemy_idx_draw = _enemy_draw_order[_ed];
@@ -68,11 +72,13 @@ function __battle_draw_battlers(_pid, _B) {
         var _scale_mult_platform = (is_struct(_player_layout_platform) && variable_struct_exists(_player_layout_platform, "scale_mult") && is_real(variable_struct_get(_player_layout_platform, "scale_mult"))) ? real(variable_struct_get(_player_layout_platform, "scale_mult")) : 1;
         var _draw_scale_platform = 1.1 * _scale_mult_platform * _ui_s_platform;
         var _phase_platform = string(_B.phase);
-        var _suppress_platform = (__battle_actor_slot(_player_idx_platform) == 0 && _phase_platform == "intro_call");
+        var _view_platform = __battle_actor_view_side_slot(_pid, _player_idx_platform);
+        var _platform_slot = (is_struct(_view_platform) && variable_struct_exists(_view_platform, "slot")) ? variable_struct_get(_view_platform, "slot") : __battle_actor_slot(_player_idx_platform);
+        var _suppress_platform = (_platform_slot == 0 && _phase_platform == "intro_call");
         if (_suppress_platform) continue;
 
         var _platform_bottom_player = (_player_pt_platform[1] + _cam_offy) + (_h_platform * _draw_scale_platform) * 0.5;
-        if (_is_double_scene && __battle_actor_slot(_player_idx_platform) == 0) _platform_bottom_player += __bhu(_pid, 4);
+        if (_is_double_scene && _platform_slot == 0) _platform_bottom_player += __bhu(_pid, 4);
         __battle_draw_platform(_pid, _B, "player", _player_pt_platform[0] + _cam_offx, _platform_bottom_player, _ui_s_platform);
     }
 

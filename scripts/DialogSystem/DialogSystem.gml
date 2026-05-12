@@ -86,8 +86,9 @@ function dialog2p_is_open(_pid){
 // ---------- Queue helpers (enqueue + gated drain) --------------------------
 function __dlg_gate_allows_now(_pid, _gate){
     var gate = string_lower(string(_gate));
-    if (!variable_global_exists("sys_battles") || !is_array(global.sys_battles) || array_length(global.sys_battles) <= _pid) return true;
-    var _B = global.sys_battles[_pid];
+    var _B = undefined;
+    if (!is_undefined(__battle_ensure_slot)) _B = __battle_ensure_slot(_pid);
+    else if (variable_global_exists("sys_battles") && is_array(global.sys_battles) && array_length(global.sys_battles) > _pid) _B = global.sys_battles[_pid];
     if (!is_struct(_B)) return true;
     // Faint gating
     if (gate == "after-faint"){

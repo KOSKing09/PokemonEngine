@@ -75,7 +75,8 @@ function __battle_confusion_dialog_overlay_state(_pid, _actor, _center_x, _cente
         if (variable_struct_exists(_ui, "s") && is_real(variable_struct_get(_ui, "s"))) _ui_s = max(1, real(variable_struct_get(_ui, "s")));
     }
 
-    var _side = __battle_actor_side(_actor_index);
+    var _view_conf = __battle_actor_view_side_slot(_pid, _actor_index);
+    var _side = (is_struct(_view_conf) && variable_struct_exists(_view_conf, "side")) ? variable_struct_get(_view_conf, "side") : __battle_actor_side(_actor_index);
     var _base_y = _center_y - ((_side == 1) ? floor(18 * _ui_s) : floor(28 * _ui_s));
     var _base_x = _center_x;
     var _scale = max(1.6, 1.15 * _ui_s);
@@ -179,7 +180,8 @@ function __battle_get_target_selector_rect(_pid, _B, _actorIndex){
         _h = sprite_get_height(_spr);
     }
 
-    var _side = __battle_actor_side(_actorIndex);
+    var _view_target = __battle_actor_view_side_slot(_pid, _actorIndex);
+    var _side = (is_struct(_view_target) && variable_struct_exists(_view_target, "side")) ? variable_struct_get(_view_target, "side") : __battle_actor_side(_actorIndex);
     var _scale_mult = (variable_struct_exists(_anchor, "scale_mult") && is_real(variable_struct_get(_anchor, "scale_mult"))) ? real(variable_struct_get(_anchor, "scale_mult")) : 1;
     var _draw_scale = ((_side == 0) ? 1.1 : 1.0) * _scale_mult * _ui_s;
     var _origin_x = (!is_undefined(_spr) && sprite_exists(_spr)) ? sprite_get_xoffset(_spr) : (_w * 0.5);
@@ -265,8 +267,9 @@ function __battle_draw_target_selector(_pid, _B, _cam_offx, _cam_offy){
 
 function __battle_get_actor_scene_anchor(_pid, _B, _actorIndex){
     var _is_double = __battle_is_double_scene(_B);
-    var _side = __battle_actor_side(_actorIndex);
-    var _slot = __battle_actor_slot(_actorIndex);
+    var _view_anchor = __battle_actor_view_side_slot(_pid, _actorIndex);
+    var _side = (is_struct(_view_anchor) && variable_struct_exists(_view_anchor, "side")) ? variable_struct_get(_view_anchor, "side") : __battle_actor_side(_actorIndex);
+    var _slot = (is_struct(_view_anchor) && variable_struct_exists(_view_anchor, "slot")) ? variable_struct_get(_view_anchor, "slot") : __battle_actor_slot(_actorIndex);
 
     if (!_is_double){
         if (_side == 1) return {
@@ -441,7 +444,9 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
     var __trainer_hide = false;
     var __trainer_scale = 1;
     var __trainer_skip_slide = false;
-    var __is_lead_enemy = (__battle_actor_slot(_actorIndex) == 0);
+    var __view_enemy = __battle_actor_view_side_slot(_pid, _actorIndex);
+    var __enemy_slot = (is_struct(__view_enemy) && variable_struct_exists(__view_enemy, "slot")) ? variable_struct_get(__view_enemy, "slot") : __battle_actor_slot(_actorIndex);
+    var __is_lead_enemy = (__enemy_slot == 0);
     try {
         if (is_struct(_B) && variable_struct_exists(_B, "_trainer_intro")){
             var __ti = variable_struct_get(_B, "_trainer_intro");
@@ -546,6 +551,74 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
     // Use the preserved origin for platform drawing so the platform stays
     // anchored even when we temporarily move `fx` offscreen for the sprite.
     __battle_draw_platform(_pid, _B, "enemy", __orig_fx, platform_bottom, ui_s);
+
+    var _local_versus_switch_intro = false;
+    var _incoming_switch_mon = undefined;
+    try {
+        if (!is_undefined(__battle_is_local_versus_slot) && __battle_is_local_versus_slot(_B)
+            && string(_B.phase) == "intro_call"
+            && variable_struct_exists(_B, "_pending_switch_after_intro") && variable_struct_get(_B, "_pending_switch_after_intro")
+            && variable_struct_exists(_B, "_switch_actor_index") && is_real(variable_struct_get(_B, "_switch_actor_index"))
+            && floor(variable_struct_get(_B, "_switch_actor_index")) == floor(_actorIndex)){
+            var _switch_owner_pid = __battle_actor_owner_pid(_pid, _actorIndex);
+            var _switch_dialog_open = (!is_undefined(dialog2p_is_open) && is_real(_switch_owner_pid) && dialog2p_is_open(floor(_switch_owner_pid)));
+            if (is_real(_switch_owner_pid) && floor(_switch_owner_pid) != floor(_pid)
+                && _switch_dialog_open
+                && variable_struct_exists(_B, "_switch_target_idx") && is_real(variable_struct_get(_B, "_switch_target_idx"))
+                && !is_undefined(party_ensure)){
+                var _switch_party = party_ensure(_switch_owner_pid);
+                var _switch_idx = floor(variable_struct_get(_B, "_switch_target_idx"));
+                if (is_struct(_switch_party) && variable_struct_exists(_switch_party, "mons") && is_array(variable_struct_get(_switch_party, "mons"))
+                    && _switch_idx >= 0 && _switch_idx < array_length(variable_struct_get(_switch_party, "mons"))){
+                    _incoming_switch_mon = variable_struct_get(_switch_party, "mons")[_switch_idx];
+                    _local_versus_switch_intro = is_struct(_incoming_switch_mon);
+                }
+            }
+        }
+    } catch (e_vs_switch_intro) {
+        _local_versus_switch_intro = false;
+        _incoming_switch_mon = undefined;
+    }
+    if (_local_versus_switch_intro){
+        var _switch_prog_intro = clamp((variable_struct_exists(_B, "phase_progress") ? real(variable_struct_get(_B, "phase_progress")) : 0), 0, 1);
+        var _throw_split_intro = 0.58;
+        var _throw_prog_intro = clamp(_switch_prog_intro / _throw_split_intro, 0, 1);
+        var _reveal_prog_intro = clamp((_switch_prog_intro - _throw_split_intro) / max(0.001, 1 - _throw_split_intro), 0, 1);
+        var _reveal_ease_intro = 1 - power(1 - _reveal_prog_intro, 2);
+        var _trainer_anchor_intro = (is_struct(_enemy_layout) && variable_struct_exists(_enemy_layout, "trainer")) ? variable_struct_get(_enemy_layout, "trainer") : [__bxu(_pid, 165), __byu(_pid, 40)];
+        var _ball_origin_x_intro = (is_array(_trainer_anchor_intro) && array_length(_trainer_anchor_intro) >= 2) ? _trainer_anchor_intro[0] + __bwu(_pid, 8) : __bxu(_pid, 173);
+        var _ball_origin_y_intro = (is_array(_trainer_anchor_intro) && array_length(_trainer_anchor_intro) >= 2) ? _trainer_anchor_intro[1] - __bhu(_pid, 20) : __byu(_pid, 20);
+        var _ball_target_x_intro = fx;
+        var _ball_target_y_intro = fy - __bhu(_pid, 10);
+        var _ball_alpha_intro = (_switch_prog_intro < _throw_split_intro) ? 1 : max(0, 1 - _reveal_prog_intro);
+        __battle_draw_player_throw_overlay(_pid, _throw_prog_intro, _ball_origin_x_intro, _ball_origin_y_intro, _ball_target_x_intro, _ball_target_y_intro, _incoming_switch_mon, ui_s, _ball_alpha_intro);
+
+        if (_switch_prog_intro >= _throw_split_intro && !is_undefined(pkicons_get_art96_by_mon) && !is_undefined(pkicons_get_art96_subimg_by_mon)){
+            var _spr_intro = pkicons_get_art96_by_mon(_incoming_switch_mon);
+            var _sub_intro = pkicons_get_art96_subimg_by_mon(_incoming_switch_mon, false);
+            if (!is_undefined(_spr_intro) && sprite_exists(_spr_intro)){
+                var _w_intro = sprite_get_width(_spr_intro);
+                var _h_intro = sprite_get_height(_spr_intro);
+                var _origin_x_intro = sprite_get_xoffset(_spr_intro);
+                var _origin_y_intro = sprite_get_yoffset(_spr_intro);
+                var _scale_intro = lerp(drawScaleE * 0.55, drawScaleE, _reveal_ease_intro);
+                var _draw_x_intro = fx + (_origin_x_intro - (_w_intro * 0.5)) * _scale_intro;
+                var _platform_bottom_intro = base_fy + (_h_intro * _scale_intro) * 0.5;
+                var _draw_y_intro = _platform_bottom_intro - (_h_intro - _origin_y_intro) * _scale_intro - __bhu(_pid, 8) * (1 - _reveal_prog_intro);
+                draw_set_color(make_color_rgb(20,20,20));
+                draw_set_alpha(0.45);
+                var _shadow_w_intro = floor((_w_intro * _scale_intro) * 0.6);
+                var _shadow_h_intro = max(2, floor((_w_intro * _scale_intro) * 0.12));
+                var _shadow_cx_intro = floor(_draw_x_intro + (_w_intro * _scale_intro) * 0.5);
+                var _shadow_cy_intro = floor(_platform_bottom_intro + _shadow_h_intro * 0.8 + floor(15 * ui_s));
+                draw_ellipse(_shadow_cx_intro - _shadow_w_intro div 2, _shadow_cy_intro - _shadow_h_intro div 2, _shadow_cx_intro + _shadow_w_intro div 2, _shadow_cy_intro + _shadow_h_intro div 2, false);
+                draw_set_alpha(1);
+                draw_sprite_ext(_spr_intro, _sub_intro, _draw_x_intro, _draw_y_intro, _scale_intro, _scale_intro, 0, c_white, clamp(_reveal_ease_intro, 0, 1));
+            }
+        }
+        return;
+    }
+
     var catchA = (variable_struct_exists(_B, "_catch_anim") ? _B._catch_anim : undefined);
     var catch_affects_enemy = false;
     if (is_struct(catchA) && variable_struct_exists(catchA, "active") && catchA.active){
@@ -1093,10 +1166,11 @@ function __battle_draw_ball_overlay(_pid, _B){
     }
 }
 
-function __battle_player_intro_segment(_B, _actorIndex){
+function __battle_player_intro_segment(_pid, _B, _actorIndex){
     var _count = 1;
     if (is_struct(_B) && variable_struct_exists(_B, "battle_format") && string(variable_struct_get(_B, "battle_format")) == "double") _count = 2;
-    var _slot = clamp(__battle_actor_slot(_actorIndex), 0, _count - 1);
+    var _view_intro = __battle_actor_view_side_slot(_pid, _actorIndex);
+    var _slot = clamp((is_struct(_view_intro) && variable_struct_exists(_view_intro, "slot")) ? variable_struct_get(_view_intro, "slot") : __battle_actor_slot(_actorIndex), 0, _count - 1);
     var _span = 1 / max(1, _count);
     return {
         count: _count,
@@ -1154,7 +1228,7 @@ function __battle_draw_player(_pid, _B, _actorIndex, mx, my, tx, ty, _skip_platf
     var _player_scale_mult = (is_struct(_player_layout) && variable_struct_exists(_player_layout, "scale_mult") && is_real(variable_struct_get(_player_layout, "scale_mult"))) ? real(variable_struct_get(_player_layout, "scale_mult")) : 1;
     var drawScaleP = scale_us * _player_scale_mult * ui_s;
     var _player_phase = string(_B.phase);
-    var _player_intro_seg = __battle_player_intro_segment(_B, _actorIndex);
+    var _player_intro_seg = __battle_player_intro_segment(_pid, _B, _actorIndex);
     var _suppress_player_platform = (_player_phase == "intro_call");
     if (is_undefined(_skip_platform)) _skip_platform = false;
     // Freeze detection for player (affects breathing and tint)
@@ -1295,6 +1369,12 @@ function __battle_draw_player(_pid, _B, _actorIndex, mx, my, tx, ty, _skip_platf
     } catch (e_nudge_p) {}
 
     if (string(_B.phase) == "intro_call"){
+        var _is_local_versus_trainer_intro = false;
+        try {
+            _is_local_versus_trainer_intro = (!is_undefined(__battle_is_local_versus_slot) && __battle_is_local_versus_slot(_B)
+                && variable_struct_exists(_B, "_trainer_intro") && is_struct(variable_struct_get(_B, "_trainer_intro")));
+        } catch (e_local_versus_intro) { _is_local_versus_trainer_intro = false; }
+        if (_is_local_versus_trainer_intro) return;
         var p2 = (variable_struct_exists(_B,"phase_progress") ? _B.phase_progress : 0);
         if (p2 < variable_struct_get(_player_intro_seg, "start") || p2 >= variable_struct_get(_player_intro_seg, "finish")) return;
         var _seg_prog_call = clamp((p2 - variable_struct_get(_player_intro_seg, "start")) / max(0.001, variable_struct_get(_player_intro_seg, "finish") - variable_struct_get(_player_intro_seg, "start")), 0, 1);
@@ -1434,7 +1514,9 @@ function __battle_draw_player(_pid, _B, _actorIndex, mx, my, tx, ty, _skip_platf
     }
 
     // switch_in visuals
-    if (__battle_actor_slot(_actorIndex) == 0 && string(_B.phase) == "switch_in"){
+    var _view_switch = __battle_actor_view_side_slot(_pid, _actorIndex);
+    var _switch_slot = (is_struct(_view_switch) && variable_struct_exists(_view_switch, "slot")) ? variable_struct_get(_view_switch, "slot") : __battle_actor_slot(_actorIndex);
+    if (_switch_slot == 0 && string(_B.phase) == "switch_in"){
         var prog = (variable_struct_exists(_B, "phase_progress") ? _B.phase_progress : 0);
         var out_prog = min(1, prog * 2);
         var in_prog = max(0, (prog - 0.5) * 2);
@@ -1480,7 +1562,7 @@ function __battle_draw_player(_pid, _B, _actorIndex, mx, my, tx, ty, _skip_platf
             }
 
         } else {
-            var curA = _B.actor[0];
+            var curA = _B.actor[_actorIndex];
             var sprIn = -1, subIn = 0, wIn = 0, hIn = 0;
             if (is_struct(curA) && is_struct(curA.mon) && !is_undefined(pkicons_get_art96_by_mon) && !is_undefined(pkicons_get_art96_subimg_by_mon)){
                 sprIn = pkicons_get_art96_by_mon(curA.mon);

@@ -140,11 +140,7 @@ function __party_impl_party_update(){
                         var _dst = _P.sel;
                         // Prevent selecting fainted mon
                         var _tmon = party_model_get_mon(_pid, _dst);
-                        var _t_hp = 1;
-                        if (is_struct(_tmon)){
-                            if (variable_struct_exists(_tmon, "hp")) _t_hp = variable_struct_get(_tmon, "hp");
-                            else if (variable_struct_exists(_tmon, "HP")) _t_hp = variable_struct_get(_tmon, "HP");
-                        }
+                        var _t_hp = (is_struct(_tmon) ? __battle_hp_now(_tmon) : 1);
                         if (is_real(_t_hp) && _t_hp <= 0){
                             if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party][list] cannot swap to fainted idx=" + string(_dst));
                             _P.lock = 6;
@@ -203,11 +199,7 @@ function __party_impl_party_update(){
                 // Determine fainted state for the selected pokemon
                 var _selMonTmp = undefined;
                 if (variable_struct_exists(_P, "mons") && is_array(_P.mons) && _P.sel >= 0 && _P.sel < array_length(_P.mons)) _selMonTmp = _P.mons[_P.sel];
-                var _sel_mon_hp_tmp = 1;
-                if (is_struct(_selMonTmp)){
-                    if (variable_struct_exists(_selMonTmp, "hp")) _sel_mon_hp_tmp = variable_struct_get(_selMonTmp, "hp");
-                    else if (variable_struct_exists(_selMonTmp, "HP")) _sel_mon_hp_tmp = variable_struct_get(_selMonTmp, "HP");
-                }
+                var _sel_mon_hp_tmp = (is_struct(_selMonTmp) ? __battle_hp_now(_selMonTmp) : 1);
                 // If the party was opened for an in-battle swap and the battle is
                 // open, preserve the Swap label even for fainted mons so the player
                 // understands they're selecting an incoming Pokémon. However, when
@@ -291,11 +283,7 @@ function __party_impl_party_update(){
                 // If the selected mon is fainted, disable the Switch menu entry entirely.
                 var _selMonChk = undefined;
                 if (variable_struct_exists(_P, "mons") && is_array(_P.mons) && _P.sel >= 0 && _P.sel < array_length(_P.mons)) _selMonChk = _P.mons[_P.sel];
-                var _sel_hp_chk = 1;
-                if (is_struct(_selMonChk)){
-                    if (variable_struct_exists(_selMonChk, "hp")) _sel_hp_chk = variable_struct_get(_selMonChk, "hp");
-                    else if (variable_struct_exists(_selMonChk, "HP")) _sel_hp_chk = variable_struct_get(_selMonChk, "HP");
-                }
+                var _sel_hp_chk = (is_struct(_selMonChk) ? __battle_hp_now(_selMonChk) : 1);
                 if (is_real(_sel_hp_chk) && _sel_hp_chk <= 0){
                     // disabled: cannot Switch a fainted mon; give brief lock and ignore
                     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party][menu] swap disabled for fainted mon sel=" + string(_P.sel));
@@ -315,11 +303,7 @@ function __party_impl_party_update(){
                     var _dst2 = _P.swap_index;
                     // Prevent selecting fainted mon
                     var _tmon2 = party_model_get_mon(_pid, _dst2);
-                    var _t_hp2 = 1;
-                    if (is_struct(_tmon2)){
-                        if (variable_struct_exists(_tmon2, "hp")) _t_hp2 = variable_struct_get(_tmon2, "hp");
-                        else if (variable_struct_exists(_tmon2, "HP")) _t_hp2 = variable_struct_get(_tmon2, "HP");
-                    }
+                    var _t_hp2 = (is_struct(_tmon2) ? __battle_hp_now(_tmon2) : 1);
                     if (is_real(_t_hp2) && _t_hp2 <= 0){
                         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party][menu] cannot swap to fainted idx=" + string(_dst2));
                         _P.lock = 6;
@@ -491,11 +475,7 @@ function __party_impl_party_update(){
                             var _consume = !_forced;
                             // Prevent selecting a fainted Pokémon as the incoming target
                             var _targetMon = party_model_get_mon(_pid, _dst);
-                            var _t_hp = 1;
-                            if (is_struct(_targetMon)){
-                                if (variable_struct_exists(_targetMon, "hp")) _t_hp = variable_struct_get(_targetMon, "hp");
-                                else if (variable_struct_exists(_targetMon, "HP")) _t_hp = variable_struct_get(_targetMon, "HP");
-                            }
+                            var _t_hp = (is_struct(_targetMon) ? __battle_hp_now(_targetMon) : 1);
                             if (is_real(_t_hp) && _t_hp <= 0){
                                 // invalid selection: cannot choose a fainted mon. Give feedback and ignore.
                                 if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[party][select] cannot swap to fainted mon idx=" + string(_dst));

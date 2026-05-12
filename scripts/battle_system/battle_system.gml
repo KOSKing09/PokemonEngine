@@ -87,7 +87,8 @@ function __battle_ensure_slot(_pid){
         if (!variable_struct_exists(_shared, "sys_open") || variable_struct_get(_shared, "sys_open") != true) continue;
         var _fmt_shared = variable_struct_exists(_shared, "battle_format") ? string_lower(string(variable_struct_get(_shared, "battle_format"))) : "single";
         var _coop_shared = variable_struct_exists(_shared, "coop_enabled") && variable_struct_get(_shared, "coop_enabled") == true;
-        if (_fmt_shared != "double" || !_coop_shared) continue;
+        var _versus_shared = variable_struct_exists(_shared, "versus_enabled") && variable_struct_get(_shared, "versus_enabled") == true;
+        if (!((_fmt_shared == "double" && _coop_shared) || _versus_shared)) continue;
         var _ppids = variable_struct_exists(_shared, "player_pids") ? variable_struct_get(_shared, "player_pids") : [];
         if (!is_array(_ppids)) continue;
         for (var _pi_shared = 0; _pi_shared < array_length(_ppids); ++_pi_shared){
@@ -152,6 +153,159 @@ function __battle_reference_slot(){
     return __battle_ensure_slot(0);
 }
 
+function __battle_bind_shared_slot_aliases(_B, _owner_pid){
+    if (!is_struct(_B)) return;
+    if (!variable_global_exists("sys_battles") || !is_array(global.sys_battles)) global.sys_battles = [];
+    var _owner = max(0, floor(_owner_pid));
+    if (array_length(global.sys_battles) <= _owner) array_resize(global.sys_battles, _owner + 1);
+    global.sys_battles[_owner] = _B;
+    if (!variable_struct_exists(_B, "player_pids") || !is_array(variable_struct_get(_B, "player_pids"))) return;
+    var _player_pids = variable_struct_get(_B, "player_pids");
+    for (var _ppi = 0; _ppi < array_length(_player_pids); ++_ppi){
+        var _ppid = _player_pids[_ppi];
+        if (!is_real(_ppid)) continue;
+        _ppid = max(0, floor(_ppid));
+        if (array_length(global.sys_battles) <= _ppid) array_resize(global.sys_battles, _ppid + 1);
+        global.sys_battles[_ppid] = _B;
+    }
+}
+
+function __battle_is_local_versus_slot(_B){
+    return is_struct(_B) && variable_struct_exists(_B, "versus_enabled") && variable_struct_get(_B, "versus_enabled") == true;
+}
+
+function __battle_any_player_party_open(_pid){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B)) return false;
+    if (!__battle_is_local_versus_slot(_B)) return (is_undefined(party_is_open) ? false : party_is_open(_pid));
+    if (!variable_struct_exists(_B, "player_pids") || !is_array(variable_struct_get(_B, "player_pids"))) return false;
+    if (is_undefined(party_is_open)) return false;
+    var _player_pids = variable_struct_get(_B, "player_pids");
+    for (var _ppi = 0; _ppi < array_length(_player_pids); ++_ppi){
+        var _ppid = _player_pids[_ppi];
+        if (!is_real(_ppid)) continue;
+        if (party_is_open(max(0, floor(_ppid)))) return true;
+    }
+    return false;
+}
+
+function __battle_has_forced_switch_lock(_pid){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B)) return false;
+    if (variable_struct_exists(_B, "_pending_open_party") && variable_struct_get(_B, "_pending_open_party") == true) return true;
+    if (__battle_any_player_party_open(_pid)) return true;
+    if (!variable_struct_exists(_B, "player_pids") || !is_array(variable_struct_get(_B, "player_pids")) || is_undefined(party_ensure)) return false;
+    var _player_pids = variable_struct_get(_B, "player_pids");
+    for (var _ppi = 0; _ppi < array_length(_player_pids); ++_ppi){
+        var _ppid = _player_pids[_ppi];
+        if (!is_real(_ppid)) continue;
+        var _Plock = party_ensure(max(0, floor(_ppid)));
+        if (!is_struct(_Plock)) continue;
+        if (variable_struct_exists(_Plock, "_battle_swap_mode_forced") && variable_struct_get(_Plock, "_battle_swap_mode_forced") == true) return true;
+    }
+    return false;
+}
+
+function __battle_finish_local_versus_defeat(_pid, _loser_pid, _loser_actor_index){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !__battle_is_local_versus_slot(_B) || !is_real(_loser_pid)) return false;
+    _loser_pid = max(0, floor(_loser_pid));
+    if (variable_struct_exists(_B, "_local_versus_end_handled") && variable_struct_get(_B, "_local_versus_end_handled") == true) return true;
+
+    var _winner_pid = -1;
+    if (variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor"))){
+        var _actors_vs = variable_struct_get(_B, "actor");
+        for (var _ai_vs = 0; _ai_vs < array_length(_actors_vs); ++_ai_vs){
+            if (_ai_vs == _loser_actor_index) continue;
+            var _cand_vs = _actors_vs[_ai_vs];
+            if (!is_struct(_cand_vs)) continue;
+            var _cand_owner_vs = __battle_actor_owner_pid(_pid, _ai_vs);
+            var _cand_hp_vs = __battle_hp_now(_cand_vs);
+            if (is_real(_cand_owner_vs) && floor(_cand_owner_vs) != _loser_pid && is_real(_cand_hp_vs) && _cand_hp_vs > 0){
+                _winner_pid = max(0, floor(_cand_owner_vs));
+                break;
+            }
+        }
+    }
+    if (_winner_pid < 0 && variable_struct_exists(_B, "player_pids") && is_array(variable_struct_get(_B, "player_pids"))){
+        var _ppids_vs = variable_struct_get(_B, "player_pids");
+        for (var _ppi_vs = 0; _ppi_vs < array_length(_ppids_vs); ++_ppi_vs){
+            var _ppid_vs = _ppids_vs[_ppi_vs];
+            if (is_real(_ppid_vs) && floor(_ppid_vs) != _loser_pid){
+                _winner_pid = max(0, floor(_ppid_vs));
+                break;
+            }
+        }
+    }
+    if (_winner_pid < 0) _winner_pid = max(0, floor(_pid));
+
+    var _reward_vs = 0;
+    if (variable_struct_exists(_B, "_trainer_reward") && is_real(variable_struct_get(_B, "_trainer_reward"))){
+        _reward_vs = max(0, floor(variable_struct_get(_B, "_trainer_reward")));
+    }
+    var _reward_paid_vs = (variable_struct_exists(_B, "_trainer_reward_paid") && variable_struct_get(_B, "_trainer_reward_paid") == true);
+    if (!_reward_paid_vs && _reward_vs > 0){
+        if (!is_undefined(currency_add)) currency_add(_reward_vs);
+        else {
+            if (!variable_global_exists("PLAYER_MONEY") || !is_real(global.PLAYER_MONEY)) global.PLAYER_MONEY = 0;
+            global.PLAYER_MONEY = max(0, floor(global.PLAYER_MONEY)) + _reward_vs;
+        }
+    }
+
+    var _loser_label_vs = "PLAYER " + string(_loser_pid + 1);
+    var _pend_vs = (variable_struct_exists(_B, "_pending_status_msgs") ? variable_struct_get(_B, "_pending_status_msgs") : []);
+    if (!is_array(_pend_vs)) _pend_vs = [];
+    array_push(_pend_vs, { pid:_winner_pid, text:_loser_label_vs + " was defeated!" });
+    if (_reward_vs > 0) array_push(_pend_vs, { pid:_winner_pid, text:"You got $" + string(_reward_vs) + " for winning!" });
+    array_push(_pend_vs, { pid:_winner_pid, text:"You won the battle!" });
+    array_push(_pend_vs, { pid:_loser_pid, text:"You're out of usable Pok\u00e9mon!" });
+    array_push(_pend_vs, { pid:_loser_pid, text:_loser_label_vs + " has whited out!" });
+    variable_struct_set(_B, "_pending_status_msgs", _pend_vs);
+
+    try { variable_struct_set(_B, "_trainer_reward_paid", true); } catch (e_vs_paid) {}
+    try { variable_struct_set(_B, "_local_versus_end_handled", true); } catch (e_vs_handled) {}
+    try { variable_struct_set(_B, "_local_versus_winner_pid", _winner_pid); } catch (e_vs_winner) {}
+    try { variable_struct_set(_B, "_local_versus_loser_pid", _loser_pid); } catch (e_vs_loser) {}
+    try { variable_struct_set(_B, "_end_result_dialog_shown", true); } catch (e_vs_enddlg) {}
+    try { variable_struct_set(_B, "_pending_open_party", false); } catch (e_vs_pop) {}
+    try { variable_struct_set(_B, "_pending_open_party_pid", undefined); } catch (e_vs_poppid) {}
+    try { variable_struct_set(_B, "_pending_open_party_fainted_actor_index", undefined); } catch (e_vs_popactor) {}
+    try { variable_struct_set(_B, "_action_active", false); } catch (e_vs_act) {}
+    try { variable_struct_set(_B, "_faint_pending", false); } catch (e_vs_faint) {}
+    try { if (variable_struct_exists(_B, "_trainer_pending_send")) variable_struct_remove(_B, "_trainer_pending_send"); } catch (e_vs_pending_send) {}
+    try { if (!is_undefined(__battle_play_defeated_music_once)) __battle_play_defeated_music_once(_B); } catch (e_vs_music) {}
+    _B.result = "win";
+    _B._pending_close = true;
+    _B.phase = "command";
+    return true;
+}
+
+function __battle_command_ui_state(_B, _pid){
+    if (!is_struct(_B)) return undefined;
+    if (!variable_struct_exists(_B, "sys_ui") || !is_struct(variable_struct_get(_B, "sys_ui"))) _B.sys_ui = { menu:"root", selX:0, selY:0, msg_list:undefined };
+    if (!__battle_is_local_versus_slot(_B)) return _B.sys_ui;
+
+    if (!variable_struct_exists(_B, "_versus_ui") || !is_array(variable_struct_get(_B, "_versus_ui")) || array_length(variable_struct_get(_B, "_versus_ui")) < 2){
+        variable_struct_set(_B, "_versus_ui", [
+            { menu:"root", selX:0, selY:0, command_actor_index:0, command_pending_action:undefined, target_pick_targets:undefined, target_pick_index:0 },
+            { menu:"root", selX:0, selY:0, command_actor_index:0, command_pending_action:undefined, target_pick_targets:undefined, target_pick_index:0 }
+        ]);
+    }
+
+    var _ui_list = variable_struct_get(_B, "_versus_ui");
+    var _ui_index = clamp(floor(_pid), 0, 1);
+    var _ui = _ui_list[_ui_index];
+    if (!is_struct(_ui)) _ui = { menu:"root", selX:0, selY:0, command_actor_index:0, command_pending_action:undefined, target_pick_targets:undefined, target_pick_index:0 };
+    if (!variable_struct_exists(_ui, "menu") || string_length(string(variable_struct_get(_ui, "menu"))) <= 0) variable_struct_set(_ui, "menu", "root");
+    if (!variable_struct_exists(_ui, "selX") || !is_real(variable_struct_get(_ui, "selX"))) variable_struct_set(_ui, "selX", 0);
+    if (!variable_struct_exists(_ui, "selY") || !is_real(variable_struct_get(_ui, "selY"))) variable_struct_set(_ui, "selY", 0);
+    if (!variable_struct_exists(_ui, "command_actor_index") || !is_real(variable_struct_get(_ui, "command_actor_index"))) variable_struct_set(_ui, "command_actor_index", 0);
+    if (!variable_struct_exists(_ui, "target_pick_index") || !is_real(variable_struct_get(_ui, "target_pick_index"))) variable_struct_set(_ui, "target_pick_index", 0);
+    _ui_list[_ui_index] = _ui;
+    variable_struct_set(_B, "_versus_ui", _ui_list);
+    return _ui;
+}
+
 function __battle_actor_side(_actorIndex){
     if (!is_real(_actorIndex)) return -1;
     var _idx = floor(_actorIndex);
@@ -179,6 +333,36 @@ function __battle_actor_slot(_actorIndex){
     return -1;
 }
 
+function __battle_actor_view_side_slot(_pid, _actorIndex){
+    var _side = __battle_actor_side(_actorIndex);
+    var _slot = __battle_actor_slot(_actorIndex);
+    var _B = __battle_ensure_slot(_pid);
+    if (!__battle_is_local_versus_slot(_B) || !is_real(_actorIndex)) return { side:_side, slot:_slot };
+
+    var _owner_pid = __battle_actor_owner_pid(_pid, _actorIndex);
+    if (!is_real(_owner_pid) || _owner_pid < 0) return { side:_side, slot:_slot };
+
+    var _pid_use = max(0, floor(_pid));
+    var _view_side = (floor(_owner_pid) == _pid_use) ? 0 : 1;
+    var _view_slot = 0;
+    if (is_struct(_B) && variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor"))){
+        var _actors = variable_struct_get(_B, "actor");
+        var _target_idx = floor(_actorIndex);
+        var _count = 0;
+        for (var _i = 0; _i < array_length(_actors); ++_i){
+            var _candidate_owner = __battle_actor_owner_pid(_pid_use, _i);
+            var _candidate_side = (is_real(_candidate_owner) && floor(_candidate_owner) == _pid_use) ? 0 : 1;
+            if (_candidate_side != _view_side) continue;
+            if (_i == _target_idx){
+                _view_slot = _count;
+                break;
+            }
+            _count += 1;
+        }
+    }
+    return { side:_view_side, slot:_view_slot };
+}
+
 function __battle_is_ally_index(_aIndex, _bIndex){
     if (!is_real(_aIndex) || !is_real(_bIndex)) return false;
     return (__battle_actor_side(_aIndex) == __battle_actor_side(_bIndex));
@@ -193,6 +377,19 @@ function __battle_is_enemy_index(_aIndex, _bIndex){
 
 function __battle_actor_index_for_side_slot(_pid, _side, _slot){
     var _B = __battle_ensure_slot(_pid);
+    if (__battle_is_local_versus_slot(_B) && is_struct(_B) && variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor"))){
+        var _actors = variable_struct_get(_B, "actor");
+        var _side_use_local = max(0, floor(_side));
+        var _slot_use_local = max(0, floor(_slot));
+        for (var _i_local = 0; _i_local < array_length(_actors); ++_i_local){
+            var _view = __battle_actor_view_side_slot(_pid, _i_local);
+            if (!is_struct(_view)) continue;
+            var _view_side = variable_struct_exists(_view, "side") ? variable_struct_get(_view, "side") : -1;
+            var _view_slot = variable_struct_exists(_view, "slot") ? variable_struct_get(_view, "slot") : -1;
+            if (_view_side == _side_use_local && _view_slot == _slot_use_local) return _i_local;
+        }
+        return -1;
+    }
     var _format = (is_struct(_B) && variable_struct_exists(_B, "battle_format")) ? string(variable_struct_get(_B, "battle_format")) : "single";
     var _side_use = max(0, floor(_side));
     var _slot_use = max(0, floor(_slot));
@@ -448,6 +645,14 @@ function battle_controller_update_all(){
         var _slot = global.sys_battles[_pid];
         if (!is_struct(_slot)) continue;
         if (!variable_struct_exists(_slot, "sys_open") || variable_struct_get(_slot, "sys_open") != true) continue;
+        var _duplicate_slot = false;
+        for (var _prev_pid = 0; _prev_pid < _pid; ++_prev_pid){
+            if (global.sys_battles[_prev_pid] == _slot){
+                _duplicate_slot = true;
+                break;
+            }
+        }
+        if (_duplicate_slot) continue;
         battle_update(_pid);
         var _fmt = variable_struct_exists(_slot, "battle_format") ? string_lower(string(variable_struct_get(_slot, "battle_format"))) : "single";
         var _coop = variable_struct_exists(_slot, "coop_enabled") && variable_struct_get(_slot, "coop_enabled") == true;
@@ -1446,6 +1651,12 @@ function battle_close(_pid){
         if (!is_undefined(_bdm) && variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] defeated_music resource configured: " + string(_bdm));
     } catch (e3) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to call sound_stop: " + string(e3)); }
     _B.sys_open = false;
+    if (variable_global_exists("sys_battles") && is_array(global.sys_battles)){
+        for (var _alias_pid = 0; _alias_pid < array_length(global.sys_battles); ++_alias_pid){
+            if (_alias_pid == _pid) continue;
+            if (global.sys_battles[_alias_pid] == _B) global.sys_battles[_alias_pid] = undefined;
+        }
+    }
     try { variable_struct_set(_B, "_area_type", undefined); } catch (e_area_clear) {}
 
     // Clear global last-move so Copycat cannot use a move from a previous battle
@@ -1488,7 +1699,10 @@ function battle_close(_pid){
     // (until Pok�mon Centers are implemented). This restores HP to max and clears
     // all status effects but does not change the player's location.
     try {
-        if (variable_struct_exists(_B, "result") && string(_B.result) == "lose"){
+        if (__battle_is_local_versus_slot(_B) && variable_struct_exists(_B, "_local_versus_loser_pid") && is_real(variable_struct_get(_B, "_local_versus_loser_pid"))){
+            var _loser_pid_close = max(0, floor(variable_struct_get(_B, "_local_versus_loser_pid")));
+            if (!is_undefined(__battle_heal_party_full)) __battle_heal_party_full(_loser_pid_close);
+        } else if (variable_struct_exists(_B, "result") && string(_B.result) == "lose"){
             if (!is_undefined(__battle_heal_party_full)) __battle_heal_party_full(_pid);
         }
     } catch (e_healclose) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][close] heal-on-lose failed: " + string(e_healclose)); }
@@ -1683,6 +1897,7 @@ function battle_update(_pid){
     var _bag_open_here = (is_undefined(bag_is_open) ? false : bag_is_open(_pid));
     var _party_open_here = (is_undefined(party_is_open) ? false : party_is_open(_pid));
     if (_bag_open_here || _party_open_here) return;
+    if (__battle_any_player_party_open(_pid)) return;
     if (is_struct(_B) && variable_struct_exists(_B, "_catch_anim")){
         var _ca = variable_struct_get(_B, "_catch_anim");
         if (is_struct(_ca) && variable_struct_exists(_ca, "active") && _ca.active){
@@ -1770,19 +1985,29 @@ function battle_update(_pid){
         }
     }
     var _dialog_pid_open = -1;
+    var _dialog_pid_primary = -1;
     for (var _bdpo = 0; _bdpo < array_length(_dialog_pids); ++_bdpo){
         var _dialog_pid_probe = _dialog_pids[_bdpo];
         if (!is_real(_dialog_pid_probe)) continue;
         if (!is_undefined(dialog2p_step)) dialog2p_step(_dialog_pid_probe);
         if (!is_undefined(dialog2p_is_open) && dialog2p_is_open(_dialog_pid_probe)){
-            _dialog_pid_open = _dialog_pid_probe;
-            break;
+            if (_dialog_pid_open < 0) _dialog_pid_open = _dialog_pid_probe;
+            if (_dialog_pid_probe == _pid) _dialog_pid_primary = _dialog_pid_probe;
         }
     }
+    if (_dialog_pid_primary < 0) _dialog_pid_primary = _dialog_pid_open;
     var dlg_open = (_dialog_pid_open >= 0);
     if (dlg_open){
-        if (!is_undefined(dialog2p_update)) dialog2p_update(_dialog_pid_open);
-    var d = (!is_undefined(dialog2p_ensure_pid)) ? dialog2p_ensure_pid(_dialog_pid_open) : global.DIALOG2P[_dialog_pid_open];
+        if (!is_undefined(dialog2p_update)){
+            for (var _dui = 0; _dui < array_length(_dialog_pids); ++_dui){
+                var _dialog_pid_update = _dialog_pids[_dui];
+                if (!is_real(_dialog_pid_update)) continue;
+                if (!is_undefined(dialog2p_is_open) && dialog2p_is_open(_dialog_pid_update)) dialog2p_update(_dialog_pid_update);
+            }
+        }
+    var d = (_dialog_pid_primary >= 0)
+        ? ((!is_undefined(dialog2p_ensure_pid)) ? dialog2p_ensure_pid(_dialog_pid_primary) : global.DIALOG2P[_dialog_pid_primary])
+        : undefined;
     var page = 0;
     if (is_struct(d) && variable_struct_exists(d, "page_idx")) page = variable_struct_get(d, "page_idx");
 
@@ -1872,67 +2097,65 @@ function battle_update(_pid){
                 }
                     try { if (_dlg_open_now && variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_system] pending_open_party waiting for dialog to close pid=" + string(_pid)); } catch(e_dbgg) {}
                 if (_delay_ok && !_dlg_open_now){
-                    // Guard: if battle is already marked as a loss OR there is no usable Pok�mon,
-                    // do NOT open the party UI. Clear the pending flag and exit this branch.
+                    var _pending_party_pid = _pid;
+                    try {
+                        if (variable_struct_exists(_B, "_pending_open_party_pid") && is_real(variable_struct_get(_B, "_pending_open_party_pid"))) _pending_party_pid = floor(variable_struct_get(_B, "_pending_open_party_pid"));
+                    } catch (e_pending_party_pid) { _pending_party_pid = _pid; }
                     var __isLoss = false;
                     try { if (variable_struct_exists(_B, "result")) __isLoss = (string(variable_struct_get(_B, "result")) == "lose"); } catch (e_rl) { __isLoss = false; }
                     var __idxAlive = -1;
-                    try { __idxAlive = __party_find_next_alive(_pid); } catch (e_fn) { __idxAlive = -1; }
+                    try { __idxAlive = __party_find_next_alive(_pending_party_pid); } catch (e_fn) { __idxAlive = -1; }
                     if (__isLoss || __idxAlive < 0){
                         try { variable_struct_set(_B, "_pending_open_party", false); } catch (e_clx) {}
                         try { variable_struct_set(_B, "_pending_open_party_next_mon_ref", undefined); } catch (e_clx2) {}
+                        try { variable_struct_set(_B, "_pending_open_party_pid", undefined); } catch (e_clx3) {}
                     } else {
-                        try { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_system] pending_open_party aborted (loss or no alive) pid=" + string(_pid)); } catch(e_dbgx) {}
                         if (!is_undefined(party_open) && !is_undefined(party_ensure)){
-                            party_open(_pid);
-                            var _Ptmp2 = party_ensure(_pid);
+                            party_open(_pending_party_pid);
+                            var _Ptmp2 = party_ensure(_pending_party_pid);
                             try {
                                 if (is_struct(_Ptmp2)){
-                                    // Prefer central helper if available, otherwise fall back.
                                     try {
-                                        if (!is_undefined(party_set_swap_mode_impl)) party_set_swap_mode_impl(_pid, true, true);
+                                        if (!is_undefined(party_set_swap_mode_impl)) party_set_swap_mode_impl(_pending_party_pid, true, true);
                                         else {
-                                            // fallback: ensure the struct fields exist then set directly
-                                            try { if (!variable_struct_exists(_Ptmp2, "_battle_swap_mode")) variable_struct_set(_Ptmp2, "_battle_swap_mode", true); else variable_struct_set(_Ptmp2, "_battle_swap_mode", true); } catch (e_f1) {}
-                                            try { if (!variable_struct_exists(_Ptmp2, "_battle_swap_mode_forced")) variable_struct_set(_Ptmp2, "_battle_swap_mode_forced", true); else variable_struct_set(_Ptmp2, "_battle_swap_mode_forced", true); } catch (e_f2) {}
+                                            try { variable_struct_set(_Ptmp2, "_battle_swap_mode", true); } catch (e_f1) {}
+                                            try { variable_struct_set(_Ptmp2, "_battle_swap_mode_forced", true); } catch (e_f2) {}
                                         }
                                     } catch (e_h) {
-                                        // last-resort fallback: best-effort set
                                         try { variable_struct_set(_Ptmp2, "_battle_swap_mode", true); variable_struct_set(_Ptmp2, "_battle_swap_mode_forced", true); } catch (e2) {}
                                     }
                                     try {
                                         if (variable_struct_exists(_B, "_pending_open_party_fainted_actor_index") && is_real(variable_struct_get(_B, "_pending_open_party_fainted_actor_index"))) variable_struct_set(_Ptmp2, "_battle_swap_actor_index", floor(variable_struct_get(_B, "_pending_open_party_fainted_actor_index")));
                                     } catch (e_swap_actor_pending) {}
                                     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
-                                        show_debug_message("[battle_system] pending_open_party -> pid=" + string(_pid) + ", set _battle_swap_mode=true, _battle_swap_mode_forced=true");
+                                        show_debug_message("[battle_system] pending_open_party -> pid=" + string(_pending_party_pid) + ", set _battle_swap_mode=true, _battle_swap_mode_forced=true");
                                     }
-                                    // Allow immediate selection on forced opens
                                     variable_struct_set(_Ptmp2, "lock", 0);
-                                    // Attempt to restore a preferred sel if provided
                                     try {
                                         if (variable_struct_exists(_B, "_pending_open_party_next_mon_ref")){
                                             var _mref2 = variable_struct_get(_B, "_pending_open_party_next_mon_ref");
                                             if (is_struct(_mref2)){
-                                                var _mons2 = party_model_get_mons(_pid);
+                                                var _mons2 = party_model_get_mons(_pending_party_pid);
                                                 for (var _ii2 = 0; _ii2 < array_length(_mons2); ++_ii2){
                                                     if (is_struct(_mons2[_ii2]) && (_mons2[_ii2] == _mref2)){
-                                                        _Ptmp2.sel = _ii2; break;
+                                                        _Ptmp2.sel = _ii2;
+                                                        break;
                                                     }
                                                 }
                                             }
                                         }
                                     } catch (e_map2) {}
-                                    try { if (!is_undefined(party_model_reorder_fainted_to_bottom)) party_model_reorder_fainted_to_bottom(_pid); } catch (e_reord2) {}
+                                    try { if (!is_undefined(party_model_reorder_fainted_to_bottom)) party_model_reorder_fainted_to_bottom(_pending_party_pid); } catch (e_reord2) {}
                                 }
                             } catch (e_bt2) {}
                         } else {
-                            // Fallback: if party UI isn't available, re-open a simple faint dialog
-                            if (!is_undefined(__battle_try_enqueue_faint_dialog)) __battle_try_enqueue_faint_dialog(_pid, _B, "(Unknown) fainted!\n(TODO) Switch to another Pok\u00e9mon.", "(Unknown) fainted!");
+                            if (!is_undefined(__battle_try_enqueue_faint_dialog)) __battle_try_enqueue_faint_dialog(_pending_party_pid, _B, "(Unknown) fainted!\n(TODO) Switch to another Pok\u00e9mon.", "(Unknown) fainted!");
                         }
-                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][faint] executing scheduled party_open for pid=" + string(_pid));
-                        try { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_system] party_open called pid=" + string(_pid)); } catch(e_dbgop) {}
+                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][faint] executing scheduled party_open for pid=" + string(_pending_party_pid));
+                        try { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_system] party_open called pid=" + string(_pending_party_pid)); } catch(e_dbgop) {}
                         try { variable_struct_set(_B, "_pending_open_party", false); } catch (e_cl) {}
                         try { variable_struct_set(_B, "_pending_open_party_next_mon_ref", undefined); } catch (e_cl2) {}
+                        try { variable_struct_set(_B, "_pending_open_party_pid", undefined); } catch (e_cl3) {}
                     }
                 }
             }
@@ -2375,9 +2598,10 @@ function battle_update(_pid){
                     if (variable_struct_exists(opts, "auto_apply") && variable_struct_get(opts, "auto_apply") == false) auto_apply = false;
                 }
                     if (auto_apply && !is_undefined(party_ensure) && !is_undefined(idx) && is_real(idx)){
-                    var P = party_ensure(_pid);
+                    var _switch_party_pid_apply = (variable_struct_exists(_B, "_switch_party_pid") && is_real(variable_struct_get(_B, "_switch_party_pid"))) ? floor(variable_struct_get(_B, "_switch_party_pid")) : _pid;
+                    var P = party_ensure(_switch_party_pid_apply);
                     if (is_array(P.mons) && idx >= 0 && idx < array_length(P.mons)){
-                        var __pm_tmp = party_model_get_mon(_pid, idx);
+                        var __pm_tmp = party_model_get_mon(_switch_party_pid_apply, idx);
                         if (is_undefined(__pm_tmp) || !is_struct(__pm_tmp)) __pm_tmp = P.mons[idx];
                         // Before replacing actor, capture reference to outgoing actor so we can
                         // clear any 'trap' status on the switching-out Pok�mon (Gen3 behavior: switching
@@ -2386,6 +2610,15 @@ function battle_update(_pid){
                         var _outgoing = undefined;
                         try { if (is_struct(_B.actor[_apply_actor_index])) _outgoing = _B.actor[_apply_actor_index]; } catch (e_out) { _outgoing = undefined; }
                         _B.actor[_apply_actor_index] = __battle_actor_from_party_mon(__pm_tmp);
+                        try {
+                            var _switch_owner_pid_apply = (!is_undefined(__battle_actor_owner_pid) ? __battle_actor_owner_pid(_pid, _apply_actor_index) : _switch_party_pid_apply);
+                            __battle_set_actor_runtime_fields(_B.actor[_apply_actor_index], _apply_actor_index, _switch_owner_pid_apply, _switch_party_pid_apply, idx);
+                            if (variable_struct_exists(_B, "actor_owner_pid") && is_array(variable_struct_get(_B, "actor_owner_pid"))){
+                                var _owners_apply = variable_struct_get(_B, "actor_owner_pid");
+                                if (_apply_actor_index >= 0 && _apply_actor_index < array_length(_owners_apply)) _owners_apply[_apply_actor_index] = _switch_owner_pid_apply;
+                                variable_struct_set(_B, "actor_owner_pid", _owners_apply);
+                            }
+                        } catch (e_runtime_switch_fields) {}
                         try { if (is_struct(_B.actor[_apply_actor_index])) variable_struct_set(_B.actor[_apply_actor_index], "_last_moves", []); } catch (e_hc_switch) {}
                         // Ensure actor_index is set so debug logs and targeting can find the correct slot
                         try { if (is_struct(_B.actor[_apply_actor_index])) variable_struct_set(_B.actor[_apply_actor_index], "actor_index", _apply_actor_index); } catch (e_ai_sw) {}
@@ -2447,14 +2680,15 @@ function battle_update(_pid){
             if (elapsed5 >= dur5){
                 // Switch-in completed. Decide whether this swap consumed the player's action.
                 var opts_local = (variable_struct_exists(_B, "_switch_opts") ? _B._switch_opts : {});
+                var _switch_party_pid_done = (variable_struct_exists(_B, "_switch_party_pid") && is_real(variable_struct_get(_B, "_switch_party_pid"))) ? floor(variable_struct_get(_B, "_switch_party_pid")) : _pid;
                 var _switch_actor_index_done = (variable_struct_exists(_B, "_switch_actor_index") && is_real(variable_struct_get(_B, "_switch_actor_index"))) ? floor(variable_struct_get(_B, "_switch_actor_index")) : 0;
                 var consume_turn = true;
                 try { if (variable_struct_exists(opts_local, "consume_turn")) consume_turn = variable_struct_get(opts_local, "consume_turn"); } catch (e_ct) { consume_turn = true; }
                 if (consume_turn){
                     try {
-                        if (!is_undefined(party_set_swap_mode_impl)) party_set_swap_mode_impl(_pid, false, false);
+                        if (!is_undefined(party_set_swap_mode_impl)) party_set_swap_mode_impl(_switch_party_pid_done, false, false);
                         else if (!is_undefined(party_ensure)){
-                            var _Pclear_consume = party_ensure(_pid);
+                            var _Pclear_consume = party_ensure(_switch_party_pid_done);
                             if (is_struct(_Pclear_consume)){
                                 if (variable_struct_exists(_Pclear_consume, "_battle_swap_mode")) variable_struct_set(_Pclear_consume, "_battle_swap_mode", false);
                                 if (variable_struct_exists(_Pclear_consume, "_battle_swap_mode_forced")) variable_struct_set(_Pclear_consume, "_battle_swap_mode_forced", false);
@@ -2557,12 +2791,12 @@ function battle_update(_pid){
                     try { variable_struct_set(_B, "_target_pick_index", 0); } catch (e_clear_target_index_forced) {}
                     // Defensive: ensure any forced-swap party overlay is fully closed now that the replacement resolved.
                     try {
-                        if (!is_undefined(party_is_open) && party_is_open(_pid) && !is_undefined(party_close)) party_close(_pid);
+                        if (!is_undefined(party_is_open) && party_is_open(_switch_party_pid_done) && !is_undefined(party_close)) party_close(_switch_party_pid_done);
                     } catch (e_party_close) {}
                     try {
-                        if (!is_undefined(party_set_swap_mode_impl)) party_set_swap_mode_impl(_pid, false, false);
+                        if (!is_undefined(party_set_swap_mode_impl)) party_set_swap_mode_impl(_switch_party_pid_done, false, false);
                         else if (!is_undefined(party_ensure)){
-                            var _Pclear = party_ensure(_pid);
+                            var _Pclear = party_ensure(_switch_party_pid_done);
                             if (is_struct(_Pclear)){
                                 if (variable_struct_exists(_Pclear, "_battle_swap_mode")) variable_struct_set(_Pclear, "_battle_swap_mode", false);
                                 if (variable_struct_exists(_Pclear, "_battle_swap_mode_forced")) variable_struct_set(_Pclear, "_battle_swap_mode_forced", false);
@@ -2577,6 +2811,7 @@ function battle_update(_pid){
                     try { variable_struct_set(_B, "_pending_open_party_prev_menu", undefined); variable_struct_set(_B, "_pending_open_party_prev_selX", undefined); variable_struct_set(_B, "_pending_open_party_prev_selY", undefined); } catch (e_clr) {}
                 }
                 try { variable_struct_set(_B, "_switch_actor_index", undefined); } catch (e_clr_switch_actor) {}
+                try { variable_struct_set(_B, "_switch_party_pid", undefined); } catch (e_clr_switch_party_pid) {}
                 return;
             } else return;
         }
@@ -2611,6 +2846,7 @@ function battle_draw_gui(_pid){
 function battle_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     if (!battle_is_open(_pid)) return;
     var _B = __battle_ensure_slot(_pid);
+    var _UI = __battle_command_ui_state(_B, _pid);
 
     var _S  = max(1, min(floor(_rw / 240), floor(_rh / 160)));
     var _OX = _rx + (_rw - 240 * _S) div 2;
@@ -2670,7 +2906,7 @@ function battle_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     } else {
         __battle_player_box_rect(_pid,112,104,128,48, __battle_get_side_actor(_pid, 0, 0), "", false);
     }
-    __battle_cmd_box_rect(_pid,   8,136,224,24,   _B.sys_ui.selX, _B.sys_ui.selY);
+    __battle_cmd_box_rect(_pid,   8,136,224,24,   variable_struct_get(_UI, "selX"), variable_struct_get(_UI, "selY"));
     if (!is_undefined(__battle_draw_levelup_panel)) __battle_draw_levelup_panel(_pid);
 
     // Draw any active battle animations (status icons, damage popups)
@@ -2776,6 +3012,7 @@ function __battle_pressed(_pid, _name){
 /// Behavior: Reads controls via scr_controls API; updates _B.sys_ui and turn intents.
 function __battle_process_input(_pid){
     var _B = __battle_ensure_slot(_pid);
+    var _UI = __battle_command_ui_state(_B, _pid);
     // If the Bag or Party UI is open for this player, block battle input
     if ((is_undefined(bag_is_open) ? false : bag_is_open(_pid))) return;
     if ((is_undefined(party_is_open) ? false : party_is_open(_pid))) return;
@@ -2792,37 +3029,41 @@ function __battle_process_input(_pid){
             if (is_real(_input_suppress_until) && current_time >= _input_suppress_until) variable_struct_set(_B, "_suppress_sys_ui_until", undefined);
         }
     } catch (e_cmd_hidden_guard) {}
+    if (__battle_has_forced_switch_lock(_pid)) return;
 
     // Defensive: ensure sys_ui exists and is a struct before processing input
-    if (!is_struct(_B) || !variable_struct_exists(_B, "sys_ui") || !is_struct(variable_struct_get(_B, "sys_ui"))) return;
+    if (!is_struct(_UI)) return;
 
     // Ensure core UI fields exist to avoid undefined access during forced swaps
-    if (!variable_struct_exists(_B.sys_ui, "selX") || !is_real(variable_struct_get(_B.sys_ui, "selX"))) _B.sys_ui.selX = 0;
-    if (!variable_struct_exists(_B.sys_ui, "selY") || !is_real(variable_struct_get(_B.sys_ui, "selY"))) _B.sys_ui.selY = 0;
-    if (!variable_struct_exists(_B.sys_ui, "menu") || string_length(string(variable_struct_get(_B.sys_ui, "menu"))) == 0) _B.sys_ui.menu = "root";
+    if (!variable_struct_exists(_UI, "selX") || !is_real(variable_struct_get(_UI, "selX"))) variable_struct_set(_UI, "selX", 0);
+    if (!variable_struct_exists(_UI, "selY") || !is_real(variable_struct_get(_UI, "selY"))) variable_struct_set(_UI, "selY", 0);
+    if (!variable_struct_exists(_UI, "menu") || string_length(string(variable_struct_get(_UI, "menu"))) == 0) variable_struct_set(_UI, "menu", "root");
 
     var _is_double = (variable_struct_exists(_B, "battle_format") && string(variable_struct_get(_B, "battle_format")) == "double");
     var _versus = (variable_struct_exists(_B, "versus_enabled") && variable_struct_get(_B, "versus_enabled") == true);
     var _command_mode = (_is_double || _versus);
     if (_command_mode){
         if (!variable_struct_exists(_B, "_player_turn_actions") || !is_array(variable_struct_get(_B, "_player_turn_actions"))) variable_struct_set(_B, "_player_turn_actions", []);
-        if (!variable_struct_exists(_B, "_command_actor_index") || !is_real(variable_struct_get(_B, "_command_actor_index"))){
+        if (_versus){
+            if (!variable_struct_exists(_UI, "command_actor_index") || !is_real(variable_struct_get(_UI, "command_actor_index"))){
+                variable_struct_set(_UI, "command_actor_index", 0);
+            }
+        } else if (!variable_struct_exists(_B, "_command_actor_index") || !is_real(variable_struct_get(_B, "_command_actor_index"))){
             var _first_actor = __battle_next_command_actor_index(_pid, -1);
             variable_struct_set(_B, "_command_actor_index", (_first_actor >= 0) ? _first_actor : 0);
         }
-        var _cur_actor_for_pid = floor(variable_struct_get(_B, "_command_actor_index"));
+        var _cur_actor_for_pid = _versus ? floor(variable_struct_get(_UI, "command_actor_index")) : floor(variable_struct_get(_B, "_command_actor_index"));
         var _cur_owner_for_pid = __battle_actor_control_pid(_pid, _cur_actor_for_pid);
         var _cur_ready_for_pid = is_struct(__battle_find_player_turn_action(_B, _cur_actor_for_pid));
         if (is_real(_cur_owner_for_pid) && _cur_owner_for_pid != _pid && !_cur_ready_for_pid) return;
         if (!is_real(_cur_owner_for_pid) || _cur_ready_for_pid){
             var _next_for_pid = __battle_next_command_actor_index(_pid, -1);
             if (_next_for_pid < 0) return;
-            variable_struct_set(_B, "_command_actor_index", _next_for_pid);
-            if (is_struct(_B.sys_ui)){
-                variable_struct_set(_B.sys_ui, "menu", "root");
-                variable_struct_set(_B.sys_ui, "selX", 0);
-                variable_struct_set(_B.sys_ui, "selY", 0);
-            }
+            if (_versus) variable_struct_set(_UI, "command_actor_index", _next_for_pid);
+            else variable_struct_set(_B, "_command_actor_index", _next_for_pid);
+            variable_struct_set(_UI, "menu", "root");
+            variable_struct_set(_UI, "selX", 0);
+            variable_struct_set(_UI, "selY", 0);
         }
     }
 
@@ -2903,36 +3144,42 @@ function __battle_process_input(_pid){
         try { variable_struct_set(_B, "_target_pick_targets", undefined); } catch (e_target_pending_trainer) {}
         try { variable_struct_set(_B, "_target_pick_index", 0); } catch (e_target_idx_trainer) {}
         try {
-            if (is_struct(_B.sys_ui)){
-                variable_struct_set(_B.sys_ui, "menu", "root");
-                variable_struct_set(_B.sys_ui, "selX", 0);
-                variable_struct_set(_B.sys_ui, "selY", 0);
-            }
+            variable_struct_set(_UI, "command_pending_action", undefined);
+            variable_struct_set(_UI, "target_pick_targets", undefined);
+            variable_struct_set(_UI, "target_pick_index", 0);
+            variable_struct_set(_UI, "menu", "root");
+            variable_struct_set(_UI, "selX", 0);
+            variable_struct_set(_UI, "selY", 0);
         } catch (e_sys_ui_trainer) {}
         return;
     }
 
-    var menu = string(variable_struct_get(_B.sys_ui, "menu"));
-    var _command_actor_index = (_command_mode && variable_struct_exists(_B, "_command_actor_index") && is_real(variable_struct_get(_B, "_command_actor_index"))) ? floor(variable_struct_get(_B, "_command_actor_index")) : 0;
-
-    if (menu == "target"){
-        var _targets_nav = (variable_struct_exists(_B, "_target_pick_targets") ? variable_struct_get(_B, "_target_pick_targets") : undefined);
-        if (is_array(_targets_nav) && array_length(_targets_nav) > 0){
-            var _pick_idx = min(array_length(_targets_nav) - 1, __battle_target_pick_index(_B));
-            if (_l || _u) _pick_idx = (_pick_idx - 1 + array_length(_targets_nav)) mod array_length(_targets_nav);
-            if (_r || _d) _pick_idx = (_pick_idx + 1) mod array_length(_targets_nav);
-            variable_struct_set(_B, "_target_pick_index", _pick_idx);
-            variable_struct_set(_B.sys_ui, "selX", _pick_idx mod 2);
-            variable_struct_set(_B.sys_ui, "selY", _pick_idx div 2);
-        }
-    } else {
-        if (_l) variable_struct_set(_B.sys_ui, "selX", max(0, variable_struct_get(_B.sys_ui, "selX") - 1));
-        if (_r) variable_struct_set(_B.sys_ui, "selX", min(1, variable_struct_get(_B.sys_ui, "selX") + 1));
-        if (_u) variable_struct_set(_B.sys_ui, "selY", max(0, variable_struct_get(_B.sys_ui, "selY") - 1));
-        if (_d) variable_struct_set(_B.sys_ui, "selY", min(1, variable_struct_get(_B.sys_ui, "selY") + 1));
+    var menu = string(variable_struct_get(_UI, "menu"));
+    var _command_actor_index = 0;
+    if (_command_mode){
+        if (_versus) _command_actor_index = floor(variable_struct_get(_UI, "command_actor_index"));
+        else if (variable_struct_exists(_B, "_command_actor_index") && is_real(variable_struct_get(_B, "_command_actor_index"))) _command_actor_index = floor(variable_struct_get(_B, "_command_actor_index"));
     }
 
-    var idx = (menu == "target") ? __battle_target_pick_index(_B) : (max(0, variable_struct_get(_B.sys_ui, "selX")) + max(0, variable_struct_get(_B.sys_ui, "selY")) * 2);
+    if (menu == "target"){
+        var _targets_nav = _versus ? variable_struct_get(_UI, "target_pick_targets") : (variable_struct_exists(_B, "_target_pick_targets") ? variable_struct_get(_B, "_target_pick_targets") : undefined);
+        if (is_array(_targets_nav) && array_length(_targets_nav) > 0){
+            var _pick_idx = min(array_length(_targets_nav) - 1, (_versus ? variable_struct_get(_UI, "target_pick_index") : __battle_target_pick_index(_B)));
+            if (_l || _u) _pick_idx = (_pick_idx - 1 + array_length(_targets_nav)) mod array_length(_targets_nav);
+            if (_r || _d) _pick_idx = (_pick_idx + 1) mod array_length(_targets_nav);
+            if (_versus) variable_struct_set(_UI, "target_pick_index", _pick_idx);
+            else variable_struct_set(_B, "_target_pick_index", _pick_idx);
+            variable_struct_set(_UI, "selX", _pick_idx mod 2);
+            variable_struct_set(_UI, "selY", _pick_idx div 2);
+        }
+    } else {
+        if (_l) variable_struct_set(_UI, "selX", max(0, variable_struct_get(_UI, "selX") - 1));
+        if (_r) variable_struct_set(_UI, "selX", min(1, variable_struct_get(_UI, "selX") + 1));
+        if (_u) variable_struct_set(_UI, "selY", max(0, variable_struct_get(_UI, "selY") - 1));
+        if (_d) variable_struct_set(_UI, "selY", min(1, variable_struct_get(_UI, "selY") + 1));
+    }
+
+    var idx = (menu == "target") ? (_versus ? variable_struct_get(_UI, "target_pick_index") : __battle_target_pick_index(_B)) : (max(0, variable_struct_get(_UI, "selX")) + max(0, variable_struct_get(_UI, "selY")) * 2);
 
     if (_b){
         if (menu == "fight"){
@@ -2940,31 +3187,32 @@ function __battle_process_input(_pid){
                 var _prev_actor = __battle_previous_command_actor_index(_pid, _command_actor_index);
                 if (_prev_actor >= 0){
                     __battle_remove_player_turn_action(_B, _prev_actor);
-                    variable_struct_set(_B, "_command_actor_index", _prev_actor);
-                    _B.sys_ui.menu = "fight";
-                    _B.sys_ui.selX = 0;
-                    _B.sys_ui.selY = 0;
+                    if (_versus) variable_struct_set(_UI, "command_actor_index", _prev_actor);
+                    else variable_struct_set(_B, "_command_actor_index", _prev_actor);
+                    variable_struct_set(_UI, "menu", "fight");
+                    variable_struct_set(_UI, "selX", 0);
+                    variable_struct_set(_UI, "selY", 0);
                 } else {
-                    _B.sys_ui.menu = "root";
-                    if (is_struct(_B.sys_ui) && variable_struct_exists(_B.sys_ui, "_prev_root_selX") && variable_struct_exists(_B.sys_ui, "_prev_root_selY")){
-                        _B.sys_ui.selX = variable_struct_get(_B.sys_ui, "_prev_root_selX");
-                        _B.sys_ui.selY = variable_struct_get(_B.sys_ui, "_prev_root_selY");
+                    variable_struct_set(_UI, "menu", "root");
+                    if (variable_struct_exists(_UI, "_prev_root_selX") && variable_struct_exists(_UI, "_prev_root_selY")){
+                        variable_struct_set(_UI, "selX", variable_struct_get(_UI, "_prev_root_selX"));
+                        variable_struct_set(_UI, "selY", variable_struct_get(_UI, "_prev_root_selY"));
                     } else {
-                        _B.sys_ui.selX = 0; _B.sys_ui.selY = 0;
+                        variable_struct_set(_UI, "selX", 0); variable_struct_set(_UI, "selY", 0);
                     }
                 }
             } else {
                 // Return to root menu and restore previous root selection if available
-                _B.sys_ui.menu = "root";
-                if (is_struct(_B.sys_ui) && variable_struct_exists(_B.sys_ui, "_prev_root_selX") && variable_struct_exists(_B.sys_ui, "_prev_root_selY")){
-                    _B.sys_ui.selX = variable_struct_get(_B.sys_ui, "_prev_root_selX");
-                    _B.sys_ui.selY = variable_struct_get(_B.sys_ui, "_prev_root_selY");
+                variable_struct_set(_UI, "menu", "root");
+                if (variable_struct_exists(_UI, "_prev_root_selX") && variable_struct_exists(_UI, "_prev_root_selY")){
+                    variable_struct_set(_UI, "selX", variable_struct_get(_UI, "_prev_root_selX"));
+                    variable_struct_set(_UI, "selY", variable_struct_get(_UI, "_prev_root_selY"));
                 } else {
-                    _B.sys_ui.selX = 0; _B.sys_ui.selY = 0;
+                    variable_struct_set(_UI, "selX", 0); variable_struct_set(_UI, "selY", 0);
                 }
             }
         } else if (menu == "target"){
-            var _pending = (variable_struct_exists(_B, "_command_pending_action") ? variable_struct_get(_B, "_command_pending_action") : undefined);
+            var _pending = _versus ? variable_struct_get(_UI, "command_pending_action") : (variable_struct_exists(_B, "_command_pending_action") ? variable_struct_get(_B, "_command_pending_action") : undefined);
             var _return_to_bag = false;
             if (is_struct(_pending) && variable_struct_exists(_pending, "item_use") && variable_struct_get(_pending, "item_use") == true && variable_struct_exists(_pending, "bag_return_state")){
                 var _bag_state = variable_struct_get(_pending, "bag_return_state");
@@ -2983,14 +3231,20 @@ function __battle_process_input(_pid){
                     _return_to_bag = true;
                 }
             }
-            _B.sys_ui.menu = (_return_to_bag ? "root" : "fight");
-            variable_struct_set(_B, "_target_pick_targets", undefined);
-            variable_struct_set(_B, "_command_pending_action", undefined);
-            variable_struct_set(_B, "_target_pick_index", 0);
+            variable_struct_set(_UI, "menu", (_return_to_bag ? "root" : "fight"));
+            if (_versus){
+                variable_struct_set(_UI, "target_pick_targets", undefined);
+                variable_struct_set(_UI, "command_pending_action", undefined);
+                variable_struct_set(_UI, "target_pick_index", 0);
+            } else {
+                variable_struct_set(_B, "_target_pick_targets", undefined);
+                variable_struct_set(_B, "_command_pending_action", undefined);
+                variable_struct_set(_B, "_target_pick_index", 0);
+            }
             if (!_return_to_bag && is_struct(_pending) && variable_struct_exists(_pending, "slot") && is_real(variable_struct_get(_pending, "slot"))){
                 var _slot_prev = floor(variable_struct_get(_pending, "slot"));
-                _B.sys_ui.selX = _slot_prev mod 2;
-                _B.sys_ui.selY = _slot_prev div 2;
+                variable_struct_set(_UI, "selX", _slot_prev mod 2);
+                variable_struct_set(_UI, "selY", _slot_prev div 2);
             }
         }
     }
@@ -2998,18 +3252,16 @@ function __battle_process_input(_pid){
     if (_a){
         if (menu == "root"){
             // Save the current root selection so we can restore it when returning
-            if (is_struct(_B.sys_ui)){
-                variable_struct_set(_B.sys_ui, "_prev_root_selX", _B.sys_ui.selX);
-                variable_struct_set(_B.sys_ui, "_prev_root_selY", _B.sys_ui.selY);
-            }
+            variable_struct_set(_UI, "_prev_root_selX", variable_struct_get(_UI, "selX"));
+            variable_struct_set(_UI, "_prev_root_selY", variable_struct_get(_UI, "selY"));
             if (_versus && idx != 0){
                 try { dialog2p_show_now(_pid, "Versus currently uses Fight-only turns for each active battler."); } catch (e_vs_menu) {}
                 return;
             }
             if (idx == 0){
                 // Enter Fight submenu
-                _B.sys_ui.menu = "fight";
-                _B.sys_ui.selX = 0; _B.sys_ui.selY = 0;
+                variable_struct_set(_UI, "menu", "fight");
+                variable_struct_set(_UI, "selX", 0); variable_struct_set(_UI, "selY", 0);
             }
             else if (idx == 1){
                 // Open the bag UI for battle if available
@@ -3072,14 +3324,21 @@ function __battle_process_input(_pid){
                 var _targets = __battle_target_candidates(_pid, _command_actor_index, mv);
                 if (is_array(_targets) && array_length(_targets) > 1){
                     _targets = __battle_sort_target_candidates(_pid, _command_actor_index, _targets);
-                    variable_struct_set(_B, "_command_pending_action", _action);
-                    variable_struct_set(_B, "_target_pick_targets", _targets);
-                    _B.sys_ui.menu = "target";
+                    if (_versus){
+                        variable_struct_set(_UI, "command_pending_action", _action);
+                        variable_struct_set(_UI, "target_pick_targets", _targets);
+                        variable_struct_set(_UI, "menu", "target");
+                    } else {
+                        variable_struct_set(_B, "_command_pending_action", _action);
+                        variable_struct_set(_B, "_target_pick_targets", _targets);
+                        _B.sys_ui.menu = "target";
+                    }
                     var _default_target = __battle_get_default_target_index(_pid, _command_actor_index);
                     var _sel_idx = __battle_target_candidate_select_index(_targets, _default_target);
-                    variable_struct_set(_B, "_target_pick_index", _sel_idx);
-                    _B.sys_ui.selX = _sel_idx mod 2;
-                    _B.sys_ui.selY = _sel_idx div 2;
+                    if (_versus) variable_struct_set(_UI, "target_pick_index", _sel_idx);
+                    else variable_struct_set(_B, "_target_pick_index", _sel_idx);
+                    variable_struct_set(_UI, "selX", _sel_idx mod 2);
+                    variable_struct_set(_UI, "selY", _sel_idx div 2);
                 } else {
                     if (is_array(_targets) && array_length(_targets) > 0) variable_struct_set(_action, "target_index", _targets[0]);
                     __battle_commit_player_action(_pid, _action);
@@ -3087,8 +3346,8 @@ function __battle_process_input(_pid){
             }
         }
         else if (menu == "target"){
-            var _targets_commit = (variable_struct_exists(_B, "_target_pick_targets") ? variable_struct_get(_B, "_target_pick_targets") : undefined);
-            var _pending_commit = (variable_struct_exists(_B, "_command_pending_action") ? variable_struct_get(_B, "_command_pending_action") : undefined);
+            var _targets_commit = _versus ? variable_struct_get(_UI, "target_pick_targets") : (variable_struct_exists(_B, "_target_pick_targets") ? variable_struct_get(_B, "_target_pick_targets") : undefined);
+            var _pending_commit = _versus ? variable_struct_get(_UI, "command_pending_action") : (variable_struct_exists(_B, "_command_pending_action") ? variable_struct_get(_B, "_command_pending_action") : undefined);
             if (is_array(_targets_commit) && is_struct(_pending_commit) && idx >= 0 && idx < array_length(_targets_commit)){
                 variable_struct_set(_pending_commit, "target_index", _targets_commit[idx]);
                 __battle_commit_player_action(_pid, _pending_commit);
@@ -3963,6 +4222,10 @@ function __battle_step_turn_if_ready(_pid){
             var active_ep = (variable_struct_exists(_B, "_trainer_party_active_idx") ? variable_struct_get(_B, "_trainer_party_active_idx") : -1);
             var next_ep = __battle_trainer_next_alive_index(_B, active_ep);
             if (next_ep < 0){
+                if (__battle_is_local_versus_slot(_B)){
+                    var _fainted_enemy_actor_index_ep = (is_struct(A1) && variable_struct_exists(A1, "actor_index") && is_real(variable_struct_get(A1, "actor_index"))) ? floor(variable_struct_get(A1, "actor_index")) : __battle_enemy_lead_index(_pid);
+                    if (__battle_finish_local_versus_defeat(_pid, __battle_actor_owner_pid(_pid, _fainted_enemy_actor_index_ep), _fainted_enemy_actor_index_ep)) return;
+                }
                 __battle_trainer_handle_defeat(_pid);
                 try { variable_struct_set(A1, "_faint_awarded_enemy", true); } catch (e_flag_ep) {}
                 _B.result = "win";
@@ -4140,7 +4403,7 @@ function __battle_step_turn_if_ready(_pid){
                     should_close_battle = false;
                 }
             } else {
-                __battle_trainer_handle_defeat(_pid);
+                if (!__battle_is_local_versus_slot(_B)) __battle_trainer_handle_defeat(_pid);
                 if (_dbg_trainer){
                     try { show_debug_message("[battle][trainer] no mons remain; closing battle"); } catch (e_dbg_no) {}
                 }
@@ -4150,7 +4413,7 @@ function __battle_step_turn_if_ready(_pid){
                 should_close_battle = true;
             }
         } else {
-            __battle_trainer_handle_defeat(_pid);
+            if (!__battle_is_local_versus_slot(_B)) __battle_trainer_handle_defeat(_pid);
             if (_dbg_trainer){
                 try { show_debug_message("[battle][trainer] trainer_party missing; closing battle"); } catch (e_dbg_party) {}
             }
@@ -4169,10 +4432,33 @@ function __battle_step_turn_if_ready(_pid){
         return;
     }
 
+    if (__battle_is_local_versus_slot(_B)){
+        var _fainted_enemy_actor_index_vs = (is_struct(A1) && variable_struct_exists(A1, "actor_index") && is_real(variable_struct_get(A1, "actor_index"))) ? floor(variable_struct_get(A1, "actor_index")) : __battle_enemy_lead_index(_pid);
+        var _enemy_owner_pid_vs = __battle_actor_owner_pid(_pid, _fainted_enemy_actor_index_vs);
+        if (is_real(_enemy_owner_pid_vs) && _enemy_owner_pid_vs >= 0){
+            var _enemy_next_idx_vs = __party_find_next_alive(_enemy_owner_pid_vs);
+            if (_enemy_next_idx_vs >= 0){
+                var _enemy_name_vs = (is_struct(A1) && variable_struct_exists(A1, "name")) ? string(variable_struct_get(A1, "name")) : "Pok�mon";
+                try { variable_struct_set(_B, "_faint_pending", true); } catch (e_vs_fp) {}
+                try { variable_struct_set(_B, "_pending_open_party", true); } catch (e_vs_pop) {}
+                try { variable_struct_set(_B, "_pending_open_party_pid", _enemy_owner_pid_vs); } catch (e_vs_poppid) {}
+                try { variable_struct_set(_B, "_pending_open_party_fainted_actor_index", _fainted_enemy_actor_index_vs); } catch (e_vs_popactor) {}
+                if (!is_undefined(__battle_try_enqueue_faint_dialog)) __battle_try_enqueue_faint_dialog(_enemy_owner_pid_vs, _B, _enemy_name_vs + " fainted!", _enemy_name_vs + " fainted!");
+                try { variable_struct_set(_B, "_pending_close", false); } catch (e_vs_pc) {}
+                try { variable_struct_set(_B, "_action_active", false); } catch (e_vs_act) {}
+                _B.result = "ongoing";
+                _B.phase = "command";
+                return;
+            }
+            if (__battle_finish_local_versus_defeat(_pid, _enemy_owner_pid_vs, _fainted_enemy_actor_index_vs)) return;
+        }
+    }
+
     if (!is_trainer_battle){
         if (__battle_side_has_alive_actor(_pid, 1)){
             try { variable_struct_set(_B, "_pending_close", false); } catch (e_pc_wild) {}
             try { variable_struct_set(_B, "_pending_open_party", false); } catch (e_po_continue) {}
+            try { variable_struct_set(_B, "_pending_open_party_pid", undefined); } catch (e_po_pid_continue) {}
             try { variable_struct_set(_B, "_action_active", false); } catch (e_act_continue) {}
             _B.result = "ongoing";
             _B.phase = "command";
@@ -4181,6 +4467,7 @@ function __battle_step_turn_if_ready(_pid){
         _B.result = "win";
         _B._pending_close = true;
         try { variable_struct_set(_B, "_pending_open_party", false); } catch (e_po_wild) {}
+        try { variable_struct_set(_B, "_pending_open_party_pid", undefined); } catch (e_po_pid_wild) {}
         try { variable_struct_set(_B, "_action_active", false); } catch (e_act_wild) {}
         _B.phase = "command";
         return;
@@ -4246,6 +4533,7 @@ function __battle_step_turn_if_ready(_pid){
                         // loop checks _pending_open_party and will perform the actual
                         // party_open when dialogs are no longer active.
                         try { variable_struct_set(_B, "_pending_open_party", true); } catch (e_sch) {}
+                        try { variable_struct_set(_B, "_pending_open_party_pid", _pid); } catch (e_sch_pid) {}
                         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][faint] scheduled _pending_open_party for pid=" + string(_pid));
                         // Preserve optional next-mon ref if present; leave any reordering
                         // or sel adjustments to the actual open handler to avoid
@@ -4271,6 +4559,7 @@ function __battle_step_turn_if_ready(_pid){
                 variable_struct_set(_B, "_pending_status_msgs", pend);
                 // Ensure we won't open the party UI: clear any pending flag defensively
                 try { variable_struct_set(_B, "_pending_open_party", false); } catch (e_clpop) {}
+                try { variable_struct_set(_B, "_pending_open_party_pid", undefined); } catch (e_clpop_pid) {}
                 // Mark loss and schedule close after messages are shown
                 _B.result = "lose";
                 _B._pending_close = true;
@@ -4329,6 +4618,7 @@ function __battle_step_turn_if_ready(_pid){
                     array_push(_pend2, _trainer + " has whited out!");
                     variable_struct_set(_B, "_pending_status_msgs", _pend2);
                     try { variable_struct_set(_B, "_pending_open_party", false); } catch (e_clp3) {}
+                    try { variable_struct_set(_B, "_pending_open_party_pid", undefined); } catch (e_clp3_pid) {}
                     _B.result = "lose";
                     _B._pending_close = true;
                     variable_struct_set(_B, "_defeat_queued", true);
@@ -5261,8 +5551,17 @@ function battle_switch_to(_pid, _party_idx, _opts){
     } else if (variable_struct_exists(_B, "_command_actor_index") && is_real(variable_struct_get(_B, "_command_actor_index"))){
         _switch_actor_index = floor(variable_struct_get(_B, "_command_actor_index"));
     }
-    if (!variable_struct_exists(_B, "actor") || !is_array(variable_struct_get(_B, "actor")) || _switch_actor_index < 0 || _switch_actor_index >= array_length(variable_struct_get(_B, "actor")) || __battle_actor_side(_switch_actor_index) != 0){
-        _switch_actor_index = 0;
+    var _switch_actor_valid = (variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor")) && _switch_actor_index >= 0 && _switch_actor_index < array_length(variable_struct_get(_B, "actor")));
+    if (_switch_actor_valid){
+        if (__battle_is_local_versus_slot(_B)){
+            _switch_actor_valid = (__battle_actor_owner_pid(_pid, _switch_actor_index) == _pid);
+        } else {
+            _switch_actor_valid = (__battle_actor_side(_switch_actor_index) == 0);
+        }
+    }
+    if (!_switch_actor_valid){
+        _switch_actor_index = __battle_actor_index_for_side_slot(_pid, 0, 0);
+        if (!is_real(_switch_actor_index) || _switch_actor_index < 0) _switch_actor_index = 0;
     }
 
     var _requested_party_idx = (is_real(_party_idx) ? floor(_party_idx) : -1);
@@ -5344,6 +5643,7 @@ function battle_switch_to(_pid, _party_idx, _opts){
     _B._switch_target_idx = _requested_party_idx;
     _B._switch_opts = _opts;
     _B._switch_actor_index = _switch_actor_index;
+    _B._switch_party_pid = _pid;
     // Start an intro sequence so trainer/pokemon "Go" animation and dialog can play.
     // After intro_player completes we'll transition into switch_in where the actual swap occurs.
     _B.phase = "intro_call";
@@ -6303,7 +6603,14 @@ function __party_find_next_alive(_pid){
 
 function __battle_player_active_faint_state(_pid){
     var _B = __battle_ensure_slot(_pid);
-    var _indices = (is_struct(_B) && variable_struct_exists(_B, "battle_format") && string(variable_struct_get(_B, "battle_format")) == "double") ? [0, 1] : [0];
+    var _indices = [];
+    var _is_double = (is_struct(_B) && variable_struct_exists(_B, "battle_format") && string(variable_struct_get(_B, "battle_format")) == "double");
+    var _lead_idx = __battle_actor_index_for_side_slot(_pid, 0, 0);
+    if (is_real(_lead_idx) && _lead_idx >= 0) array_push(_indices, floor(_lead_idx));
+    if (_is_double){
+        var _ally_idx = __battle_actor_index_for_side_slot(_pid, 0, 1);
+        if (is_real(_ally_idx) && _ally_idx >= 0 && _ally_idx != _lead_idx) array_push(_indices, floor(_ally_idx));
+    }
     var _any_alive = false;
     var _any_fainted = false;
     for (var _i = 0; _i < array_length(_indices); ++_i){

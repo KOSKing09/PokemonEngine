@@ -37,20 +37,6 @@ if (_shared_battle){
     var _r0 = (!is_undefined(splitscreen_get_gui_rect)) ? splitscreen_get_gui_rect(0) : [0, 0, _gw div 2, _gh];
     var _r1 = (!is_undefined(splitscreen_get_gui_rect)) ? splitscreen_get_gui_rect(1) : [_gw div 2, 0, _gw div 2, _gh];
 
-    // P1
-    if (battle_is_open(0)){
-    if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[draw64][debug] calling battle_draw_gui_rect pid=0");
-        battle_draw_gui_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
-    }
-    if (pause_is_open(0)) pause_draw_gui_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
-    if (bag_is_open(0))   bag_draw_gui_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
-    if (party_is_open(0)) party_draw_gui_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
-    if (_evo0) evolution_draw_gui_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
-    if (_vk0) virtual_keyboard_draw_gui_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
-    if (!battle_is_open(0) && (is_undefined(battle_any_open) || !battle_any_open()) && !is_undefined(dialog2p_is_open) && dialog2p_is_open(0)){
-        dialog2p_draw_gui_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
-    }
-
     // P2
     if (battle_is_open(1)){
     if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[draw64][debug] calling battle_draw_gui_rect pid=1");
@@ -63,6 +49,20 @@ if (_shared_battle){
     if (_vk1) virtual_keyboard_draw_gui_rect(1, _r1[0], _r1[1], _r1[2], _r1[3]);
     if (!battle_is_open(1) && (is_undefined(battle_any_open) || !battle_any_open()) && !is_undefined(dialog2p_is_open) && dialog2p_is_open(1)){
         dialog2p_draw_gui_rect(1, _r1[0], _r1[1], _r1[2], _r1[3]);
+    }
+
+    // P1 draws last so its UI stays on top when battler/platform sprites spill over the split boundary.
+    if (battle_is_open(0)){
+    if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[draw64][debug] calling battle_draw_gui_rect pid=0");
+        battle_draw_gui_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
+    }
+    if (pause_is_open(0)) pause_draw_gui_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
+    if (bag_is_open(0))   bag_draw_gui_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
+    if (party_is_open(0)) party_draw_gui_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
+    if (_evo0) evolution_draw_gui_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
+    if (_vk0) virtual_keyboard_draw_gui_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
+    if (!battle_is_open(0) && (is_undefined(battle_any_open) || !battle_any_open()) && !is_undefined(dialog2p_is_open) && dialog2p_is_open(0)){
+        dialog2p_draw_gui_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
     }
 } else {
     // --- Single player ---
