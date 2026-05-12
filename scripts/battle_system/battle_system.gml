@@ -3667,6 +3667,8 @@ function __battle_step_turn_if_ready(_pid){
         } else {
             _B.sys_ui.selX = 0; _B.sys_ui.selY = 0;
         }
+        try { variable_struct_set(_B, "_last_phase", "command"); } catch (e_last_phase_cmd_empty) {}
+        if (!is_undefined(__battle_on_phase_enter)) __battle_on_phase_enter(_pid, "command");
         return;
     }
 
@@ -4628,7 +4630,12 @@ function __battle_step_turn_if_ready(_pid){
                 try { _B.turn_queue = []; _B.turn_i = 0; } catch (e_tq) {}
                 try { variable_struct_set(_B, "_action_active", false); } catch (e_aa2) {}
             }
+            try { variable_struct_set(_B, "_action_active", false); } catch (e_turn_done_action2) {}
+            try { variable_struct_set(_B, "_suppress_wait_for_dialog_close", false); } catch (e_turn_done_wait2) {}
+            try { variable_struct_set(_B, "_suppress_sys_ui_until", undefined); } catch (e_turn_done_ui2) {}
             _B.phase = "command";
+            try { variable_struct_set(_B, "_last_phase", "command"); } catch (e_turn_last_phase2) {}
+            if (!is_undefined(__battle_on_phase_enter)) __battle_on_phase_enter(_pid, "command");
             return;
                             }
 
@@ -5964,6 +5971,18 @@ function __battle_actor_from_party_mon(_M){
         if (!variable_struct_exists(A, "exp")) A.exp = 0;
         if (!variable_struct_exists(A, "exp_next")) A.exp_next = max(20, (is_real(A.level) ? A.level : _lvl) * (is_real(A.level) ? A.level : _lvl) * 2);
 
+        try {
+            if ((!variable_struct_exists(A, "ability_id") || !is_real(A.ability_id)) && variable_struct_exists(A, "species_id") && is_real(A.species_id) && !is_undefined(scr_poke_pick_ability)){
+                var _party_ability_id = scr_poke_pick_ability(A.species_id, A.species_id * 1000 + (is_real(A.level) ? A.level : _lvl));
+                if (is_real(_party_ability_id) && _party_ability_id > 0){
+                    A.ability_id = _party_ability_id;
+                    if (!is_undefined(scr_ability_name_by_id)) A.ability = scr_ability_name_by_id(_party_ability_id);
+                }
+            } else if (variable_struct_exists(A, "ability_id") && is_real(A.ability_id) && (!variable_struct_exists(A, "ability") || string_length(string(A.ability)) <= 0) && !is_undefined(scr_ability_name_by_id)){
+                A.ability = scr_ability_name_by_id(A.ability_id);
+            }
+        } catch (e_party_ability) {}
+
         // Ensure growth_id exists on party mons so experience lookups can reference the correct growth curve
         if (!variable_struct_exists(A, "growth_id") || !is_real(A.growth_id)){
             if (variable_struct_exists(A, "species_id") && is_real(A.species_id) && variable_global_exists("_pokemon") && is_array(global._pokemon) && A.species_id >= 0 && A.species_id < array_length(global._pokemon)){
@@ -6063,6 +6082,18 @@ function __battle_actor_from_species_level(_sp,_lvl){
         exp_next:max(20, _lvl * _lvl * 2) // simple curve placeholder
     };
     _actor.mon = { species_id:_sp, shiny:false };
+
+    try {
+        if (!is_undefined(scr_poke_pick_ability)){
+            var _wild_ability_id = scr_poke_pick_ability(_sp, _sp * 1000 + _lvl);
+            if (is_real(_wild_ability_id) && _wild_ability_id > 0){
+                _actor.ability_id = _wild_ability_id;
+                if (!is_undefined(scr_ability_name_by_id)) _actor.ability = scr_ability_name_by_id(_wild_ability_id);
+                _actor.mon.ability_id = _wild_ability_id;
+                _actor.mon.ability = _actor.ability;
+            }
+        }
+    } catch (e_wild_ability) {}
 
     // Ensure the wild mon has canonical fields so downstream code can query growth/exp reliably
     // Provide numeric species aliases
@@ -6322,6 +6353,58 @@ function __battle_stat_get(_A, _stat){
 
     // Pull from mon if present, else derive from level
     var lvl = (is_struct(_A) && is_real(_A.level)) ? _A.level : 5;
+    function __battle_stat_raw_value(_ent, _want){
+        if (!is_struct(_ent)) return undefined;
+        if (_want == "atk"){
+            if (variable_struct_exists(_ent, "atk") && is_real(variable_struct_get(_ent, "atk"))) return variable_struct_get(_ent, "atk");
+            if (variable_struct_exists(_ent, "attack") && is_real(variable_struct_get(_ent, "attack"))) return variable_struct_get(_ent, "attack");
+        } else if (_want == "def"){
+            if (variable_struct_exists(_ent, "def") && is_real(variable_struct_get(_ent, "def"))) return variable_struct_get(_ent, "def");
+            if (variable_struct_exists(_ent, "defense") && is_real(variable_struct_get(_ent, "defense"))) return variable_struct_get(_ent, "defense");
+        } else if (_want == "spa"){
+            if (variable_struct_exists(_ent, "spa") && is_real(variable_struct_get(_ent, "spa"))) return variable_struct_get(_ent, "spa");
+            if (variable_struct_exists(_ent, "spatk") && is_real(variable_struct_get(_ent, "spatk"))) return variable_struct_get(_ent, "spatk");
+            if (variable_struct_exists(_ent, "sp_atk") && is_real(variable_struct_get(_ent, "sp_atk"))) return variable_struct_get(_ent, "sp_atk");
+            if (variable_struct_exists(_ent, "special_attack") && is_real(variable_struct_get(_ent, "special_attack"))) return variable_struct_get(_ent, "special_attack");
+        } else if (_want == "spdef"){
+            if (variable_struct_exists(_ent, "spd") && is_real(variable_struct_get(_ent, "spd"))) return variable_struct_get(_ent, "spd");
+            if (variable_struct_exists(_ent, "spdef") && is_real(variable_struct_get(_ent, "spdef"))) return variable_struct_get(_ent, "spdef");
+            if (variable_struct_exists(_ent, "sp_def") && is_real(variable_struct_get(_ent, "sp_def"))) return variable_struct_get(_ent, "sp_def");
+            if (variable_struct_exists(_ent, "special_defense") && is_real(variable_struct_get(_ent, "special_defense"))) return variable_struct_get(_ent, "special_defense");
+        } else if (_want == "spd" || _want == "spe"){
+            if (variable_struct_exists(_ent, "spe") && is_real(variable_struct_get(_ent, "spe"))) return variable_struct_get(_ent, "spe");
+            if (variable_struct_exists(_ent, "speed") && is_real(variable_struct_get(_ent, "speed"))) return variable_struct_get(_ent, "speed");
+        }
+        if (variable_struct_exists(_ent, "mon") && is_struct(variable_struct_get(_ent, "mon"))) return __battle_stat_raw_value(variable_struct_get(_ent, "mon"), _want);
+        return undefined;
+    }
+    try {
+        if (is_struct(_A) && variable_struct_exists(_A, "_stages") && is_struct(variable_struct_get(_A, "_stages"))){
+            var _stage_key_top = undefined;
+            if (_stat == "atk") _stage_key_top = "atk";
+            else if (_stat == "def") _stage_key_top = "def";
+            else if (_stat == "spa") _stage_key_top = "spa";
+            else if (_stat == "spdef") _stage_key_top = "spd";
+            else if (_stat == "spd" || _stat == "spe") _stage_key_top = "spe";
+            var _stages_top = variable_struct_get(_A, "_stages");
+            if (!is_undefined(_stage_key_top) && variable_struct_exists(_stages_top, _stage_key_top) && is_real(variable_struct_get(_stages_top, _stage_key_top))){
+                var _raw_top = __battle_stat_raw_value(_A, _stat);
+                if (is_real(_raw_top) && _raw_top > 0){
+                    var _stage_val_top = floor(_raw_top * __battle_stage_multiplier(variable_struct_get(_stages_top, _stage_key_top)));
+                    if (_stat == "spd" || _stat == "spe"){
+                        try {
+                            if (!is_undefined(status_system_has_status)){
+                                if (status_system_has_status(_A, "paralysis") || status_system_has_status(_A, "paralyze")) _stage_val_top = floor(_stage_val_top / 2);
+                                else if (variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon")) && (status_system_has_status(variable_struct_get(_A, "mon"), "paralysis") || status_system_has_status(variable_struct_get(_A, "mon"), "paralyze"))) _stage_val_top = floor(_stage_val_top / 2);
+                            }
+                        } catch (e_stage_speed_status) {}
+                        _stage_val_top = __battle_stat_apply_speed_field_mod(_A, _stage_val_top);
+                    }
+                    return max(1, _stage_val_top);
+                }
+            }
+        }
+    } catch (e_stage_top) {}
     // Only check exact assigned fields. For speed, use `spe` only (actor then mon).
     if (is_struct(_A)){
         if (_stat == "spd"){
