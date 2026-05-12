@@ -1056,6 +1056,12 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
 
     if (!__hide_sprite_intro_now){
         if (!_spr_missing && sprite_exists(sprE)){
+            try {
+                variable_struct_set(E, "_render_draw_x", draw_x);
+                variable_struct_set(E, "_render_draw_y", draw_y);
+                variable_struct_set(E, "_render_scale_x", drawScaleE * _bs_e);
+                variable_struct_set(E, "_render_scale_y", drawScaleE);
+            } catch (e_render_enemy) {}
             draw_sprite_ext(sprE, subE, draw_x, draw_y, drawScaleE * _bs_e, drawScaleE, 0, _img_blend_e, enemy_alpha);
         } else {
             // Fallback: draw a simple placeholder so enemy isn't invisible (matches player fallback)
@@ -1501,7 +1507,15 @@ function __battle_draw_player(_pid, _B, _actorIndex, mx, my, tx, ty, _skip_platf
             draw_ellipse(shadow_cx_p2 - shadow_w_p2 div 2, shadow_cy_p2 - shadow_h_p2 div 2, shadow_cx_p2 + shadow_w_p2 div 2, shadow_cy_p2 + shadow_h_p2 div 2, false);
             draw_set_alpha(1);
         }
-    if (player_has_sprite) draw_sprite_ext(sprP, subP, draw_x, draw_y, drawScaleP * _bs_p, drawScaleP, 0, _img_blend_p, 1);
+    if (player_has_sprite) {
+        try {
+            variable_struct_set(P, "_render_draw_x", draw_x);
+            variable_struct_set(P, "_render_draw_y", draw_y);
+            variable_struct_set(P, "_render_scale_x", drawScaleP * _bs_p);
+            variable_struct_set(P, "_render_scale_y", drawScaleP);
+        } catch (e_render_player) {}
+        draw_sprite_ext(sprP, subP, draw_x, draw_y, drawScaleP * _bs_p, drawScaleP, 0, _img_blend_p, 1);
+    }
         else {
             // Fallback while idle/command
             if (!is_undefined(player_fallback_sprite) && sprite_exists(player_fallback_sprite)){

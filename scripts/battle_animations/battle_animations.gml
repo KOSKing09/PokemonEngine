@@ -970,6 +970,177 @@ function __battle_anim_queue_actor_center(_pid, _idx){
     return [_cx, _cy];
 }
 
+function __battle_anim_queue_actor_sprite_spec(_pid, _idx){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !variable_struct_exists(_B, "actor") || !is_array(variable_struct_get(_B, "actor"))) return undefined;
+    var _actors = variable_struct_get(_B, "actor");
+    if (_idx < 0 || _idx >= array_length(_actors)) return undefined;
+    var _actor = _actors[_idx];
+    if (!is_struct(_actor) || !variable_struct_exists(_actor, "mon")) return undefined;
+    if (is_undefined(pkicons_get_art96_by_mon) || is_undefined(pkicons_get_art96_subimg_by_mon)) return undefined;
+
+    var _spr = pkicons_get_art96_by_mon(variable_struct_get(_actor, "mon"));
+    if (is_undefined(_spr) || !sprite_exists(_spr)) return undefined;
+
+    var _side = __battle_actor_side(_idx);
+    try {
+        if (!is_undefined(__battle_actor_view_side_slot)){
+            var _view = __battle_actor_view_side_slot(_pid, _idx);
+            if (is_struct(_view) && variable_struct_exists(_view, "side")) _side = variable_struct_get(_view, "side");
+        }
+    } catch (e_view_side) {}
+
+    var _sub = 0;
+    try { _sub = pkicons_get_art96_subimg_by_mon(variable_struct_get(_actor, "mon"), _side == 0); } catch (e_sub_spec) { _sub = 0; }
+
+    var _ui_s = 1;
+    try {
+        if (variable_struct_exists(_B, "_ui") && is_struct(variable_struct_get(_B, "_ui"))){
+            var _ui = variable_struct_get(_B, "_ui");
+            if (variable_struct_exists(_ui, "s") && is_real(variable_struct_get(_ui, "s"))) _ui_s = max(1, real(variable_struct_get(_ui, "s")));
+        }
+    } catch (e_ui_spec) { _ui_s = 1; }
+
+    var _anchor = undefined;
+    try {
+        if (!is_undefined(__battle_get_actor_scene_anchor)) _anchor = __battle_get_actor_scene_anchor(_pid, _B, _idx);
+    } catch (e_anchor_spec) { _anchor = undefined; }
+
+    var _center = __battle_anim_queue_actor_center(_pid, _idx);
+    var _pt = (is_struct(_anchor) && variable_struct_exists(_anchor, "battler")) ? variable_struct_get(_anchor, "battler") : _center;
+    if (!is_array(_pt) || array_length(_pt) < 2) return undefined;
+
+    var _scale_mult = (is_struct(_anchor) && variable_struct_exists(_anchor, "scale_mult") && is_real(variable_struct_get(_anchor, "scale_mult"))) ? real(variable_struct_get(_anchor, "scale_mult")) : 1;
+    var _draw_scale = ((_side == 0) ? 1.1 : 1.0) * _scale_mult * _ui_s;
+    var _draw_scale_x = _draw_scale;
+    var _draw_scale_y = _draw_scale;
+    var _spr_w = sprite_get_width(_spr);
+    var _spr_h = sprite_get_height(_spr);
+    var _origin_x = sprite_get_xoffset(_spr);
+    var _origin_y = sprite_get_yoffset(_spr);
+    var _platform_bottom = _pt[1] + (_spr_h * _draw_scale) * 0.5;
+    var _draw_x = _pt[0] + (_origin_x - (_spr_w * 0.5)) * _draw_scale;
+    var _draw_y = _platform_bottom - (_spr_h - _origin_y) * _draw_scale;
+
+    try {
+        if (variable_struct_exists(_actor, "_render_draw_x") && is_real(variable_struct_get(_actor, "_render_draw_x")) &&
+            variable_struct_exists(_actor, "_render_draw_y") && is_real(variable_struct_get(_actor, "_render_draw_y"))){
+            _draw_x = variable_struct_get(_actor, "_render_draw_x");
+            _draw_y = variable_struct_get(_actor, "_render_draw_y");
+            if (variable_struct_exists(_actor, "_render_scale_x") && is_real(variable_struct_get(_actor, "_render_scale_x"))) _draw_scale_x = variable_struct_get(_actor, "_render_scale_x");
+            if (variable_struct_exists(_actor, "_render_scale_y") && is_real(variable_struct_get(_actor, "_render_scale_y"))) _draw_scale_y = variable_struct_get(_actor, "_render_scale_y");
+        }
+    } catch (e_render_spec) {}
+
+    return {
+        sprite: _spr,
+        subimg: _sub,
+        draw_x: _draw_x,
+        draw_y: _draw_y,
+        scale_x: _draw_scale_x,
+        scale_y: _draw_scale_y,
+        width_px: _spr_w * _draw_scale_x,
+        height_px: _spr_h * _draw_scale_y,
+        side: _side
+    };
+}
+
+function __battle_anim_queue_stat_overlay_surface(_B, _want_w, _want_h){
+    if (!is_struct(_B)) return -1;
+    var _surf_w = max(8, ceil(_want_w));
+    var _surf_h = max(8, ceil(_want_h));
+    var _surf = (variable_struct_exists(_B, "_stat_overlay_mask_surface") ? variable_struct_get(_B, "_stat_overlay_mask_surface") : -1);
+    var _reuse = false;
+    if (surface_exists(_surf)){
+        try {
+            if (surface_get_width(_surf) == _surf_w && surface_get_height(_surf) == _surf_h) _reuse = true;
+            else surface_free(_surf);
+        } catch (e_surf_size) {
+            _reuse = false;
+            try { if (surface_exists(_surf)) surface_free(_surf); } catch (e_surf_free) {}
+        }
+    }
+    if (!_reuse){
+        _surf = surface_create(_surf_w, _surf_h);
+        if (surface_exists(_surf)) variable_struct_set(_B, "_stat_overlay_mask_surface", _surf);
+    }
+    return _surf;
+}
+
+function __battle_anim_queue_draw_stat_overlay_stencil(_pid, _st, _actor_spec){
+    if (!is_struct(_st) || !is_struct(_actor_spec)) return false;
+    var _prog = clamp((variable_struct_exists(_st, "progress") ? variable_struct_get(_st, "progress") : 0), 0, 1);
+    var _dir = (variable_struct_exists(_st, "direction") && is_real(variable_struct_get(_st, "direction"))) ? variable_struct_get(_st, "direction") : 0;
+    var _alpha = clamp(0.72 * (1 - (_prog * 0.28)), 0, 1);
+
+    var _spr = variable_struct_get(_actor_spec, "sprite");
+    var _sub = variable_struct_get(_actor_spec, "subimg");
+    var _draw_x = variable_struct_get(_actor_spec, "draw_x");
+    var _draw_y = variable_struct_get(_actor_spec, "draw_y");
+    var _scale_x = (variable_struct_exists(_actor_spec, "scale_x") && is_real(variable_struct_get(_actor_spec, "scale_x"))) ? variable_struct_get(_actor_spec, "scale_x") : 1;
+    var _scale_y = (variable_struct_exists(_actor_spec, "scale_y") && is_real(variable_struct_get(_actor_spec, "scale_y"))) ? variable_struct_get(_actor_spec, "scale_y") : _scale_x;
+    var _src_w = sprite_get_width(_spr);
+    var _src_h = sprite_get_height(_spr);
+    if (_src_w <= 0 || _src_h <= 0 || !sprite_exists(spr_stateffects)) return false;
+
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B)) return false;
+
+    var _pad_x = max(6, ceil(__battle_anim_queue_wu(_pid, 8, 8)));
+    var _pad_y = max(6, ceil(__battle_anim_queue_hu(_pid, 8, 8)));
+    var _surf_w = max(8, ceil(variable_struct_get(_actor_spec, "width_px")) + (_pad_x * 2));
+    var _surf_h = max(8, ceil(variable_struct_get(_actor_spec, "height_px")) + (_pad_y * 2));
+    var _surf = __battle_anim_queue_stat_overlay_surface(_B, _surf_w, _surf_h);
+    if (!surface_exists(_surf)) return false;
+
+    var _surf_x = floor(_draw_x - _pad_x);
+    var _surf_y = floor(_draw_y - _pad_y);
+    var _local_x = _draw_x - _surf_x;
+    var _local_y = _draw_y - _surf_y;
+
+    var _frame = (variable_struct_exists(_st, "frame") && is_real(variable_struct_get(_st, "frame"))) ? clamp(floor(variable_struct_get(_st, "frame")), 0, max(0, sprite_get_number(spr_stateffects) - 1)) : 0;
+    var _tile_w = __battle_anim_queue_wu(_pid, 32, 32);
+    var _tile_h = __battle_anim_queue_hu(_pid, 32, 32);
+    var _tile_scale_x = _tile_w / max(1, sprite_get_width(spr_stateffects));
+    var _tile_scale_y = _tile_h / max(1, sprite_get_height(spr_stateffects));
+    var _loops = (variable_struct_exists(_st, "bg_loops") && is_real(variable_struct_get(_st, "bg_loops"))) ? max(1, floor(variable_struct_get(_st, "bg_loops"))) : 2;
+    var _loop_prog = _prog * (_loops * 0.55);
+    var _frac = _loop_prog - floor(_loop_prog);
+    var _scroll_y = 0;
+    if (_dir > 0) _scroll_y = -(_frac * _tile_h);
+    else if (_dir < 0) _scroll_y = (_frac * _tile_h);
+
+    surface_set_target(_surf);
+    draw_clear_alpha(c_black, 0);
+    gpu_set_blendmode(bm_normal);
+    draw_set_color(c_white);
+    draw_set_alpha(1);
+    draw_sprite_ext(_spr, _sub, _local_x, _local_y, _scale_x, _scale_y, 0, c_white, 1);
+
+    gpu_set_blendmode_ext(bm_dest_alpha, bm_zero);
+    draw_set_color(c_white);
+    draw_set_alpha(_alpha);
+    var _start_x = -_tile_w;
+    var _start_y = _scroll_y - _tile_h;
+    var _end_x = _surf_w + _tile_w;
+    var _end_y = _surf_h + _tile_h;
+    for (var _tx = _start_x; _tx <= _end_x; _tx += _tile_w){
+        for (var _ty = _start_y; _ty <= _end_y; _ty += _tile_h){
+            draw_sprite_ext(spr_stateffects, _frame, _tx + (_tile_w * 0.5), _ty + (_tile_h * 0.5), _tile_scale_x, _tile_scale_y, 0, c_white, _alpha);
+        }
+    }
+    gpu_set_blendmode(bm_normal);
+    draw_set_alpha(1);
+    draw_set_color(c_white);
+    surface_reset_target();
+
+    draw_surface(_surf, _surf_x, _surf_y);
+    gpu_set_blendmode(bm_normal);
+    draw_set_alpha(1);
+    draw_set_color(c_white);
+    return true;
+}
+
 function __battle_anim_queue_build_draw_state(_pid, _slot, _entry){
     if (!is_struct(_entry)) return undefined;
     var _type = string(_entry.type);
@@ -1289,44 +1460,38 @@ function __battle_anim_queue_draw_states(_pid, _states){
             // If requested, draw a full-field tiled background using the same sprite frame.
             var _bg_flag = (variable_struct_exists(_st, "bg") && _st.bg);
             if (_bg_flag){
-                // Tile size: use same logical 32×32 tile sizing as the small overlay.
-                var _tile_w = __battle_anim_queue_wu(_pid, 32, 32);
-                var _tile_h = __battle_anim_queue_hu(_pid, 32, 32);
-                var _spr_w = _spr_w_so;
-                var _scale_tile = (_spr_w > 0) ? (_tile_w / _spr_w) : _scale_so;
-                // Directional scroll: positive direction => raise (move up), negative => lower (move down)
-                var _dir = (variable_struct_exists(_st, "direction") && is_real(_st.direction)) ? floor(_st.direction) : 0;
-                // Continuous looping scroll: run several loops across the overlay duration
-                var _loops = (variable_struct_exists(_st, "bg_loops") && is_real(_st.bg_loops)) ? max(0, floor(_st.bg_loops)) : 3; // how many tile-heights to scroll during full duration
-                var _frac = 0;
-                if (_loops > 0) {
-                    var _lp = _prog_so * _loops;
-                    _frac = _lp - floor(_lp); // fractional position within current loop (0..1)
-                }
-                var _scroll = 0;
-                if (_dir > 0) _scroll = -(_frac * _tile_h); else if (_dir < 0) _scroll = (_frac * _tile_h);
-                // Draw tiled across only this battle pane. In split-screen the GUI
-                // surface may contain both players, but _field_full is already
-                // mapped through the current battle UI rect.
-                // Use normal blending for the tiled background to avoid additive brightness
-                gpu_set_blendmode(bm_normal);
-                var _lx = _field_full[0];
-                var _ty0 = _field_full[1];
-                var _rx = _field_full[2];
-                var _by = _field_full[3];
-                // Start one tile earlier to ensure full coverage at the left/top edges.
-                // Use floor-based alignment so floating GUI coords don't skip the first column.
-                var _start_y = _ty0 + _scroll - _tile_h;
-                var _start_x = floor(_lx / max(1, _tile_w)) * _tile_w - _tile_w;
-                // Inclusive bounds (+tile) to avoid missing the right/bottom edge due to rounding
-                var _end_x = _rx + _tile_w;
-                var _end_y = _by + _tile_h;
-                for (var _tx = _start_x; _tx <= _end_x; _tx += _tile_w){
-                    for (var _ty = _start_y; _ty <= _end_y; _ty += _tile_h){
-                        draw_sprite_ext(spr_stateffects, _frame_so, _tx + _tile_w * 0.5, _ty + _tile_h * 0.5, _scale_tile, _scale_tile, 0, _color_so, _alpha_so);
+                var _stencil_spec = __battle_anim_queue_actor_sprite_spec(_pid, _idx_so);
+                var _used_stencil = __battle_anim_queue_draw_stat_overlay_stencil(_pid, _st, _stencil_spec);
+                if (!_used_stencil){
+                    var _tile_w = __battle_anim_queue_wu(_pid, 32, 32);
+                    var _tile_h = __battle_anim_queue_hu(_pid, 32, 32);
+                    var _spr_w = _spr_w_so;
+                    var _scale_tile = (_spr_w > 0) ? (_tile_w / _spr_w) : _scale_so;
+                    var _dir = (variable_struct_exists(_st, "direction") && is_real(_st.direction)) ? floor(_st.direction) : 0;
+                    var _loops = (variable_struct_exists(_st, "bg_loops") && is_real(_st.bg_loops)) ? max(0, floor(_st.bg_loops)) : 3;
+                    var _frac = 0;
+                    if (_loops > 0) {
+                        var _lp = _prog_so * _loops;
+                        _frac = _lp - floor(_lp);
                     }
+                    var _scroll = 0;
+                    if (_dir > 0) _scroll = -(_frac * _tile_h); else if (_dir < 0) _scroll = (_frac * _tile_h);
+                    gpu_set_blendmode(bm_normal);
+                    var _lx = _field_full[0];
+                    var _ty0 = _field_full[1];
+                    var _rx = _field_full[2];
+                    var _by = _field_full[3];
+                    var _start_y = _ty0 + _scroll - _tile_h;
+                    var _start_x = floor(_lx / max(1, _tile_w)) * _tile_w - _tile_w;
+                    var _end_x = _rx + _tile_w;
+                    var _end_y = _by + _tile_h;
+                    for (var _tx = _start_x; _tx <= _end_x; _tx += _tile_w){
+                        for (var _ty = _start_y; _ty <= _end_y; _ty += _tile_h){
+                            draw_sprite_ext(spr_stateffects, _frame_so, _tx + _tile_w * 0.5, _ty + _tile_h * 0.5, _scale_tile, _scale_tile, 0, _color_so, _alpha_so);
+                        }
+                    }
+                    gpu_set_blendmode(bm_normal);
                 }
-                gpu_set_blendmode(bm_normal);
                 draw_set_alpha(1);
                 draw_set_color(c_white);
                 _draw_stat_overlay_icons(_cx_so, _cy_so);

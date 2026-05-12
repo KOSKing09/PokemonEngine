@@ -1220,6 +1220,12 @@ if (variable_global_exists("STATUS_SYS") && variable_struct_exists(global.STATUS
             __battle_request_animation_safe(mon, { type: "status_cured", status: "sleep" });
         } catch (e_anim) {}
         try {
+            if (is_struct(mon) && variable_struct_exists(mon, "_suppress_sleep_wake_dialog_once") && variable_struct_get(mon, "_suppress_sleep_wake_dialog_once") == true){
+                variable_struct_set(mon, "_suppress_sleep_wake_dialog_once", false);
+                return;
+            }
+        } catch (e_skip_dlg) {}
+        try {
             var _nm = __status_mon_display_name(mon);
             __status_request_dialog_for_mon(mon, string(_nm) + " woke up!", false);
         } catch (e_dlg) {}

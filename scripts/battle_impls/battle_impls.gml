@@ -1937,6 +1937,12 @@ function __battle_check_can_act(_user, _move_id){
             return true;
         }
     } catch (e_sleep_talk_bypass) {}
+    try {
+        if (is_struct(_user) && variable_struct_exists(_user, "_sleep_wake_dialog_pending") && variable_struct_get(_user, "_sleep_wake_dialog_pending") == true){
+            variable_struct_set(_user, "_sleep_wake_dialog_pending", false);
+            return true;
+        }
+    } catch (e_sleep_wake_resume) {}
     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
         var _dbg_name = "actor";
         var _dbg_has_freeze = "?";
@@ -2017,11 +2023,36 @@ function __battle_check_can_act(_user, _move_id){
             }
             // Sleep handling: use turns on the status instance if available
             if (status_system_has_status(_user, "sleep")){
+                var _sleep_name = "The user";
+                try {
+                    _sleep_name = string(__status_mon_display_name(_user));
+                } catch (e_sleep_name) {
+                    if (variable_struct_exists(_user, "name")) _sleep_name = string(variable_struct_get(_user, "name"));
+                }
                 try {
                     var _pid_sleep = __battle_guess_pid_for_entities(_user, undefined);
                     if (is_real(_pid_sleep) && !is_undefined(__battle_slot_has_active_uproar) && __battle_slot_has_active_uproar(_pid_sleep)){
+                        var _wake_uproar_msg = _sleep_name + " woke up in the uproar!";
+                        var _wake_uproar_queued = false;
+                        try { variable_struct_set(_user, "_suppress_sleep_wake_dialog_once", true); } catch (e_sleep_uproar_suppress) {}
                         status_system_clear_status(_user, "sleep");
-                        dialog_queue((variable_struct_exists(_user, "name") ? variable_struct_get(_user, "name") : "The user") + " woke up in the uproar!");
+                        try { _wake_uproar_queued = __status_request_dialog_for_mon(_user, _wake_uproar_msg, false); } catch (e_sleep_uproar_queue) { _wake_uproar_queued = false; }
+                        if (!_wake_uproar_queued){
+                            try {
+                                if (!is_undefined(dialog_queue)){
+                                    dialog_queue(_wake_uproar_msg);
+                                    _wake_uproar_queued = true;
+                                }
+                            } catch (e_sleep_uproar_fallback) {}
+                        }
+                        if (_wake_uproar_queued){
+                            try { variable_struct_set(_user, "_sleep_wake_dialog_pending", true); } catch (e_sleep_uproar_pending) {}
+                            try {
+                                var _B_sleep_uproar = __battle_ensure_slot(_pid_sleep);
+                                if (is_struct(_B_sleep_uproar)) variable_struct_set(_B_sleep_uproar, "_hold_current_action_for_status_dialog", true);
+                            } catch (e_sleep_uproar_hold) {}
+                            return false;
+                        }
                         return true;
                     }
                 } catch (e_sleep_uproar) {}
@@ -2033,7 +2064,29 @@ function __battle_check_can_act(_user, _move_id){
                     return false;
                 }
                 // no turns left -> wake up
-                dialog_queue((variable_struct_exists(_user, "name") ? variable_struct_get(_user, "name") : "The user") + " woke up!"); status_system_clear_status(_user, "sleep"); return true;
+                var _wake_msg = _sleep_name + " woke up!";
+                var _wake_queued = false;
+                try { variable_struct_set(_user, "_suppress_sleep_wake_dialog_once", true); } catch (e_sleep_suppress) {}
+                status_system_clear_status(_user, "sleep");
+                try { _wake_queued = __status_request_dialog_for_mon(_user, _wake_msg, false); } catch (e_sleep_queue) { _wake_queued = false; }
+                if (!_wake_queued){
+                    try {
+                        if (!is_undefined(dialog_queue)){
+                            dialog_queue(_wake_msg);
+                            _wake_queued = true;
+                        }
+                    } catch (e_sleep_fallback) {}
+                }
+                if (_wake_queued){
+                    try { variable_struct_set(_user, "_sleep_wake_dialog_pending", true); } catch (e_sleep_pending) {}
+                    try {
+                        var _pid_sleep_wake = __battle_guess_pid_for_entities(_user, undefined);
+                        var _B_sleep_wake = __battle_ensure_slot(_pid_sleep_wake);
+                        if (is_struct(_B_sleep_wake)) variable_struct_set(_B_sleep_wake, "_hold_current_action_for_status_dialog", true);
+                    } catch (e_sleep_hold) {}
+                    return false;
+                }
+                return true;
             }
             // Paralysis: 25% chance to be immobilized
             if (status_system_has_status(_user, "paralysis") || status_system_has_status(_user, "paralyze")){

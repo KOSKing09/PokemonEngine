@@ -3667,6 +3667,8 @@ function __battle_step_turn_if_ready(_pid){
         } else {
             _B.sys_ui.selX = 0; _B.sys_ui.selY = 0;
         }
+        try { variable_struct_set(_B, "_last_phase", "command"); } catch (e_last_phase_cmd_empty) {}
+        if (!is_undefined(__battle_on_phase_enter)) __battle_on_phase_enter(_pid, "command");
         return;
     }
 
@@ -4628,7 +4630,12 @@ function __battle_step_turn_if_ready(_pid){
                 try { _B.turn_queue = []; _B.turn_i = 0; } catch (e_tq) {}
                 try { variable_struct_set(_B, "_action_active", false); } catch (e_aa2) {}
             }
+            try { variable_struct_set(_B, "_action_active", false); } catch (e_turn_done_action2) {}
+            try { variable_struct_set(_B, "_suppress_wait_for_dialog_close", false); } catch (e_turn_done_wait2) {}
+            try { variable_struct_set(_B, "_suppress_sys_ui_until", undefined); } catch (e_turn_done_ui2) {}
             _B.phase = "command";
+            try { variable_struct_set(_B, "_last_phase", "command"); } catch (e_turn_last_phase2) {}
+            if (!is_undefined(__battle_on_phase_enter)) __battle_on_phase_enter(_pid, "command");
             return;
                             }
 
