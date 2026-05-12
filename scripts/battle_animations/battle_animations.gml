@@ -464,22 +464,38 @@ function __battle_anim_focus_index_for_family(_family, _actor_index, _target_ind
     return 0;
 }
 
+function __battle_anim_queue_find_actor_index_by_ref(_slot, _ref){
+    if (!is_struct(_slot) || !is_struct(_ref)) return undefined;
+    if (!variable_struct_exists(_slot, "actor") || !is_array(variable_struct_get(_slot, "actor"))) return undefined;
+    var _actors = variable_struct_get(_slot, "actor");
+    for (var _ai = 0; _ai < array_length(_actors); ++_ai){
+        var _ac = _actors[_ai];
+        if (_ac == _ref) return _ai;
+        if (is_struct(_ac) && variable_struct_exists(_ac, "mon") && variable_struct_get(_ac, "mon") == _ref) return _ai;
+    }
+    return undefined;
+}
+
 function __battle_anim_queue_resolve_target_index(_slot, _spec){
     if (!is_struct(_spec)) return undefined;
     if (variable_struct_exists(_spec, "target_index") && is_real(variable_struct_get(_spec, "target_index"))) return floor(variable_struct_get(_spec, "target_index"));
-    if (variable_struct_exists(_spec, "actor_index") && is_real(variable_struct_get(_spec, "actor_index"))) return floor(variable_struct_get(_spec, "actor_index"));
+    if (variable_struct_exists(_spec, "target_actor_index") && is_real(variable_struct_get(_spec, "target_actor_index"))) return floor(variable_struct_get(_spec, "target_actor_index"));
     if (variable_struct_exists(_spec, "target") && is_struct(variable_struct_get(_spec, "target"))){
         var _t = variable_struct_get(_spec, "target");
-        if (is_struct(_slot) && variable_struct_exists(_slot, "actor") && is_array(variable_struct_get(_slot, "actor"))){
-            var _actors = variable_struct_get(_slot, "actor");
-            for (var _ai = 0; _ai < array_length(_actors); ++_ai){
-                var _ac = _actors[_ai];
-                if (_ac == _t) return _ai;
-
-                if (is_struct(_ac) && variable_struct_exists(_ac, "mon") && variable_struct_get(_ac, "mon") == _t) return _ai;
-            }
-        }
+        var _target_ref_idx = __battle_anim_queue_find_actor_index_by_ref(_slot, _t);
+        if (is_real(_target_ref_idx)) return floor(_target_ref_idx);
     }
+    if (variable_struct_exists(_spec, "resolved_target") && is_struct(variable_struct_get(_spec, "resolved_target"))){
+        var _resolved_target = variable_struct_get(_spec, "resolved_target");
+        var _resolved_target_idx = __battle_anim_queue_find_actor_index_by_ref(_slot, _resolved_target);
+        if (is_real(_resolved_target_idx)) return floor(_resolved_target_idx);
+    }
+    if (variable_struct_exists(_spec, "target_mon") && is_struct(variable_struct_get(_spec, "target_mon"))){
+        var _target_mon = variable_struct_get(_spec, "target_mon");
+        var _target_mon_idx = __battle_anim_queue_find_actor_index_by_ref(_slot, _target_mon);
+        if (is_real(_target_mon_idx)) return floor(_target_mon_idx);
+    }
+    if (variable_struct_exists(_spec, "actor_index") && is_real(variable_struct_get(_spec, "actor_index"))) return floor(variable_struct_get(_spec, "actor_index"));
     if (variable_struct_exists(_spec, "actor") && is_struct(variable_struct_get(_spec, "actor"))){
         var _a = variable_struct_get(_spec, "actor");
         if (variable_struct_exists(_a, "actor_index") && is_real(variable_struct_get(_a, "actor_index"))) return floor(variable_struct_get(_a, "actor_index"));

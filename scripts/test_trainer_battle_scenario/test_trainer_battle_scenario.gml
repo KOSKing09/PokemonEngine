@@ -544,6 +544,87 @@ function __status_smoke_count_orbit_states(_pid, _target_index = undefined, _spr
     return _count;
 }
 
+function __status_smoke_count_draw_states(_pid, _kind = undefined, _target_index = undefined, _sprite = undefined){
+    var _count = 0;
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !variable_struct_exists(_B, "_anim_queue") || !is_struct(variable_struct_get(_B, "_anim_queue"))) return 0;
+    var _aq = variable_struct_get(_B, "_anim_queue");
+    if (!variable_struct_exists(_aq, "draw_states") || !is_array(variable_struct_get(_aq, "draw_states"))) return 0;
+    var _states = variable_struct_get(_aq, "draw_states");
+    for (var _si = 0; _si < array_length(_states); ++_si){
+        var _st = _states[_si];
+        if (!is_struct(_st)) continue;
+        if (!is_undefined(_kind)){
+            if (!variable_struct_exists(_st, "kind") || string_lower(string(variable_struct_get(_st, "kind"))) != string_lower(string(_kind))) continue;
+        }
+        if (is_real(_target_index)){
+            if (!variable_struct_exists(_st, "target_index") || !is_real(variable_struct_get(_st, "target_index")) || floor(variable_struct_get(_st, "target_index")) != floor(_target_index)) continue;
+        }
+        if (!is_undefined(_sprite)){
+            if (!variable_struct_exists(_st, "sprite") || variable_struct_get(_st, "sprite") != _sprite) continue;
+        }
+        _count += 1;
+    }
+    return _count;
+}
+
+function __status_smoke_count_anim_entries(_pid, _type = undefined, _target_index = undefined){
+    var _count = 0;
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !variable_struct_exists(_B, "_anim_queue") || !is_struct(variable_struct_get(_B, "_anim_queue"))) return 0;
+    var _aq = variable_struct_get(_B, "_anim_queue");
+    var _want_type = _type;
+    var _want_target_index = _target_index;
+    if (variable_struct_exists(_aq, "pending") && is_array(variable_struct_get(_aq, "pending"))){
+        var _pending = variable_struct_get(_aq, "pending");
+        for (var _pi = 0; _pi < array_length(_pending); ++_pi){
+            var _entry = _pending[_pi];
+            if (!is_struct(_entry)) continue;
+            if (!is_undefined(_want_type)){
+                if (!variable_struct_exists(_entry, "type") || string_lower(string(variable_struct_get(_entry, "type"))) != string_lower(string(_want_type))) continue;
+            }
+            if (is_real(_want_target_index)){
+                if (!variable_struct_exists(_entry, "target_index") || !is_real(variable_struct_get(_entry, "target_index")) || floor(variable_struct_get(_entry, "target_index")) != floor(_want_target_index)) continue;
+            }
+            _count += 1;
+        }
+    }
+    if (variable_struct_exists(_aq, "current") && is_struct(variable_struct_get(_aq, "current"))){
+        var _current = variable_struct_get(_aq, "current");
+        var _match_current = true;
+        if (!is_undefined(_want_type)){
+            if (!variable_struct_exists(_current, "type") || string_lower(string(variable_struct_get(_current, "type"))) != string_lower(string(_want_type))) _match_current = false;
+        }
+        if (_match_current && is_real(_want_target_index)){
+            if (!variable_struct_exists(_current, "target_index") || !is_real(variable_struct_get(_current, "target_index")) || floor(variable_struct_get(_current, "target_index")) != floor(_want_target_index)) _match_current = false;
+        }
+        if (_match_current) _count += 1;
+    }
+    return _count;
+}
+
+function __status_smoke_count_pending_stat_overlays(_pid, _actor_idx = undefined){
+    var _count = 0;
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !variable_struct_exists(_B, "_pending_stat_overlays") || !is_array(variable_struct_get(_B, "_pending_stat_overlays"))) return 0;
+    var _pending = variable_struct_get(_B, "_pending_stat_overlays");
+    for (var _pi = 0; _pi < array_length(_pending); ++_pi){
+        var _entry = _pending[_pi];
+        if (!is_struct(_entry)) continue;
+        if (is_real(_actor_idx)){
+            if (!variable_struct_exists(_entry, "actor_idx") || !is_real(variable_struct_get(_entry, "actor_idx")) || floor(variable_struct_get(_entry, "actor_idx")) != floor(_actor_idx)) continue;
+        }
+        _count += 1;
+    }
+    return _count;
+}
+
+function __status_smoke_clear_pending_stat_overlays(_pid){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B)) return;
+    try { variable_struct_set(_B, "_pending_stat_overlays", []); } catch (e_clear_pending_overlays) {}
+}
+
 function __status_smoke_actor_has_nudge(_actor, _expected_dir = undefined){
     if (!is_struct(_actor)) return false;
     var _mag = (variable_struct_exists(_actor, "_nudge_mag") && is_real(variable_struct_get(_actor, "_nudge_mag"))) ? variable_struct_get(_actor, "_nudge_mag") : 0;
@@ -2172,6 +2253,7 @@ function test_battle_burn_poison_residual_smoke_update(_pid = 0){
 function test_battle_visual_target_smoke_start(_auto_close = false){
     var _pid = 0;
     if (battle_is_open(_pid)) battle_close(_pid);
+    global.DEV_FORCE_ACCURACY_HIT = true;
     var _S = {
         pid: _pid,
         tag: "visual-target",
@@ -2189,8 +2271,10 @@ function test_battle_visual_target_smoke_start(_auto_close = false){
     var _basic_hit_id = __status_smoke_find_move_id(["wing-attack", "wing_attack", "pound", "scratch", "tackle"], 1);
     var _quick_attack_id = __status_smoke_find_move_id(["quick-attack", "quick_attack"]);
     var _multi_hit_id = __status_smoke_find_move_id(["double-kick", "double_kick", "doublekick", "comet-punch", "comet_punch", "fury-swipes", "fury_swipes", "arm-thrust", "arm_thrust", "armthrust"], 30);
-    if (_basic_hit_id < 0 || _quick_attack_id < 0 || _multi_hit_id < 0){
-        __status_smoke_assert(_S, false, "Resolved a basic hit, Quick Attack, and a multi-hit move from move data");
+    var _sand_attack_id = __status_smoke_find_move_id(["sand-attack", "sand_attack"]);
+    if (_basic_hit_id < 0 || _quick_attack_id < 0 || _multi_hit_id < 0 || _sand_attack_id < 0){
+        __status_smoke_assert(_S, false, "Resolved a basic hit, Quick Attack, a multi-hit move, and Sand-Attack from move data");
+        global.DEV_FORCE_ACCURACY_HIT = false;
         __status_smoke_finish(_pid, _S, "missing-moves");
         return false;
     }
@@ -2237,6 +2321,53 @@ function test_battle_visual_target_smoke_start(_auto_close = false){
     __status_smoke_assert(_S, __status_smoke_actor_nudge_mag(_enemy_b) >= 3.5, "Multi-hit move defender recoil stayed visibly strong enough to read in battle");
     __status_smoke_assert(_S, __status_smoke_last_move_damage(_enemy_a, _multi_hit_id) <= 0 && __status_smoke_last_move_damage(_enemy_b, _multi_hit_id) > 0, "Multi-hit visuals did not attach to the wrong enemy slot in doubles");
 
+    __status_smoke_clear_anim_queue(_pid);
+    battle_anim_queue_enqueue(_pid, { type: "sleep_effect", target_index: 2, actor_index: 0, target: _enemy_a, sprite: spr_sleep, duration: 900 });
+    if (!is_undefined(battle_anim_queue_tick)) battle_anim_queue_tick(_pid);
+    __status_smoke_assert(_S, __status_smoke_count_draw_states(_pid, "sprite_overlay", 2, spr_sleep) >= 1, "Player-targeted status bubble resolved to the enemy target instead of the caller");
+
+    __status_smoke_clear_anim_queue(_pid);
+    battle_anim_queue_enqueue(_pid, { type: "sleep_effect", target_index: 1, actor_index: 2, target: _lead_b, sprite: spr_sleep, duration: 900 });
+    if (!is_undefined(battle_anim_queue_tick)) battle_anim_queue_tick(_pid);
+    __status_smoke_assert(_S, __status_smoke_count_draw_states(_pid, "sprite_overlay", 1, spr_sleep) >= 1, "Enemy-targeted status bubble resolved to the player target instead of the caller");
+
+    __status_smoke_clear_anim_queue(_pid);
+    battle_anim_queue_enqueue(_pid, { type: "sleep_effect", target_index: 0, actor_index: 0, target: _lead_a, sprite: spr_sleep, duration: 900 });
+    if (!is_undefined(battle_anim_queue_tick)) battle_anim_queue_tick(_pid);
+    __status_smoke_assert(_S, __status_smoke_count_draw_states(_pid, "sprite_overlay", 0, spr_sleep) >= 1, "Self-targeting status bubble stayed anchored to the acting battler");
+
+    __status_smoke_clear_anim_queue(_pid);
+    battle_anim_queue_enqueue(_pid, { type: "sleep_effect", actor_index: 3, actor: _enemy_b, sprite: spr_sleep, duration: 900 });
+    if (!is_undefined(battle_anim_queue_tick)) battle_anim_queue_tick(_pid);
+    __status_smoke_assert(_S, __status_smoke_count_draw_states(_pid, "sprite_overlay", 3, spr_sleep) >= 1, "Status bubble without target_index safely fell back to the caller actor");
+
+    __status_smoke_clear_anim_queue(_pid);
+    battle_anim_queue_enqueue(_pid, { type: "stat_overlay", frame: 0, darken: false, bg: true, direction: 1, target_index: 3, actor_index: 0, target: _enemy_b });
+    if (!is_undefined(battle_anim_queue_tick)) battle_anim_queue_tick(_pid);
+    __status_smoke_assert(_S, __status_smoke_count_draw_states(_pid, "stat_overlay", 3) >= 1, "Player-targeted stencil resolved to the enemy target instead of the caller");
+
+    __status_smoke_clear_anim_queue(_pid);
+    battle_anim_queue_enqueue(_pid, { type: "stat_overlay", frame: 1, darken: false, bg: true, direction: -1, target_actor_index: 0, actor_index: 2 });
+    if (!is_undefined(battle_anim_queue_tick)) battle_anim_queue_tick(_pid);
+    __status_smoke_assert(_S, __status_smoke_count_draw_states(_pid, "stat_overlay", 0) >= 1, "Stencil respected target_actor_index before actor_index fallback");
+
+    __status_smoke_clear_anim_queue(_pid);
+    battle_anim_queue_enqueue(_pid, { type: "stat_overlay", frame: 2, darken: false, bg: true, direction: 1, target: _lead_b, actor_index: 2 });
+    if (!is_undefined(battle_anim_queue_tick)) battle_anim_queue_tick(_pid);
+    __status_smoke_assert(_S, __status_smoke_count_draw_states(_pid, "stat_overlay", 1) >= 1, "Stencil resolved an explicit target actor reference before caller fallback");
+
+    __status_smoke_clear_anim_queue(_pid);
+    battle_anim_queue_enqueue(_pid, { type: "stat_overlay", frame: 3, darken: false, bg: true, direction: 1, actor_index: 1 });
+    if (!is_undefined(battle_anim_queue_tick)) battle_anim_queue_tick(_pid);
+    __status_smoke_assert(_S, __status_smoke_count_draw_states(_pid, "stat_overlay", 1) >= 1, "Stencil without target fields safely fell back to the caller actor");
+
+    __status_smoke_clear_anim_queue(_pid);
+    __status_smoke_clear_pending_stat_overlays(_pid);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: _sand_attack_id, actor_index: 0, target_index: 3 });
+    __status_smoke_assert(_S, __status_smoke_count_anim_entries(_pid, "stat_change", 0) >= 1, "Targeted debuff kept the stat-change bubble with the caller");
+    __status_smoke_assert(_S, __status_smoke_count_pending_stat_overlays(_pid, 3) >= 1 && __status_smoke_count_pending_stat_overlays(_pid, 0) == 0, "Targeted debuff queued the stat overlay on the affected opponent instead of the caller");
+
+    global.DEV_FORCE_ACCURACY_HIT = false;
     var _fails = variable_struct_get(_S, "fail_count");
     __status_smoke_finish(_pid, _S, (_fails == 0) ? "completed" : "failed");
     return (_fails == 0);
