@@ -1,0 +1,1 @@
+if (!is_undefined(overworld_encounter_step)) overworld_encounter_step(id);

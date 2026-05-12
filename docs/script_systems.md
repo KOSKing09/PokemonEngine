@@ -6,6 +6,8 @@ This index documents the script folders by responsibility so later work can find
 
 - `docs/battle_system.md`: start here when changing turn flow, battler state, command routing, or battle UI integration
 - `docs/battle_doubles.md`: start here when changing doubles/co-op actor ownership, target selection, trainer doubles behavior, or scene layout
+- `docs/versus_system.md`: start here when changing local-versus request flow, accept or decline behavior, format selection, or split-screen versus ownership
+- `docs/overworld_encounters.md`: start here when adding random encounters, route tables, encounter volumes, or wild co-op encounter rules
 - `docs/bag_system.md`: start here when changing bag state, item use behavior, page seeding, or bag UI layout
 - `docs/party_system.md`: start here when changing party modes, swap flow, summaries, or bag/party interactions
 - `docs/dialog_system.md`: start here when changing dialog queueing, draw ownership, battle message presentation, or split-screen dialog behavior
@@ -22,7 +24,7 @@ This index documents the script folders by responsibility so later work can find
 - `scripts/camera_system/`: battle/world camera state and draw offsets
 - `scripts/collision_system/`: world collision helpers
 - `scripts/grid_system/`: grid utilities used by map/world systems
-- `scripts/player_helper_scripts/`: player-instance helpers outside the main object events
+- `scripts/player_helper_scripts/`: player-instance helpers outside the main object events, including multiplayer versus requests and overworld encounter volumes or tables
 - `scripts/SkinSystem/`: sprite/skin presentation helpers
 - `scripts/font_pokemon/`: sprite-font loading and font helpers
 - `scripts/currency_system/`: player money and payout helpers
@@ -91,6 +93,8 @@ This index documents the script folders by responsibility so later work can find
 
 - If the change affects input semantics, start in `scripts/scr_controls/` and the caller Step event.
 - If the change affects split-screen composition or per-pid GUI ownership, start in `objects/oGame/Draw_64.gml` and then hop to the owning subsystem draw entrypoint.
+- If the change affects overworld random encounters, start in `docs/overworld_encounters.md`, then use `scripts/player_helper_scripts/` and the encounter object's Create or Step events as the owning seams.
+- If the change affects local-versus request flow or accept or decline behavior, start in `docs/versus_system.md`, then use `scripts/player_helper_scripts/`, `scripts/battle_ui/`, and `scripts/battle_system/`.
 - If the change affects caught-Pokemon naming, use `scripts/virtual_keyboard_system/`, `scripts/party_model/`, and the catch-finalization code in `scripts/battle_impls/`.
 - If the change affects battle flow, start in `scripts/battle_system/` and then hop to the owning helper module.
 - If the change affects doubles or co-op routing, start in `docs/battle_doubles.md`, then use `scripts/battle_system/`, `scripts/battle_command_helpers/`, `scripts/battle_draw_helpers/`, and `scripts/battle_trainer/` as the owning seams.

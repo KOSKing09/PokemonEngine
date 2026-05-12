@@ -740,15 +740,191 @@ function overworld_encounter_init(_inst){
     if (!variable_instance_exists(_inst, "encounter_level_min")) variable_instance_set(_inst, "encounter_level_min", 4);
     if (!variable_instance_exists(_inst, "encounter_level_max")) variable_instance_set(_inst, "encounter_level_max", 8);
     if (!variable_instance_exists(_inst, "encounter_area_type")) variable_instance_set(_inst, "encounter_area_type", "forest");
+    if (!variable_instance_exists(_inst, "encounter_region_key")) variable_instance_set(_inst, "encounter_region_key", "demo_route_1");
+    if (!variable_instance_exists(_inst, "encounter_habitat")) variable_instance_set(_inst, "encounter_habitat", "grass");
     if (!variable_instance_exists(_inst, "encounter_battle_format")) variable_instance_set(_inst, "encounter_battle_format", "single");
     if (!variable_instance_exists(_inst, "encounter_coop_enabled")) variable_instance_set(_inst, "encounter_coop_enabled", false);
     if (!variable_instance_exists(_inst, "encounter_cooldown")) variable_instance_set(_inst, "encounter_cooldown", 0);
     if (!variable_instance_exists(_inst, "encounter_cooldown_frames")) variable_instance_set(_inst, "encounter_cooldown_frames", 45);
+    if (!variable_instance_exists(_inst, "_encounter_inside_pids")) variable_instance_set(_inst, "_encounter_inside_pids", [false, false]);
     return true;
+}
+
+function __overworld_encounter_player_inside(_inst, _pl){
+    if (!instance_exists(_inst) || !instance_exists(_pl)) return false;
+
+    var _px = variable_instance_get(_pl, "x");
+    var _py = variable_instance_get(_pl, "y");
+    var _left = variable_instance_exists(_inst, "bbox_left") ? variable_instance_get(_inst, "bbox_left") : (variable_instance_get(_inst, "x") - variable_instance_get(_inst, "encounter_radius"));
+    var _top = variable_instance_exists(_inst, "bbox_top") ? variable_instance_get(_inst, "bbox_top") : (variable_instance_get(_inst, "y") - variable_instance_get(_inst, "encounter_radius"));
+    var _right = variable_instance_exists(_inst, "bbox_right") ? variable_instance_get(_inst, "bbox_right") : (variable_instance_get(_inst, "x") + variable_instance_get(_inst, "encounter_radius"));
+    var _bottom = variable_instance_exists(_inst, "bbox_bottom") ? variable_instance_get(_inst, "bbox_bottom") : (variable_instance_get(_inst, "y") + variable_instance_get(_inst, "encounter_radius"));
+
+    if (variable_instance_exists(_pl, "bbox_left") && variable_instance_exists(_pl, "bbox_top") && variable_instance_exists(_pl, "bbox_right") && variable_instance_exists(_pl, "bbox_bottom")){
+        var _pl_left = variable_instance_get(_pl, "bbox_left");
+        var _pl_top = variable_instance_get(_pl, "bbox_top");
+        var _pl_right = variable_instance_get(_pl, "bbox_right");
+        var _pl_bottom = variable_instance_get(_pl, "bbox_bottom");
+        if (_pl_right >= _left && _pl_left <= _right && _pl_bottom >= _top && _pl_top <= _bottom) return true;
+        return false;
+    }
+
+    if (point_in_rectangle(_px, _py, _left, _top, _right, _bottom)) return true;
+    return point_distance(_px, _py, variable_instance_get(_inst, "x"), variable_instance_get(_inst, "y")) <= variable_instance_get(_inst, "encounter_radius");
+}
+
+function overworld_encounter_tables_init(){
+    if (!variable_global_exists("OVERWORLD_ENCOUNTERS") || !is_struct(global.OVERWORLD_ENCOUNTERS)){
+        global.OVERWORLD_ENCOUNTERS = {
+            tables: {},
+            defaults_seeded: false,
+            pending: false
+        };
+    }
+
+    var _E = global.OVERWORLD_ENCOUNTERS;
+    if (!variable_struct_exists(_E, "tables") || !is_struct(variable_struct_get(_E, "tables"))) variable_struct_set(_E, "tables", {});
+    if (!variable_struct_exists(_E, "defaults_seeded")) variable_struct_set(_E, "defaults_seeded", false);
+    if (!variable_struct_exists(_E, "pending")) variable_struct_set(_E, "pending", false);
+
+    if (!variable_struct_get(_E, "defaults_seeded")){
+        var _tables_seed = variable_struct_get(_E, "tables");
+        var _demo_route_1 = variable_struct_exists(_tables_seed, "demo_route_1") ? variable_struct_get(_tables_seed, "demo_route_1") : {};
+        if (!is_struct(_demo_route_1)) _demo_route_1 = {};
+
+        variable_struct_set(_demo_route_1, "grass", [
+            { species_id: 17,  weight: 30, min_level: 3, max_level: 6 },
+            { species_id: 188, weight: 25, min_level: 4, max_level: 7 },
+            { species_id: 268, weight: 20, min_level: 4, max_level: 8 },
+            { species_id: 559, weight: 15, min_level: 5, max_level: 8 },
+            { species_id: 471, weight: 10, min_level: 6, max_level: 9 }
+        ]);
+        variable_struct_set(_demo_route_1, "bush", [
+            { species_id: 17,  weight: 26, min_level: 3, max_level: 6 },
+            { species_id: 188, weight: 28, min_level: 4, max_level: 7 },
+            { species_id: 268, weight: 24, min_level: 4, max_level: 8 },
+            { species_id: 559, weight: 14, min_level: 5, max_level: 8 },
+            { species_id: 471, weight: 8,  min_level: 6, max_level: 9 }
+        ]);
+
+        variable_struct_set(_tables_seed, "demo_route_1", _demo_route_1);
+        variable_struct_set(_E, "tables", _tables_seed);
+        variable_struct_set(_E, "defaults_seeded", true);
+    }
+
+    global.OVERWORLD_ENCOUNTERS = _E;
+    return _E;
+}
+
+function overworld_encounter_register_table(_region_key, _habitat_key, _entries){
+    var _E = overworld_encounter_tables_init();
+    var _tables = variable_struct_get(_E, "tables");
+    var _region = string_lower(string(_region_key));
+    var _habitat = string_lower(string(_habitat_key));
+    if (string_length(_region) <= 0) _region = "default";
+    if (string_length(_habitat) <= 0) _habitat = "grass";
+
+    var _region_tables = variable_struct_exists(_tables, _region) ? variable_struct_get(_tables, _region) : {};
+    if (!is_struct(_region_tables)) _region_tables = {};
+    variable_struct_set(_region_tables, _habitat, is_array(_entries) ? _entries : []);
+    variable_struct_set(_tables, _region, _region_tables);
+    variable_struct_set(_E, "tables", _tables);
+    global.OVERWORLD_ENCOUNTERS = _E;
+    return _entries;
+}
+
+function __overworld_encounter_table_for(_region_key, _habitat_key){
+    var _E = overworld_encounter_tables_init();
+    var _tables = variable_struct_get(_E, "tables");
+    var _region = string_lower(string(_region_key));
+    var _habitat = string_lower(string(_habitat_key));
+    if (string_length(_region) <= 0) _region = "default";
+    if (string_length(_habitat) <= 0) _habitat = "grass";
+
+    var _region_tables = variable_struct_exists(_tables, _region) ? variable_struct_get(_tables, _region) : undefined;
+    if (!is_struct(_region_tables) && _region != "default") _region_tables = variable_struct_exists(_tables, "default") ? variable_struct_get(_tables, "default") : undefined;
+    if (!is_struct(_region_tables)) return [];
+
+    var _table = variable_struct_exists(_region_tables, _habitat) ? variable_struct_get(_region_tables, _habitat) : undefined;
+    if (!is_array(_table) && _habitat != "grass" && variable_struct_exists(_region_tables, "grass")) _table = variable_struct_get(_region_tables, "grass");
+    return is_array(_table) ? _table : [];
+}
+
+function __overworld_encounter_pick_from_table(_table, _level_min, _level_max){
+    if (!is_array(_table) || array_length(_table) <= 0) return undefined;
+
+    var _total_weight = 0;
+    for (var _wi = 0; _wi < array_length(_table); ++_wi){
+        var _entry_weight = _table[_wi];
+        if (!is_struct(_entry_weight)) continue;
+        var _weight = (variable_struct_exists(_entry_weight, "weight") && is_real(variable_struct_get(_entry_weight, "weight"))) ? max(0, floor(variable_struct_get(_entry_weight, "weight"))) : 1;
+        _total_weight += _weight;
+    }
+    if (_total_weight <= 0) return undefined;
+
+    var _roll = irandom(max(0, _total_weight - 1));
+    var _chosen = undefined;
+    for (var _ci = 0; _ci < array_length(_table); ++_ci){
+        var _entry = _table[_ci];
+        if (!is_struct(_entry)) continue;
+        var _entry_weight_pick = (variable_struct_exists(_entry, "weight") && is_real(variable_struct_get(_entry, "weight"))) ? max(0, floor(variable_struct_get(_entry, "weight"))) : 1;
+        if (_roll < _entry_weight_pick){
+            _chosen = _entry;
+            break;
+        }
+        _roll -= _entry_weight_pick;
+    }
+    if (!is_struct(_chosen)) return undefined;
+
+    var _species_id = -1;
+    if (variable_struct_exists(_chosen, "species_id") && is_real(variable_struct_get(_chosen, "species_id"))) _species_id = floor(variable_struct_get(_chosen, "species_id"));
+    else if (variable_struct_exists(_chosen, "id") && is_real(variable_struct_get(_chosen, "id"))) _species_id = floor(variable_struct_get(_chosen, "id"));
+    else if (variable_struct_exists(_chosen, "species") && is_real(variable_struct_get(_chosen, "species"))) _species_id = floor(variable_struct_get(_chosen, "species"));
+    if (_species_id < 0) return undefined;
+
+    var _entry_level_min = (variable_struct_exists(_chosen, "min_level") && is_real(variable_struct_get(_chosen, "min_level"))) ? max(1, floor(variable_struct_get(_chosen, "min_level"))) : max(1, floor(_level_min));
+    var _entry_level_max = (variable_struct_exists(_chosen, "max_level") && is_real(variable_struct_get(_chosen, "max_level"))) ? max(_entry_level_min, floor(variable_struct_get(_chosen, "max_level"))) : max(_entry_level_min, floor(_level_max));
+    _entry_level_min = max(_entry_level_min, max(1, floor(_level_min)));
+    _entry_level_max = min(_entry_level_max, max(_entry_level_min, floor(_level_max)));
+
+    return {
+        species_id: _species_id,
+        level: irandom_range(_entry_level_min, _entry_level_max)
+    };
+}
+
+function __overworld_encounter_roll(_inst, _battle_format, _level_min, _level_max){
+    if (!instance_exists(_inst)) return undefined;
+
+    var _table = undefined;
+    if (variable_instance_exists(_inst, "encounter_table") && is_array(variable_instance_get(_inst, "encounter_table"))) _table = variable_instance_get(_inst, "encounter_table");
+    else _table = __overworld_encounter_table_for(variable_instance_get(_inst, "encounter_region_key"), variable_instance_get(_inst, "encounter_habitat"));
+    if (!is_array(_table) || array_length(_table) <= 0) return undefined;
+
+    var _count = (string_lower(string(_battle_format)) == "double") ? 2 : 1;
+    var _species = [];
+    var _levels = [];
+    for (var _ri = 0; _ri < _count; ++_ri){
+        var _pick = __overworld_encounter_pick_from_table(_table, _level_min, _level_max);
+        if (!is_struct(_pick)) return undefined;
+        array_push(_species, variable_struct_get(_pick, "species_id"));
+        array_push(_levels, variable_struct_get(_pick, "level"));
+    }
+
+    return {
+        species: (_count == 1) ? _species[0] : _species,
+        levels: (_count == 1) ? _levels[0] : _levels
+    };
 }
 
 function overworld_encounter_can_start(_pid){
     if (!is_undefined(dialog2p_is_open) && dialog2p_is_open(_pid)) return false;
+    var _E = overworld_encounter_tables_init();
+    if (variable_struct_exists(_E, "pending") && variable_struct_get(_E, "pending") == true){
+        if (!is_undefined(battle_any_open) && battle_any_open()) return false;
+        variable_struct_set(_E, "pending", false);
+        global.OVERWORLD_ENCOUNTERS = _E;
+    }
     if (variable_global_exists("sys_battles") && is_array(global.sys_battles)){
         for (var _bi = 0; _bi < array_length(global.sys_battles); ++_bi){
             var _slot = global.sys_battles[_bi];
@@ -780,22 +956,30 @@ function overworld_encounter_step(_inst){
     var _coop = false;
 
     var _players = [_p0, _p1];
+    var _inside_states = variable_instance_get(_inst, "_encounter_inside_pids");
+    if (!is_array(_inside_states) || array_length(_inside_states) < 2) _inside_states = [false, false];
     var _can_trigger = false;
     var _trigger_pid = 0;
     for (var _i = 0; _i < array_length(_players); ++_i){
         var _pl = _players[_i];
-        if (_pl == noone) continue;
+        if (_pl == noone){
+            if (_i < array_length(_inside_states)) _inside_states[_i] = false;
+            continue;
+        }
         var _pid = variable_instance_exists(_pl, "pid") ? variable_instance_get(_pl, "pid") : _i;
-        if (!_coop && _pid != 0 && !overworld_encounter_can_start(_pid)) continue;
-        if (_coop && !overworld_encounter_can_start(_pid)) continue;
+        var _inside_now = __overworld_encounter_player_inside(_inst, _pl);
+        var _was_inside = (_i < array_length(_inside_states)) ? (_inside_states[_i] == true) : false;
+        if (_i < array_length(_inside_states)) _inside_states[_i] = _inside_now;
+        if (!overworld_encounter_can_start(_pid)) continue;
         if (!variable_instance_exists(_pl, "grid") || !is_struct(variable_instance_get(_pl, "grid"))) continue;
         var _grid = variable_instance_get(_pl, "grid");
         if (!variable_struct_exists(_grid, "state") || string(variable_struct_get(_grid, "state")) != "move") continue;
-        if (point_distance(variable_instance_get(_pl, "x"), variable_instance_get(_pl, "y"), variable_instance_get(_inst, "x"), variable_instance_get(_inst, "y")) > variable_instance_get(_inst, "encounter_radius")) continue;
+        if (!_inside_now || _was_inside) continue;
         _can_trigger = true;
         _trigger_pid = _pid;
         break;
     }
+    variable_instance_set(_inst, "_encounter_inside_pids", _inside_states);
     if (!_can_trigger) return false;
     if (random(1) > variable_instance_get(_inst, "encounter_chance")) return false;
 
@@ -803,18 +987,36 @@ function overworld_encounter_step(_inst){
     if (_coop && _p1 == noone) _coop = false;
     if (_coop && (!overworld_encounter_can_start(0) || !overworld_encounter_can_start(1))) return false;
 
+    var _E_lock = overworld_encounter_tables_init();
+    variable_struct_set(_E_lock, "pending", true);
+    global.OVERWORLD_ENCOUNTERS = _E_lock;
     variable_instance_set(_inst, "encounter_cooldown", variable_instance_get(_inst, "encounter_cooldown_frames"));
     var _level_min = max(1, floor(variable_instance_get(_inst, "encounter_level_min")));
     var _level_max = max(_level_min, floor(variable_instance_get(_inst, "encounter_level_max")));
+    var _battle_format = string(variable_instance_get(_inst, "encounter_battle_format"));
+    var _encounter_roll = __overworld_encounter_roll(_inst, _battle_format, _level_min, _level_max);
     var _opts = {
         battle_type: "wild",
-        battle_format: string(variable_instance_get(_inst, "encounter_battle_format"))
+        battle_format: _battle_format,
+        encounter_region_key: string(variable_instance_get(_inst, "encounter_region_key")),
+        encounter_habitat: string(variable_instance_get(_inst, "encounter_habitat"))
     };
+    var _open_level = irandom_range(_level_min, _level_max);
+    if (is_struct(_encounter_roll)){
+        variable_struct_set(_opts, "enemy_species", variable_struct_get(_encounter_roll, "species"));
+        variable_struct_set(_opts, "enemy_levels", variable_struct_get(_encounter_roll, "levels"));
+        if (!is_array(variable_struct_get(_encounter_roll, "levels")) && is_real(variable_struct_get(_encounter_roll, "levels"))) _open_level = max(1, floor(variable_struct_get(_encounter_roll, "levels")));
+    }
     if (_coop){
         _opts.coop_enabled = true;
         _opts.player_pids = [0, 1];
         _trigger_pid = 0;
     }
-    battle_open(_trigger_pid, irandom_range(_level_min, _level_max), string(variable_instance_get(_inst, "encounter_area_type")), _opts);
-    return true;
+    battle_open(_trigger_pid, _open_level, string(variable_instance_get(_inst, "encounter_area_type")), _opts);
+    if (!is_undefined(battle_is_open) && battle_is_open(_trigger_pid)) return true;
+
+    var _E_unlock = overworld_encounter_tables_init();
+    variable_struct_set(_E_unlock, "pending", false);
+    global.OVERWORLD_ENCOUNTERS = _E_unlock;
+    return false;
 }

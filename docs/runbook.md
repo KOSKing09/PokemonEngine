@@ -7,6 +7,8 @@ This project is a GameMaker Studio project. The runtime contracts live in script
 - `docs/script_systems.md`: quick ownership map when you only need to know which folder owns a behavior
 - `docs/battle_system.md`: battle slot shape, phase flow, entrypoints, and battle-specific extension seams
 - `docs/battle_doubles.md`: doubles/co-op format rules, actor layout, ownership routing, target helpers, and trainer doubles seams
+- `docs/versus_system.md`: local-versus request state, accept or decline flow, format selection, and battle-slot ownership setup
+- `docs/overworld_encounters.md`: encounter tables, encounter-volume wiring, wild battle handoff, and co-op wild trigger rules
 - `docs/bag_system.md`: bag state, inventory helpers, in-battle item use flow, and bag draw/input split
 - `docs/party_system.md`: party state, menu modes, summary flow, and party/battle integration
 - `docs/dialog_system.md`: dialog queue ownership, battle-vs-overworld rendering rules, callbacks, and split-screen draw behavior
@@ -56,6 +58,15 @@ The current boot path is:
   - call `battle_update(pid)` in Step
   - call `battle_draw_gui(pid)` in Draw GUI
   - battle close waits while nickname entry is active through `virtual_keyboard_blocks_input(pid)`
+- Overworld encounters:
+  - call `overworld_encounter_init(id)` from the encounter volume's Create event
+  - call `overworld_encounter_step(id)` from that volume's Step event
+  - register route data with `overworld_encounter_register_table(region, habitat, entries)`
+  - prefer per-instance overrides for local tuning instead of editing global defaults for every route
+- Multiplayer versus:
+  - use `multiplayer_request_versus_battle(pid)` for player-driven versus starts
+  - keep `multiplayer_update_versus_request(pid)` running so accept or decline input is processed
+  - use `multiplayer_start_versus_battle(pid, format)` only for controlled tests or flows that intentionally bypass the accept prompt
 - Dialog:
   - `dialog2p_step(pid)` advances queued dialogs
   - `dialog2p_update(pid)` advances an active dialog page

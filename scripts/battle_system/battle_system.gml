@@ -528,8 +528,9 @@ function __battle_opening_actor_from_party(_partyPid, _partyIndex, _actorIndex, 
     return _actor;
 }
 
-function __battle_opening_actor_from_wild(_actorIndex, _level){
+function __battle_opening_actor_from_wild(_actorIndex, _level, _species_override = undefined){
     var _sp = irandom_range(1, 901);
+    if (is_real(_species_override)) _sp = max(1, floor(_species_override));
     var _actor = __battle_actor_from_species_level(_sp, _level);
     __battle_set_actor_runtime_fields(_actor, _actorIndex, -1, -1, -1);
     return _actor;
@@ -1410,9 +1411,12 @@ function battle_open(_a0 = undefined, _a1 = undefined, _a2 = undefined, _a3 = un
         }
         if (is_undefined(_enemy_actor) && variable_struct_exists(_opts, "enemy_species")){
             var __esp = variable_struct_get(_opts, "enemy_species");
+            if (is_array(__esp) && array_length(__esp) > 0 && is_real(__esp[0])) __esp = __esp[0];
             if (is_real(__esp)){
                 var __lvl = _wildLevel;
-                if (variable_struct_exists(_opts, "enemy_level") && is_real(variable_struct_get(_opts, "enemy_level"))){
+                if (variable_struct_exists(_opts, "enemy_levels") && is_array(variable_struct_get(_opts, "enemy_levels")) && array_length(variable_struct_get(_opts, "enemy_levels")) > 0 && is_real(variable_struct_get(_opts, "enemy_levels")[0])){
+                    __lvl = max(1, real(variable_struct_get(_opts, "enemy_levels")[0]));
+                } else if (variable_struct_exists(_opts, "enemy_level") && is_real(variable_struct_get(_opts, "enemy_level"))){
                     __lvl = max(1, real(variable_struct_get(_opts, "enemy_level")));
                 }
                 _enemy_actor = __battle_actor_from_species_level(real(__esp), __lvl);
@@ -1420,12 +1424,40 @@ function battle_open(_a0 = undefined, _a1 = undefined, _a2 = undefined, _a3 = un
         }
     }
     if (_battle_type == "wild" && _use_double){
-        _B.actor[2] = __battle_opening_actor_from_wild(2, _wildLevel);
-        _B.actor[3] = __battle_opening_actor_from_wild(3, _wildLevel);
+        var _wild_species_pair = (is_struct(_opts) && variable_struct_exists(_opts, "enemy_species")) ? variable_struct_get(_opts, "enemy_species") : undefined;
+        var _wild_level_pair = (is_struct(_opts) && variable_struct_exists(_opts, "enemy_levels")) ? variable_struct_get(_opts, "enemy_levels") : undefined;
+        var _wild_species_a = undefined;
+        var _wild_species_b = undefined;
+        var _wild_level_a = _wildLevel;
+        var _wild_level_b = _wildLevel;
+        if (is_array(_wild_species_pair)){
+            if (array_length(_wild_species_pair) > 0 && is_real(_wild_species_pair[0])) _wild_species_a = _wild_species_pair[0];
+            if (array_length(_wild_species_pair) > 1 && is_real(_wild_species_pair[1])) _wild_species_b = _wild_species_pair[1];
+        }
+        if (is_array(_wild_level_pair)){
+            if (array_length(_wild_level_pair) > 0 && is_real(_wild_level_pair[0])) _wild_level_a = max(1, floor(_wild_level_pair[0]));
+            if (array_length(_wild_level_pair) > 1 && is_real(_wild_level_pair[1])) _wild_level_b = max(1, floor(_wild_level_pair[1]));
+        }
+        _B.actor[2] = __battle_opening_actor_from_wild(2, _wild_level_a, _wild_species_a);
+        _B.actor[3] = __battle_opening_actor_from_wild(3, _wild_level_b, _wild_species_b);
         _enemy_actor = _B.actor[2];
     }
     if (is_undefined(_enemy_actor)){
-        if (_battle_type == "wild") _enemy_actor = __battle_opening_actor_from_wild(1, _wildLevel);
+        if (_battle_type == "wild"){
+            var _wild_single_species = undefined;
+            var _wild_single_level = _wildLevel;
+            if (is_struct(_opts) && variable_struct_exists(_opts, "enemy_species")){
+                var _wild_enemy_species = variable_struct_get(_opts, "enemy_species");
+                if (is_array(_wild_enemy_species) && array_length(_wild_enemy_species) > 0 && is_real(_wild_enemy_species[0])) _wild_single_species = _wild_enemy_species[0];
+                else if (is_real(_wild_enemy_species)) _wild_single_species = _wild_enemy_species;
+            }
+            if (is_struct(_opts) && variable_struct_exists(_opts, "enemy_levels")){
+                var _wild_enemy_levels = variable_struct_get(_opts, "enemy_levels");
+                if (is_array(_wild_enemy_levels) && array_length(_wild_enemy_levels) > 0 && is_real(_wild_enemy_levels[0])) _wild_single_level = max(1, floor(_wild_enemy_levels[0]));
+                else if (is_real(_wild_enemy_levels)) _wild_single_level = max(1, floor(_wild_enemy_levels));
+            }
+            _enemy_actor = __battle_opening_actor_from_wild(1, _wild_single_level, _wild_single_species);
+        }
         else if (array_length(_trainer_party) > 0){
             var __cand_default = _trainer_party[0];
             if (is_struct(__cand_default)) _enemy_actor = __battle_actor_from_party_mon(__cand_default);
@@ -1657,6 +1689,11 @@ function battle_close(_pid){
             if (global.sys_battles[_alias_pid] == _B) global.sys_battles[_alias_pid] = undefined;
         }
     }
+    try {
+        if (!battle_any_open() && variable_global_exists("OVERWORLD_ENCOUNTERS") && is_struct(global.OVERWORLD_ENCOUNTERS)) {
+            variable_struct_set(global.OVERWORLD_ENCOUNTERS, "pending", false);
+        }
+    } catch (e_overworld_pending_clear) {}
     try { variable_struct_set(_B, "_area_type", undefined); } catch (e_area_clear) {}
 
     // Clear global last-move so Copycat cannot use a move from a previous battle

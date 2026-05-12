@@ -3,6 +3,8 @@
 This document summarizes the battle system architecture, public APIs, phases, state shape, and extension points. It's written for engineers and AI agents to navigate and extend the system confidently.
 
 For doubles/co-op ownership, actor layout, target-pick flow, and trainer doubles behavior, use `docs/battle_doubles.md` alongside this file.
+For local-versus request flow and setup before the battle slot opens, use `docs/versus_system.md` alongside this file.
+For overworld wild battle triggers and encounter-table handoff into `battle_open(...)`, use `docs/overworld_encounters.md`.
 
 ## Runtime contracts
 
@@ -43,6 +45,11 @@ For doubles/co-op ownership, actor layout, target-pick flow, and trainer doubles
 - `battle_switch_to(pid, party_idx, opts)` where `opts = { consume_turn?: true, auto_apply?: true }`
 - `battle_intro_set_handlers(pid, updateFn, drawFn)` registers intro extension hooks.
 - `battle_open_trainer(pid, trainer_payload)` normalizes trainer data and forwards into `battle_open(...)`.
+
+Related non-battle entrypoints that commonly feed this system:
+
+- `multiplayer_request_versus_battle(pid)` and `multiplayer_start_versus_battle(pid, format_override)` for local-versus setup
+- `overworld_encounter_step(inst)` for wild encounter volumes that eventually call `battle_open(...)`
 
 ## Key internal helpers
 
