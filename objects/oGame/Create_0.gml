@@ -96,6 +96,17 @@ if (!is_undefined(data_normalize_item_flag_map)) data_normalize_item_flag_map();
 scr_poke_index_build_simple_structs(); // builds global._name_by_id / _name_list / _id_list
 pkicons_init();
 
+// Encounter style startup switch:
+// "old" = classic random step-in-bush encounters.
+// "new" = visible Pokemon wander inside bush bounds and start battle on contact.
+global.OVERWORLD_ENCOUNTER_MODE = "new";
+global.OVERWORLD_SHINY_CHANCE = 1 / 4096;
+global.OVERWORLD_VISIBLE_MAX_ACTIVE = 16;
+global.OVERWORLD_VISIBLE_PATCH_DENSITY = 4;
+global.OVERWORLD_VISIBLE_PATCH_MAX = 8;
+global.OVERWORLD_ENCOUNTER_GRACE_MS = 1500;
+global.OVERWORLD_ENCOUNTER_BLOCK_UNTIL_MS = 0;
+
 // Ensure PKICONS debug flags exist (preserve pre-existing settings when possible)
     if (variable_global_exists("PKICONS")){
         if (variable_struct_exists(global.PKICONS, "debug")) global.PKICONS.debug = false;
@@ -106,7 +117,7 @@ pkicons_init();
 
 // Configure external asset bases (adjust paths as needed on your machine)
 pkicons_set_art96_base("C:/Users/trane/Documents/Pokemon Engine/sprites/pokemon/");
-pkicons_set_icon32_base("C:/Users/trane/Documents/Pokemon Engine/sprites/Overworld/Normal/");
+pkicons_set_overworld_base("C:/Users/trane/Documents/Pokemon Engine/sprites/overworld/Normal/", "C:/Users/trane/Documents/Pokemon Engine/sprites/overworld/Shiny/");
 pkicons_set_cries_base("C:/Users/trane/Documents/Pokemon Engine/cries/");
 pkicons_set_item_icon_base("C:/Users/trane/Documents/Pokemon Engine/sprites/items/");
 
@@ -251,3 +262,5 @@ wc_set_solids([noone]); // add object ids here if you have solid instances
 show_debug_message(global._move_meta[79]);
 
 global.DEV_AUTO_CONFUSION_ANIM_SMOKE = true
+
+test_battle_phase2_behavior_smoke_start(true);

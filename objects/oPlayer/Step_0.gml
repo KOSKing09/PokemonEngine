@@ -12,3 +12,5 @@ grid_step(id, pid);
 // feed anim with your grid state
 var moving = (grid.state == "move");
 player_anim_update_basic(id, moving, grid.dir);
+
+depth = -(y - 5);

@@ -75,25 +75,28 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
 
     var _move_rec = undefined;
     var _eid = undefined;
+    var _move_behavior = undefined;
+    try {
+        if (!is_undefined(__battle_move_behavior_full) && is_real(_move_id)){
+            _move_behavior = __battle_move_behavior_full(_move_id);
+            if (is_struct(_move_behavior) && variable_struct_exists(_move_behavior, "effect_id") && is_real(variable_struct_get(_move_behavior, "effect_id"))){
+                _eid = floor(variable_struct_get(_move_behavior, "effect_id"));
+            }
+        }
+    } catch (e_behavior_lookup) { _move_behavior = undefined; }
     try {
         if (variable_global_exists("_moves") && is_array(global._moves) && is_real(_move_id) && _move_id >= 0 && _move_id < array_length(global._moves)){
             _move_rec = global._moves[_move_id];
-            if (is_struct(_move_rec) && variable_struct_exists(_move_rec, "effect_id") && is_real(variable_struct_get(_move_rec, "effect_id"))){
-                _eid = variable_struct_get(_move_rec, "effect_id");
-            }
         }
-    } catch (e_eid) { _eid = _eid; }
+    } catch (e_move_rec_lookup) { _move_rec = undefined; }
     if (!is_real(_eid)){
         try {
-            if (!is_undefined(__battle_get_move_meta) && is_real(_move_id)){
-                var _mm_e = __battle_get_move_meta(_move_id);
-                if (is_struct(_mm_e) && variable_struct_exists(_mm_e, "effect_id") && is_real(variable_struct_get(_mm_e, "effect_id"))) _eid = variable_struct_get(_mm_e, "effect_id");
-            }
-        } catch (e_eid2) { _eid = _eid; }
+            if (!is_undefined(__battle_move_effect_id_safe)) _eid = __battle_move_effect_id_safe(_move_id);
+        } catch (e_eid) { _eid = _eid; }
     }
 
-    var _is_dynamax_cannon = (is_real(_eid) && floor(_eid) == 421);
-    var _is_snipe_shot = (is_real(_eid) && floor(_eid) == 422);
+    var _is_dynamax_cannon = (is_struct(_move_behavior) && variable_struct_exists(_move_behavior, "damage_double_if_target_dynamax") && variable_struct_get(_move_behavior, "damage_double_if_target_dynamax") == true) || (is_real(_eid) && floor(_eid) == 421);
+    var _is_snipe_shot = (is_struct(_move_behavior) && variable_struct_exists(_move_behavior, "bypass_target_guard") && variable_struct_get(_move_behavior, "bypass_target_guard") == true) || (is_real(_eid) && floor(_eid) == 422);
     var _snipe_bypassed_guard = false;
     if (_is_snipe_shot && is_struct(_D)){
         var guard_fields = ["_protected", "_quick_guard", "_wide_guard", "_mat_block"];
@@ -238,12 +241,11 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
 
     // Check for OHKO (one-hit KO) move meta first. This implements Sheer Cold / Fissure / Guillotine/Horn Drill style behavior.
     try {
-        var oh = undefined;
-        if (!is_undefined(__battle_get_move_meta) && is_real(_move_id)){
-            try { oh = __battle_get_move_meta(_move_id); } catch (e_gm) { oh = undefined; }
+        var oh = _move_behavior;
+        if (!is_struct(oh) && !is_undefined(__battle_move_behavior_full) && is_real(_move_id)){
+            try { oh = __battle_move_behavior_full(_move_id); } catch (e_gm) { oh = undefined; }
         }
-    // Treat explicit meta or classic Horn Drill id (32) as OHKO
-    if ((is_struct(oh) && variable_struct_exists(oh, "ohko") && variable_struct_get(oh, "ohko") == true) || (is_real(_move_id) && _move_id == 32)){
+        if (is_struct(oh) && variable_struct_exists(oh, "ohko") && variable_struct_get(oh, "ohko") == true){
             // OHKO move: accuracy is 30 + (user.level - target.level). If user.level < target.level the move fails.
             var ulevel = (is_struct(_A) && variable_struct_exists(_A, "level") && is_real(variable_struct_get(_A, "level"))) ? floor(variable_struct_get(_A, "level")) : 0;
             var tlevel = (is_struct(_D) && variable_struct_exists(_D, "level") && is_real(variable_struct_get(_D, "level"))) ? floor(variable_struct_get(_D, "level")) : 0;
@@ -282,6 +284,31 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
             }
         }
     } catch (e_oh) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][ohko] handler error: " + string(e_oh)); }
+
+    // [central-behavior] Sleep-gated damaging moves such as Dream Eater.
+    try {
+        var _behavior_gate = _move_behavior;
+        if (!is_struct(_behavior_gate) && !is_undefined(__battle_move_behavior_full)){
+            _behavior_gate = __battle_move_behavior_full(_move_id);
+        }
+        if (is_struct(_behavior_gate)){
+            var _req_status = (variable_struct_exists(_behavior_gate, "requires_target_status") ? string(variable_struct_get(_behavior_gate, "requires_target_status")) : "");
+            var _fail_missing = (variable_struct_exists(_behavior_gate, "fail_if_target_status_missing") && variable_struct_get(_behavior_gate, "fail_if_target_status_missing") == true);
+            if (_fail_missing && string_length(_req_status) > 0){
+                var _has_req_status = false;
+                try {
+                    if (!is_undefined(__battle_move_behavior_actor_has_status)){
+                        _has_req_status = __battle_move_behavior_actor_has_status(_D, _req_status);
+                    }
+                } catch (e_req_status_check) { _has_req_status = false; }
+                if (!_has_req_status){
+                    try { dialog_queue("But it failed!"); } catch (e_req_dialog) {}
+                    var _hp_req_now = __battle_hp_now(_D);
+                    return [0, _hp_req_now, _hp_req_now];
+                }
+            }
+        }
+    } catch (e_central_gate) {}
 
     var dmg = __battle_calc_damage(_A, _D, _move_id, _mv_power);
     var before = __battle_hp_now(_D);
@@ -375,6 +402,19 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
     } catch (e_wonder_guard) {}
 
     // Special-case move semantics that alter computed damage before application
+    // [central-behavior] Phase 2 pre-special damage overrides.
+    try {
+        if (!is_undefined(__battle_move_behavior_fixed_damage)){
+            var _central_fixed_damage = __battle_move_behavior_fixed_damage(_move_id, _A, _D);
+            if (is_real(_central_fixed_damage)){
+                dmg = max(0, floor(_central_fixed_damage));
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                    show_debug_message("[battle][central_behavior] fixed/level/half damage applied move=" + string(_move_id) + ", dmg=" + string(dmg));
+                }
+            }
+        }
+    } catch (e_central_fixed_damage) {}
+
     try {
         // Apply move-specific multipliers prior to special fixed-damage overrides
         if (_is_dynamax_cannon){
@@ -388,25 +428,23 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
             }
         }
 
-        // Sonic Boom: fixed 20 HP damage (classic behavior). Ensure this
-        // move deals a flat 20 HP and does not use the normal damage formula.
-        if (is_real(_move_id) && _move_id == 49){
-            var sb_flat = 20;
-            dmg = sb_flat;
-            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][move_special] Sonic Boom applied flat dmg=" + string(dmg));
-        }
-        // Dragon Rage: fixed 40 (classic)
-        if (is_real(_move_id) && _move_id == 82){
-            dmg = 40;
-            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][move_special] Dragon Rage flat dmg=40");
-        }
-
-        // Super Fang / Nature's Madness deal damage equal to half the target's current HP.
-        if (is_real(_move_id) && (_move_id == 162 || _move_id == 717)){
-            var curhp_sf = __battle_hp_now(_D);
-            var sf_dmg = max(0, floor(curhp_sf / 2));
-            dmg = sf_dmg;
-            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][move_special] Super Fang computed dmg=" + string(dmg) + ", target_hp=" + string(curhp_sf));
+        if (is_undefined(__battle_move_behavior_fixed_damage)){
+            // Legacy fallback for fixed-damage moves if the central resolver is unavailable.
+            if (is_real(_move_id) && _move_id == 49){
+                var sb_flat = 20;
+                dmg = sb_flat;
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][move_special] Sonic Boom applied flat dmg=" + string(dmg));
+            }
+            if (is_real(_move_id) && _move_id == 82){
+                dmg = 40;
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][move_special] Dragon Rage flat dmg=40");
+            }
+            if (is_real(_move_id) && (_move_id == 162 || _move_id == 717)){
+                var curhp_sf = __battle_hp_now(_D);
+                var sf_dmg = max(0, floor(curhp_sf / 2));
+                dmg = sf_dmg;
+                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][move_special] Super Fang computed dmg=" + string(dmg) + ", target_hp=" + string(curhp_sf));
+            }
         }
 
         // Bide releases double the damage stored while the user was biding.
@@ -421,13 +459,15 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
             dmg = max(0, _bide_release);
         }
 
-        // Seismic Toss and Night Shade: damage equal to attacker's level (classic)
-        if (is_real(_move_id) && (_move_id == 69 || _move_id == 101)){
-            try {
-                var atk_level_flat = (is_struct(_A) && variable_struct_exists(_A, "level") && is_real(variable_struct_get(_A, "level"))) ? floor(variable_struct_get(_A, "level")) : 1;
-                dmg = max(0, atk_level_flat);
-                if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][move_special] level-based move applied move="+string(_move_id)+", dmg="+string(dmg));
-            } catch (e_lvl) { }
+        if (is_undefined(__battle_move_behavior_fixed_damage)){
+            // Legacy fallback for level-damage moves if the central resolver is unavailable.
+            if (is_real(_move_id) && (_move_id == 69 || _move_id == 101)){
+                try {
+                    var atk_level_flat = (is_struct(_A) && variable_struct_exists(_A, "level") && is_real(variable_struct_get(_A, "level"))) ? floor(variable_struct_get(_A, "level")) : 1;
+                    dmg = max(0, atk_level_flat);
+                    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][move_special] level-based move applied move="+string(_move_id)+", dmg="+string(dmg));
+                } catch (e_lvl) { }
+            }
         }
 
         // Psywave: random fixed damage from 50% to 150% of the user's level.

@@ -34,6 +34,8 @@ overworld_encounter_register_table("route_3", "grass", [
 
 Seen Pokemon show matching `region - habitat` rows plus level ranges. Unknown Pokemon hide their names and areas.
 
+The Poke-Index reads the registered table data, not the live overworld mode. Switching the overworld from hidden encounters to visible encounter NPCs does not change how area data is resolved, because both modes still source species from `global.OVERWORLD_ENCOUNTERS.tables`.
+
 ## Route and Region Storage
 
 The Poke-Index does not currently store a separate per-player "found at" history. Instead, it resolves where a Pokemon can appear from the shared overworld encounter registry:

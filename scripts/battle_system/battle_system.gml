@@ -536,6 +536,18 @@ function __battle_opening_actor_from_wild(_actorIndex, _level, _species_override
     return _actor;
 }
 
+function __battle_set_wild_actor_shiny(_actor, _shiny){
+    if (!is_struct(_actor)) return _actor;
+    var _is_shiny = (_shiny == true);
+    try { variable_struct_set(_actor, "shiny", _is_shiny); } catch (e_actor_shiny) {}
+    try {
+        if (variable_struct_exists(_actor, "mon") && is_struct(variable_struct_get(_actor, "mon"))){
+            variable_struct_set(variable_struct_get(_actor, "mon"), "shiny", _is_shiny);
+        }
+    } catch (e_mon_shiny) {}
+    return _actor;
+}
+
 function __battle_clear_jaw_lock_party_flags(_partyPid){
     var __fn_jaw_release = undefined;
     if (variable_global_exists("__battle_jaw_lock_release")) __fn_jaw_release = variable_global_get("__battle_jaw_lock_release");
@@ -1426,10 +1438,13 @@ function battle_open(_a0 = undefined, _a1 = undefined, _a2 = undefined, _a3 = un
     if (_battle_type == "wild" && _use_double){
         var _wild_species_pair = (is_struct(_opts) && variable_struct_exists(_opts, "enemy_species")) ? variable_struct_get(_opts, "enemy_species") : undefined;
         var _wild_level_pair = (is_struct(_opts) && variable_struct_exists(_opts, "enemy_levels")) ? variable_struct_get(_opts, "enemy_levels") : undefined;
+        var _wild_shiny_pair = (is_struct(_opts) && variable_struct_exists(_opts, "enemy_shiny")) ? variable_struct_get(_opts, "enemy_shiny") : undefined;
         var _wild_species_a = undefined;
         var _wild_species_b = undefined;
         var _wild_level_a = _wildLevel;
         var _wild_level_b = _wildLevel;
+        var _wild_shiny_a = false;
+        var _wild_shiny_b = false;
         if (is_array(_wild_species_pair)){
             if (array_length(_wild_species_pair) > 0 && is_real(_wild_species_pair[0])) _wild_species_a = _wild_species_pair[0];
             if (array_length(_wild_species_pair) > 1 && is_real(_wild_species_pair[1])) _wild_species_b = _wild_species_pair[1];
@@ -1438,8 +1453,16 @@ function battle_open(_a0 = undefined, _a1 = undefined, _a2 = undefined, _a3 = un
             if (array_length(_wild_level_pair) > 0 && is_real(_wild_level_pair[0])) _wild_level_a = max(1, floor(_wild_level_pair[0]));
             if (array_length(_wild_level_pair) > 1 && is_real(_wild_level_pair[1])) _wild_level_b = max(1, floor(_wild_level_pair[1]));
         }
+        if (is_array(_wild_shiny_pair)){
+            if (array_length(_wild_shiny_pair) > 0) _wild_shiny_a = (_wild_shiny_pair[0] == true);
+            if (array_length(_wild_shiny_pair) > 1) _wild_shiny_b = (_wild_shiny_pair[1] == true);
+        } else if (_wild_shiny_pair == true){
+            _wild_shiny_a = true;
+        }
         _B.actor[2] = __battle_opening_actor_from_wild(2, _wild_level_a, _wild_species_a);
         _B.actor[3] = __battle_opening_actor_from_wild(3, _wild_level_b, _wild_species_b);
+        __battle_set_wild_actor_shiny(_B.actor[2], _wild_shiny_a);
+        __battle_set_wild_actor_shiny(_B.actor[3], _wild_shiny_b);
         _enemy_actor = _B.actor[2];
     }
     if (is_undefined(_enemy_actor)){
@@ -1456,7 +1479,14 @@ function battle_open(_a0 = undefined, _a1 = undefined, _a2 = undefined, _a3 = un
                 if (is_array(_wild_enemy_levels) && array_length(_wild_enemy_levels) > 0 && is_real(_wild_enemy_levels[0])) _wild_single_level = max(1, floor(_wild_enemy_levels[0]));
                 else if (is_real(_wild_enemy_levels)) _wild_single_level = max(1, floor(_wild_enemy_levels));
             }
+            var _wild_single_shiny = false;
+            if (is_struct(_opts) && variable_struct_exists(_opts, "enemy_shiny")){
+                var _wild_enemy_shiny = variable_struct_get(_opts, "enemy_shiny");
+                if (is_array(_wild_enemy_shiny) && array_length(_wild_enemy_shiny) > 0) _wild_single_shiny = (_wild_enemy_shiny[0] == true);
+                else _wild_single_shiny = (_wild_enemy_shiny == true);
+            }
             _enemy_actor = __battle_opening_actor_from_wild(1, _wild_single_level, _wild_single_species);
+            __battle_set_wild_actor_shiny(_enemy_actor, _wild_single_shiny);
         }
         else if (array_length(_trainer_party) > 0){
             var __cand_default = _trainer_party[0];
@@ -1713,6 +1743,9 @@ function battle_close(_pid){
         if (!battle_any_open() && variable_global_exists("OVERWORLD_ENCOUNTERS") && is_struct(global.OVERWORLD_ENCOUNTERS)) {
             variable_struct_set(global.OVERWORLD_ENCOUNTERS, "pending", false);
         }
+        if (!variable_global_exists("OVERWORLD_ENCOUNTER_GRACE_MS")) global.OVERWORLD_ENCOUNTER_GRACE_MS = 1500;
+        if (!variable_global_exists("OVERWORLD_ENCOUNTER_BLOCK_UNTIL_MS")) global.OVERWORLD_ENCOUNTER_BLOCK_UNTIL_MS = 0;
+        global.OVERWORLD_ENCOUNTER_BLOCK_UNTIL_MS = max(global.OVERWORLD_ENCOUNTER_BLOCK_UNTIL_MS, current_time + max(0, floor(global.OVERWORLD_ENCOUNTER_GRACE_MS)));
     } catch (e_overworld_pending_clear) {}
     try { variable_struct_set(_B, "_area_type", undefined); } catch (e_area_clear) {}
 

@@ -803,6 +803,38 @@ function data_map_move_effects_to_meta(){
             mapped += 1;
         }
     }
+    // [Drain Special Moves Fix] exact positive-drain fallbacks
+    // Keep this list narrow. It patches moves whose CSV effect/meta path can be
+    // blank, missing, or zero while preserving the existing move_meta struct shape.
+    // 138 Dream Eater = 50%, 570 Parabolic Charge = 50%, 577/613 = 75%,
+    // 891 Bitter Blade = 50%, 902 Matcha Gotcha = 50%.
+    var _drain_fallback_ids  = [138, 570, 577, 613, 891, 902];
+    var _drain_fallback_pcts = [50,  50,  75,  75,  50,  50 ];
+    for (var _df_i = 0; _df_i < array_length(_drain_fallback_ids); _df_i++){
+        var _df_mid = _drain_fallback_ids[_df_i];
+        var _df_pct = _drain_fallback_pcts[_df_i];
+        if (!is_real(_df_mid) || _df_mid < 0) continue;
+        if (_df_mid >= array_length(global._move_meta)) array_resize(global._move_meta, _df_mid + 1);
+        if (is_undefined(global._move_meta[_df_mid]) || !is_struct(global._move_meta[_df_mid])) global._move_meta[_df_mid] = {};
+        var _df_mm = global._move_meta[_df_mid];
+        var _df_write = false;
+        if (!variable_struct_exists(_df_mm, "drain")){
+            _df_write = true;
+        } else {
+            var _df_existing = variable_struct_get(_df_mm, "drain");
+            if (is_undefined(_df_existing)) _df_write = true;
+            else if (is_real(_df_existing) && real(_df_existing) == 0) _df_write = true;
+        }
+        if (_df_write){
+            variable_struct_set(_df_mm, "drain", _df_pct);
+            global._move_meta[_df_mid] = _df_mm;
+            mapped += 1;
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+                data_debug("[DATA][move_effect_map][drain_fallback] move=" + string(_df_mid) + " drain=" + string(_df_pct));
+            }
+        }
+    }
+
     data_debug("[DATA][move_effect_map] synthesized_meta=" + string(mapped));
     // If debugging enabled, dump a few canonical move meta entries to help diagnose mapping
     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){

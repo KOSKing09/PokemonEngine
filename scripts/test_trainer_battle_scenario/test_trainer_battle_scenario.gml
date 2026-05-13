@@ -4386,3 +4386,823 @@ function test_battle_effect_9_112_smoke_start(_auto_close = false){
 function test_battle_effect_9_112_smoke_update(_pid = 0){
     // Direct smoke completes synchronously in start().
 }
+
+// [Smoke] Drain special move smoke tests — Build v1.0.1 — Updated 2026-05-12
+// Verifies special positive-drain moves without touching loaders or production battle logic.
+// Entry points:
+//   test_battle_drain_special_moves_smoke_start(_auto_close = false)
+//   test_battle_drain_special_moves_smoke_update(_pid = 0)
+
+function __drain_smoke_log(_ok, _msg){
+    show_debug_message("[smoke][drain-special] " + string(_ok ? "PASS" : "FAIL") + " " + string(_msg));
+}
+
+function __drain_smoke_assert(_state, _ok, _msg){
+    __drain_smoke_log(_ok, _msg);
+    if (!is_struct(_state)) return;
+    if (!variable_struct_exists(_state, "pass_count")) variable_struct_set(_state, "pass_count", 0);
+    if (!variable_struct_exists(_state, "fail_count")) variable_struct_set(_state, "fail_count", 0);
+    if (_ok) variable_struct_set(_state, "pass_count", variable_struct_get(_state, "pass_count") + 1);
+    else variable_struct_set(_state, "fail_count", variable_struct_get(_state, "fail_count") + 1);
+}
+
+function __drain_smoke_finish(_pid, _state, _reason){
+    var _passes = 0;
+    var _fails = 0;
+    var _auto_close = false;
+    if (is_struct(_state)){
+        if (variable_struct_exists(_state, "pass_count")) _passes = variable_struct_get(_state, "pass_count");
+        if (variable_struct_exists(_state, "fail_count")) _fails = variable_struct_get(_state, "fail_count");
+        if (variable_struct_exists(_state, "auto_close")) _auto_close = (variable_struct_get(_state, "auto_close") == true);
+    }
+    show_debug_message("[smoke][drain-special] SUMMARY passes=" + string(_passes) + " fails=" + string(_fails) + " reason=" + string(_reason));
+    if (_auto_close){
+        try { if (battle_is_open(_pid)) battle_close(_pid); } catch (e_close) {}
+    }
+    try { if (variable_global_exists("DEV_DRAIN_SPECIAL_SMOKE")) global.DEV_DRAIN_SPECIAL_SMOKE = undefined; } catch (e_clear) {}
+}
+
+function __drain_smoke_hp_now(_actor){
+    try { if (!is_undefined(__battle_hp_now)) return __battle_hp_now(_actor); } catch (e_hp_fn) {}
+    try { if (is_struct(_actor) && variable_struct_exists(_actor, "hp_now")) return variable_struct_get(_actor, "hp_now"); } catch (e_hp_now) {}
+    try { if (is_struct(_actor) && variable_struct_exists(_actor, "hp")) return variable_struct_get(_actor, "hp"); } catch (e_hp) {}
+    return -1;
+}
+
+function __drain_smoke_hp_max(_actor){
+    try { if (!is_undefined(__battle_hp_max)) return __battle_hp_max(_actor); } catch (e_hp_fn) {}
+    try { if (is_struct(_actor) && variable_struct_exists(_actor, "hp_max")) return variable_struct_get(_actor, "hp_max"); } catch (e_hpmax) {}
+    try { if (is_struct(_actor) && variable_struct_exists(_actor, "maxhp")) return variable_struct_get(_actor, "maxhp"); } catch (e_maxhp) {}
+    try { if (is_struct(_actor) && variable_struct_exists(_actor, "hp")) return variable_struct_get(_actor, "hp"); } catch (e_hp) {}
+    return 1;
+}
+
+function __drain_smoke_set_hp(_actor, _hp_value){
+    if (!is_struct(_actor)) return;
+    var _hp = max(0, floor(_hp_value));
+    try { if (!is_undefined(__battle_set_hp_now)){ __battle_set_hp_now(_actor, _hp); return; } } catch (e_set_fn) {}
+    try { variable_struct_set(_actor, "hp_now", _hp); } catch (e_set1) {}
+    try { variable_struct_set(_actor, "hp", _hp); } catch (e_set2) {}
+    try {
+        if (variable_struct_exists(_actor, "mon") && is_struct(variable_struct_get(_actor, "mon"))){
+            var _mon = variable_struct_get(_actor, "mon");
+            variable_struct_set(_mon, "hp_now", _hp);
+            variable_struct_set(_mon, "hp", _hp);
+        }
+    } catch (e_set_mon) {}
+}
+
+function __drain_smoke_force_hp_shape(_actor, _now_hp, _max_hp){
+    if (!is_struct(_actor)) return;
+    var _now = max(0, floor(_now_hp));
+    var _max = max(1, floor(_max_hp));
+    try {
+        variable_struct_set(_actor, "hp", _now);
+        variable_struct_set(_actor, "hp_now", _now);
+        variable_struct_set(_actor, "hp_max", _max);
+        variable_struct_set(_actor, "maxhp", _max);
+        if (variable_struct_exists(_actor, "mon") && is_struct(variable_struct_get(_actor, "mon"))){
+            var _mon = variable_struct_get(_actor, "mon");
+            variable_struct_set(_mon, "hp", _now);
+            variable_struct_set(_mon, "hp_now", _now);
+            variable_struct_set(_mon, "hp_max", _max);
+            variable_struct_set(_mon, "maxhp", _max);
+        }
+    } catch (e_shape) {}
+    __drain_smoke_set_hp(_actor, _now);
+}
+
+function __drain_smoke_make_actor(_species_id, _level, _name, _actor_index){
+    var _mon = undefined;
+    try {
+        if (!is_undefined(pokemon_factory_create)) _mon = pokemon_factory_create(_species_id, _level, {});
+    } catch (e_factory) { _mon = undefined; }
+    if (!is_struct(_mon)){
+        _mon = { species_id: _species_id, name: _name, level: _level, moves: [-1,-1,-1,-1], pps: [10,10,10,10] };
+    }
+
+    var _actor = undefined;
+    try {
+        if (!is_undefined(__evolution_smoke_actor_from_mon)) _actor = __evolution_smoke_actor_from_mon(_mon);
+    } catch (e_wrap) { _actor = undefined; }
+    if (!is_struct(_actor)){
+        _actor = {
+            mon: _mon,
+            name: _name,
+            species_id: _species_id,
+            level: _level,
+            hp: 100,
+            hp_now: 100,
+            hp_max: 100,
+            maxhp: 100,
+            atk: 120,
+            def: 80,
+            spa: 120,
+            spd: 80,
+            spe: 80,
+            moves: [-1,-1,-1,-1],
+            pps: [10,10,10,10]
+        };
+    }
+
+    variable_struct_set(_actor, "name", _name);
+    variable_struct_set(_actor, "actor_index", _actor_index);
+    variable_struct_set(_actor, "slot", _actor_index);
+    variable_struct_set(_actor, "level", _level);
+    variable_struct_set(_actor, "atk", 220);
+    variable_struct_set(_actor, "spa", 220);
+    variable_struct_set(_actor, "def", 80);
+    variable_struct_set(_actor, "spd", 80);
+    variable_struct_set(_actor, "spe", 100);
+    if (variable_struct_exists(_actor, "mon") && is_struct(variable_struct_get(_actor, "mon"))){
+        var _m = variable_struct_get(_actor, "mon");
+        variable_struct_set(_m, "name", _name);
+        variable_struct_set(_m, "level", _level);
+        variable_struct_set(_m, "atk", 220);
+        variable_struct_set(_m, "spa", 220);
+        variable_struct_set(_m, "def", 80);
+        variable_struct_set(_m, "spd", 80);
+        variable_struct_set(_m, "spe", 100);
+    }
+    return _actor;
+}
+
+function __drain_smoke_open_slot(_pid, _player_actor, _enemy_actor){
+    try { if (battle_is_open(_pid)) battle_close(_pid); } catch (e_close) {}
+
+    var _B = undefined;
+    try {
+        if (!is_undefined(__effect_smoke_slot)) _B = __effect_smoke_slot(_pid, _player_actor, _enemy_actor, "trainer");
+    } catch (e_effect_slot) { _B = undefined; }
+
+    if (!is_struct(_B)){
+        try { _B = __battle_ensure_slot(_pid); } catch (e_slot) { _B = undefined; }
+        if (is_struct(_B)){
+            variable_struct_set(_B, "actor", [_player_actor, _enemy_actor]);
+            variable_struct_set(_B, "phase", "command");
+            variable_struct_set(_B, "open", true);
+            variable_struct_set(_B, "active", true);
+            variable_struct_set(_B, "turn_queue", []);
+            variable_struct_set(_B, "turn_i", 0);
+        }
+    }
+
+    return _B;
+}
+
+function __drain_smoke_move_meta_drain(_move_id){
+    try {
+        if (!is_undefined(__battle_get_move_meta)){
+            var _mm = __battle_get_move_meta(_move_id);
+            if (is_struct(_mm) && variable_struct_exists(_mm, "drain") && is_real(variable_struct_get(_mm, "drain"))) return real(variable_struct_get(_mm, "drain"));
+        }
+    } catch (e_meta_fn) {}
+    try {
+        if (variable_global_exists("_move_meta") && is_array(global._move_meta) && _move_id >= 0 && _move_id < array_length(global._move_meta)){
+            var _mm2 = global._move_meta[_move_id];
+            if (is_struct(_mm2) && variable_struct_exists(_mm2, "drain") && is_real(variable_struct_get(_mm2, "drain"))) return real(variable_struct_get(_mm2, "drain"));
+        }
+    } catch (e_meta_arr) {}
+    return 0;
+}
+
+function __drain_smoke_has_sleep(_actor){
+    if (!is_struct(_actor) || is_undefined(status_system_has_status)) return false;
+    try { if (status_system_has_status(_actor, "sleep")) return true; } catch (e_sleep_a) {}
+    try {
+        if (variable_struct_exists(_actor, "mon") && is_struct(variable_struct_get(_actor, "mon")) && status_system_has_status(variable_struct_get(_actor, "mon"), "sleep")) return true;
+    } catch (e_sleep_m) {}
+    return false;
+}
+
+function __drain_smoke_apply_sleep(_actor, _source){
+    if (!is_struct(_actor) || is_undefined(status_system_apply_status)) return false;
+    try { return status_system_apply_status(_actor, "sleep", { source: _source, duration: 3 }); } catch (e_sleep_apply) {}
+    return false;
+}
+
+
+function __drain_smoke_move_power(_move_id){
+    try {
+        if (!is_undefined(move_get_power)){
+            var _p0 = move_get_power(_move_id);
+            if (is_real(_p0)) return max(0, floor(_p0));
+        }
+    } catch (e_power_fn) {}
+    try {
+        if (!is_undefined(__battle_move_power)){
+            var _p1 = __battle_move_power(_move_id, undefined, undefined);
+            if (is_real(_p1)) return max(0, floor(_p1));
+        }
+    } catch (e_power_battle) {}
+    try {
+        if (variable_global_exists("_moves") && is_array(global._moves) && is_real(_move_id) && _move_id >= 0 && _move_id < array_length(global._moves)){
+            var _m = global._moves[_move_id];
+            if (is_struct(_m) && variable_struct_exists(_m, "power") && is_real(variable_struct_get(_m, "power"))) return max(0, floor(variable_struct_get(_m, "power")));
+        }
+    } catch (e_power_data) {}
+    return 0;
+}
+
+function __drain_smoke_move_meta(_move_id){
+    try {
+        if (!is_undefined(__battle_get_move_meta)){
+            var _mm0 = __battle_get_move_meta(_move_id);
+            if (is_struct(_mm0)) return _mm0;
+        }
+    } catch (e_meta_fn) {}
+    try {
+        if (variable_global_exists("_move_meta") && is_array(global._move_meta) && is_real(_move_id) && _move_id >= 0 && _move_id < array_length(global._move_meta)){
+            var _mm1 = global._move_meta[_move_id];
+            if (is_struct(_mm1)) return _mm1;
+        }
+    } catch (e_meta_arr) {}
+    return undefined;
+}
+
+function __drain_smoke_apply_damage_then_meta(_pid, _player, _enemy, _move_id){
+    var _power = __drain_smoke_move_power(_move_id);
+    var _damage = 0;
+    var _before = __drain_smoke_hp_now(_enemy);
+    var _after = _before;
+
+    try {
+        var _res = __battle_apply_move_damage(_pid, 1, _player, _enemy, _move_id, _power);
+        if (is_array(_res)){
+            if (array_length(_res) > 0 && is_real(_res[0])) _damage = max(0, floor(_res[0]));
+            if (array_length(_res) > 1 && is_real(_res[1])) _before = floor(_res[1]);
+            if (array_length(_res) > 2 && is_real(_res[2])) _after = floor(_res[2]);
+        }
+    } catch (e_damage_apply) {
+        return { ok: false, damage: 0, before: _before, after: _after, error: "damage exception: " + string(e_damage_apply) };
+    }
+
+    // If the damage helper returned 0 but HP changed, trust the HP delta. This protects
+    // the smoke from older helper return shapes while still using the real battle damage path.
+    var _enemy_now = __drain_smoke_hp_now(_enemy);
+    if (_damage <= 0 && is_real(_before) && is_real(_enemy_now)) _damage = max(0, floor(_before - _enemy_now));
+
+    if (_damage > 0){
+        try {
+            var _mm = __drain_smoke_move_meta(_move_id);
+            var _step = { actor_index: 0, target_index: 1, move_id: _move_id };
+            __battle_apply_move_meta_effects(_pid, _step, _player, _enemy, _move_id, _damage, _mm);
+        } catch (e_meta_apply) {
+            return { ok: false, damage: _damage, before: _before, after: __drain_smoke_hp_now(_enemy), error: "meta exception: " + string(e_meta_apply) };
+        }
+    }
+
+    return { ok: true, damage: _damage, before: _before, after: __drain_smoke_hp_now(_enemy), error: "" };
+}
+
+function __drain_smoke_run_case(_state, _pid, _case_struct){
+    if (!is_struct(_state) || !is_struct(_case_struct)) return;
+
+    var _move_id = variable_struct_get(_case_struct, "move_id");
+    var _move_name = string(variable_struct_get(_case_struct, "name"));
+    var _expected_drain = real(variable_struct_get(_case_struct, "drain"));
+    var _needs_sleep = (variable_struct_exists(_case_struct, "target_sleep") && variable_struct_get(_case_struct, "target_sleep") == true);
+    var _expect_fail = (variable_struct_exists(_case_struct, "expect_fail") && variable_struct_get(_case_struct, "expect_fail") == true);
+
+    var _player = __drain_smoke_make_actor(187, 70, "Drain Tester", 0);
+    var _enemy = __drain_smoke_make_actor(133, 70, "Drain Target", 1);
+    variable_struct_set(_enemy, "def", 25);
+    variable_struct_set(_enemy, "spd", 25);
+    if (variable_struct_exists(_enemy, "mon") && is_struct(variable_struct_get(_enemy, "mon"))){
+        var _enemy_mon = variable_struct_get(_enemy, "mon");
+        variable_struct_set(_enemy_mon, "def", 25);
+        variable_struct_set(_enemy_mon, "spd", 25);
+    }
+
+    __drain_smoke_force_hp_shape(_player, 40, 120);
+    __drain_smoke_force_hp_shape(_enemy, 180, 180);
+    __dev_assign_moves_to_mon(_player, [_move_id, -1, -1, -1]);
+
+    var _B = __drain_smoke_open_slot(_pid, _player, _enemy);
+    __drain_smoke_assert(_state, is_struct(_B), _move_name + " battle slot opened");
+    if (!is_struct(_B)) return;
+
+    if (_needs_sleep){
+        var _sleep_ok = __drain_smoke_apply_sleep(_enemy, _player);
+        __drain_smoke_assert(_state, _sleep_ok || __drain_smoke_has_sleep(_enemy), _move_name + " target prepared asleep");
+    }
+
+    var _meta_drain = __drain_smoke_move_meta_drain(_move_id);
+    if (!_expect_fail) __drain_smoke_assert(_state, _meta_drain == _expected_drain, _move_name + " metadata drain=" + string(_expected_drain) + " actual=" + string(_meta_drain));
+
+    var _player_before = __drain_smoke_hp_now(_player);
+    var _enemy_before = __drain_smoke_hp_now(_enemy);
+    var _result = __drain_smoke_apply_damage_then_meta(_pid, _player, _enemy, _move_id);
+
+    if (!is_struct(_result) || !variable_struct_exists(_result, "ok") || variable_struct_get(_result, "ok") != true){
+        var _err = (is_struct(_result) && variable_struct_exists(_result, "error")) ? string(variable_struct_get(_result, "error")) : "unknown apply error";
+        __drain_smoke_assert(_state, false, _move_name + " apply failed: " + _err);
+        return;
+    }
+
+    var _player_after = __drain_smoke_hp_now(_player);
+    var _enemy_after = __drain_smoke_hp_now(_enemy);
+    var _damage = max(0, _enemy_before - _enemy_after);
+    if (_damage <= 0 && variable_struct_exists(_result, "damage") && is_real(variable_struct_get(_result, "damage"))) _damage = max(0, floor(variable_struct_get(_result, "damage")));
+    var _heal = max(0, _player_after - _player_before);
+    var _raw_expected_heal = floor(_damage * _expected_drain / 100);
+    var _heal_room = max(0, __drain_smoke_hp_max(_player) - _player_before);
+    var _expected_heal = min(_raw_expected_heal, _heal_room);
+
+    if (_expect_fail){
+        __drain_smoke_assert(_state, _damage <= 0, _move_name + " failed against awake target and dealt no damage");
+        __drain_smoke_assert(_state, _heal <= 0, _move_name + " failed against awake target and healed no HP");
+    } else {
+        __drain_smoke_assert(_state, _damage > 0, _move_name + " dealt damage=" + string(_damage));
+        __drain_smoke_assert(_state, _heal == _expected_heal, _move_name + " healed expected=" + string(_expected_heal) + " actual=" + string(_heal));
+    }
+}
+
+
+function test_battle_drain_special_moves_smoke_start(_auto_close = false){
+    var _pid = 0;
+    var _S = {
+        pid: _pid,
+        tag: "drain-special",
+        global_name: "DEV_DRAIN_SPECIAL_SMOKE",
+        auto_close: (_auto_close == true),
+        started_ms: current_time,
+        pass_count: 0,
+        fail_count: 0,
+        ran: false,
+        cases: [
+            { name: "Dream Eater awake", move_id: 138, drain: 50, target_sleep: false, expect_fail: true },
+            { name: "Dream Eater asleep", move_id: 138, drain: 50, target_sleep: true, expect_fail: false },
+            { name: "Parabolic Charge", move_id: 570, drain: 50, target_sleep: false, expect_fail: false },
+            { name: "Draining Kiss", move_id: 577, drain: 75, target_sleep: false, expect_fail: false },
+            { name: "Oblivion Wing", move_id: 613, drain: 75, target_sleep: false, expect_fail: false },
+            { name: "Bitter Blade", move_id: 891, drain: 50, target_sleep: false, expect_fail: false },
+            { name: "Matcha Gotcha", move_id: 902, drain: 50, target_sleep: false, expect_fail: false }
+        ]
+    };
+
+    global.DEV_DRAIN_SPECIAL_SMOKE = _S;
+    show_debug_message("[smoke][drain-special] START cases=" + string(array_length(_S.cases)));
+    test_battle_drain_special_moves_smoke_update(_pid);
+}
+
+function test_battle_drain_special_moves_smoke_update(_pid = 0){
+    if (!variable_global_exists("DEV_DRAIN_SPECIAL_SMOKE")) return;
+    var _S = global.DEV_DRAIN_SPECIAL_SMOKE;
+    if (!is_struct(_S)) return;
+    if (variable_struct_exists(_S, "ran") && variable_struct_get(_S, "ran") == true) return;
+    variable_struct_set(_S, "ran", true);
+
+    var _cases = variable_struct_get(_S, "cases");
+    for (var _i = 0; _i < array_length(_cases); ++_i){
+        __drain_smoke_run_case(_S, _pid, _cases[_i]);
+    }
+
+    __drain_smoke_finish(_pid, _S, "completed all drain special cases");
+}
+
+
+// [drain-special-smoke] Centralized behavior helpers — Build v1.0.0 — Updated 2026-05-12
+// Success-rate self-check target: 100% patch verification.
+
+if (is_undefined(__drain_smoke_expected_drain_central)){
+    function __drain_smoke_expected_drain_central(_move_id){
+        try {
+            if (!is_undefined(__battle_move_behavior)){
+                var _behavior = __battle_move_behavior(_move_id);
+                if (is_struct(_behavior) && variable_struct_exists(_behavior, "drain") && is_real(variable_struct_get(_behavior, "drain"))){
+                    return real(variable_struct_get(_behavior, "drain"));
+                }
+            }
+        } catch (e_drain_smoke_expected) {}
+        return 0;
+    }
+}
+
+if (is_undefined(__drain_smoke_apply_damage_and_meta_central)){
+    function __drain_smoke_apply_damage_and_meta_central(_pid, _player, _enemy, _move_id){
+        var _power = 0;
+        try {
+            if (!is_undefined(move_get_power)) _power = move_get_power(_move_id);
+            else if (!is_undefined(scr_move_power_by_id)) _power = scr_move_power_by_id(_move_id);
+        } catch (e_power) { _power = 0; }
+
+        var _result = [0, __status_smoke_hp_now(_enemy), __status_smoke_hp_now(_enemy)];
+        try {
+            _result = __battle_apply_move_damage(_pid, 1, _player, _enemy, _move_id, _power);
+        } catch (e_damage) {
+            show_debug_message("[smoke][drain-special] damage path failed for move=" + string(_move_id) + ": " + string(e_damage));
+            return { damage: 0, before: __status_smoke_hp_now(_enemy), after: __status_smoke_hp_now(_enemy) };
+        }
+
+        var _damage = 0;
+        if (is_array(_result) && array_length(_result) > 0 && is_real(_result[0])) _damage = max(0, floor(_result[0]));
+
+        if (_damage > 0){
+            try {
+                var _mm = __battle_get_move_meta(_move_id);
+                __battle_apply_move_meta_effects(_pid, undefined, _player, _enemy, _move_id, _damage, _mm);
+            } catch (e_meta) {
+                show_debug_message("[smoke][drain-special] meta path failed for move=" + string(_move_id) + ": " + string(e_meta));
+            }
+        }
+
+        var _before = (is_array(_result) && array_length(_result) > 1 && is_real(_result[1])) ? _result[1] : __status_smoke_hp_now(_enemy);
+        var _after = (is_array(_result) && array_length(_result) > 2 && is_real(_result[2])) ? _result[2] : __status_smoke_hp_now(_enemy);
+        return { damage: _damage, before: _before, after: _after };
+    }
+}
+
+// [move-behavior-smoke] Phase 2 fixed-damage expectation helpers - Build v1.0.0 - Updated 2026-05-12
+//
+// Smoke tests can use these helpers so fixed-damage expectations come from
+// __battle_move_behavior_full() instead of hardcoded local values.
+
+if (is_undefined(__move_behavior_smoke_expected_damage)){
+    function __move_behavior_smoke_expected_damage(_move_id, _attacker, _defender){
+        try {
+            if (!is_undefined(__battle_move_behavior_fixed_damage)){
+                var _dmg = __battle_move_behavior_fixed_damage(_move_id, _attacker, _defender);
+                if (is_real(_dmg)) return max(0, floor(_dmg));
+            }
+        } catch (e_smoke_expected_damage) {}
+        return undefined;
+    }
+}
+
+if (is_undefined(__move_behavior_smoke_expect_ohko)){
+    function __move_behavior_smoke_expect_ohko(_move_id){
+        try {
+            if (!is_undefined(__battle_move_behavior_full)){
+                var _behavior = __battle_move_behavior_full(_move_id);
+                return (is_struct(_behavior) && variable_struct_exists(_behavior, "ohko") && variable_struct_get(_behavior, "ohko") == true);
+            }
+        } catch (e_smoke_ohko) {}
+        return false;
+    }
+}
+
+// [phase2-behavior-smoke] Centralized Phase 2 smoke tests - Build v1.0.0 - Updated 2026-05-12
+//
+// Covers centralized Phase 2 behavior:
+// - fixed damage: Sonic Boom, Dragon Rage
+// - user-level damage: Seismic Toss, Night Shade
+// - half-current-HP damage: Super Fang, Nature's Madness
+// - OHKO flags: Guillotine, Horn Drill, Fissure, Sheer Cold
+// - self-KO flags: Self-Destruct, Explosion
+//
+// Entry:
+//     test_battle_phase2_behavior_smoke_start(false);
+//     test_battle_phase2_behavior_smoke_start(true);  // auto-close
+//
+// Success-rate self-check target: 100% patch verification.
+
+if (is_undefined(__phase2_smoke_log)){
+    function __phase2_smoke_log(_state, _ok, _msg){
+        show_debug_message("[smoke][phase2-behavior] " + string(_ok ? "PASS" : "FAIL") + " " + string(_msg));
+        if (!is_struct(_state)) return;
+        var _pass_n = (variable_struct_exists(_state, "pass_count") && is_real(variable_struct_get(_state, "pass_count"))) ? variable_struct_get(_state, "pass_count") : 0;
+        var _fail_n = (variable_struct_exists(_state, "fail_count") && is_real(variable_struct_get(_state, "fail_count"))) ? variable_struct_get(_state, "fail_count") : 0;
+        if (_ok) variable_struct_set(_state, "pass_count", _pass_n + 1);
+        else variable_struct_set(_state, "fail_count", _fail_n + 1);
+    }
+}
+
+if (is_undefined(__phase2_smoke_hp_now)){
+    function __phase2_smoke_hp_now(_actor){
+        try {
+            if (!is_undefined(__battle_hp_now)) return __battle_hp_now(_actor);
+        } catch (e_hp_now) {}
+        if (is_struct(_actor) && variable_struct_exists(_actor, "hp_now") && is_real(variable_struct_get(_actor, "hp_now"))) return variable_struct_get(_actor, "hp_now");
+        if (is_struct(_actor) && variable_struct_exists(_actor, "hp") && is_real(variable_struct_get(_actor, "hp"))) return variable_struct_get(_actor, "hp");
+        return -1;
+    }
+}
+
+if (is_undefined(__phase2_smoke_hp_max)){
+    function __phase2_smoke_hp_max(_actor){
+        try {
+            if (!is_undefined(__battle_hp_max)) return __battle_hp_max(_actor);
+        } catch (e_hp_max) {}
+        if (is_struct(_actor) && variable_struct_exists(_actor, "hp_max") && is_real(variable_struct_get(_actor, "hp_max"))) return variable_struct_get(_actor, "hp_max");
+        if (is_struct(_actor) && variable_struct_exists(_actor, "maxhp") && is_real(variable_struct_get(_actor, "maxhp"))) return variable_struct_get(_actor, "maxhp");
+        return 1;
+    }
+}
+
+if (is_undefined(__phase2_smoke_set_hp)){
+    function __phase2_smoke_set_hp(_actor, _hp){
+        if (!is_struct(_actor)) return;
+        var _value = max(0, floor(_hp));
+        try {
+            if (!is_undefined(__battle_set_hp_now)){
+                __battle_set_hp_now(_actor, _value);
+                return;
+            }
+        } catch (e_set_hp) {}
+
+        try { variable_struct_set(_actor, "hp_now", _value); } catch (e_set_outer1) {}
+        try { variable_struct_set(_actor, "hp", _value); } catch (e_set_outer2) {}
+        try {
+            if (variable_struct_exists(_actor, "mon") && is_struct(variable_struct_get(_actor, "mon"))){
+                var _mon = variable_struct_get(_actor, "mon");
+                variable_struct_set(_mon, "hp_now", _value);
+                variable_struct_set(_mon, "hp", _value);
+            }
+        } catch (e_set_inner) {}
+    }
+}
+
+if (is_undefined(__phase2_smoke_make_actor)){
+    function __phase2_smoke_make_actor(_species_id, _level, _name, _move_id, _actor_index){
+        var _mon = undefined;
+        try {
+            if (!is_undefined(pokemon_factory_create)){
+                _mon = pokemon_factory_create(_species_id, _level, {});
+            }
+        } catch (e_factory) { _mon = undefined; }
+
+        if (!is_struct(_mon)){
+            _mon = {
+                species_id: _species_id,
+                species: _name,
+                name: _name,
+                level: _level,
+                hp: 160,
+                hp_now: 160,
+                hp_max: 160,
+                maxhp: 160,
+                atk: 120,
+                def: 90,
+                spa: 120,
+                spd: 90,
+                spe: 80,
+                type1: 1,
+                type2: -1,
+                types: [1],
+                moves: [_move_id, -1, -1, -1],
+                pps: [10, 0, 0, 0]
+            };
+        }
+
+        try {
+            variable_struct_set(_mon, "name", _name);
+            variable_struct_set(_mon, "level", _level);
+            variable_struct_set(_mon, "moves", [_move_id, -1, -1, -1]);
+            variable_struct_set(_mon, "pps", [10, 0, 0, 0]);
+        } catch (e_mon_setup) {}
+
+        var _hp_max = 160;
+        try {
+            if (variable_struct_exists(_mon, "hp_max") && is_real(variable_struct_get(_mon, "hp_max"))) _hp_max = max(1, floor(variable_struct_get(_mon, "hp_max")));
+            else if (variable_struct_exists(_mon, "maxhp") && is_real(variable_struct_get(_mon, "maxhp"))) _hp_max = max(1, floor(variable_struct_get(_mon, "maxhp")));
+        } catch (e_mon_hpmax) { _hp_max = 160; }
+
+        var _actor = {
+            actor_index: _actor_index,
+            slot: _actor_index,
+            mon: _mon,
+            name: _name,
+            species_id: _species_id,
+            species: _name,
+            level: _level,
+            hp: _hp_max,
+            hp_now: _hp_max,
+            hp_max: _hp_max,
+            maxhp: _hp_max,
+            atk: 120,
+            def: 90,
+            spa: 120,
+            spd: 90,
+            spe: 80,
+            type1: 1,
+            type2: -1,
+            types: [1],
+            moves: [_move_id, -1, -1, -1],
+            pps: [10, 0, 0, 0],
+            seen_moves: [_move_id]
+        };
+
+        try {
+            if (variable_struct_exists(_mon, "atk")) variable_struct_set(_actor, "atk", variable_struct_get(_mon, "atk"));
+            if (variable_struct_exists(_mon, "def")) variable_struct_set(_actor, "def", variable_struct_get(_mon, "def"));
+            if (variable_struct_exists(_mon, "spa")) variable_struct_set(_actor, "spa", variable_struct_get(_mon, "spa"));
+            if (variable_struct_exists(_mon, "spd")) variable_struct_set(_actor, "spd", variable_struct_get(_mon, "spd"));
+            if (variable_struct_exists(_mon, "spe")) variable_struct_set(_actor, "spe", variable_struct_get(_mon, "spe"));
+            if (variable_struct_exists(_mon, "type1")) variable_struct_set(_actor, "type1", variable_struct_get(_mon, "type1"));
+            if (variable_struct_exists(_mon, "type2")) variable_struct_set(_actor, "type2", variable_struct_get(_mon, "type2"));
+            if (variable_struct_exists(_mon, "types")) variable_struct_set(_actor, "types", variable_struct_get(_mon, "types"));
+        } catch (e_actor_copy) {}
+
+        __phase2_smoke_set_hp(_actor, _hp_max);
+        return _actor;
+    }
+}
+
+if (is_undefined(__phase2_smoke_prepare_slot)){
+    function __phase2_smoke_prepare_slot(_pid, _move_id, _attacker_level, _target_hp){
+        if (battle_is_open(_pid)) {
+            try { battle_close(_pid); } catch (e_close) {}
+        }
+
+        var _player = __phase2_smoke_make_actor(133, _attacker_level, "Phase2 Tester", _move_id, 0);
+        var _enemy = __phase2_smoke_make_actor(187, max(5, _attacker_level), "Phase2 Target", -1, 1);
+
+        try {
+            variable_struct_set(_player, "atk", 220);
+            variable_struct_set(_player, "spa", 220);
+            variable_struct_set(_enemy, "def", 80);
+            variable_struct_set(_enemy, "spd", 80);
+            variable_struct_set(_enemy, "types", [1]);
+            variable_struct_set(_enemy, "type1", 1);
+            variable_struct_set(_enemy, "type2", -1);
+        } catch (e_stat_setup) {}
+
+        var _enemy_max = max(_target_hp, __phase2_smoke_hp_max(_enemy));
+        try {
+            variable_struct_set(_enemy, "hp_max", _enemy_max);
+            variable_struct_set(_enemy, "maxhp", _enemy_max);
+            if (variable_struct_exists(_enemy, "mon") && is_struct(variable_struct_get(_enemy, "mon"))){
+                var _em = variable_struct_get(_enemy, "mon");
+                variable_struct_set(_em, "hp_max", _enemy_max);
+                variable_struct_set(_em, "maxhp", _enemy_max);
+            }
+        } catch (e_enemy_max) {}
+        __phase2_smoke_set_hp(_enemy, _target_hp);
+
+        var _B = __battle_ensure_slot(_pid);
+        if (!is_struct(_B)) return undefined;
+
+        try {
+            variable_struct_set(_B, "open", true);
+            variable_struct_set(_B, "active", true);
+            variable_struct_set(_B, "phase", "turn");
+            variable_struct_set(_B, "type", "trainer");
+            variable_struct_set(_B, "actor", [_player, _enemy]);
+            variable_struct_set(_B, "player_actor", _player);
+            variable_struct_set(_B, "enemy_actor", _enemy);
+            variable_struct_set(_B, "_faint_pending", false);
+            variable_struct_set(_B, "_pending_open_party", false);
+            variable_struct_set(_B, "_pending_open_party_delay_until", undefined);
+        } catch (e_slot_set) {}
+
+        return { battle: _B, player: _player, enemy: _enemy };
+    }
+}
+
+if (is_undefined(__phase2_smoke_move_power)){
+    function __phase2_smoke_move_power(_move_id){
+        var _power = 0;
+        try {
+            if (!is_undefined(move_get_power)) _power = move_get_power(_move_id);
+            else if (!is_undefined(scr_move_power_by_id)) _power = scr_move_power_by_id(_move_id);
+        } catch (e_power) { _power = 0; }
+        return _power;
+    }
+}
+
+if (is_undefined(__phase2_smoke_behavior)){
+    function __phase2_smoke_behavior(_move_id){
+        if (!is_undefined(__battle_move_behavior_full)){
+            try { return __battle_move_behavior_full(_move_id); } catch (e_full) {}
+        }
+        if (!is_undefined(__battle_move_behavior)){
+            try { return __battle_move_behavior(_move_id); } catch (e_base) {}
+        }
+        return undefined;
+    }
+}
+
+if (is_undefined(__phase2_smoke_expected_damage)){
+    function __phase2_smoke_expected_damage(_move_id, _attacker, _target_hp_before){
+        var _behavior = __phase2_smoke_behavior(_move_id);
+        if (!is_struct(_behavior)) return -1;
+
+        try {
+            if (variable_struct_exists(_behavior, "fixed_damage") && is_real(variable_struct_get(_behavior, "fixed_damage")) && variable_struct_get(_behavior, "fixed_damage") > 0){
+                return floor(variable_struct_get(_behavior, "fixed_damage"));
+            }
+        } catch (e_fixed) {}
+
+        try {
+            if (variable_struct_exists(_behavior, "level_damage") && variable_struct_get(_behavior, "level_damage") == true){
+                return (is_struct(_attacker) && variable_struct_exists(_attacker, "level") && is_real(variable_struct_get(_attacker, "level"))) ? floor(variable_struct_get(_attacker, "level")) : -1;
+            }
+        } catch (e_level) {}
+
+        try {
+            if (variable_struct_exists(_behavior, "half_current_hp_damage") && variable_struct_get(_behavior, "half_current_hp_damage") == true){
+                return max(0, floor(_target_hp_before / 2));
+            }
+        } catch (e_half) {}
+
+        return -1;
+    }
+}
+
+if (is_undefined(__phase2_smoke_run_damage_case)){
+    function __phase2_smoke_run_damage_case(_state, _label, _move_id, _expected_kind, _attacker_level, _target_hp){
+        var _pid = 0;
+        var _ctx = __phase2_smoke_prepare_slot(_pid, _move_id, _attacker_level, _target_hp);
+        if (!is_struct(_ctx)){
+            __phase2_smoke_log(_state, false, _label + " battle slot prepared");
+            return;
+        }
+
+        var _player = variable_struct_get(_ctx, "player");
+        var _enemy = variable_struct_get(_ctx, "enemy");
+        var _before = __phase2_smoke_hp_now(_enemy);
+        var _behavior = __phase2_smoke_behavior(_move_id);
+
+        __phase2_smoke_log(_state, is_struct(_behavior), _label + " centralized behavior exists");
+
+        if (is_struct(_behavior)){
+            if (_expected_kind == "fixed"){
+                __phase2_smoke_log(_state, variable_struct_exists(_behavior, "fixed_damage") && is_real(variable_struct_get(_behavior, "fixed_damage")) && variable_struct_get(_behavior, "fixed_damage") > 0, _label + " fixed_damage present");
+            } else if (_expected_kind == "level"){
+                __phase2_smoke_log(_state, variable_struct_exists(_behavior, "level_damage") && variable_struct_get(_behavior, "level_damage") == true, _label + " level_damage present");
+            } else if (_expected_kind == "half"){
+                __phase2_smoke_log(_state, variable_struct_exists(_behavior, "half_current_hp_damage") && variable_struct_get(_behavior, "half_current_hp_damage") == true, _label + " half_current_hp_damage present");
+            }
+        }
+
+        var _expected = __phase2_smoke_expected_damage(_move_id, _player, _before);
+        var _power = __phase2_smoke_move_power(_move_id);
+        var _res = [0, _before, _before];
+
+        try {
+            _res = __battle_apply_move_damage(_pid, 1, _player, _enemy, _move_id, _power);
+        } catch (e_apply_damage) {
+            __phase2_smoke_log(_state, false, _label + " damage call exception: " + string(e_apply_damage));
+            return;
+        }
+
+        var _damage = (is_array(_res) && array_length(_res) > 0 && is_real(_res[0])) ? floor(_res[0]) : 0;
+        var _after = __phase2_smoke_hp_now(_enemy);
+        var _actual_delta = max(0, _before - _after);
+
+        __phase2_smoke_log(_state, _expected >= 0, _label + " expected damage resolved=" + string(_expected));
+        __phase2_smoke_log(_state, _damage == _expected || _actual_delta == _expected, _label + " damage expected=" + string(_expected) + " returned=" + string(_damage) + " hp_delta=" + string(_actual_delta));
+    }
+}
+
+if (is_undefined(__phase2_smoke_run_flag_case)){
+    function __phase2_smoke_run_flag_case(_state, _label, _move_id, _flag_name){
+        var _behavior = __phase2_smoke_behavior(_move_id);
+        __phase2_smoke_log(_state, is_struct(_behavior), _label + " centralized behavior exists");
+        if (!is_struct(_behavior)) return;
+
+        var _ok = false;
+        try {
+            if (variable_struct_exists(_behavior, _flag_name) && variable_struct_get(_behavior, _flag_name) == true) _ok = true;
+        } catch (e_flag) { _ok = false; }
+
+        __phase2_smoke_log(_state, _ok, _label + " flag " + string(_flag_name) + " present");
+    }
+}
+
+if (is_undefined(test_battle_phase2_behavior_smoke_start)){
+    function test_battle_phase2_behavior_smoke_start(_auto_close = false){
+        var _pid = 0;
+        var _state = {
+            pid: _pid,
+            tag: "phase2-behavior",
+            global_name: "DEV_PHASE2_BEHAVIOR_SMOKE",
+            auto_close: (_auto_close == true),
+            started_ms: current_time,
+            pass_count: 0,
+            fail_count: 0
+        };
+
+        global.DEV_PHASE2_BEHAVIOR_SMOKE = _state;
+
+        __phase2_smoke_log(_state, !is_undefined(__battle_move_behavior_full), "__battle_move_behavior_full available");
+        __phase2_smoke_log(_state, !is_undefined(__battle_move_behavior_fixed_damage), "__battle_move_behavior_fixed_damage available");
+
+        // Damage-value cases.
+        __phase2_smoke_run_damage_case(_state, "Sonic Boom", 49, "fixed", 70, 160);
+        __phase2_smoke_run_damage_case(_state, "Dragon Rage", 82, "fixed", 70, 160);
+        __phase2_smoke_run_damage_case(_state, "Seismic Toss", 69, "level", 70, 160);
+        __phase2_smoke_run_damage_case(_state, "Night Shade", 101, "level", 70, 160);
+        __phase2_smoke_run_damage_case(_state, "Super Fang", 162, "half", 70, 160);
+        __phase2_smoke_run_damage_case(_state, "Nature's Madness", 717, "half", 70, 160);
+
+        // Centralized flag cases. These verify the resolver, not RNG-based OHKO success.
+        __phase2_smoke_run_flag_case(_state, "Guillotine", 12, "ohko");
+        __phase2_smoke_run_flag_case(_state, "Horn Drill", 32, "ohko");
+        __phase2_smoke_run_flag_case(_state, "Fissure", 90, "ohko");
+        __phase2_smoke_run_flag_case(_state, "Sheer Cold", 329, "ohko");
+        __phase2_smoke_run_flag_case(_state, "Self-Destruct", 120, "self_ko");
+        __phase2_smoke_run_flag_case(_state, "Explosion", 153, "self_ko");
+
+        var _pass_n = variable_struct_get(_state, "pass_count");
+        var _fail_n = variable_struct_get(_state, "fail_count");
+        show_debug_message("[smoke][phase2-behavior] SUMMARY passes=" + string(_pass_n) + " fails=" + string(_fail_n) + " reason=completed phase2 behavior smoke");
+
+        if (_auto_close == true){
+            try {
+                if (battle_is_open(_pid)) battle_close(_pid);
+            } catch (e_close_phase2) {}
+        }
+    }
+}

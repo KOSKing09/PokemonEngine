@@ -4,6 +4,7 @@ This index documents the script folders by responsibility so later work can find
 
 ## Detailed guides
 
+- `docs/overworld_systems.md`: start here when changing overworld NPCs, trainer sight or challenge flow, visible wandering wild Pokemon, or world item props
 - `docs/battle_system.md`: start here when changing turn flow, battler state, command routing, or battle UI integration
 - `docs/battle_doubles.md`: start here when changing doubles/co-op actor ownership, target selection, trainer doubles behavior, or scene layout
 - `docs/versus_system.md`: start here when changing local-versus request flow, accept or decline behavior, format selection, or split-screen versus ownership
@@ -93,6 +94,7 @@ This index documents the script folders by responsibility so later work can find
 
 - If the change affects input semantics, start in `scripts/scr_controls/` and the caller Step event.
 - If the change affects split-screen composition or per-pid GUI ownership, start in `objects/oGame/Draw_64.gml` and then hop to the owning subsystem draw entrypoint.
+- If the change affects overworld NPCs, trainer approach behavior, quest or item rewards from world actors, or visible wild spawns, start in `docs/overworld_systems.md`, then use `scripts/player_helper_scripts/`, `objects/oNpc/`, and the player `Interact` hook.
 - If the change affects overworld random encounters, start in `docs/overworld_encounters.md`, then use `scripts/player_helper_scripts/` and the encounter object's Create or Step events as the owning seams.
 - If the change affects local-versus request flow or accept or decline behavior, start in `docs/versus_system.md`, then use `scripts/player_helper_scripts/`, `scripts/battle_ui/`, and `scripts/battle_system/`.
 - If the change affects caught-Pokemon naming, use `scripts/virtual_keyboard_system/`, `scripts/party_model/`, and the catch-finalization code in `scripts/battle_impls/`.

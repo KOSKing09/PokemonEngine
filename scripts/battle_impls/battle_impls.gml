@@ -1042,25 +1042,8 @@ function __battle_move_power_impl(_code, _A, _D){
             if (is_real(p) && p > 0){
                 var _power = max(0, real(p));
                 try {
-                    var _move_entry = undefined;
-                    var _effect_id = undefined;
-                    if (variable_global_exists("_moves") && is_array(global._moves) && _code >= 0 && _code < array_length(global._moves)) _move_entry = global._moves[_code];
-                    if (is_struct(_move_entry) && variable_struct_exists(_move_entry, "effect_id") && is_real(variable_struct_get(_move_entry, "effect_id"))) _effect_id = floor(variable_struct_get(_move_entry, "effect_id"));
-                    if (_effect_id == 170 && is_struct(_A) && !is_undefined(status_system_has_status)){
-                        var _has_status = status_system_has_status(_A, "burn") || status_system_has_status(_A, "poison") || status_system_has_status(_A, "toxic") || status_system_has_status(_A, "paralysis") || status_system_has_status(_A, "paralyze");
-                        if (!_has_status && variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon"))){
-                            var _amon = variable_struct_get(_A, "mon");
-                            _has_status = status_system_has_status(_amon, "burn") || status_system_has_status(_amon, "poison") || status_system_has_status(_amon, "toxic") || status_system_has_status(_amon, "paralysis") || status_system_has_status(_amon, "paralyze");
-                        }
-                        if (_has_status) _power *= 2;
-                    }
-                    if (_effect_id == 172 && is_struct(_D) && !is_undefined(status_system_has_status)){
-                        var _is_paralyzed = status_system_has_status(_D, "paralysis") || status_system_has_status(_D, "paralyze");
-                        if (!_is_paralyzed && variable_struct_exists(_D, "mon") && is_struct(variable_struct_get(_D, "mon"))){
-                            var _dmon = variable_struct_get(_D, "mon");
-                            _is_paralyzed = status_system_has_status(_dmon, "paralysis") || status_system_has_status(_dmon, "paralyze");
-                        }
-                        if (_is_paralyzed) _power *= 2;
+                    if (!is_undefined(__battle_move_behavior_power_multiplier)){
+                        _power *= __battle_move_behavior_power_multiplier(_code, _A, _D);
                     }
                 } catch (e_power_mod) {}
                 return _power;

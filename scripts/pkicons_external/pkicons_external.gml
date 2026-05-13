@@ -111,6 +111,20 @@ function pkicons_set_icon32_shiny_base(_absDir){
     PKICONS.icon32_base_shiny = p;
 }
 
+// Overworld sheets use the same 32x32 directional layout as icon32:
+// row 1 = up frames, row 2 = left, row 3 = down, row 4 = right.
+function pkicons_set_overworld_base(_normalDir, _shinyDir = undefined){
+    pkicons_set_icon32_base(_normalDir);
+    if (!is_undefined(_shinyDir)) pkicons_set_icon32_shiny_base(_shinyDir);
+    PKICONS.icon_sheet_cache = {};
+    PKICONS.icon_strip_cache = {};
+    PKICONS.icon_dir_cache = {};
+}
+
+function pkicons_get_overworld_dir_by_mon(_mon, _dir){
+    return pkicons_get_icon32_dir_by_mon(_mon, _dir);
+}
+
 // ---------------- External item icons (by name) ----------------
 // Base directory should point to the folder containing PNGs named after items
 // Example: pkicons_set_item_icon_base("C:/Users/King2/Documents/Pokemon Engine/sprites/items/")

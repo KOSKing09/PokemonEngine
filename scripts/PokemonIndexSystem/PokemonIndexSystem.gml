@@ -33,6 +33,7 @@ function scr_poke_index_build_simple_structs()
     global._name_by_id = [];
     global._name_list  = [];
     global._id_list    = [];
+    global._dex_id_list = [];
 
     var src = global._pokemon;
     var n   = array_length(src);
@@ -46,7 +47,7 @@ function scr_poke_index_build_simple_structs()
         var sid = (!is_undefined(rec._id) && is_real(rec._id)) ? rec._id : -1;
         var nam = (!is_undefined(rec.identifier)) ? string(rec.identifier) : "";
 
-        if (sid > 0 && string_length(nam) > 0) {
+        if (sid >= 0 && string_length(nam) > 0) {
             array_push(pairs, { idv: sid, n: string_lower(nam) });
         }
     }
@@ -74,7 +75,13 @@ function scr_poke_index_build_simple_structs()
         if (p.idv > max_id) max_id = p.idv;
     }
 
-    show_debug_message("[INDEX] built arrays: names=" + string(m) + " max_id=" + string(max_id));
+    for (var _dex_id = 0; _dex_id <= max_id; ++_dex_id) {
+        if (_dex_id < array_length(global._name_by_id) && is_string(global._name_by_id[_dex_id])) {
+            array_push(global._dex_id_list, _dex_id);
+        }
+    }
+
+    show_debug_message("[INDEX] built arrays: names=" + string(m) + " dex_ids=" + string(array_length(global._dex_id_list)) + " max_id=" + string(max_id));
 }
 
 // ----- New: index_build_all() compatibility wrapper -----
@@ -743,17 +750,47 @@ function poke_index__species_from_mon(_mon){
 
 function poke_index__species_ids(){
     var _out = [];
+    if (variable_global_exists("_dex_id_list") && is_array(global._dex_id_list)){
+        for (var _d = 0; _d < array_length(global._dex_id_list); ++_d){
+            if (is_real(global._dex_id_list[_d]) && global._dex_id_list[_d] >= 0) array_push(_out, floor(global._dex_id_list[_d]));
+        }
+        return _out;
+    }
+    if (variable_global_exists("_name_by_id") && is_array(global._name_by_id)){
+        for (var _sid = 0; _sid < array_length(global._name_by_id); ++_sid){
+            if (is_string(global._name_by_id[_sid])) array_push(_out, _sid);
+        }
+        return _out;
+    }
     if (variable_global_exists("_id_list") && is_array(global._id_list)){
         for (var _i = 0; _i < array_length(global._id_list); ++_i){
-            if (is_real(global._id_list[_i]) && global._id_list[_i] > 0) array_push(_out, floor(global._id_list[_i]));
+            if (is_real(global._id_list[_i]) && global._id_list[_i] >= 0) array_push(_out, floor(global._id_list[_i]));
+        }
+        for (var _a = 1; _a < array_length(_out); ++_a){
+            var _key = _out[_a];
+            var _j = _a - 1;
+            while (_j >= 0 && _out[_j] > _key){
+                _out[_j + 1] = _out[_j];
+                _j -= 1;
+            }
+            _out[_j + 1] = _key;
         }
         return _out;
     }
     if (variable_global_exists("_pokemon") && is_array(global._pokemon)){
         for (var _p = 0; _p < array_length(global._pokemon); ++_p){
             var _rec = global._pokemon[_p];
-            if (is_struct(_rec) && variable_struct_exists(_rec, "_id") && is_real(_rec._id) && _rec._id > 0) array_push(_out, floor(_rec._id));
+            if (is_struct(_rec) && variable_struct_exists(_rec, "_id") && is_real(_rec._id) && _rec._id >= 0) array_push(_out, floor(_rec._id));
         }
+    }
+    for (var _b = 1; _b < array_length(_out); ++_b){
+        var _key_b = _out[_b];
+        var _jb = _b - 1;
+        while (_jb >= 0 && _out[_jb] > _key_b){
+            _out[_jb + 1] = _out[_jb];
+            _jb -= 1;
+        }
+        _out[_jb + 1] = _key_b;
     }
     return _out;
 }

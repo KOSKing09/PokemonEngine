@@ -238,7 +238,7 @@ function pause_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
 
     var labels = __pause_main_labels(_pid);
     var options_labels = ["INPUT","TEXT SPEED","SPLIT","MULTIPLAYER","BACK"];
-    var multiplayer_labels = ["QUEUE","REQUEST SIDE","VERSUS FORMAT","START VERSUS","BACK"];
+    var multiplayer_labels = ["CO-OP","REQUEST SIDE","VERSUS FORMAT","START VERSUS","BACK"];
     var input_labels = ["DEADZONE","BACK"];
     var p = global.PAUSE[_pid];
     var line_h = max(12, string_height("A") + 2);
@@ -427,7 +427,7 @@ function __pause_do_multiplayer_versus(_pid){
 }
 
 function __pause_multiplayer_queue_label(){
-    return "QUEUE " + string_upper(multiplayer_queue_mode());
+    return "CO-OP " + ((multiplayer_queue_mode() == "coop") ? "ON" : "OFF");
 }
 
 function __pause_multiplayer_request_label(){
@@ -476,6 +476,5 @@ function __pause_splitscreen_label(){
 
 /// Legacy: who last toggled pause (for dialog system checks)
 function pause_set_owner(_pid){ global.PAUSE_OWNER = _pid; }
-
 
 
