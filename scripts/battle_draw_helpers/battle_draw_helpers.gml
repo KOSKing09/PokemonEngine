@@ -1031,6 +1031,10 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
             var ballScale = 0.72;
             var bx3 = base_x + wiggle_x;
             ball_to_draw = {spr: (is_undefined(catchA.ball_sprite) ? undefined : catchA.ball_sprite), x: bx3, y: base_y, scale: ballScale, angle: wiggle_angle};
+            var _captureBallSmoothT = clamp(local_t, 0, 1);
+            var _captureBallShakeRot = in_pause ? 0 : (-sin(_captureBallSmoothT * pi) * sin(_captureBallSmoothT * pi * 2) * 12);
+            variable_struct_set(ball_to_draw, "rot", _captureBallShakeRot);
+
             anchor_overridden = true;
         } else if (phase == "resolve" || phase == "caught"){
             // ball rests at the bottom of the enemy sprite; enemy remains hidden
@@ -1221,6 +1225,7 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
         var cy_off = (bsh - origin_y) * bscale_ui;
         var rot = (variable_struct_exists(ball_to_draw, "angle") ? real(ball_to_draw.angle) : 0);
         var alpha = (variable_struct_exists(ball_to_draw, "alpha") ? real(ball_to_draw.alpha) : 1);
+        var rot = (variable_struct_exists(ball_to_draw, "rot") ? real(ball_to_draw.rot) : 0);
         var th = rot * pi / 180;
         var rx = cx_off * cos(th) - cy_off * sin(th);
         var ry = cx_off * sin(th) + cy_off * cos(th);
@@ -1245,6 +1250,7 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
             bsh: bsh,
             ui_s: ui_s,
             hop_est: hop_est,
+            rot: rot,
             contact_x: ball_to_draw.x,
             contact_y: ball_to_draw.y
         };
@@ -1269,6 +1275,7 @@ function __battle_draw_ball_overlay(_pid, _B){
     var by_draw = bd.by;
     var alpha = bd.alpha;
     var scale = bd.scale;
+    var rot = (variable_struct_exists(bd, "rot") ? real(bd.rot) : 0);
     var angle = (variable_struct_exists(bd, "angle") ? real(bd.angle) : 0);
     var base_x = bd.base_x;
     var base_y = bd.base_y;
@@ -1292,7 +1299,7 @@ function __battle_draw_ball_overlay(_pid, _B){
     draw_set_alpha(1);
     // Draw the ball sprite (or a circular placeholder if sprite missing)
     if (_ball_sprite_exists){
-        draw_sprite_ext(bs, fr, bx_draw, by_draw, scale * _u, scale * _u, angle, c_white, alpha);
+        draw_sprite_ext(bs, fr, bx_draw, by_draw, scale * _u, scale * _u, rot, c_white, alpha);
     } else {
         // compute a visual size and center for the placeholder
         var raw_bsw = (variable_struct_exists(bd, "bsw") ? bd.bsw : 16);

@@ -543,6 +543,8 @@ function __party_draw_right_frame(_OX, _OY, _S, _RIGHT_X, _RIGHT_Y, _RIGHT_W, _R
 
 // Return the appropriate description text for the summary page (species flavor or move text)
 function __party_get_desc_text(_P, _M){
+    if (!is_struct(_M)) return "";
+
     var _descText = "";
     if (string(_P.mode) == "summary_profile") {
         // Resolve species id into a safe integer (accept real or numeric string)

@@ -143,6 +143,7 @@ function __battle_target_candidates(_pid, _actorIndex, _move_id){
     var _out = [];
     var _mode = __battle_move_target_mode(_move_id);
     var _side = __battle_actor_side(_actorIndex);
+    var _target_side = (_side == 0) ? 1 : 0;
     if (_mode == "self"){
         if (__battle_actor_index_alive(_pid, _actorIndex)) array_push(_out, floor(_actorIndex));
         return _out;
@@ -154,8 +155,9 @@ function __battle_target_candidates(_pid, _actorIndex, _move_id){
         if (!__battle_actor_index_alive(_pid, _i)) continue;
         if (_mode == "ally"){
             if (__battle_actor_side(_i) != _side) continue;
-        } else if (_i == floor(_actorIndex)) {
-            continue;
+        } else {
+            if (__battle_actor_side(_i) != _target_side) continue;
+            if (_i == floor(_actorIndex)) continue;
         }
         array_push(_out, _i);
     }

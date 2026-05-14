@@ -21,6 +21,22 @@ function __party_impl_draw_summary(_pid, _P, _OX, _OY, _S){
     var _RIGHT_X = 108, _RIGHT_Y = 24, _RIGHT_W = 124, _RIGHT_H = 120;
 
     var _M = __party_mon_get(_P, _pid);
+    if (!is_struct(_M)){
+        var _firstValidIndex = -1;
+        for (var _validMonIndex = 0; _validMonIndex < _n; _validMonIndex++){
+            if (is_struct(_mons[_validMonIndex])){
+                _firstValidIndex = _validMonIndex;
+                break;
+            }
+        }
+
+        if (_firstValidIndex >= 0){
+            _P.sel = _firstValidIndex;
+            _M = _mons[_firstValidIndex];
+        } else {
+            return;
+        }
+    }
     var _leftInfo = __party_impl_draw_left_panel(_P, _M, _OX, _OY, _S, _LEFT_X, _LEFT_Y, _LEFT_W, _LEFT_H);
     var _rightInfo = __party_impl_draw_right_frame(_OX, _OY, _S, _RIGHT_X, _RIGHT_Y, _RIGHT_W, _RIGHT_H);
 

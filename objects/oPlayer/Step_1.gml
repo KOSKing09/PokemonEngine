@@ -48,7 +48,7 @@ if (keyboard_check_pressed(vk_f1)){
             choose("dark water", "rocks a", "light", "grassy", "rocks b", "dirt", "river", "snowy", "grassy snow", "ice", "forest", "ugly grass", "wood bridge", "man made paths"),
             {
                 battle_type: "wild",
-                battle_format: "singles"
+                battle_format: "double"
             }
         );
 	}else{
@@ -111,6 +111,11 @@ if (variable_global_exists("DEV_AUTO_DOUBLES_ENEMY_FAINT_SEND_SMOKE") && global.
     test_battle_doubles_enemy_faint_auto_send_smoke_start(true);
 }
 
+if (variable_global_exists("DEV_AUTO_DOUBLES_ENTRY_HAZARDS_SMOKE") && global.DEV_AUTO_DOUBLES_ENTRY_HAZARDS_SMOKE) {
+    global.DEV_AUTO_DOUBLES_ENTRY_HAZARDS_SMOKE = false;
+    test_battle_doubles_entry_hazards_smoke_start(true);
+}
+
 if (variable_global_exists("DEV_AUTO_COOP_DOUBLE_WILD_SMOKE") && global.DEV_AUTO_COOP_DOUBLE_WILD_SMOKE) {
     global.DEV_AUTO_COOP_DOUBLE_WILD_SMOKE = false;
     test_battle_coop_double_wild_smoke_start(true);
@@ -124,6 +129,16 @@ if (variable_global_exists("DEV_AUTO_COOP_DOUBLE_TRAINER_SMOKE") && global.DEV_A
 if (variable_global_exists("DEV_AUTO_BURN_POISON_RESIDUAL_SMOKE") && global.DEV_AUTO_BURN_POISON_RESIDUAL_SMOKE) {
     global.DEV_AUTO_BURN_POISON_RESIDUAL_SMOKE = false;
     test_battle_burn_poison_residual_smoke_start(true);
+}
+
+if (variable_global_exists("DEV_AUTO_DOUBLES_EXP_MODE_SMOKE") && global.DEV_AUTO_DOUBLES_EXP_MODE_SMOKE) {
+    global.DEV_AUTO_DOUBLES_EXP_MODE_SMOKE = false;
+    test_battle_doubles_exp_modes_smoke_start(true);
+}
+
+if (variable_global_exists("DEV_AUTO_ASSIST_MULTIHIT_UI_SMOKE") && global.DEV_AUTO_ASSIST_MULTIHIT_UI_SMOKE) {
+    global.DEV_AUTO_ASSIST_MULTIHIT_UI_SMOKE = false;
+    test_battle_assist_multihit_smoke_start(true);
 }
 
 if (variable_global_exists("DEV_AUTO_VISUAL_TARGET_SMOKE") && global.DEV_AUTO_VISUAL_TARGET_SMOKE) {

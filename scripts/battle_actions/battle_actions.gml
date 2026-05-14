@@ -49,6 +49,9 @@ function __battle_dialog_actor_name(_actor, _fallback){
 
 function __battle_consume_pp(_A, _move_slot){
     if (!is_struct(_A)) return false;
+    try {
+        if (variable_struct_exists(_A, "_called_move_active") && variable_struct_get(_A, "_called_move_active") == true) return true;
+    } catch (e_called_pp) {}
     if (!is_array(_A.pps)) return false;
     if (!is_real(_move_slot) || _move_slot < 0 || _move_slot >= array_length(_A.pps)) return false;
     var cur = _A.pps[_move_slot];

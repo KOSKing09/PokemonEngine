@@ -191,11 +191,8 @@ function status_system_apply_status(mon, status_id, opts){
                 else if (variable_struct_exists(_src, "nickname")) variable_struct_set(_src_min, "name", variable_struct_get(_src, "nickname"));
                 if (variable_struct_exists(_src, "pid")) variable_struct_set(_src_min, "pid", variable_struct_get(_src, "pid"));
                 if (variable_struct_exists(_src, "actor_idx")) variable_struct_set(_src_min, "actor_idx", variable_struct_get(_src, "actor_idx"));
-                // Primary runtime reference (full struct)
-                inst.source = _src;
-                // Lightweight summary kept separately to avoid deep dumps while
-                // still providing quick metadata when useful.
-                variable_struct_set(inst, "_source_min", _src_min);
+                if (variable_struct_exists(_src, "actor_index")) variable_struct_set(_src_min, "actor_index", variable_struct_get(_src, "actor_index"));
+                inst.source = _src_min;
             } else {
                 inst.source = _src;
             }

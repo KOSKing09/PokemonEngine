@@ -28,9 +28,65 @@ if (!variable_global_exists("__battle_trigger_stat_overlay")){
     var _scr_stat_overlay = asset_get_index("battle_state_overlay");
     if (_scr_stat_overlay != -1) script_execute(_scr_stat_overlay);
 }
+if (!variable_global_exists("_battle_impls") || !is_struct(variable_global_get("_battle_impls")) || !variable_struct_exists(variable_global_get("_battle_impls"), "__battle_perform_action_impl_real")){
+    var _scr_moves_impl = asset_get_index("battle_moves_impls");
+    if (_scr_moves_impl != -1) script_execute(_scr_moves_impl);
+    try { if (!is_undefined(__battle_moves_impls_register)) __battle_moves_impls_register(); } catch (e_moves_impl_register_boot) {}
+}
 
 // Stat overlay trigger is provided by `battle_state_overlay` script when available.
 // If that script isn't present, no fallback is registered by default.
+
+function __battle_perform_action_minimal_fallback(_pid, _step){
+    if (!is_struct(_step)) return "";
+    if (variable_struct_exists(_step, "item_use") && variable_struct_get(_step, "item_use") == true) return "";
+    if (variable_struct_exists(_step, "switch_to")) return "";
+
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B) || !variable_struct_exists(_B, "actor") || !is_array(variable_struct_get(_B, "actor"))) return "";
+
+    var _actors = variable_struct_get(_B, "actor");
+    var _actor_idx = (variable_struct_exists(_step, "actor_index") && is_real(variable_struct_get(_step, "actor_index"))) ? floor(variable_struct_get(_step, "actor_index")) : 0;
+    var _target_idx = (variable_struct_exists(_step, "target_index") && is_real(variable_struct_get(_step, "target_index"))) ? floor(variable_struct_get(_step, "target_index")) : 1;
+    var _move_id = (variable_struct_exists(_step, "move_id") && is_real(variable_struct_get(_step, "move_id"))) ? floor(variable_struct_get(_step, "move_id")) : -1;
+    if (_move_id < 0 || _actor_idx < 0 || _actor_idx >= array_length(_actors) || !is_struct(_actors[_actor_idx])) return "";
+
+    if (_target_idx < 0 || _target_idx >= array_length(_actors) || !is_struct(_actors[_target_idx])){
+        try { _target_idx = __battle_resolve_live_target_index(_pid, _actor_idx, _target_idx, _move_id); } catch (e_fallback_target) {}
+    }
+    if (_target_idx < 0 || _target_idx >= array_length(_actors) || !is_struct(_actors[_target_idx])) return "";
+
+    var _A = _actors[_actor_idx];
+    var _D = _actors[_target_idx];
+    var _move_name = "the move";
+    try { _move_name = __battle_move_name(_move_id); } catch (e_fallback_name) {}
+
+    try { __battle_request_animation_safe(_pid, { type: "move", actor: _A, target: _D, user: _A, move_id: _move_id }); } catch (e_fallback_anim) {}
+
+    var _power = 0;
+    try { _power = __battle_move_power(_move_id, _A, _D); } catch (e_fallback_power) { _power = 0; }
+    var _damage = 0;
+    if (is_real(_power) && _power > 0 && variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
+        show_debug_message("[battle][resolver-fallback] skipped damage for move_id=" + string(_move_id) + " because full resolver was unavailable");
+    }
+
+    try {
+        if (!(is_real(_power) && _power > 0) && !is_undefined(__battle_apply_move_meta_effects)){
+            var _mm = undefined;
+            try { if (!is_undefined(__battle_get_move_meta)) _mm = __battle_get_move_meta(_move_id); } catch (e_fallback_meta_lookup) { _mm = undefined; }
+            __battle_apply_move_meta_effects(_pid, _step, _A, _D, _move_id, _damage, _mm);
+        }
+    } catch (e_fallback_meta) {
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][resolver-fallback] meta failed: " + string(e_fallback_meta));
+    }
+
+    var _actor_name = "The user";
+    try {
+        if (is_struct(_A) && variable_struct_exists(_A, "name") && string_length(string(variable_struct_get(_A, "name"))) > 0) _actor_name = string(variable_struct_get(_A, "name"));
+        if (!is_undefined(__battle_actor_side) && __battle_actor_side(_actor_idx) == 1 && string_copy(_actor_name, 1, 4) != "Foe ") _actor_name = "Foe " + _actor_name;
+    } catch (e_fallback_actor_name) {}
+    return _actor_name + " used " + string(_move_name) + "!";
+}
 
 // -----------------------------------------------------------------------------
 // CALLS you�ll use in objects:
@@ -45,27 +101,63 @@ if (!variable_global_exists("__battle_trigger_stat_overlay")){
 // -----------------------------------------------------------------------------
 if (is_undefined(__battle_perform_action)){
     function __battle_perform_action(_pid, _step){
+        var _attempted_full_resolver = false;
+        try {
+            if (!variable_global_exists("_battle_impls") || !is_struct(variable_global_get("_battle_impls")) || !variable_struct_exists(variable_global_get("_battle_impls"), "__battle_perform_action_impl_real")){
+                var _scr_moves_impl_runtime = asset_get_index("battle_moves_impls");
+                if (_scr_moves_impl_runtime != -1) script_execute(_scr_moves_impl_runtime);
+                if (!is_undefined(__battle_moves_impls_register)) __battle_moves_impls_register();
+            }
+        } catch (e_runtime_impl_load) {}
         try {
             if (variable_global_exists("_battle_impls")){
                 var _impls = variable_global_get("_battle_impls");
-                if (is_struct(_impls) && variable_struct_exists(_impls, "__battle_perform_action_impl")){
-                    var fn_impl = variable_struct_get(_impls, "__battle_perform_action_impl");
-                    if (!is_undefined(fn_impl)) return fn_impl(_pid, _step);
+                if (is_struct(_impls) && variable_struct_exists(_impls, "__battle_perform_action_impl_real")){
+                    var fn_impl = variable_struct_get(_impls, "__battle_perform_action_impl_real");
+                    if (!is_undefined(fn_impl)){
+                        _attempted_full_resolver = true;
+                        return fn_impl(_pid, _step);
+                    }
                 }
             }
-        } catch (e_reg) {}
+        } catch (e_reg) {
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][resolver] registered impl failed: " + string(e_reg));
+            try { show_debug_message("[battle][resolver] registered impl failed: " + string(e_reg)); } catch (e_show_reg) {}
+            if (_attempted_full_resolver) return "";
+        }
         try {
-            if (!is_undefined(__battle_perform_action_impl)) return __battle_perform_action_impl(_pid, _step);
-        } catch (e_direct) {}
-
-        var _B = __battle_ensure_slot(_pid);
-        try {
-            if (is_struct(_B)){
-                var turn_i = (variable_struct_exists(_B, "turn_i") ? variable_struct_get(_B, "turn_i") : 0);
-                variable_struct_set(_B, "turn_i", turn_i + 1);
+            if (!variable_global_exists("_battle_impls") || !is_struct(variable_global_get("_battle_impls")) || !variable_struct_exists(variable_global_get("_battle_impls"), "__battle_perform_action_impl_real")){
+                var _scr_moves_impl_retry = asset_get_index("battle_moves_impls");
+                if (_scr_moves_impl_retry != -1) script_execute(_scr_moves_impl_retry);
+                if (!is_undefined(__battle_moves_impls_register)) __battle_moves_impls_register();
             }
-        } catch (e_turn) {}
-        return "An action occurred.";
+            if (variable_global_exists("_battle_impls")){
+                var _impls_retry = variable_global_get("_battle_impls");
+                if (is_struct(_impls_retry) && variable_struct_exists(_impls_retry, "__battle_perform_action_impl_real")){
+                    var _fn_retry = variable_struct_get(_impls_retry, "__battle_perform_action_impl_real");
+                    if (!is_undefined(_fn_retry)){
+                        _attempted_full_resolver = true;
+                        return _fn_retry(_pid, _step);
+                    }
+                }
+            }
+        } catch (e_reg_retry) {
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][resolver] registered impl retry failed: " + string(e_reg_retry));
+            try { show_debug_message("[battle][resolver] registered impl retry failed: " + string(e_reg_retry)); } catch (e_show_reg_retry) {}
+            if (_attempted_full_resolver) return "";
+        }
+        try {
+            if (!is_undefined(__battle_perform_action_impl)){
+                _attempted_full_resolver = true;
+                return __battle_perform_action_impl(_pid, _step);
+            }
+        } catch (e_direct) {
+            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][resolver] direct impl failed: " + string(e_direct));
+            try { show_debug_message("[battle][resolver] direct impl failed: " + string(e_direct)); } catch (e_show_direct) {}
+            if (_attempted_full_resolver) return "";
+        }
+
+        return __battle_perform_action_minimal_fallback(_pid, _step);
     }
 }
 
@@ -516,6 +608,24 @@ function __battle_set_actor_runtime_fields(_actor, _actorIndex, _ownerPid, _part
     try { variable_struct_set(_actor, "party_pid", _partyPid); } catch (e_party_pid) {}
     try { variable_struct_set(_actor, "party_index", _partyIndex); } catch (e_party_idx) {}
     try { variable_struct_set(_actor, "_last_moves", []); } catch (e_last_set) {}
+}
+
+function __battle_mark_exp_participant(_B, _actor){
+    if (!is_struct(_B) || !is_struct(_actor)) return;
+    if (!variable_struct_exists(_actor, "party_pid") || !is_real(variable_struct_get(_actor, "party_pid"))) return;
+    if (!variable_struct_exists(_actor, "party_index") || !is_real(variable_struct_get(_actor, "party_index"))) return;
+    var _party_pid = floor(variable_struct_get(_actor, "party_pid"));
+    var _party_index = floor(variable_struct_get(_actor, "party_index"));
+    if (_party_pid < 0 || _party_index < 0) return;
+    if (!variable_struct_exists(_B, "_exp_participants") || !is_array(variable_struct_get(_B, "_exp_participants"))) variable_struct_set(_B, "_exp_participants", []);
+    var _participants = variable_struct_get(_B, "_exp_participants");
+    for (var _i = 0; _i < array_length(_participants); ++_i){
+        var _entry = _participants[_i];
+        if (!is_struct(_entry)) continue;
+        if (variable_struct_exists(_entry, "party_pid") && variable_struct_exists(_entry, "party_index") && floor(variable_struct_get(_entry, "party_pid")) == _party_pid && floor(variable_struct_get(_entry, "party_index")) == _party_index) return;
+    }
+    array_push(_participants, { party_pid: _party_pid, party_index: _party_index });
+    variable_struct_set(_B, "_exp_participants", _participants);
 }
 
 function __battle_opening_actor_from_party(_partyPid, _partyIndex, _actorIndex, _ownerPid){
@@ -1301,10 +1411,7 @@ function battle_open(_a0 = undefined, _a1 = undefined, _a2 = undefined, _a3 = un
         if (_use_coop){
             if (array_length(_player1_candidates) <= 0){
                 _use_coop = false;
-                _use_double = (array_length(_player0_candidates) >= 2);
             }
-        } else {
-            _use_double = (array_length(_player0_candidates) >= 2);
         }
     }
     if (!_use_double){
@@ -1333,13 +1440,21 @@ function battle_open(_a0 = undefined, _a1 = undefined, _a2 = undefined, _a3 = un
 
     _B.actor = [];
     _B.actor[0] = __battle_opening_actor_from_party(_player_pids[0], _lead_party_idx, 0, _player_pids[0]);
+    try { __battle_mark_exp_participant(_B, _B.actor[0]); } catch (e_exp_open_0) {}
     if (_use_double){
         if (_use_coop){
             _owners[1] = _player_pids[1];
             _B.actor[1] = __battle_opening_actor_from_party(_player_pids[1], _player1_candidates[0], 1, _player_pids[1]);
+            try { __battle_mark_exp_participant(_B, _B.actor[1]); } catch (e_exp_open_1) {}
         } else {
-            _owners[1] = _player_pids[0];
-            _B.actor[1] = __battle_opening_actor_from_party(_player_pids[0], _player0_candidates[1], 1, _player_pids[0]);
+            if (array_length(_player0_candidates) > 1){
+                _owners[1] = _player_pids[0];
+                _B.actor[1] = __battle_opening_actor_from_party(_player_pids[0], _player0_candidates[1], 1, _player_pids[0]);
+                try { __battle_mark_exp_participant(_B, _B.actor[1]); } catch (e_exp_open_2) {}
+            } else {
+                _owners[1] = -1;
+                _B.actor[1] = undefined;
+            }
         }
     }
     if (!_use_double) _owners[1] = -1;
@@ -1797,9 +1912,9 @@ function battle_close(_pid){
     try {
         if (__battle_is_local_versus_slot(_B) && variable_struct_exists(_B, "_local_versus_loser_pid") && is_real(variable_struct_get(_B, "_local_versus_loser_pid"))){
             var _loser_pid_close = max(0, floor(variable_struct_get(_B, "_local_versus_loser_pid")));
-            if (!is_undefined(__battle_heal_party_full)) __battle_heal_party_full(_loser_pid_close);
+            if (!__battle_party_has_usable_mon(_loser_pid_close) && !is_undefined(__battle_heal_party_full)) __battle_heal_party_full(_loser_pid_close);
         } else if (variable_struct_exists(_B, "result") && string(_B.result) == "lose"){
-            if (!is_undefined(__battle_heal_party_full)) __battle_heal_party_full(_pid);
+            if (!__battle_party_has_usable_mon(_pid) && !is_undefined(__battle_heal_party_full)) __battle_heal_party_full(_pid);
         }
     } catch (e_healclose) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][close] heal-on-lose failed: " + string(e_healclose)); }
 
@@ -2709,6 +2824,7 @@ function battle_update(_pid){
                         try {
                             var _switch_owner_pid_apply = (!is_undefined(__battle_actor_owner_pid) ? __battle_actor_owner_pid(_pid, _apply_actor_index) : _switch_party_pid_apply);
                             __battle_set_actor_runtime_fields(_B.actor[_apply_actor_index], _apply_actor_index, _switch_owner_pid_apply, _switch_party_pid_apply, idx);
+                            __battle_mark_exp_participant(_B, _B.actor[_apply_actor_index]);
                             if (variable_struct_exists(_B, "actor_owner_pid") && is_array(variable_struct_get(_B, "actor_owner_pid"))){
                                 var _owners_apply = variable_struct_get(_B, "actor_owner_pid");
                                 if (_apply_actor_index >= 0 && _apply_actor_index < array_length(_owners_apply)) _owners_apply[_apply_actor_index] = _switch_owner_pid_apply;
@@ -3475,8 +3591,6 @@ function __battle_build_turn_actions(_pid){
         for (var _pi = 0; _pi < array_length(_queued_players); ++_pi){
             var _pact = _queued_players[_pi];
             if (!is_struct(_pact)) continue;
-            if (!variable_struct_exists(_pact, "actor_index") || !is_real(variable_struct_get(_pact, "actor_index"))) continue;
-            if (!variable_struct_exists(_pact, "target_index") || !is_real(variable_struct_get(_pact, "target_index"))) variable_struct_set(_pact, "target_index", __battle_get_default_target_index(_pid, variable_struct_get(_pact, "actor_index")));
             actions = __battle_append_ordered_action(_pid, actions, _pact);
         }
         for (var _enemy_ai_idx = 2; _enemy_ai_idx <= 3; ++_enemy_ai_idx){
@@ -4596,8 +4710,10 @@ function __battle_step_turn_if_ready(_pid){
 
         // If the active actor is fainted or a faint was scheduled, open party for forced swap
             var _player_faint_state = __battle_player_active_faint_state(_pid);
+            var _any_player_fainted = (is_struct(_player_faint_state) && variable_struct_exists(_player_faint_state, "any_fainted") && variable_struct_get(_player_faint_state, "any_fainted"));
             var _all_player_fainted = (is_struct(_player_faint_state) && variable_struct_exists(_player_faint_state, "all_fainted") && variable_struct_get(_player_faint_state, "all_fainted"));
-            if (_all_player_fainted || (variable_struct_exists(_B, "_pending_open_party") && variable_struct_get(_B, "_pending_open_party") == true)){
+            var _fainted_player_actor_index = (is_struct(_player_faint_state) && variable_struct_exists(_player_faint_state, "fainted_actor_index") && is_real(variable_struct_get(_player_faint_state, "fainted_actor_index"))) ? floor(variable_struct_get(_player_faint_state, "fainted_actor_index")) : -1;
+            if (_any_player_fainted || (variable_struct_exists(_B, "_pending_open_party") && variable_struct_get(_B, "_pending_open_party") == true)){
             // Try to find another alive mon in party
             var idxNext = __party_find_next_alive(_pid);
                 if (_all_player_fainted && idxNext < 0){
@@ -4638,6 +4754,7 @@ function __battle_step_turn_if_ready(_pid){
                         // party_open when dialogs are no longer active.
                         try { variable_struct_set(_B, "_pending_open_party", true); } catch (e_sch) {}
                         try { variable_struct_set(_B, "_pending_open_party_pid", _pid); } catch (e_sch_pid) {}
+                        try { if (_fainted_player_actor_index >= 0) variable_struct_set(_B, "_pending_open_party_fainted_actor_index", _fainted_player_actor_index); } catch (e_sch_actor) {}
                         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][faint] scheduled _pending_open_party for pid=" + string(_pid));
                         // Preserve optional next-mon ref if present; leave any reordering
                         // or sel adjustments to the actual open handler to avoid
@@ -4649,6 +4766,16 @@ function __battle_step_turn_if_ready(_pid){
                 }
                 // You can call battle_switch_to here automatically if desired:
                 // battle_switch_to(_pid, idxNext, {});
+            } else if (_any_player_fainted) {
+                // No replacement is available, but another active ally is still alive.
+                // Leave the slot empty and continue the battle with the remaining battler.
+                if (_fainted_player_actor_index >= 0 && is_array(_B.actor) && _fainted_player_actor_index < array_length(_B.actor)){
+                    try { _B.actor[_fainted_player_actor_index] = undefined; } catch (e_clear_fainted_slot) {}
+                }
+                try { variable_struct_set(_B, "_pending_open_party", false); } catch (e_clpop_partial) {}
+                try { variable_struct_set(_B, "_pending_open_party_pid", undefined); } catch (e_clpop_partial_pid) {}
+                try { variable_struct_set(_B, "_pending_open_party_fainted_actor_index", undefined); } catch (e_clpop_partial_actor) {}
+                try { variable_struct_set(_B, "_faint_pending", false); } catch (e_clpop_partial_faint) {}
             } else {
                 var _name0b = (variable_struct_exists(A0, "name") ? variable_struct_get(A0, "name") : "Pok�mon");
                 try { variable_struct_set(_B, "_faint_pending", true); } catch (e_fp3) {}
@@ -4794,6 +4921,14 @@ function __battle_step_turn_if_ready(_pid){
 
     // If acting Pok�mon fainted already, skip (use canonical helper)
     if (__battle_is_fainted(A)){ _B.turn_i += 1; __battle_step_turn_if_ready(_pid); return; }
+
+    try {
+        if (__battle_actor_side(actor_idx) == 0 && variable_struct_exists(step, "move_id") && is_real(variable_struct_get(step, "move_id")) && variable_struct_get(step, "move_id") >= 0){
+            variable_struct_set(_B, "_last_exp_actor_index", actor_idx);
+            if (variable_struct_exists(A, "party_pid") && is_real(variable_struct_get(A, "party_pid"))) variable_struct_set(_B, "_last_exp_party_pid", floor(variable_struct_get(A, "party_pid")));
+            if (variable_struct_exists(A, "party_index") && is_real(variable_struct_get(A, "party_index"))) variable_struct_set(_B, "_last_exp_party_index", floor(variable_struct_get(A, "party_index")));
+        }
+    } catch (e_last_exp) {}
 
     // Perform the action -> returns a dialog string
     var out_msg = __battle_perform_action(_pid, step);
@@ -5046,8 +5181,9 @@ function __battle_variable_move_power(_move_id, _A, _D){
     try {
         if (variable_global_exists("_moves") && is_array(global._moves) && mid >= 0 && mid < array_length(global._moves)){
             _move_entry = global._moves[mid];
-            if (is_struct(_move_entry) && variable_struct_exists(_move_entry, "effect_id") && is_real(variable_struct_get(_move_entry, "effect_id"))) _effect_id = floor(variable_struct_get(_move_entry, "effect_id"));
         }
+        if (!is_undefined(__battle_move_effect_id_safe)) _effect_id = __battle_move_effect_id_safe(mid);
+        else if (is_struct(_move_entry) && variable_struct_exists(_move_entry, "effect_id") && is_real(variable_struct_get(_move_entry, "effect_id"))) _effect_id = floor(variable_struct_get(_move_entry, "effect_id"));
     } catch (e_move_lookup) { _move_entry = undefined; _effect_id = undefined; }
     var _friendship_value = function(_actor){
         var _scan = function(_ent){
@@ -5990,6 +6126,7 @@ function __battle_actor_from_party_mon(_M){
         var A = _M;
 
         if (!is_undefined(party_model_ensure_species_id)) A = party_model_ensure_species_id(A);
+        if (!is_undefined(party_model_normalize_hp_fields)) A = party_model_normalize_hp_fields(A);
 
         // Ensure species_id canonical field
         if ((!variable_struct_exists(A, "species_id") || !is_real(A.species_id))) {
@@ -6001,8 +6138,8 @@ function __battle_actor_from_party_mon(_M){
         if (!variable_struct_exists(A, "level") && variable_struct_exists(A, "lvl")) A.level = A.lvl;
         if (!variable_struct_exists(A, "lvl") && variable_struct_exists(A, "level")) A.lvl = A.level;
 
-    if (!variable_struct_exists(A, "hp_now") && variable_struct_exists(A, "hp")) __battle_set_hp_now(A, variable_struct_get(A, "hp"));
-    if (!variable_struct_exists(A, "hp") && variable_struct_exists(A, "hp_now")) __battle_set_hp_now(A, variable_struct_get(A, "hp_now"));
+        if (!variable_struct_exists(A, "hp_now") && variable_struct_exists(A, "hp")) __battle_set_hp_now(A, variable_struct_get(A, "hp"));
+        if (!variable_struct_exists(A, "hp") && variable_struct_exists(A, "hp_now")) __battle_set_hp_now(A, variable_struct_get(A, "hp_now"));
 
         if (!variable_struct_exists(A, "hp_max") && variable_struct_exists(A, "maxhp")) A.hp_max = A.maxhp;
         if (!variable_struct_exists(A, "maxhp") && variable_struct_exists(A, "hp_max")) A.maxhp = A.hp_max;
@@ -6754,10 +6891,7 @@ function __battle_calc_damage(_A, _D, _move_id, _power){
     var _crit_stage = 0;
     try {
         var _crit_eid = undefined;
-        if (variable_global_exists("_moves") && is_array(global._moves) && is_real(_move_id) && _move_id >= 0 && _move_id < array_length(global._moves)){
-            var _crit_mv = global._moves[_move_id];
-            if (is_struct(_crit_mv) && variable_struct_exists(_crit_mv, "effect_id") && is_real(variable_struct_get(_crit_mv, "effect_id"))) _crit_eid = floor(variable_struct_get(_crit_mv, "effect_id"));
-        }
+        if (!is_undefined(__battle_move_effect_id_safe)) _crit_eid = __battle_move_effect_id_safe(_move_id);
         if (is_real(_crit_eid) && (_crit_eid == 44 || _crit_eid == 201 || _crit_eid == 210)) _crit_stage += 1;
         if (is_struct(_A) && variable_struct_exists(_A, "_focus_energy_level") && is_real(variable_struct_get(_A, "_focus_energy_level"))) _crit_stage += max(0, floor(variable_struct_get(_A, "_focus_energy_level")) + 1);
     } catch (e_crit_stage) { _crit_stage = 0; }
@@ -6861,6 +6995,19 @@ function __party_find_next_alive(_pid){
     return -1;
 }
 
+function __battle_party_has_usable_mon(_pid){
+    if (is_undefined(party_ensure)) return false;
+    var _P = party_ensure(_pid);
+    if (!is_struct(_P) || !is_array(_P.mons)) return false;
+    for (var _i = 0; _i < array_length(_P.mons); ++_i){
+        var _mon = _P.mons[_i];
+        if (!is_struct(_mon)) continue;
+        var _hp = __battle_hp_now(_mon);
+        if (is_real(_hp) && _hp > 0) return true;
+    }
+    return false;
+}
+
 function __battle_player_active_faint_state(_pid){
     var _B = __battle_ensure_slot(_pid);
     var _indices = [];
@@ -6873,6 +7020,7 @@ function __battle_player_active_faint_state(_pid){
     }
     var _any_alive = false;
     var _any_fainted = false;
+    var _first_fainted_actor_index = -1;
     for (var _i = 0; _i < array_length(_indices); ++_i){
         var _idx = _indices[_i];
         if (!is_array(_B.actor) || _idx < 0 || _idx >= array_length(_B.actor)) continue;
@@ -6880,9 +7028,12 @@ function __battle_player_active_faint_state(_pid){
         if (!is_struct(_actor)) continue;
         var _hp = __battle_hp_now(_actor);
         if (is_real(_hp) && _hp > 0) _any_alive = true;
-        else _any_fainted = true;
+        else {
+            _any_fainted = true;
+            if (_first_fainted_actor_index < 0) _first_fainted_actor_index = _idx;
+        }
     }
-    return { any_alive: _any_alive, any_fainted: _any_fainted, all_fainted: (_any_fainted && !_any_alive) };
+    return { any_alive: _any_alive, any_fainted: _any_fainted, all_fainted: (_any_fainted && !_any_alive), fainted_actor_index: _first_fainted_actor_index };
 }
 
 // Trainer party/send/switch helpers live in battle_trainer.gml.
@@ -6900,54 +7051,114 @@ function __battle_player_active_faint_state(_pid){
 // (battlers drawing moved to battle_draw.gml)
 
 // ===== Rewards: EXP & Level-Up (simple placeholders) =====
-function __battle_award_exp(_pid, _amount){
-    var _B = __battle_ensure_slot(_pid);
-    if (!is_struct(_B) || !is_array(_B.actor)) return;
-    var A0 = _B.actor[0]; if (!is_struct(A0)) return;
+function __battle_exp_mode(){
+    if (!is_undefined(battle_xp_mode)) return string_lower(string(battle_xp_mode()));
+    return "active";
+}
+
+function __battle_exp_add_target(_targets, _target){
+    if (!is_array(_targets) || !is_struct(_target)) return _targets;
+    for (var _i = 0; _i < array_length(_targets); ++_i){
+        if (_targets[_i] == _target) return _targets;
+    }
+    array_push(_targets, _target);
+    return _targets;
+}
+
+function __battle_exp_target_from_party(_partyPid, _partyIndex){
+    if (!is_real(_partyPid) || !is_real(_partyIndex)) return undefined;
+    var _pid_int = floor(_partyPid);
+    var _idx_int = floor(_partyIndex);
+    if (!is_undefined(party_model_get_mon)){
+        var _mon = party_model_get_mon(_pid_int, _idx_int);
+        if (is_struct(_mon)) return _mon;
+    }
+    if (!is_undefined(party_ensure)){
+        var _P = party_ensure(_pid_int);
+        if (is_struct(_P) && is_array(_P.mons) && _idx_int >= 0 && _idx_int < array_length(_P.mons)) return _P.mons[_idx_int];
+    }
+    return undefined;
+}
+
+function __battle_exp_targets(_pid, _B){
+    var _targets = [];
+    var _mode = __battle_exp_mode();
+    if (_mode == "all"){
+        if (!is_undefined(party_ensure)){
+            var _Pall = party_ensure(_pid);
+            if (is_struct(_Pall) && is_array(_Pall.mons)){
+                for (var _mi = 0; _mi < array_length(_Pall.mons); ++_mi){
+                    if (is_struct(_Pall.mons[_mi])) __battle_exp_add_target(_targets, _Pall.mons[_mi]);
+                }
+            }
+        }
+        return _targets;
+    }
+
+    if (_mode == "used"){
+        if (is_struct(_B) && variable_struct_exists(_B, "_exp_participants") && is_array(variable_struct_get(_B, "_exp_participants"))){
+            var _participants = variable_struct_get(_B, "_exp_participants");
+            for (var _pi = 0; _pi < array_length(_participants); ++_pi){
+                var _entry = _participants[_pi];
+                if (!is_struct(_entry) || !variable_struct_exists(_entry, "party_pid") || !variable_struct_exists(_entry, "party_index")) continue;
+                if (!is_real(variable_struct_get(_entry, "party_pid")) || floor(variable_struct_get(_entry, "party_pid")) != floor(_pid)) continue;
+                var _usedMon = __battle_exp_target_from_party(variable_struct_get(_entry, "party_pid"), variable_struct_get(_entry, "party_index"));
+                if (is_struct(_usedMon)) __battle_exp_add_target(_targets, _usedMon);
+            }
+        }
+        if (array_length(_targets) > 0) return _targets;
+    }
+
+    if (is_struct(_B) && is_array(_B.actor) && array_length(_B.actor) > 0){
+        for (var _ai = 0; _ai < array_length(_B.actor); ++_ai){
+            var _actor = _B.actor[_ai];
+            if (!is_struct(_actor)) continue;
+            if (!variable_struct_exists(_actor, "party_pid") || !is_real(variable_struct_get(_actor, "party_pid"))) continue;
+            if (floor(variable_struct_get(_actor, "party_pid")) != floor(_pid)) continue;
+            var _activeTarget = (variable_struct_exists(_actor, "mon") && is_struct(variable_struct_get(_actor, "mon"))) ? variable_struct_get(_actor, "mon") : _actor;
+            __battle_exp_add_target(_targets, _activeTarget);
+        }
+    }
+    return _targets;
+}
+
+function __battle_award_exp_single(_pid, _B, _amount, _target, _show_visuals){
+    if (!is_struct(_target)) return;
+    var A0 = _target;
     var _gain = max(0, floor(real(_amount)));
-    // Determine target struct: prefer the canonical mon (party slot) when available so changes persist
     var T = (is_struct(A0) && variable_struct_exists(A0, "mon") && is_struct(A0.mon)) ? A0.mon : A0;
 
-    // Ensure exp fields exist on the target
+    if (_show_visuals) variable_struct_set(_B, "_level_stat_bumps_queue", []);
+
     if (!variable_struct_exists(T, "exp") || !is_real(T.exp)) T.exp = 0;
     if (!variable_struct_exists(T, "exp_next") || !is_real(T.exp_next)) T.exp_next = max(20, (is_real(T.level) ? T.level : (is_real(A0.level) ? A0.level : 1)) * (is_real(T.level) ? T.level : (is_real(A0.level) ? A0.level : 1)) * 2);
 
-    // Capture previous exp/threshold (for UI animation), then apply gain to canonical target
     var _prev_exp = (variable_struct_exists(T, "exp") && is_real(variable_struct_get(T, "exp"))) ? real(variable_struct_get(T, "exp")) : 0;
     var _prev_exp_next = (variable_struct_exists(T, "exp_next") && is_real(variable_struct_get(T, "exp_next"))) ? real(variable_struct_get(T, "exp_next")) : max(20, (is_real(T.level) ? T.level : (is_real(A0.level) ? A0.level : 1)) * (is_real(T.level) ? T.level : (is_real(A0.level) ? A0.level : 1)) * 2);
     T.exp = max(0, real(T.exp)) + _gain;
 
-    // level-up loop (prevent runaway)
     var _ups = 0;
-    // Use CSV-driven thresholds (emerald-style) when available. Fallback to simple quadratic curve.
     while (_ups < 10){
         if (!is_real(T.level)) T.level = 1;
         if (T.level >= 100){
-            // cap: clamp exp so it won't trigger further ups
             if (is_real(T.exp_next)) T.exp = min(T.exp, T.exp_next - 1);
             break;
         }
 
-        // Determine next threshold: prefer mon.growth_id -> use scr_get_exp_for_level
         var nextThresh = -1;
         var gid_probe = undefined;
         if (variable_struct_exists(T, "growth_id") && is_real(T.growth_id)) gid_probe = T.growth_id;
         else if (variable_struct_exists(T, "growth") && is_real(T.growth)) gid_probe = T.growth;
         else if (variable_struct_exists(T, "growth_rate_id") && is_real(T.growth_rate_id)) gid_probe = T.growth_rate_id;
 
-        if (!is_undefined(gid_probe) && is_real(gid_probe) && !is_undefined(scr_get_exp_for_level)){
-            nextThresh = scr_get_exp_for_level(gid_probe, T.level + 1);
-        }
+        if (!is_undefined(gid_probe) && is_real(gid_probe) && !is_undefined(scr_get_exp_for_level)) nextThresh = scr_get_exp_for_level(gid_probe, T.level + 1);
         if (!is_real(nextThresh) || nextThresh <= 0) nextThresh = max(20, (T.level + 1) * (T.level + 1) * 2);
 
-        // If current exp reaches nextThresh -> level up
         if (is_real(T.exp) && T.exp >= nextThresh){
-            // subtract threshold as Emerald does (exp is cumulative: T.exp stores cumulative total)
             T.exp = T.exp - nextThresh;
             T.level += 1;
             _ups += 1;
 
-            // Recompute stats using IV/EV-aware formula when base stats exist; record deltas for dialog
             var sid = (variable_struct_exists(T, "species_id") && is_real(variable_struct_get(T, "species_id"))) ? floor(variable_struct_get(T, "species_id")) : ((variable_struct_exists(T, "species") && is_real(variable_struct_get(T, "species"))) ? floor(variable_struct_get(T, "species")) : -1);
             var base = undefined;
             if (sid >= 0 && variable_global_exists("_poke_stats") && is_array(global._poke_stats) && sid < array_length(global._poke_stats)) base = global._poke_stats[sid];
@@ -6964,11 +7175,9 @@ function __battle_award_exp(_pid, _amount){
             var old_spd = (variable_struct_exists(T, "spd") && is_real(variable_struct_get(T, "spd"))) ? real(variable_struct_get(T, "spd")) : ((variable_struct_exists(T, "spdef") && is_real(variable_struct_get(T, "spdef"))) ? real(variable_struct_get(T, "spdef")) : 0);
             var old_spe = (variable_struct_exists(T, "spe") && is_real(variable_struct_get(T, "spe"))) ? real(variable_struct_get(T, "spe")) : ((variable_struct_exists(T, "speed") && is_real(variable_struct_get(T, "speed"))) ? real(variable_struct_get(T, "speed")) : 0);
 
-            // IV/EV sources
             var iv = (variable_struct_exists(T, "iv") && is_struct(variable_struct_get(T, "iv"))) ? variable_struct_get(T, "iv") : ((variable_struct_exists(A0, "mon") && is_struct(A0.mon) && variable_struct_exists(A0.mon, "iv")) ? variable_struct_get(A0.mon, "iv") : undefined);
             var ev = (variable_struct_exists(T, "ev") && is_struct(variable_struct_get(T, "ev"))) ? variable_struct_get(T, "ev") : ((variable_struct_exists(A0, "mon") && is_struct(A0.mon) && variable_struct_exists(A0.mon, "ev")) ? variable_struct_get(A0.mon, "ev") : undefined);
 
-            // read base stats with aliases
             function __bs_local(_b, _names){ if (!is_struct(_b)) return undefined; for (var _i=0; _i<array_length(_names); _i++){ var _k=_names[_i]; if (variable_struct_exists(_b,_k) && is_real(variable_struct_get(_b,_k))) return real(variable_struct_get(_b,_k)); } return undefined; }
             var b_hp = __bs_local(base, ["hp","base_hp"]);
             var b_atk = __bs_local(base, ["atk","attack","base_atk"]);
@@ -7010,7 +7219,6 @@ function __battle_award_exp(_pid, _amount){
                 new_spe = old_spe + 1;
             }
 
-            // write back using guarded setters
             variable_struct_set(T, "hp_max", max(1, new_hp));
             variable_struct_set(T, "atk", max(1, new_atk));
             variable_struct_set(T, "def", max(1, new_def));
@@ -7018,34 +7226,30 @@ function __battle_award_exp(_pid, _amount){
             variable_struct_set(T, "spd", max(1, new_spd));
             variable_struct_set(T, "spe", max(1, new_spe));
 
-            // heal a bit on level-up
             var cur_hp_now = (variable_struct_exists(T, "hp_now") && is_real(variable_struct_get(T, "hp_now"))) ? real(variable_struct_get(T, "hp_now")) : variable_struct_get(T, "hp_max");
             variable_struct_set(T, "hp_now", min(variable_struct_get(T, "hp_max"), cur_hp_now + 3));
 
-            // record deltas for this level into a per-level queue so the UI can show them one-level-at-a-time
-            var _deltas = [];
-            var dh = variable_struct_get(T, "hp_max") - old_hp; if (dh > 0) array_push(_deltas, ["HP", dh]);
-            var da = (variable_struct_get(T, "atk") - old_atk); if (da > 0) array_push(_deltas, ["ATK", da]);
-            var dd = (variable_struct_get(T, "def") - old_def); if (dd > 0) array_push(_deltas, ["DEF", dd]);
-            var dsp = (variable_struct_get(T, "spa") - old_spa); if (dsp > 0) array_push(_deltas, ["SPATK", dsp]);
-            var dsd = (variable_struct_get(T, "spd") - old_spd); if (dsd > 0) array_push(_deltas, ["SPDEF", dsd]);
-            var dspc = (variable_struct_get(T, "spe") - old_spe); if (dspc > 0) array_push(_deltas, ["SPEED", dspc]);
-            if (!variable_struct_exists(_B, "_level_stat_bumps_queue")) variable_struct_set(_B, "_level_stat_bumps_queue", []);
-            var _step_rows = [
-                { label: "HP", from: old_hp, to: variable_struct_get(T, "hp_max") },
-                { label: "ATTACK", from: old_atk, to: variable_struct_get(T, "atk") },
-                { label: "DEFENSE", from: old_def, to: variable_struct_get(T, "def") },
-                { label: "SP.ATK", from: old_spa, to: variable_struct_get(T, "spa") },
-                { label: "SP.DEF", from: old_spd, to: variable_struct_get(T, "spd") },
-                { label: "SPEED", from: old_spe, to: variable_struct_get(T, "spe") }
-            ];
-            var _level_name = "Pokemon";
-            if (variable_struct_exists(T, "name")) _level_name = string(variable_struct_get(T, "name"));
-            else if (is_struct(A0) && variable_struct_exists(A0, "name")) _level_name = string(variable_struct_get(A0, "name"));
-            var _stepInfo = { level: T.level, deltas: _deltas, rows: _step_rows, mon_name: _level_name };
-            array_push(variable_struct_get(_B, "_level_stat_bumps_queue"), _stepInfo);
+            if (_show_visuals){
+                var _deltas = [];
+                var dh = variable_struct_get(T, "hp_max") - old_hp; if (dh > 0) array_push(_deltas, ["HP", dh]);
+                var da = (variable_struct_get(T, "atk") - old_atk); if (da > 0) array_push(_deltas, ["ATK", da]);
+                var dd = (variable_struct_get(T, "def") - old_def); if (dd > 0) array_push(_deltas, ["DEF", dd]);
+                var dsp = (variable_struct_get(T, "spa") - old_spa); if (dsp > 0) array_push(_deltas, ["SPATK", dsp]);
+                var dsd = (variable_struct_get(T, "spd") - old_spd); if (dsd > 0) array_push(_deltas, ["SPDEF", dsd]);
+                var dspc = (variable_struct_get(T, "spe") - old_spe); if (dspc > 0) array_push(_deltas, ["SPEED", dspc]);
+                if (!variable_struct_exists(_B, "_level_stat_bumps_queue")) variable_struct_set(_B, "_level_stat_bumps_queue", []);
+                var _step_rows = [
+                    { label: "HP", from: old_hp, to: variable_struct_get(T, "hp_max") },
+                    { label: "ATTACK", from: old_atk, to: variable_struct_get(T, "atk") },
+                    { label: "DEFENSE", from: old_def, to: variable_struct_get(T, "def") },
+                    { label: "SP.ATK", from: old_spa, to: variable_struct_get(T, "spa") },
+                    { label: "SP.DEF", from: old_spd, to: variable_struct_get(T, "spd") },
+                    { label: "SPEED", from: old_spe, to: variable_struct_get(T, "spe") }
+                ];
+                var _level_name = variable_struct_exists(T, "name") ? string(variable_struct_get(T, "name")) : "Pokemon";
+                array_push(variable_struct_get(_B, "_level_stat_bumps_queue"), { level: T.level, deltas: _deltas, rows: _step_rows, mon_name: _level_name });
+            }
 
-            // recompute next threshold for the new level
             if (!is_undefined(gid_probe) && is_real(gid_probe) && !is_undefined(scr_get_exp_for_level)){
                 var nxt = scr_get_exp_for_level(gid_probe, min(100, T.level + 1));
                 if (is_real(nxt) && nxt > 0) T.exp_next = nxt;
@@ -7055,21 +7259,18 @@ function __battle_award_exp(_pid, _amount){
             }
 
             if (T.level >= 100){ T.exp_next = $1e12; break; }
-            // loop to see if multiple level-ups
             continue;
         }
-        // Not enough exp to level up
-        // Set exp_next for UI if available
+
         T.exp_next = nextThresh;
         break;
     }
 
-    // Mirror values back to the top-level actor for compatibility with existing UI/battle code
     if (is_struct(A0)){
         if (variable_struct_exists(T, "exp")) A0.exp = T.exp;
         if (variable_struct_exists(T, "exp_next")) A0.exp_next = T.exp_next;
         if (variable_struct_exists(T, "level")) A0.level = T.level;
-    if (variable_struct_exists(T, "hp_now") || variable_struct_exists(T, "hp")) __battle_set_hp_now(A0, __battle_hp_now(T));
+        if (variable_struct_exists(T, "hp_now") || variable_struct_exists(T, "hp")) __battle_set_hp_now(A0, __battle_hp_now(T));
         if (variable_struct_exists(T, "hp_max")) A0.hp_max = T.hp_max;
         if (variable_struct_exists(T, "name")) A0.name = T.name;
     }
@@ -7078,40 +7279,40 @@ function __battle_award_exp(_pid, _amount){
         try { evolution_enqueue_levelup(_pid, T, A0); } catch (e_evolution_queue) {}
     }
 
-    // Build dialog message for EXP gain; level-up details are shown in the side panel.
-    var _msg = string(_gain) + " EXP gained!";
-    try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, _msg); else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, _msg, _msg, "any"); } catch (e_) {}
+    if (_show_visuals){
+        var _msg = string(_gain) + " EXP gained!";
+        try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, _msg); else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, _msg, _msg, "any"); } catch (e_) {}
 
-    // Setup Emerald-style EXP animation queue: for each level-up that occurred, animate prev->1.0, then show level-up dialog,
-    // then continue animating the remainder from 0->final. We store a queue of steps on _B._exp_anim.queue.
-    try {
-        var _actorMon = (is_struct(A0) && variable_struct_exists(A0, "mon") && is_struct(A0.mon)) ? A0.mon : A0;
-        if (is_struct(_actorMon) && variable_struct_exists(_actorMon, "exp") && variable_struct_exists(_actorMon, "exp_next") && is_real(variable_struct_get(_actorMon, "exp_next")) && variable_struct_get(_actorMon, "exp_next") > 0){
-            var _final_exp = real(variable_struct_get(_actorMon, "exp"));
-            var _final_next = real(variable_struct_get(_actorMon, "exp_next"));
-            var _curNorm = (is_real(_prev_exp_next) && _prev_exp_next > 0) ? max(0, min(1, _prev_exp / _prev_exp_next)) : 0;
-
-            // Build queue: for each level-up (already recorded in _level_stat_bumps_queue), we animate to 1.0 then pause.
-            var _queue = [];
-            var _levels = (variable_struct_exists(_B, "_level_stat_bumps_queue") ? variable_struct_get(_B, "_level_stat_bumps_queue") : []);
-            var _li = 0;
-            // For each recorded level-up step, add a step from current->1.0. After each, consumer will show level-up dialog.
-            while (_li < array_length(_levels)){
-                array_push(_queue, { from: _curNorm, to: 1.0, dur: 700, type: "to_full" });
-                _curNorm = 0.0; // after level-up, bar resets
-                _li += 1;
+        try {
+            var _actorMon = (is_struct(A0) && variable_struct_exists(A0, "mon") && is_struct(A0.mon)) ? A0.mon : A0;
+            if (is_struct(_actorMon) && variable_struct_exists(_actorMon, "exp") && variable_struct_exists(_actorMon, "exp_next") && is_real(variable_struct_get(_actorMon, "exp_next")) && variable_struct_get(_actorMon, "exp_next") > 0){
+                var _final_exp = real(variable_struct_get(_actorMon, "exp"));
+                var _final_next = real(variable_struct_get(_actorMon, "exp_next"));
+                var _curNorm = (is_real(_prev_exp_next) && _prev_exp_next > 0) ? max(0, min(1, _prev_exp / _prev_exp_next)) : 0;
+                var _queue = [];
+                var _levels = (variable_struct_exists(_B, "_level_stat_bumps_queue") ? variable_struct_get(_B, "_level_stat_bumps_queue") : []);
+                var _li = 0;
+                while (_li < array_length(_levels)){
+                    array_push(_queue, { from: _curNorm, to: 1.0, dur: 700, type: "to_full" });
+                    _curNorm = 0.0;
+                    _li += 1;
+                }
+                var _finalNorm = (is_real(_final_next) && _final_next > 0) ? max(0, min(1, _final_exp / _final_next)) : 0;
+                if (!(_li > 0 && _finalNorm == 0)) array_push(_queue, { from: _curNorm, to: _finalNorm, dur: 700, type: "remainder" });
+                variable_struct_set(_B, "_exp_anim", { active: true, queue: _queue, playing_index: 0, cur: (array_length(_queue) > 0 ? _queue[0].from : _curNorm), start_ms: current_time });
             }
-            // final remainder (current to final fraction)
-            var _finalNorm = (is_real(_final_next) && _final_next > 0) ? max(0, min(1, _final_exp / _final_next)) : 0;
-            // if there were any level-ups and finalNorm == 0, skip; otherwise add a final step
-            if (!(_li > 0 && _finalNorm == 0)){
-                array_push(_queue, { from: _curNorm, to: _finalNorm, dur: 700, type: "remainder" });
-            }
+        } catch (e_ea) { }
+    }
+}
 
-            // initialize exp_anim state with queue and playing index
-            variable_struct_set(_B, "_exp_anim", { active: true, queue: _queue, playing_index: 0, cur: (array_length(_queue) > 0 ? _queue[0].from : _curNorm), start_ms: current_time });
-        }
-    } catch (e_ea) { }
+function __battle_award_exp(_pid, _amount){
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B)) return;
+    var _targets = __battle_exp_targets(_pid, _B);
+    if (!is_array(_targets) || array_length(_targets) <= 0) return;
+    for (var _ti = 0; _ti < array_length(_targets); ++_ti){
+        __battle_award_exp_single(_pid, _B, _amount, _targets[_ti], (_ti == 0));
+    }
 }
 
 
@@ -7171,8 +7372,10 @@ function __battle_try_catch(_pid, _ball_mult, _item_id, _target_index, _owner_pi
     // durations in ms
     var now = current_time;
     var ball_spr = undefined;
-    if (!is_undefined(pkicons_get_item_icon_by_id) && is_real(_item_id) && _item_id > 0){
-        try { var s_try = pkicons_get_item_icon_by_id(floor(_item_id)); if (!is_undefined(s_try) && sprite_exists(s_try)) ball_spr = s_try; } catch (e) { ball_spr = undefined; }
+    if (!is_undefined(pkicons_get_capture_ball_icon_by_id) && is_real(_item_id) && _item_id > 0){
+        try { var s_try = pkicons_get_capture_ball_icon_by_id(floor(_item_id)); if (!is_undefined(s_try) && sprite_exists(s_try)) ball_spr = s_try; } catch (e) { ball_spr = undefined; }
+    } else if (!is_undefined(pkicons_get_item_icon_by_id) && is_real(_item_id) && _item_id > 0){
+        try { var s_fallback = pkicons_get_item_icon_by_id(floor(_item_id)); if (!is_undefined(s_fallback) && sprite_exists(s_fallback)) ball_spr = s_fallback; } catch (e_fallback) { ball_spr = undefined; }
     }
 
     var land_x = undefined;

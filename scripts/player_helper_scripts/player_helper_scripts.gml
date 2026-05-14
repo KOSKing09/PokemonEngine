@@ -176,6 +176,83 @@ function multiplayer_load_options(){
     return _M;
 }
 
+function battle_xp_ensure_state(){
+    if (!variable_global_exists("BATTLE_OPTIONS") || !is_struct(global.BATTLE_OPTIONS)){
+        global.BATTLE_OPTIONS = {
+            xp_mode: "active"
+        };
+    }
+    var _B = global.BATTLE_OPTIONS;
+    var _xp_mode = (variable_struct_exists(_B, "xp_mode") ? string_lower(string(variable_struct_get(_B, "xp_mode"))) : "active");
+    if (_xp_mode == "shared") _xp_mode = "all";
+    if (_xp_mode == "last") _xp_mode = "used";
+    if (_xp_mode != "used" && _xp_mode != "all") _xp_mode = "active";
+    variable_struct_set(_B, "xp_mode", _xp_mode);
+    global.BATTLE_OPTIONS = _B;
+    return _B;
+}
+
+function battle_xp_load_options(){
+    var _B = battle_xp_ensure_state();
+    try {
+        ini_open(working_directory + "/options.ini");
+        var _xp_mode = string_lower(ini_read_string("Battle", "xp_mode", variable_struct_get(_B, "xp_mode")));
+        ini_close();
+
+        if (_xp_mode == "shared") _xp_mode = "all";
+        if (_xp_mode == "last") _xp_mode = "used";
+        if (_xp_mode != "used" && _xp_mode != "all") _xp_mode = "active";
+        variable_struct_set(_B, "xp_mode", _xp_mode);
+    } catch (e_battle_load) {
+        variable_struct_set(_B, "xp_mode", "active");
+    }
+    global.BATTLE_OPTIONS = _B;
+    return _B;
+}
+
+function battle_xp_save_options(){
+    var _B = battle_xp_ensure_state();
+    try {
+        ini_open(working_directory + "/options.ini");
+        ini_write_string("Battle", "xp_mode", string(variable_struct_get(_B, "xp_mode")));
+        ini_close();
+    } catch (e_battle_save) {}
+}
+
+function battle_xp_mode(){
+    var _B = battle_xp_ensure_state();
+    return string(variable_struct_get(_B, "xp_mode"));
+}
+
+function battle_xp_set_mode(_mode){
+    var _B = battle_xp_ensure_state();
+    var _next = string_lower(string(_mode));
+    if (_next == "shared") _next = "all";
+    if (_next == "last") _next = "used";
+    if (_next != "used" && _next != "all") _next = "active";
+    variable_struct_set(_B, "xp_mode", _next);
+    global.BATTLE_OPTIONS = _B;
+    battle_xp_save_options();
+    return _next;
+}
+
+function battle_xp_cycle_mode(_dir){
+    var _modes = ["active", "used", "all"];
+    var _current = battle_xp_mode();
+    var _index = 0;
+    for (var _i = 0; _i < array_length(_modes); ++_i){
+        if (_modes[_i] == _current){
+            _index = _i;
+            break;
+        }
+    }
+    var _step = (is_real(_dir) ? floor(_dir) : 1);
+    if (_step == 0) _step = 1;
+    _index = (_index + _step) mod array_length(_modes);
+    if (_index < 0) _index += array_length(_modes);
+    return battle_xp_set_mode(_modes[_index]);
+}
+
 function multiplayer_save_options(){
     var _M = multiplayer_ensure_state();
     try {

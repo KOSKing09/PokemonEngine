@@ -128,6 +128,7 @@ function controls_load(){
 
     ini_close();
     if (!is_undefined(multiplayer_load_options)) multiplayer_load_options();
+    if (!is_undefined(battle_xp_load_options)) battle_xp_load_options();
 }
 
 function controls_save(){
@@ -171,6 +172,7 @@ function controls_save(){
 
     ini_close();
     if (!is_undefined(multiplayer_save_options)) multiplayer_save_options();
+    if (!is_undefined(battle_xp_save_options)) battle_xp_save_options();
 }
 
 // ---- Queries for objects ---------------------------------------------------

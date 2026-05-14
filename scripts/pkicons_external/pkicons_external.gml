@@ -26,6 +26,7 @@ function pkicons_init(){
             icon_strip_cache: {},
             icon_dir_cache: {},
             item_icon_cache: {},
+            capture_ball_icon_cache: {},
             item_icon_base: "",
             debug_crys: false,
             // Split placeholders (resolved immediately after init)
@@ -500,6 +501,50 @@ function pkicons_get_item_icon_by_name(_name){
     if (!is_real(miss)) miss = -1;
     variable_struct_set(PKICONS.item_icon_cache,key,miss);
     return miss;
+}
+
+// Capture-only item icon clone with centered origin.
+// This must not modify the normal item icon sprite/cache because bag/UI systems depend on the original x/y offsets.
+function pkicons_get_capture_ball_icon_by_id(_item_id){
+    pkicons_init();
+
+    if (!variable_struct_exists(PKICONS, "capture_ball_icon_cache")){
+        variable_struct_set(PKICONS, "capture_ball_icon_cache", {});
+    }
+
+    var _captureKey = "CAPTUREBALLID|" + string(_item_id);
+    if (variable_struct_exists(PKICONS.capture_ball_icon_cache, _captureKey)){
+        var _cachedCaptureSpr = variable_struct_get(PKICONS.capture_ball_icon_cache, _captureKey);
+        if (!is_undefined(_cachedCaptureSpr) && sprite_exists(_cachedCaptureSpr)) return _cachedCaptureSpr;
+    }
+
+    var _baseSpr = undefined;
+    if (!is_undefined(pkicons_get_item_icon_by_id) && is_real(_item_id) && _item_id > 0){
+        try {
+            var _baseTry = pkicons_get_item_icon_by_id(floor(_item_id));
+            if (!is_undefined(_baseTry) && sprite_exists(_baseTry)) _baseSpr = _baseTry;
+        } catch (e_capture_base_icon) {
+            _baseSpr = undefined;
+        }
+    }
+
+    if (is_undefined(_baseSpr) || !sprite_exists(_baseSpr)) return _baseSpr;
+
+    var _centeredSpr = _baseSpr;
+    try {
+        var _cloneSpr = sprite_duplicate(_baseSpr);
+        if (!is_undefined(_cloneSpr) && sprite_exists(_cloneSpr)){
+            var _centerX = floor(sprite_get_width(_cloneSpr) * 0.5);
+            var _centerY = floor(sprite_get_height(_cloneSpr) * 0.5);
+            sprite_set_offset(_cloneSpr, _centerX, _centerY);
+            _centeredSpr = _cloneSpr;
+        }
+    } catch (e_capture_clone_sprite) {
+        _centeredSpr = _baseSpr;
+    }
+
+    variable_struct_set(PKICONS.capture_ball_icon_cache, _captureKey, _centeredSpr);
+    return _centeredSpr;
 }
 
 

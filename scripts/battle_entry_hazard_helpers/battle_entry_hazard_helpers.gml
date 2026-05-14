@@ -15,7 +15,7 @@ if (is_undefined(__battle_apply_entry_hazards)){
             var field = __battle_field_ensure(_pid);
             if (!is_struct(field)) return false;
 
-            var hazard_side = __battle_field_side_index_for_opponent(_actor_index);
+            var hazard_side = __battle_field_side_index_for_actor(_actor_index);
 
             // Collect defender types for later checks
             var tlist = [];
@@ -44,21 +44,30 @@ if (is_undefined(__battle_apply_entry_hazards)){
                 }
             } catch (e_tcollect) {}
 
-            var flying_id = undefined;
-            var poison_id = undefined;
-            var steel_id = undefined;
-            var rock_id_global = undefined;
-            if (variable_global_exists("TYPE_ID_BY_NAME")){
-                try {
+            var flying_id = 3;
+            var poison_id = 4;
+            var steel_id = 9;
+            var rock_id_global = 6;
+            try {
+                if (!is_undefined(__battle_type_id_by_name_safe)){
+                    var _flying_lookup = __battle_type_id_by_name_safe("flying");
+                    var _poison_lookup = __battle_type_id_by_name_safe("poison");
+                    var _steel_lookup = __battle_type_id_by_name_safe("steel");
+                    var _rock_lookup = __battle_type_id_by_name_safe("rock");
+                    if (is_real(_flying_lookup) && _flying_lookup > 0) flying_id = _flying_lookup;
+                    if (is_real(_poison_lookup) && _poison_lookup > 0) poison_id = _poison_lookup;
+                    if (is_real(_steel_lookup) && _steel_lookup > 0) steel_id = _steel_lookup;
+                    if (is_real(_rock_lookup) && _rock_lookup > 0) rock_id_global = _rock_lookup;
+                } else if (variable_global_exists("TYPE_ID_BY_NAME")){
                     var type_map = variable_global_get("TYPE_ID_BY_NAME");
                     if (ds_exists(type_map, ds_type_map)){
-                        flying_id = ds_map_find_value(type_map, "flying");
-                        poison_id = ds_map_find_value(type_map, "poison");
-                        steel_id  = ds_map_find_value(type_map, "steel");
-                        rock_id_global = ds_map_find_value(type_map, "rock");
+                        if (ds_map_exists(type_map, "flying")) flying_id = ds_map_find_value(type_map, "flying");
+                        if (ds_map_exists(type_map, "poison")) poison_id = ds_map_find_value(type_map, "poison");
+                        if (ds_map_exists(type_map, "steel")) steel_id = ds_map_find_value(type_map, "steel");
+                        if (ds_map_exists(type_map, "rock")) rock_id_global = ds_map_find_value(type_map, "rock");
                     }
-                } catch (e_type_map) {}
-            }
+                }
+            } catch (e_type_map) {}
 
             var has_levitate = false;
             var has_magic_guard = false;

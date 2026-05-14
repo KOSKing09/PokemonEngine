@@ -57,13 +57,13 @@ if (is_undefined(__battle_apply_move_meta_effects)){
 
             var A_before = real(get_hp_now(_A));
             var A_max = max(1, real(get_hp_max(_A)));
-            var _move_rec_status = undefined;
             var _eid_status = undefined;
             var _is_swagger = false;
             var _called_swagger_self = false;
             try {
+                var _move_rec_status = undefined;
                 if (variable_global_exists("_moves") && is_array(global._moves) && is_real(_move_id) && _move_id >= 0 && _move_id < array_length(global._moves)) _move_rec_status = global._moves[_move_id];
-                if (is_struct(_move_rec_status) && variable_struct_exists(_move_rec_status, "effect_id") && is_real(variable_struct_get(_move_rec_status, "effect_id"))) _eid_status = variable_struct_get(_move_rec_status, "effect_id");
+                if (!is_undefined(__battle_move_effect_id_safe)) _eid_status = __battle_move_effect_id_safe(_move_id);
                 var _ident_swagger = (is_struct(_move_rec_status) && variable_struct_exists(_move_rec_status, "identifier")) ? string_lower(string(variable_struct_get(_move_rec_status, "identifier"))) : "";
                 if (_ident_swagger == "swagger" || (is_real(_move_id) && floor(_move_id) == 207) || (is_real(_eid_status) && floor(_eid_status) == 119)) _is_swagger = true;
                 if (is_struct(_A) && variable_struct_exists(_A, "_called_move_active") && variable_struct_get(_A, "_called_move_active") == true){
@@ -423,7 +423,7 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                 var _outer_pid = _pid;
                 var _move_rec = undefined;
                 if (variable_global_exists("_moves") && is_array(global._moves) && is_real(_move_id) && _move_id >= 0 && _move_id < array_length(global._moves)) _move_rec = global._moves[_move_id];
-                var _eid = (is_struct(_move_rec) && variable_struct_exists(_move_rec, "effect_id") && is_real(variable_struct_get(_move_rec, "effect_id"))) ? variable_struct_get(_move_rec, "effect_id") : undefined;
+                var _eid = (!is_undefined(__battle_move_effect_id_safe) ? __battle_move_effect_id_safe(_move_id) : undefined);
                 // Fallback: some CSV dumps lack effect_id headers or loaders; infer terrain by identifier if needed
                 if (!is_real(_eid) && is_struct(_move_rec) && variable_struct_exists(_move_rec, "identifier")){
                     var _ident_mv = string_lower(string(variable_struct_get(_move_rec, "identifier")));
@@ -601,6 +601,25 @@ if (is_undefined(__battle_apply_move_meta_effects)){
                                 var _live_defender_mh = _D;
                                 var _act_idx_mh = _step_actor_idx_mh;
                                 try { _tgt_idx_mh = (!is_undefined(__battle_resolve_effect_target_index) ? __battle_resolve_effect_target_index(_pid, _A, _D, _step_target_idx_mh) : _step_target_idx_mh); } catch (e_tim) { _tgt_idx_mh = _step_target_idx_mh; }
+                                if (!is_real(_tgt_idx_mh)){
+                                    try {
+                                        if (is_struct(_D) && variable_struct_exists(_D, "actor_index") && is_real(variable_struct_get(_D, "actor_index"))) _tgt_idx_mh = floor(variable_struct_get(_D, "actor_index"));
+                                    } catch (e_tim_defender_idx) {}
+                                }
+                                if (!is_real(_tgt_idx_mh)){
+                                    try {
+                                        var _Bscan_mh = __battle_ensure_slot(_pid);
+                                        if (is_struct(_Bscan_mh) && variable_struct_exists(_Bscan_mh, "actor") && is_array(variable_struct_get(_Bscan_mh, "actor"))){
+                                            var _acts_scan_mh = variable_struct_get(_Bscan_mh, "actor");
+                                            for (var _scan_i_mh = 0; _scan_i_mh < array_length(_acts_scan_mh); ++_scan_i_mh){
+                                                if (is_struct(_acts_scan_mh[_scan_i_mh]) && _acts_scan_mh[_scan_i_mh] == _D){
+                                                    _tgt_idx_mh = _scan_i_mh;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    } catch (e_tim_scan) {}
+                                }
                                 if (!is_real(_tgt_idx_mh)){
                                     try {
                                         var _act_idx_seed_mh = (!is_undefined(__battle_resolve_live_actor_index) ? __battle_resolve_live_actor_index(_pid, _A, _step_actor_idx_mh) : _step_actor_idx_mh);
@@ -1874,6 +1893,20 @@ if (is_undefined(__battle_move_identifier_safe)){
 }
 
 if (is_undefined(__battle_move_effect_id_safe)){
+    function __battle_move_effect_id_field_safe(_rec, _field_name){
+        if (!is_struct(_rec) || !is_string(_field_name) || !variable_struct_exists(_rec, _field_name)) return undefined;
+        var _raw = variable_struct_get(_rec, _field_name);
+        if (is_real(_raw)) return floor(_raw);
+        if (is_string(_raw)){
+            var _trim = string_trim(string(_raw));
+            if (string_length(_trim) <= 0) return undefined;
+            var _parsed = undefined;
+            try { _parsed = real(_trim); } catch (e_parse_effect_id) { _parsed = undefined; }
+            if (is_real(_parsed)) return floor(_parsed);
+        }
+        return undefined;
+    }
+
     function __battle_move_effect_id_safe(_move_id){
         var _effect_id = undefined;
         try {
@@ -1881,9 +1914,7 @@ if (is_undefined(__battle_move_effect_id_safe)){
                 var _idx = floor(_move_id);
                 if (_idx >= 0 && _idx < array_length(global._moves)){
                     var _move_rec = global._moves[_idx];
-                    if (is_struct(_move_rec) && variable_struct_exists(_move_rec, "effect_id") && is_real(variable_struct_get(_move_rec, "effect_id"))){
-                        _effect_id = floor(variable_struct_get(_move_rec, "effect_id"));
-                    }
+                    _effect_id = __battle_move_effect_id_field_safe(_move_rec, "effect_id");
                 }
             }
         } catch (e_effect_id) { _effect_id = undefined; }
@@ -1892,9 +1923,7 @@ if (is_undefined(__battle_move_effect_id_safe)){
             try {
                 if (!is_undefined(__battle_get_move_meta) && is_real(_move_id)){
                     var _mm = __battle_get_move_meta(_move_id);
-                    if (is_struct(_mm) && variable_struct_exists(_mm, "effect_id") && is_real(variable_struct_get(_mm, "effect_id"))){
-                        _effect_id = floor(variable_struct_get(_mm, "effect_id"));
-                    }
+                    _effect_id = __battle_move_effect_id_field_safe(_mm, "effect_id");
                 }
             } catch (e_meta_effect_id) { _effect_id = undefined; }
         }

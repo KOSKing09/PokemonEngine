@@ -7,8 +7,8 @@ globalvar PAUSE;
 
 function pause_init(){
     global.PAUSE = [
-        { open:false, sel:0, t:0, mode:"main", options_sel:0, input_sel:0, multiplayer_sel:0, misc_sel:0 },
-        { open:false, sel:0, t:0, mode:"main", options_sel:0, input_sel:0, multiplayer_sel:0, misc_sel:0 }
+        { open:false, sel:0, t:0, mode:"main", options_sel:0, input_sel:0, battle_settings_sel:0, multiplayer_sel:0, misc_sel:0 },
+        { open:false, sel:0, t:0, mode:"main", options_sel:0, input_sel:0, battle_settings_sel:0, multiplayer_sel:0, misc_sel:0 }
     ];
 
     // safe legacy owner setup
@@ -27,6 +27,7 @@ function pause_toggle(pid){
         p.mode = "main";
         p.options_sel = 0;
         p.input_sel = 0;
+        p.battle_settings_sel = 0;
         p.multiplayer_sel = 0;
         p.misc_sel = 0;
     }
@@ -54,8 +55,9 @@ function pause_update(){
         var p = PAUSE[pid];
         var _main_labels = __pause_main_labels(pid);
         var _entry_count = array_length(_main_labels);
-        var _options_count = 5;
+        var _options_count = 6;
         var _input_count = 2;
+        var _battle_settings_count = 2;
         var _multiplayer_count = 5;
         var _misc_count = 1;
 
@@ -108,6 +110,37 @@ function pause_update(){
             continue;
         }
 
+        if (string(p.mode) == "battle_settings"){
+            if (controls_pressed(pid,"MoveDown") || controls_pressed(pid,"MoveRight")) p.battle_settings_sel = (p.battle_settings_sel + 1) mod _battle_settings_count;
+            if (controls_pressed(pid,"MoveUp") || controls_pressed(pid,"MoveLeft")){
+                p.battle_settings_sel -= 1;
+                if (p.battle_settings_sel < 0) p.battle_settings_sel = _battle_settings_count - 1;
+            }
+
+            if (p.battle_settings_sel == 0){
+                if (controls_pressed(pid,"MoveLeft")) battle_xp_cycle_mode(-1);
+                if (controls_pressed(pid,"MoveRight")) battle_xp_cycle_mode(1);
+            }
+
+            if (controls_pressed(pid,"Interact")){
+                switch (p.battle_settings_sel){
+                    case 0:
+                        battle_xp_cycle_mode(1);
+                        break;
+                    case 1:
+                        p.mode = "options";
+                        p.battle_settings_sel = 0;
+                        break;
+                }
+            }
+
+            if (controls_pressed(pid,"Run") || controls_pressed(pid,"Back")){
+                p.mode = "options";
+                p.battle_settings_sel = 0;
+            }
+            continue;
+        }
+
         if (string(p.mode) == "options"){
             if (controls_pressed(pid,"MoveDown") || controls_pressed(pid,"MoveRight")) p.options_sel = (p.options_sel + 1) mod _options_count;
             if (controls_pressed(pid,"MoveUp") || controls_pressed(pid,"MoveLeft")){
@@ -136,10 +169,14 @@ function pause_update(){
                         __pause_toggle_splitscreen_layout();
                         break;
                     case 3:
+                        p.mode = "battle_settings";
+                        p.battle_settings_sel = 0;
+                        break;
+                    case 4:
                         p.mode = "multiplayer";
                         p.multiplayer_sel = 0;
                         break;
-                    case 4:
+                    case 5:
                         p.mode = "main";
                         p.options_sel = 0;
                         break;
@@ -268,7 +305,8 @@ function pause_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     draw_set_alpha(1);
 
     var labels = __pause_main_labels(_pid);
-    var options_labels = ["INPUT","TEXT SPEED","SPLIT","MULTIPLAYER","BACK"];
+    var options_labels = ["INPUT","TEXT SPEED","SPLIT","BATTLE SETTINGS","MULTIPLAYER","BACK"];
+    var battle_settings_labels = ["XP MODE","BACK"];
     var multiplayer_labels = ["CO-OP","REQUEST SIDE","VERSUS FORMAT","START VERSUS","BACK"];
     var input_labels = ["DEADZONE","BACK"];
     var misc_labels = ["PC"];
@@ -290,6 +328,10 @@ function pause_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         _active_labels = options_labels;
         _active_sel = p.options_sel;
         _title = "OPTIONS";
+    } else if (string(p.mode) == "battle_settings"){
+        _active_labels = battle_settings_labels;
+        _active_sel = p.battle_settings_sel;
+        _title = "BATTLE SETTINGS";
     } else if (string(p.mode) == "multiplayer"){
         _active_labels = multiplayer_labels;
         _active_sel = p.multiplayer_sel;
@@ -311,6 +353,7 @@ function pause_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         longest_label = max(longest_label, string_width(__pause_dialog_speed_label()));
         longest_label = max(longest_label, string_width(__pause_splitscreen_label()));
     }
+    if (string(p.mode) == "battle_settings") longest_label = max(longest_label, string_width(__pause_battle_xp_label()));
     if (string(p.mode) == "multiplayer") {
         longest_label = max(longest_label, string_width(__pause_multiplayer_queue_label()));
         longest_label = max(longest_label, string_width(__pause_multiplayer_request_label()));
@@ -351,6 +394,7 @@ function pause_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         var _label_text = _active_labels[i];
         if (string(p.mode) == "options" && i == 1) _label_text = __pause_dialog_speed_label();
         if (string(p.mode) == "options" && i == 2) _label_text = __pause_splitscreen_label();
+        if (string(p.mode) == "battle_settings" && i == 0) _label_text = __pause_battle_xp_label();
         if (string(p.mode) == "multiplayer" && i == 0) _label_text = __pause_multiplayer_queue_label();
         if (string(p.mode) == "multiplayer" && i == 1) _label_text = __pause_multiplayer_request_label();
         if (string(p.mode) == "multiplayer" && i == 2) _label_text = __pause_multiplayer_versus_label();
@@ -468,6 +512,15 @@ function __pause_multiplayer_queue_label(){
 
 function __pause_multiplayer_request_label(){
     return "CO-OP SCREEN P" + string(multiplayer_request_pid() + 1);
+}
+
+function __pause_battle_xp_label(){
+    var _mode = (!is_undefined(battle_xp_mode) ? string_lower(string(battle_xp_mode())) : "active");
+    switch (_mode){
+        case "used": return "XP MODE USED IN BATTLE";
+        case "all": return "XP MODE ALL PARTY";
+    }
+    return "XP MODE ACTIVE";
 }
 
 function __pause_multiplayer_versus_label(){

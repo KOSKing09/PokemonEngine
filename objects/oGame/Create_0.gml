@@ -45,9 +45,25 @@ global.MOVES_DEBUG = true;
 // `dev_moves_impl_report()` at boot for a one-time diagnostics print.
 global.DEV_REPORT_MOVES = true;
 
+try {
+    var _battle_impl_asset = asset_get_index("battle_impls");
+    if (_battle_impl_asset != -1) script_execute(_battle_impl_asset);
+    if (!is_undefined(__battle_impls_register_all)) __battle_impls_register_all();
+} catch (e_battle_impl_boot) {
+    show_debug_message("[reg] battle_impls boot register failed: " + string(e_battle_impl_boot));
+}
+try {
+    var _battle_moves_impl_asset = asset_get_index("battle_moves_impls");
+    if (_battle_moves_impl_asset != -1) script_execute(_battle_moves_impl_asset);
+    if (!is_undefined(__battle_moves_impls_register)) __battle_moves_impls_register();
+} catch (e_battle_moves_boot) {
+    show_debug_message("[reg] battle_moves_impls boot register failed: " + string(e_battle_moves_boot));
+}
+
 // run once (debug boot or in a quick test script)
 if (variable_global_exists("_battle_impls") && is_struct(global._battle_impls)){
     show_debug_message("[reg] __battle_perform_action_impl present? " + string(variable_struct_exists(global._battle_impls, "__battle_perform_action_impl")));
+    show_debug_message("[reg] __battle_perform_action_impl_real present? " + string(variable_struct_exists(global._battle_impls, "__battle_perform_action_impl_real")));
 } else show_debug_message("[reg] _battle_impls missing");
 
 
@@ -184,9 +200,12 @@ global.DEV_AUTO_LOVE_GIFT_SMOKE = false;
 global.DEV_AUTO_FIELD_SWITCH_SMOKE = false;
 global.DEV_AUTO_FORCED_PLAYER_SWITCH_SMOKE = false;
 global.DEV_AUTO_DOUBLES_ENEMY_FAINT_SEND_SMOKE = false;
+global.DEV_AUTO_DOUBLES_ENTRY_HAZARDS_SMOKE = false;
+global.DEV_AUTO_ASSIST_MULTIHIT_UI_SMOKE = false;
 global.DEV_AUTO_COOP_DOUBLE_WILD_SMOKE = false;
 global.DEV_AUTO_COOP_DOUBLE_TRAINER_SMOKE = false;
 global.DEV_AUTO_BURN_POISON_RESIDUAL_SMOKE = false;
+global.DEV_AUTO_DOUBLES_EXP_MODE_SMOKE = false;
 global.DEV_AUTO_VISUAL_TARGET_SMOKE = false;
 global.DEV_AUTO_EFFECT_131_155_SMOKE = false;
 global.DEV_AUTO_EFFECT_159_176_SMOKE = false;
@@ -266,7 +285,3 @@ wc_bind_layers(["WALL", "BLOCKS"]);
 wc_set_solids([noone]); // add object ids here if you have solid instances
 
 show_debug_message(global._move_meta[79]);
-
-global.DEV_AUTO_CONFUSION_ANIM_SMOKE = true
-
-test_battle_phase2_behavior_smoke_start(true);

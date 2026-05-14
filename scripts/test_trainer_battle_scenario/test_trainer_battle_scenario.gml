@@ -407,6 +407,134 @@ function test_battle_evolution_smoke_update(_pid = 0){
     }
 }
 
+function test_battle_doubles_exp_modes_smoke_start(_auto_close = false){
+    var _pid = 0;
+    if (battle_is_open(_pid)) battle_close(_pid);
+
+    var _S = {
+        pid: _pid,
+        tag: "doubles-exp-modes",
+        global_name: "DEV_DOUBLES_EXP_MODE_SMOKE",
+        auto_close: (_auto_close == true),
+        state: "running",
+        turn_counter: 0,
+        pass_count: 0,
+        fail_count: 0,
+        started_ms: current_time
+    };
+    global.DEV_DOUBLES_EXP_MODE_SMOKE = _S;
+    show_debug_message("[smoke][doubles-exp-modes] starting direct doubles EXP-mode smoke");
+
+    function __exp_smoke_reset_mon(_mon){
+        if (!is_struct(_mon)) return;
+        variable_struct_set(_mon, "exp", 0);
+        variable_struct_set(_mon, "exp_next", 9999);
+    }
+
+    function __exp_smoke_reset_party(_mons){
+        if (!is_array(_mons)) return;
+        for (var _i = 0; _i < array_length(_mons); ++_i) __exp_smoke_reset_mon(_mons[_i]);
+    }
+
+    var _old_mode = battle_xp_mode();
+
+    var _party0 = party_ensure(0);
+    var _party1 = party_ensure(1);
+    var _p0_a = __effect_smoke_mon(133, 30, 120, [33, -1, -1, -1]);
+    var _p0_b = __effect_smoke_mon(25, 30, 120, [98, -1, -1, -1]);
+    var _p0_c = __effect_smoke_mon(10, 30, 120, [45, -1, -1, -1]);
+    var _p0_d = __effect_smoke_mon(16, 30, 120, [28, -1, -1, -1]);
+    _party0.mons = [_p0_a, _p0_b, _p0_c, _p0_d];
+    global.PARTY[0] = _party0;
+
+    var _p1_a = __effect_smoke_mon(152, 30, 120, [33, -1, -1, -1]);
+    var _p1_b = __effect_smoke_mon(155, 30, 120, [52, -1, -1, -1]);
+    var _p1_c = __effect_smoke_mon(158, 30, 120, [44, -1, -1, -1]);
+    _party1.mons = [_p1_a, _p1_b, _p1_c];
+    global.PARTY[1] = _party1;
+
+    var _e0 = __effect_smoke_mon(263, 30, 120, [33, -1, -1, -1]);
+    var _e1 = __effect_smoke_mon(19, 30, 120, [33, -1, -1, -1]);
+    var _B = __effect_smoke_slot_double(_pid, _p0_a, _p0_b, _e0, _e1);
+    __battle_set_actor_runtime_fields(_p0_a, 0, 0, 0, 0);
+    __battle_set_actor_runtime_fields(_p0_b, 1, 0, 0, 1);
+    __battle_set_actor_runtime_fields(_e0, 2, -1, -1, -1);
+    __battle_set_actor_runtime_fields(_e1, 3, -1, -1, -1);
+    variable_struct_set(_B, "coop_enabled", false);
+    variable_struct_set(_B, "player_pids", [0, 0]);
+    global.sys_battles[0] = _B;
+
+    __exp_smoke_reset_party(_party0.mons);
+    battle_xp_set_mode("active");
+    __battle_award_exp(_pid, 9);
+    __status_smoke_assert(_S,
+        _p0_a.exp == 9 && _p0_b.exp == 9 && _p0_c.exp == 0 && _p0_d.exp == 0,
+        "Doubles EXP mode 'active' awarded EXP to both active allied battlers in a local doubles battle");
+
+    __exp_smoke_reset_party(_party0.mons);
+    variable_struct_set(_B, "_exp_participants", [
+        { party_pid: 0, party_index: 0 },
+        { party_pid: 0, party_index: 2 }
+    ]);
+    battle_xp_set_mode("used");
+    __battle_award_exp(_pid, 11);
+    __status_smoke_assert(_S,
+        _p0_a.exp == 11 && _p0_b.exp == 0 && _p0_c.exp == 11 && _p0_d.exp == 0,
+        "Doubles EXP mode 'used' awarded EXP only to the local party members that participated");
+
+    __exp_smoke_reset_party(_party0.mons);
+    battle_xp_set_mode("all");
+    __battle_award_exp(_pid, 7);
+    __status_smoke_assert(_S,
+        _p0_a.exp == 7 && _p0_b.exp == 7 && _p0_c.exp == 7 && _p0_d.exp == 7,
+        "Doubles EXP mode 'all' awarded EXP to the full local party in a doubles battle");
+
+    _e0 = __effect_smoke_mon(263, 30, 120, [33, -1, -1, -1]);
+    _e1 = __effect_smoke_mon(19, 30, 120, [33, -1, -1, -1]);
+    _B = __effect_smoke_slot_double(_pid, _p0_a, _p1_a, _e0, _e1);
+    __battle_set_actor_runtime_fields(_p0_a, 0, 0, 0, 0);
+    __battle_set_actor_runtime_fields(_p1_a, 1, 1, 1, 0);
+    __battle_set_actor_runtime_fields(_e0, 2, -1, -1, -1);
+    __battle_set_actor_runtime_fields(_e1, 3, -1, -1, -1);
+    variable_struct_set(_B, "coop_enabled", true);
+    variable_struct_set(_B, "player_pids", [0, 1]);
+    global.sys_battles[0] = _B;
+    global.sys_battles[1] = _B;
+
+    __exp_smoke_reset_party(_party0.mons);
+    __exp_smoke_reset_party(_party1.mons);
+    battle_xp_set_mode("active");
+    __battle_award_exp(1, 13);
+    __status_smoke_assert(_S,
+        _p1_a.exp == 13 && _p0_a.exp == 0,
+        "Co-op doubles EXP mode 'active' awarded EXP to the second local player's active battler without leaking to player one");
+
+    __exp_smoke_reset_party(_party0.mons);
+    __exp_smoke_reset_party(_party1.mons);
+    variable_struct_set(_B, "_exp_participants", [
+        { party_pid: 1, party_index: 0 },
+        { party_pid: 1, party_index: 2 }
+    ]);
+    battle_xp_set_mode("used");
+    __battle_award_exp(1, 5);
+    __status_smoke_assert(_S,
+        _p1_a.exp == 5 && _p1_b.exp == 0 && _p1_c.exp == 5 && _p0_a.exp == 0,
+        "Co-op doubles EXP mode 'used' stayed scoped to the second local player's participating party members");
+
+    __exp_smoke_reset_party(_party0.mons);
+    __exp_smoke_reset_party(_party1.mons);
+    battle_xp_set_mode("all");
+    __battle_award_exp(1, 3);
+    __status_smoke_assert(_S,
+        _p1_a.exp == 3 && _p1_b.exp == 3 && _p1_c.exp == 3 && _p0_a.exp == 0,
+        "Co-op doubles EXP mode 'all' awarded EXP only to the second local player's full party");
+
+    battle_xp_set_mode(_old_mode);
+    var _fails = variable_struct_get(_S, "fail_count");
+    __status_smoke_finish(_pid, _S, (_fails == 0) ? "completed" : "failed");
+    return (_fails == 0);
+}
+
 function __status_smoke_pending_status_text(_pid){
     if (!battle_is_open(_pid)) return "";
     var _B = __battle_ensure_slot(_pid);
@@ -2250,6 +2378,157 @@ function test_battle_burn_poison_residual_smoke_update(_pid = 0){
     // Direct smoke completes synchronously in start().
 }
 
+function test_battle_doubles_entry_hazards_smoke_start(_auto_close = false){
+    var _pid = 0;
+    if (battle_is_open(_pid)) battle_close(_pid);
+
+    var _S = {
+        pid: _pid,
+        tag: "doubles-entry-hazards",
+        global_name: "DEV_DOUBLES_ENTRY_HAZARDS_SMOKE",
+        auto_close: (_auto_close == true),
+        state: "running",
+        turn_counter: 0,
+        pass_count: 0,
+        fail_count: 0,
+        started_ms: current_time
+    };
+    global.DEV_DOUBLES_ENTRY_HAZARDS_SMOKE = _S;
+    show_debug_message("[smoke][doubles-entry-hazards] starting direct doubles entry hazard smoke");
+
+    var _P0;
+    var _P1;
+    var _E0;
+    var _E1;
+    var _before0;
+    var _before1;
+    var _after0;
+    var _after1;
+
+    _P0 = __effect_smoke_mon(133, 30, 160, [1, -1, -1, -1]);
+    _P1 = __effect_smoke_mon(25, 30, 160, [1, -1, -1, -1]);
+    _E0 = __effect_smoke_mon(263, 30, 160, [1, -1, -1, -1]);
+    _E1 = __effect_smoke_mon(19, 30, 160, [1, -1, -1, -1]);
+    __effect_smoke_slot_double(_pid, _P0, _P1, _E0, _E1);
+    __battle_field_set_hazard(_pid, 0, "spikes", 2);
+    _before0 = __battle_hp_now(_P0);
+    _before1 = __battle_hp_now(_P1);
+    __battle_apply_entry_hazards(_pid, 1);
+    _after0 = __battle_hp_now(_P0);
+    _after1 = __battle_hp_now(_P1);
+    var _spikes_dmg = max(1, floor(__battle_hp_max(_P1) / 6));
+    __status_smoke_assert(_S, (_before1 - _after1) == _spikes_dmg && _after0 == _before0, "Doubles Spikes hit only player slot 1 for the correct 2-layer damage");
+
+    _P0 = __effect_smoke_mon(133, 30, 160, [1, -1, -1, -1]);
+    _P1 = __effect_smoke_mon(25, 30, 160, [1, -1, -1, -1]);
+    _E0 = __effect_smoke_mon(263, 30, 160, [1, -1, -1, -1]);
+    _E1 = __effect_smoke_mon(19, 30, 160, [1, -1, -1, -1]);
+    __effect_smoke_slot_double(_pid, _P0, _P1, _E0, _E1);
+    __battle_field_set_hazard(_pid, 0, "toxic_spikes", 2);
+    __battle_apply_entry_hazards(_pid, 1);
+    var _tox_ok = __effect_smoke_has_status(_P1, "toxic") || __effect_smoke_has_status(_P1, "poison");
+    var _tox_slot0_ok = !__effect_smoke_has_status(_P0, "toxic") && !__effect_smoke_has_status(_P0, "poison");
+    __status_smoke_assert(_S, _tox_ok && _tox_slot0_ok, "Doubles Toxic Spikes affected only player slot 1 on switch-in");
+
+    _P0 = __effect_smoke_mon(133, 30, 160, [1, -1, -1, -1]);
+    _P1 = __effect_smoke_mon(25, 30, 160, [1, -1, -1, -1]);
+    _E0 = __effect_smoke_mon(263, 30, 160, [1, -1, -1, -1]);
+    _E1 = __effect_smoke_mon(19, 30, 160, [1, -1, -1, -1]);
+    __effect_smoke_slot_double(_pid, _P0, _P1, _E0, _E1);
+    __battle_field_set_hazard(_pid, 0, "stealth_rock", true);
+    _before0 = __battle_hp_now(_P0);
+    _before1 = __battle_hp_now(_P1);
+    __battle_apply_entry_hazards(_pid, 1);
+    _after0 = __battle_hp_now(_P0);
+    _after1 = __battle_hp_now(_P1);
+    var _rock_dmg = max(1, floor(__battle_hp_max(_P1) / 8));
+    __status_smoke_assert(_S, (_before1 - _after1) == _rock_dmg && _after0 == _before0, "Doubles Stealth Rock hit only player slot 1 for neutral damage");
+
+    _P0 = __effect_smoke_mon(133, 30, 160, [1, -1, -1, -1]);
+    _P1 = __effect_smoke_mon(25, 30, 160, [1, -1, -1, -1]);
+    _E0 = __effect_smoke_mon(263, 30, 160, [1, -1, -1, -1]);
+    _E1 = __effect_smoke_mon(19, 30, 160, [1, -1, -1, -1]);
+    __effect_smoke_slot_double(_pid, _P0, _P1, _E0, _E1);
+    __battle_field_set_hazard(_pid, 0, "sticky_web", true);
+    __battle_apply_entry_hazards(_pid, 1);
+    var _p1_stages = (variable_struct_exists(_P1, "_stages") && is_struct(variable_struct_get(_P1, "_stages"))) ? variable_struct_get(_P1, "_stages") : {};
+    var _p0_stages = (variable_struct_exists(_P0, "_stages") && is_struct(variable_struct_get(_P0, "_stages"))) ? variable_struct_get(_P0, "_stages") : {};
+    var _p1_spe = (is_struct(_p1_stages) && variable_struct_exists(_p1_stages, "spe") && is_real(variable_struct_get(_p1_stages, "spe"))) ? variable_struct_get(_p1_stages, "spe") : 0;
+    var _p0_spe = (is_struct(_p0_stages) && variable_struct_exists(_p0_stages, "spe") && is_real(variable_struct_get(_p0_stages, "spe"))) ? variable_struct_get(_p0_stages, "spe") : 0;
+    __status_smoke_assert(_S, _p1_spe == -1 && _p0_spe == 0, "Doubles Sticky Web dropped Speed only for player slot 1");
+
+    _P0 = __effect_smoke_mon(133, 30, 160, [1, -1, -1, -1]);
+    _P1 = __effect_smoke_mon(25, 30, 160, [1, -1, -1, -1]);
+    _E0 = __effect_smoke_mon(263, 30, 160, [1, -1, -1, -1]);
+    _E1 = __effect_smoke_mon(19, 30, 160, [1, -1, -1, -1]);
+    variable_struct_set(_P1, "ability", "levitate");
+    __effect_smoke_slot_double(_pid, _P0, _P1, _E0, _E1);
+    __battle_field_set_hazard(_pid, 0, "spikes", 2);
+    __battle_field_set_hazard(_pid, 0, "toxic_spikes", 2);
+    __battle_field_set_hazard(_pid, 0, "sticky_web", true);
+    __battle_field_set_hazard(_pid, 0, "stealth_rock", true);
+    _before1 = __battle_hp_now(_P1);
+    __battle_apply_entry_hazards(_pid, 1);
+    _after1 = __battle_hp_now(_P1);
+    _p1_stages = (variable_struct_exists(_P1, "_stages") && is_struct(variable_struct_get(_P1, "_stages"))) ? variable_struct_get(_P1, "_stages") : {};
+    _p1_spe = (is_struct(_p1_stages) && variable_struct_exists(_p1_stages, "spe") && is_real(variable_struct_get(_p1_stages, "spe"))) ? variable_struct_get(_p1_stages, "spe") : 0;
+    _rock_dmg = max(1, floor(__battle_hp_max(_P1) / 8));
+    __status_smoke_assert(_S,
+        (_before1 - _after1) == _rock_dmg &&
+        !__effect_smoke_has_status(_P1, "toxic") &&
+        !__effect_smoke_has_status(_P1, "poison") &&
+        _p1_spe == 0,
+        "Doubles Levitate switch-in ignored grounded hazards but still took Stealth Rock damage");
+
+    _P0 = __effect_smoke_mon(133, 30, 160, [1, -1, -1, -1]);
+    _P1 = __effect_smoke_mon(559, 30, 160, [1, -1, -1, -1]);
+    _E0 = __effect_smoke_mon(263, 30, 160, [1, -1, -1, -1]);
+    _E1 = __effect_smoke_mon(19, 30, 160, [1, -1, -1, -1]);
+    variable_struct_set(_P1, "type1", 4);
+    variable_struct_set(_P1, "type2", -1);
+    variable_struct_set(_P1, "types", [4]);
+    if (variable_struct_exists(_P1, "mon") && is_struct(variable_struct_get(_P1, "mon"))){
+        var _p1_mon = variable_struct_get(_P1, "mon");
+        variable_struct_set(_p1_mon, "type1", 4);
+        variable_struct_set(_p1_mon, "type2", -1);
+        variable_struct_set(_p1_mon, "types", [4]);
+    }
+    __effect_smoke_slot_double(_pid, _P0, _P1, _E0, _E1);
+    __battle_field_set_hazard(_pid, 0, "toxic_spikes", 2);
+    __battle_apply_entry_hazards(_pid, 1);
+    var _tox_layers_after_absorb = __battle_field_get_hazard_or(_pid, 0, "toxic_spikes", -1);
+    __status_smoke_assert(_S,
+        _tox_layers_after_absorb == 0 &&
+        !__effect_smoke_has_status(_P1, "toxic") &&
+        !__effect_smoke_has_status(_P1, "poison"),
+        "Doubles Poison-type switch-in absorbed Toxic Spikes from its own side");
+
+    _P0 = __effect_smoke_mon(133, 30, 160, [1, -1, -1, -1]);
+    _P1 = __effect_smoke_mon(25, 30, 160, [1, -1, -1, -1]);
+    _E0 = __effect_smoke_mon(263, 30, 160, [1, -1, -1, -1]);
+    _E1 = __effect_smoke_mon(19, 30, 160, [1, -1, -1, -1]);
+    variable_struct_set(_P1, "ability", "magic guard");
+    __effect_smoke_slot_double(_pid, _P0, _P1, _E0, _E1);
+    __battle_field_set_hazard(_pid, 0, "spikes", 2);
+    __battle_field_set_hazard(_pid, 0, "stealth_rock", true);
+    __battle_field_set_hazard(_pid, 0, "toxic_spikes", 1);
+    __battle_field_set_hazard(_pid, 0, "sticky_web", true);
+    _before1 = __battle_hp_now(_P1);
+    __battle_apply_entry_hazards(_pid, 1);
+    _after1 = __battle_hp_now(_P1);
+    _p1_stages = (variable_struct_exists(_P1, "_stages") && is_struct(variable_struct_get(_P1, "_stages"))) ? variable_struct_get(_P1, "_stages") : {};
+    _p1_spe = (is_struct(_p1_stages) && variable_struct_exists(_p1_stages, "spe") && is_real(variable_struct_get(_p1_stages, "spe"))) ? variable_struct_get(_p1_stages, "spe") : 0;
+    __status_smoke_assert(_S,
+        _after1 == _before1 &&
+        (__effect_smoke_has_status(_P1, "poison") || __effect_smoke_has_status(_P1, "toxic")) &&
+        _p1_spe == -1,
+        "Doubles Magic Guard blocked Spikes and Stealth Rock damage without blocking Toxic Spikes or Sticky Web");
+
+    var _fails = variable_struct_get(_S, "fail_count");
+    __status_smoke_finish(_pid, _S, (_fails == 0) ? "completed" : "failed");
+    return (_fails == 0);
+}
+
 function test_battle_visual_target_smoke_start(_auto_close = false){
     var _pid = 0;
     if (battle_is_open(_pid)) battle_close(_pid);
@@ -2484,6 +2763,27 @@ function __effect_smoke_slot(_pid, _A, _D, _mode = "trainer"){
     variable_struct_set(_B, "_battle_mode", _mode);
     variable_struct_set(_B, "actor", [_A, _D]);
     variable_struct_set(_B, "_field", __battle_field_defaults());
+    variable_struct_set(_B, "theme", {
+        col_bg: make_color_rgb(184,224,200),
+        col_outline: make_color_rgb(72,88,80),
+        col_panel: make_color_rgb(208,232,224),
+        col_hp_green: make_color_rgb(120,216,88),
+        col_hp_yell: make_color_rgb(248,208,56),
+        col_hp_red: make_color_rgb(232,72,56),
+        col_text: c_white,
+        col_dialog_text: make_color_rgb(36, 52, 40),
+        col_ui_text: make_color_rgb(36, 52, 40),
+        col_ui_highlight: make_color_rgb(72, 88, 80),
+        platform_enemy_sprite: spr_opponentplatform,
+        platform_enemy_index: 3,
+        platform_enemy_scale: 1,
+        platform_enemy_offset: { x: 0, y: 0 },
+        platform_player_sprite: spr_playerplatform,
+        platform_player_index: 3,
+        platform_player_scale: 1,
+        platform_player_offset: { x: 0, y: -28 }
+    });
+    try { if (!is_undefined(__battle_theme_apply_area_type)) __battle_theme_apply_area_type(_B, "forest", {}); } catch (e_effect_theme) {}
     return _B;
 }
 
@@ -2503,6 +2803,27 @@ function __effect_smoke_slot_double(_pid, _P0, _P1, _E0, _E1, _mode = "trainer")
     variable_struct_set(_B, "active_per_side", 2);
     variable_struct_set(_B, "actor", [_P0, _P1, _E0, _E1]);
     variable_struct_set(_B, "_field", __battle_field_defaults());
+    variable_struct_set(_B, "theme", {
+        col_bg: make_color_rgb(184,224,200),
+        col_outline: make_color_rgb(72,88,80),
+        col_panel: make_color_rgb(208,232,224),
+        col_hp_green: make_color_rgb(120,216,88),
+        col_hp_yell: make_color_rgb(248,208,56),
+        col_hp_red: make_color_rgb(232,72,56),
+        col_text: c_white,
+        col_dialog_text: make_color_rgb(36, 52, 40),
+        col_ui_text: make_color_rgb(36, 52, 40),
+        col_ui_highlight: make_color_rgb(72, 88, 80),
+        platform_enemy_sprite: spr_opponentplatform,
+        platform_enemy_index: 3,
+        platform_enemy_scale: 1,
+        platform_enemy_offset: { x: 0, y: 0 },
+        platform_player_sprite: spr_playerplatform,
+        platform_player_index: 3,
+        platform_player_scale: 1,
+        platform_player_offset: { x: 0, y: -28 }
+    });
+    try { if (!is_undefined(__battle_theme_apply_area_type)) __battle_theme_apply_area_type(_B, "forest", {}); } catch (e_effect_theme_double) {}
     return _B;
 }
 
@@ -3235,6 +3556,37 @@ function test_battle_effect_173_177_224_smoke_start(_auto_close = false){
     try { _help_fail_ok = !variable_struct_exists(_A, "_helping_hand_bonus"); } catch (e_help_smoke) { _help_fail_ok = true; }
     __status_smoke_assert(_S, _help_fail_ok, "effect 177 Helping Hand fails cleanly in the current singles battle setup");
 
+    var _styled_parts = __dlg_style_line_parts("Pikachu was hit by Double Slap (3 times)!", c_white);
+    var _multihit_red_ok = false;
+    for (var _spi = 0; _spi < array_length(_styled_parts); ++_spi){
+        var _part = _styled_parts[_spi];
+        if (!is_struct(_part)) continue;
+        if (!variable_struct_exists(_part, "text") || !variable_struct_exists(_part, "color")) continue;
+        if (string(variable_struct_get(_part, "text")) == "(3 times)" && variable_struct_get(_part, "color") == c_red){
+            _multihit_red_ok = true;
+            break;
+        }
+    }
+    __status_smoke_assert(_S, _multihit_red_ok, "Multi-hit dialog styling keeps the hit-count text red even when the move name is highlighted");
+
+    var _assist_user = __effect_smoke_mon(133, 30, 120, [274, -1, -1, -1]);
+    var _assist_ally = __effect_smoke_mon(25, 30, 120, [270, -1, -1, -1]);
+    var _assist_enemy_a = __effect_smoke_mon(10, 30, 120, [1, -1, -1, -1]);
+    var _assist_enemy_b = __effect_smoke_mon(19, 30, 120, [1, -1, -1, -1]);
+    __effect_smoke_slot_double(_pid, _assist_user, _assist_ally, _assist_enemy_a, _assist_enemy_b);
+    __battle_apply_called_move(_pid, _assist_user, _assist_enemy_a, 274, 270);
+    var _called_help_ok = variable_struct_exists(_assist_ally, "_helping_hand_bonus") && variable_struct_get(_assist_ally, "_helping_hand_bonus") == 1.5;
+    __status_smoke_assert(_S, _called_help_ok, "Called-move targeting in doubles re-resolved Helping Hand onto the ally from move metadata");
+
+    _assist_user = __effect_smoke_mon(133, 30, 120, [274, -1, -1, -1]);
+    _assist_ally = __effect_smoke_mon(25, 30, 120, [281, -1, -1, -1]);
+    _assist_enemy_a = __effect_smoke_mon(10, 30, 120, [266, -1, -1, -1]);
+    _assist_enemy_b = __effect_smoke_mon(19, 30, 120, [270, -1, -1, -1]);
+    __effect_smoke_slot_double(_pid, _assist_user, _assist_ally, _assist_enemy_a, _assist_enemy_b);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 274, actor_index: 0, target_index: 2 });
+    var _assist_yawn_ok = status_system_has_status(_assist_enemy_a, "yawn") && !status_system_has_status(_assist_enemy_b, "yawn");
+    __status_smoke_assert(_S, _assist_yawn_ok, "effect 181 Assist used the ally move pool in doubles and targeted the chosen foe");
+
     // 184 Magic Coat: targeted status move is bounced back to the attacker.
     _A = __effect_smoke_mon(133, 30, 120, [281, -1, -1, -1]);
     _D = __effect_smoke_mon(10, 30, 120, [277, -1, -1, -1]);
@@ -3272,6 +3624,60 @@ function test_battle_effect_173_177_224_smoke_start(_auto_close = false){
 
 function test_battle_effect_173_177_224_smoke_update(_pid = 0){
     // Direct smoke completes synchronously in start().
+}
+
+function test_battle_assist_multihit_smoke_start(_auto_close = false){
+    var _pid = 0;
+    if (battle_is_open(_pid)) battle_close(_pid);
+
+    var _S = {
+        pid: _pid,
+        tag: "assist-multihit-ui",
+        global_name: "DEV_ASSIST_MULTIHIT_UI_SMOKE",
+        auto_close: (_auto_close == true),
+        state: "running",
+        turn_counter: 0,
+        pass_count: 0,
+        fail_count: 0,
+        started_ms: current_time
+    };
+    global.DEV_ASSIST_MULTIHIT_UI_SMOKE = _S;
+    show_debug_message("[smoke][assist-multihit-ui] starting Assist/multi-hit dialog smoke");
+
+    var _styled_parts = __dlg_style_line_parts("Pikachu was hit by Double Slap (3 times)!", c_white);
+    var _multihit_red_ok = false;
+    for (var _spi = 0; _spi < array_length(_styled_parts); ++_spi){
+        var _part = _styled_parts[_spi];
+        if (!is_struct(_part)) continue;
+        if (!variable_struct_exists(_part, "text") || !variable_struct_exists(_part, "color")) continue;
+        if (string(variable_struct_get(_part, "text")) == "(3 times)" && variable_struct_get(_part, "color") == c_red){
+            _multihit_red_ok = true;
+            break;
+        }
+    }
+    __status_smoke_assert(_S, _multihit_red_ok, "Multi-hit dialog styling keeps the hit-count text red even when the move name is highlighted");
+
+    var _assist_user = __effect_smoke_mon(133, 30, 120, [274, -1, -1, -1]);
+    var _assist_ally = __effect_smoke_mon(25, 30, 120, [281, -1, -1, -1]);
+    var _assist_enemy_a = __effect_smoke_mon(10, 30, 120, [266, -1, -1, -1]);
+    var _assist_enemy_b = __effect_smoke_mon(19, 30, 120, [270, -1, -1, -1]);
+    __effect_smoke_slot_double(_pid, _assist_user, _assist_ally, _assist_enemy_a, _assist_enemy_b);
+    __battle_perform_action_impl(_pid, { slot: 0, move_id: 274, actor_index: 0, target_index: 2 });
+    var _assist_yawn_ok = status_system_has_status(_assist_enemy_a, "yawn") && !status_system_has_status(_assist_enemy_b, "yawn");
+    __status_smoke_assert(_S, _assist_yawn_ok, "Assist in doubles pulled a valid ally move and applied it to the chosen foe");
+
+    var _assist_call_user = __effect_smoke_mon(133, 30, 120, [274, -1, -1, -1]);
+    var _assist_call_ally = __effect_smoke_mon(25, 30, 120, [270, -1, -1, -1]);
+    var _assist_call_enemy_a = __effect_smoke_mon(10, 30, 120, [266, -1, -1, -1]);
+    var _assist_call_enemy_b = __effect_smoke_mon(19, 30, 120, [270, -1, -1, -1]);
+    __effect_smoke_slot_double(_pid, _assist_call_user, _assist_call_ally, _assist_call_enemy_a, _assist_call_enemy_b);
+    __battle_apply_called_move(_pid, _assist_call_user, _assist_call_enemy_a, 274, 270);
+    var _called_help_ok = variable_struct_exists(_assist_call_ally, "_helping_hand_bonus") && variable_struct_get(_assist_call_ally, "_helping_hand_bonus") == 1.5;
+    __status_smoke_assert(_S, _called_help_ok, "Called-move targeting in doubles re-resolved Helping Hand onto the ally from move metadata");
+
+    var _fails = variable_struct_get(_S, "fail_count");
+    __status_smoke_finish(_pid, _S, (_fails == 0) ? "completed" : "failed");
+    return (_fails == 0);
 }
 
 function test_battle_effect_174_198_smoke_start(_auto_close = false){

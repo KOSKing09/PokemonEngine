@@ -35,8 +35,17 @@ function __battle_field_defaults(){
 
 // Convert an actor index to its side index (0 = player/left, 1 = opponent/right).
 function __battle_field_side_index_for_actor(_actor_index){
-    if (is_real(_actor_index) && _actor_index > 0) return 1;
-    return 0;
+    if (!is_real(_actor_index)) return 0;
+    var _idx = floor(_actor_index);
+    if (!is_undefined(__battle_actor_side)){
+        var _side = __battle_actor_side(_idx);
+        if (is_real(_side) && _side >= 0) return _side;
+    }
+    if (_idx < 0) return 0;
+    var _slot = __battle_reference_slot();
+    var _format = (is_struct(_slot) && variable_struct_exists(_slot, "battle_format")) ? string(variable_struct_get(_slot, "battle_format")) : "single";
+    if (_format == "double") return (_idx <= 1) ? 0 : 1;
+    return (_idx == 0) ? 0 : 1;
 }
 
 // Return the opposing side index for a given actor index.

@@ -695,21 +695,37 @@ function __dlg_style_line_parts(_line, _base_color = c_white){
         return _parts;
     }
 
+    var _mh_start = string_pos("(", _line);
+    var _mh_times = string_pos(" time", string_lower(_line));
+    var _mh_end = 0;
+    if (_mh_start > 0 && _mh_times > _mh_start) _mh_end = string_pos(")", _line);
+
     var _move = __dlg_find_move_match(_line);
-    if (is_struct(_move)){
+    if (is_struct(_move) && _mh_start > 0 && _mh_times > _mh_start && _mh_end > _mh_times){
         var _pos_move = variable_struct_get(_move, "pos");
         var _len_move = variable_struct_get(_move, "len");
-        if (_pos_move > 1) array_push(_parts, { text: string_copy(_line, 1, _pos_move - 1), color: _base_color });
-        array_push(_parts, { text: variable_struct_get(_move, "text"), color: variable_struct_get(_move, "color") });
+        var _move_color = variable_struct_get(_move, "color");
         var _move_end = _pos_move + _len_move;
-        if (_move_end <= string_length(_line)) array_push(_parts, { text: string_copy(_line, _move_end, string_length(_line) - _move_end + 1), color: _base_color });
+        if (_pos_move > 1) array_push(_parts, { text: string_copy(_line, 1, _pos_move - 1), color: _base_color });
+        array_push(_parts, { text: variable_struct_get(_move, "text"), color: _move_color });
+        if (_mh_start > _move_end) array_push(_parts, { text: string_copy(_line, _move_end, _mh_start - _move_end), color: _base_color });
+        array_push(_parts, { text: string_copy(_line, _mh_start, _mh_end - _mh_start + 1), color: c_red });
+        var _mh_suffix = _mh_end + 1;
+        if (_mh_suffix <= string_length(_line)) array_push(_parts, { text: string_copy(_line, _mh_suffix, string_length(_line) - _mh_suffix + 1), color: _base_color });
         return _parts;
     }
 
-    var _mh_start = string_pos("(", _line);
-    var _mh_times = string_pos(" time", string_lower(_line));
+    if (is_struct(_move)){
+        var _pos_move_only = variable_struct_get(_move, "pos");
+        var _len_move_only = variable_struct_get(_move, "len");
+        if (_pos_move_only > 1) array_push(_parts, { text: string_copy(_line, 1, _pos_move_only - 1), color: _base_color });
+        array_push(_parts, { text: variable_struct_get(_move, "text"), color: variable_struct_get(_move, "color") });
+        var _move_end_only = _pos_move_only + _len_move_only;
+        if (_move_end_only <= string_length(_line)) array_push(_parts, { text: string_copy(_line, _move_end_only, string_length(_line) - _move_end_only + 1), color: _base_color });
+        return _parts;
+    }
+
     if (_mh_start > 0 && _mh_times > _mh_start){
-        var _mh_end = string_pos(")", _line);
         if (_mh_end > _mh_times){
             if (_mh_start > 1) array_push(_parts, { text: string_copy(_line, 1, _mh_start - 1), color: _base_color });
             array_push(_parts, { text: string_copy(_line, _mh_start, _mh_end - _mh_start + 1), color: c_red });

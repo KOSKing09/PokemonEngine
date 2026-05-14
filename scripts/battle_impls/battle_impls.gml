@@ -590,10 +590,8 @@ function __battle_has_perfect_target_lock(_attacker, _defender){
 function __battle_should_ignore_accuracy(_attacker, _defender, _move_id){
     if (__battle_has_perfect_target_lock(_attacker, _defender)) return true;
     try {
-        if (is_real(_move_id) && variable_global_exists("_moves") && is_array(global._moves) && _move_id >= 0 && _move_id < array_length(global._moves)){
-            var _move_entry = global._moves[_move_id];
-            if (is_struct(_move_entry) && variable_struct_exists(_move_entry, "effect_id") && is_real(variable_struct_get(_move_entry, "effect_id")) && floor(variable_struct_get(_move_entry, "effect_id")) == 217) return true;
-        }
+        var _ignore_acc_eid = (!is_undefined(__battle_move_effect_id_safe) ? __battle_move_effect_id_safe(_move_id) : undefined);
+        if (is_real(_ignore_acc_eid) && floor(_ignore_acc_eid) == 217) return true;
     } catch (e_miracle_acc) {}
     return false;
 }
@@ -682,10 +680,7 @@ function __battle_calc_damage_impl(_A, _D, _move_id, _power){
         }
         try {
             var _crit_eid_impl = undefined;
-            if (variable_global_exists("_moves") && is_array(global._moves) && is_real(_move_id) && _move_id >= 0 && _move_id < array_length(global._moves)){
-                var _crit_move_impl = global._moves[_move_id];
-                if (is_struct(_crit_move_impl) && variable_struct_exists(_crit_move_impl, "effect_id") && is_real(variable_struct_get(_crit_move_impl, "effect_id"))) _crit_eid_impl = floor(variable_struct_get(_crit_move_impl, "effect_id"));
-            }
+            if (!is_undefined(__battle_move_effect_id_safe)) _crit_eid_impl = __battle_move_effect_id_safe(_move_id);
             if (is_real(_crit_eid_impl) && _crit_eid_impl == 44) crit_rate_level += 1;
         } catch (e_high_crit_impl) {}
         try {
@@ -1344,7 +1339,10 @@ function __bui_end_impl(_pid){
 function __battle_move_copycat_is_ignored(_move_id){
     try {
         if (!is_real(_move_id)) return true;
+        _move_id = floor(_move_id);
+        if (_move_id <= 0) return true;
         if (!variable_global_exists("_moves") || !is_array(global._moves)) return true;
+        if (_move_id >= array_length(global._moves)) return true;
         if (!is_struct(global._moves[_move_id])) return true;
         var ident = "";
         try { if (variable_struct_exists(global._moves[_move_id], "identifier")) ident = string(variable_struct_get(global._moves[_move_id], "identifier")); } catch (e_i) {}
@@ -1392,7 +1390,7 @@ function __battle_find_copycat_candidate(_pid, _user){
         }
         if (is_real(best_move)) return best_move;
         try {
-            if (variable_global_exists("lastMoveUsed_ID") && is_real(global.lastMoveUsed_ID) && !__battle_move_copycat_is_ignored(global.lastMoveUsed_ID)){
+            if (variable_global_exists("lastMoveUsed_ID") && is_real(global.lastMoveUsed_ID) && global.lastMoveUsed_ID > 0 && !__battle_move_copycat_is_ignored(global.lastMoveUsed_ID)){
                 return global.lastMoveUsed_ID;
             }
         } catch (e_glob) {}
@@ -1578,7 +1576,7 @@ function __battle_apply_move(_pid, _user, _target, _move){
                     if (variable_struct_exists(_target, "actor_index")) _t_idx_record = variable_struct_get(_target, "actor_index");
                     else if (variable_struct_exists(_target, "slot")) _t_idx_record = variable_struct_get(_target, "slot");
                 }
-                array_push(_hist_user, { move: _move, target: _target, target_index: _t_idx_record, ts: current_time });
+                array_push(_hist_user, { move: _move, target_index: _t_idx_record, ts: current_time });
                 if (array_length(_hist_user) > 8){
                     var _start_used = array_length(_hist_user) - 8;
                     var _trim_used = [];
@@ -1594,7 +1592,15 @@ function __battle_apply_move(_pid, _user, _target, _move){
                 if (is_struct(_target)){
                     if (!variable_struct_exists(_target, "_last_moves") || !is_array(variable_struct_get(_target, "_last_moves"))) variable_struct_set(_target, "_last_moves", []);
                     var _arr2 = variable_struct_get(_target, "_last_moves");
-                    array_push(_arr2, { move: _move, src: _user, ts: current_time });
+                    var _src_idx_record = undefined;
+                    var _src_name_record = "";
+                    try {
+                        if (is_struct(_user)){
+                            if (variable_struct_exists(_user, "actor_index") && is_real(variable_struct_get(_user, "actor_index"))) _src_idx_record = floor(variable_struct_get(_user, "actor_index"));
+                            if (variable_struct_exists(_user, "name")) _src_name_record = string(variable_struct_get(_user, "name"));
+                        }
+                    } catch (e_src_record_light) {}
+                    array_push(_arr2, { move: _move, src_index: _src_idx_record, src_name: _src_name_record, ts: current_time });
                     if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
                         try { if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE) show_debug_message("[battle][record_last_move] target=" + string(variable_struct_exists(_target, "name") ? variable_struct_get(_target, "name") : "?") + " move=" + string(_move) + " src=" + string(variable_struct_exists(_user, "name") ? variable_struct_get(_user, "name") : "?") + " ts=" + string(current_time)); } catch (e_dbg) {}
                     }

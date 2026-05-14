@@ -207,6 +207,14 @@ function __battle_anim_queue_hu(_pid, _hv, _fallback = undefined){
     return __battle_anim_queue_wu(_pid, _hv, _fb);
 }
 
+function __battle_anim_queue_ui_scale(_pid){
+    var _slot = __battle_ensure_slot(_pid);
+    if (!is_struct(_slot) || !variable_struct_exists(_slot, "_ui")) return 1;
+    var _ui = variable_struct_get(_slot, "_ui");
+    if (!is_struct(_ui) || !variable_struct_exists(_ui, "s") || !is_real(variable_struct_get(_ui, "s"))) return 1;
+    return max(1, real(variable_struct_get(_ui, "s")));
+}
+
 function battle_anim_queue_ensure(_pid_or_slot){
     var _slot = _pid_or_slot;
     if (is_real(_pid_or_slot)) _slot = __battle_ensure_slot(_pid_or_slot);
@@ -311,6 +319,12 @@ function __battle_anim_queue_color_for_weather(_id){
 
 function __battle_anim_move_effect_id(_move_id){
     if (!is_real(_move_id)) return undefined;
+    try {
+        if (!is_undefined(__battle_move_effect_id_safe)){
+            var _resolved_eid = __battle_move_effect_id_safe(_move_id);
+            if (is_real(_resolved_eid)) return floor(_resolved_eid);
+        }
+    } catch (e_safe_eid) {}
     try {
         if (variable_global_exists("_moves") && is_array(global._moves) && _move_id >= 0 && _move_id < array_length(global._moves)){
             var _mv = global._moves[_move_id];
@@ -548,7 +562,7 @@ function __battle_anim_sprite_for_type_id(_type_id){
         case 5:  return __battle_anim_sprite_from_names(["spr_anim_ground", "spr_type_ground", "spr_ground_anim", "sanim_ground"]);
         case 6:  return __battle_anim_sprite_from_names(["spr_anim_rock", "spr_type_rock", "spr_rock_anim", "sanim_rock"]);
         case 7:  return __battle_anim_sprite_from_names(["spr_anim_bug", "spr_type_bug", "spr_bug_anim", "sanim_bug"]);
-        case 8:  return __battle_anim_sprite_from_names(["spr_anim_ghost", "spr_type_ghost", "spr_ghost_anim", "sanim_ghost"]);
+        case 8:  return __battle_anim_sprite_from_names(["spr_ghost", "spr_anim_ghost", "spr_type_ghost", "spr_ghost_anim", "sanim_ghost"]);
         case 9:  return __battle_anim_sprite_from_names(["spr_anim_steel", "spr_type_steel", "spr_steel_anim", "sanim_steel"]);
         case 10: return __battle_anim_sprite_from_names(["spr_anim_fire", "spr_type_fire", "spr_fire_anim", "sanim_fire"]);
         case 11: return __battle_anim_sprite_from_names(["spr_anim_water", "spr_type_water", "spr_water_anim", "sanim_water"]);
@@ -563,6 +577,147 @@ function __battle_anim_sprite_for_type_id(_type_id){
     return undefined;
 }
 
+function __battle_anim_type_color(_type_id){
+    if (!is_real(_type_id)) return c_white;
+    switch (floor(_type_id)){
+        case 1:  return make_color_rgb(226, 218, 196);
+        case 2:  return make_color_rgb(224, 112, 82);
+        case 3:  return make_color_rgb(174, 204, 250);
+        case 4:  return make_color_rgb(184, 120, 214);
+        case 5:  return make_color_rgb(182, 132, 82);
+        case 6:  return make_color_rgb(176, 154, 104);
+        case 7:  return make_color_rgb(158, 206, 98);
+        case 8:  return make_color_rgb(146, 124, 196);
+        case 9:  return make_color_rgb(184, 198, 208);
+        case 10: return make_color_rgb(246, 112, 60);
+        case 11: return make_color_rgb(96, 176, 238);
+        case 12: return make_color_rgb(108, 210, 104);
+        case 13: return make_color_rgb(250, 220, 74);
+        case 14: return make_color_rgb(232, 128, 208);
+        case 15: return make_color_rgb(176, 232, 250);
+        case 16: return make_color_rgb(146, 126, 240);
+        case 17: return make_color_rgb(104, 94, 112);
+        case 18: return make_color_rgb(250, 164, 220);
+    }
+    return c_white;
+}
+
+function __battle_anim_move_identifier_safe(_move_id){
+    if (!is_real(_move_id)) return "";
+    try {
+        if (variable_global_exists("_moves") && is_array(global._moves) && _move_id >= 0 && _move_id < array_length(global._moves)){
+            var _move_data = global._moves[_move_id];
+            if (is_struct(_move_data) && variable_struct_exists(_move_data, "identifier")) return string_lower(string(variable_struct_get(_move_data, "identifier")));
+        }
+    } catch (_move_ident_error) { }
+    return "";
+}
+
+function __battle_anim_profile_set_particle(_profile, _kind, _sprite, _tint, _count, _duration, _scale, _spread_x, _spread_y, _speed_x, _speed_y, _gravity, _from_user){
+    var _has_particle_sprite = false;
+    try { _has_particle_sprite = (!is_undefined(_sprite) && sprite_exists(_sprite)); } catch (e_profile_particle_sprite) { _has_particle_sprite = false; }
+    _profile.visual_kind = _has_particle_sprite ? ((_from_user == true) ? "sprite_projectile" : "sprite_overlay") : "particle_burst";
+    _profile.particle_kind = string(_kind);
+    _profile.sprite = _sprite;
+    _profile.tint = _tint;
+    _profile.particle_count = max(1, floor(_count));
+    _profile.duration = max(1, floor(_duration));
+    _profile.scale = (is_real(_scale) ? real(_scale) : 1);
+    _profile.spread_x = (is_real(_spread_x) ? real(_spread_x) : 18);
+    _profile.spread_y = (is_real(_spread_y) ? real(_spread_y) : 14);
+    _profile.speed_x = (is_real(_speed_x) ? real(_speed_x) : 0);
+    _profile.speed_y = (is_real(_speed_y) ? real(_speed_y) : -10);
+    _profile.gravity = (is_real(_gravity) ? real(_gravity) : 0);
+    _profile.from_user = (_from_user == true);
+    return _profile;
+}
+
+function __battle_anim_profile_set_sprite(_profile, _sprite, _tint, _duration, _scale, _offset_x, _offset_y, _projectile){
+    _profile.visual_kind = (_projectile == true) ? "sprite_projectile" : "sprite_overlay";
+    _profile.sprite = _sprite;
+    _profile.tint = _tint;
+    _profile.duration = max(1, floor(_duration));
+    _profile.scale = (is_real(_scale) ? real(_scale) : 1);
+    _profile.offset_x = (is_real(_offset_x) ? real(_offset_x) : 0);
+    _profile.offset_y = (is_real(_offset_y) ? real(_offset_y) : 0);
+    _profile.from_user = (_projectile == true);
+    return _profile;
+}
+
+function __battle_anim_hash_unit(_seed, _salt){
+    var _v = sin((real(_seed) + real(_salt) * 37.719) * 12.9898) * 43758.5453;
+    return abs(_v - floor(_v));
+}
+
+function __battle_anim_profile_distinctify(_profile, _move_id, _effect_index, _type_id, _ident, _family){
+    if (!is_struct(_profile)) return _profile;
+
+    var _move_index = is_real(_move_id) ? floor(_move_id) : 0;
+    var _effect_seed = is_real(_effect_index) ? floor(_effect_index) : -1;
+    var _type_seed = is_real(_type_id) ? floor(_type_id) : -1;
+    var _family_seed = string_length(string(_family)) * 41;
+    var _ident_seed = string_length(string(_ident)) * 131;
+    var _seed = (_move_index + 1) * 977 + (_effect_seed + 11) * 53 + (_type_seed + 7) * 89 + _ident_seed + _family_seed;
+
+    var _r0 = __battle_anim_hash_unit(_seed, 1);
+    var _r1 = __battle_anim_hash_unit(_seed, 2);
+    var _r2 = __battle_anim_hash_unit(_seed, 3);
+    var _r3 = __battle_anim_hash_unit(_seed, 4);
+    var _r4 = __battle_anim_hash_unit(_seed, 5);
+    var _r5 = __battle_anim_hash_unit(_seed, 6);
+    var _r6 = __battle_anim_hash_unit(_seed, 7);
+
+    var _power_factor = 0;
+    try {
+        if (variable_global_exists("_moves") && is_array(global._moves) && _move_index >= 0 && _move_index < array_length(global._moves)){
+            var _move_data = global._moves[_move_index];
+            if (is_struct(_move_data) && variable_struct_exists(_move_data, "power")){
+                var _power = variable_struct_get(_move_data, "power");
+                if (is_real(_power)) _power_factor = clamp(real(_power) / 120, 0, 1);
+            }
+        }
+    } catch (_move_power_error) { }
+
+    if (variable_struct_exists(_profile, "duration")){
+        _profile.duration = max(180, floor(real(_profile.duration) + floor((_r0 - 0.5) * 130) + floor(_power_factor * 90)));
+    }
+
+    if (variable_struct_exists(_profile, "scale")){
+        _profile.scale = max(0.25, real(_profile.scale) * (0.82 + _r1 * 0.42 + _power_factor * 0.22));
+    }
+
+    if (variable_struct_exists(_profile, "offset_x")) _profile.offset_x = real(_profile.offset_x) + floor((_r2 - 0.5) * 18);
+    if (variable_struct_exists(_profile, "offset_y")) _profile.offset_y = real(_profile.offset_y) + floor((_r3 - 0.5) * 16);
+    if (variable_struct_exists(_profile, "spin_speed")) _profile.spin_speed = real(_profile.spin_speed) * (0.75 + _r4 * 0.7);
+    if (variable_struct_exists(_profile, "orbit_count")) _profile.orbit_count = max(0, floor(real(_profile.orbit_count) + floor(_r5 * 2)));
+    if (variable_struct_exists(_profile, "orbit_radius_x")) _profile.orbit_radius_x = max(2, real(_profile.orbit_radius_x) * (0.78 + _r2 * 0.6));
+    if (variable_struct_exists(_profile, "orbit_radius_y")) _profile.orbit_radius_y = max(2, real(_profile.orbit_radius_y) * (0.78 + _r3 * 0.6));
+
+    var _visual_kind = variable_struct_exists(_profile, "visual_kind") ? string(_profile.visual_kind) : "none";
+    if (_visual_kind == "particle_burst"){
+        _profile.particle_count = max(2, floor(real(_profile.particle_count) + floor(_r0 * 5) + floor(_power_factor * 4)));
+        _profile.spread_x = max(2, real(_profile.spread_x) * (0.72 + _r1 * 0.75));
+        _profile.spread_y = max(2, real(_profile.spread_y) * (0.72 + _r2 * 0.75));
+        _profile.speed_x = real(_profile.speed_x) + (_r3 - 0.5) * 18;
+        _profile.speed_y = real(_profile.speed_y) + (_r4 - 0.5) * 14 - _power_factor * 8;
+        _profile.gravity = real(_profile.gravity) + (_r5 - 0.5) * 10;
+
+        var _kind = variable_struct_exists(_profile, "particle_kind") ? string(_profile.particle_kind) : "spark";
+        if (_kind == "type" || _kind == "impact"){
+            switch (floor(_r6 * 6)){
+                case 0: _profile.particle_kind = "spark"; break;
+                case 1: _profile.particle_kind = "slash"; break;
+                case 2: _profile.particle_kind = "wind"; break;
+                case 3: _profile.particle_kind = "ring"; break;
+                case 4: _profile.particle_kind = "orb"; break;
+                default: _profile.particle_kind = _kind; break;
+            }
+        }
+    }
+
+    return _profile;
+}
+
 function __battle_anim_effect_visual_profile(_effect_id, _move_id, _family){
     var _profile = {
         visual_kind: "none",
@@ -575,12 +730,142 @@ function __battle_anim_effect_visual_profile(_effect_id, _move_id, _family){
         orbit_radius_x: 18,
         orbit_radius_y: 9,
         spin_speed: 1,
-        tint: c_white
+        tint: c_white,
+        particle_kind: "spark",
+        particle_count: 10,
+        spread_x: 18,
+        spread_y: 14,
+        speed_x: 0,
+        speed_y: -10,
+        gravity: 0,
+        from_user: false
     };
 
     var _effect_index = is_real(_effect_id) ? floor(_effect_id) : -1;
     var _type_id = __battle_anim_move_type_id_safe(_move_id);
     var _type_sprite = __battle_anim_sprite_for_type_id(_type_id);
+    var _ident = __battle_anim_move_identifier_safe(_move_id);
+
+    var _sprite_hit = __battle_anim_sprite_from_names(["spr_hiteffect"]);
+    var _sprite_slash = __battle_anim_sprite_from_names(["spr_slash", "spr_scratch"]);
+    var _sprite_bite = __battle_anim_sprite_from_names(["spr_bite"]);
+    var _sprite_rock = __battle_anim_sprite_from_names(["spr_rock"]);
+    var _sprite_water = __battle_anim_sprite_from_names(["spr_raindrop"]);
+    var _sprite_sludge = __battle_anim_sprite_from_names(["spr_sludge", "spr_poison"]);
+    var _sprite_powder = __battle_anim_sprite_from_names(["spr_sleeppowder", "spr_seeded", "spr_seed_sprout"]);
+    var _sprite_gust = __battle_anim_sprite_from_names(["spr_gust"]);
+    var _sprite_burn = __battle_anim_sprite_from_names(["spr_burn"]);
+    var _sprite_para = __battle_anim_sprite_from_names(["spr_paralyze"]);
+    var _sprite_freeze = __battle_anim_sprite_from_names(["spr_frozen"]);
+    var _sprite_heal = __battle_anim_sprite_from_names(["spr_healing_halo", "spr_seed_sprout"]);
+    var _sprite_ghost = __battle_anim_sprite_from_names(["spr_ghost", "spr_anim_ghost", "spr_type_ghost", "spr_ghost_anim"]);
+    var _sprite_detect = __battle_anim_sprite_from_names(["spr_detect", "spr_protect", "spr_anim_protect", "spr_anim_detect"]);
+    var _sprite_help = __battle_anim_sprite_from_names(["spr_helpinghand", "spr_helping_hand", "spr_anim_helpinghand", "spr_healing_halo"]);
+
+    if (string_pos("sand", _ident) > 0 || _effect_index == 24){
+        return __battle_anim_profile_distinctify(__battle_anim_profile_set_particle(_profile, "sand", undefined, make_color_rgb(210, 186, 122), 34, 720, 0.95, 24, 12, 64, -8, 18, true), _move_id, _effect_index, _type_id, _ident, _family);
+    }
+
+    if (string_pos("mud", _ident) > 0 || _effect_index == 74){
+        return __battle_anim_profile_distinctify(__battle_anim_profile_set_particle(_profile, "mud", undefined, make_color_rgb(126, 92, 54), 28, 700, 1.05, 22, 14, 58, -10, 34, true), _move_id, _effect_index, _type_id, _ident, _family);
+    }
+
+    if (string_pos("water", _ident) > 0 || string_pos("aqua", _ident) > 0 || string_pos("surf", _ident) > 0 || string_pos("hydro", _ident) > 0 || _type_id == 11){
+        return __battle_anim_profile_distinctify(__battle_anim_profile_set_particle(_profile, "water_blast", undefined, make_color_rgb(112, 190, 252), 32, 700, 0.95, 26, 18, 68, -18, 16, true), _move_id, _effect_index, _type_id, _ident, _family);
+    }
+
+    if (string_pos("rock", _ident) > 0 || string_pos("stone", _ident) > 0 || _type_id == 6){
+        return __battle_anim_profile_distinctify(__battle_anim_profile_set_particle(_profile, "rock", _sprite_rock, make_color_rgb(176, 154, 104), 12, 640, 0.75, 20, 12, -26, -22, 44, true), _move_id, _effect_index, _type_id, _ident, _family);
+    }
+
+    if (string_pos("sludge", _ident) > 0 || string_pos("poison", _ident) > 0 || string_pos("toxic", _ident) > 0 || _type_id == 4 || _effect_index == 3 || _effect_index == 67){
+        return __battle_anim_profile_distinctify(__battle_anim_profile_set_particle(_profile, "blob", _sprite_sludge, make_color_rgb(178, 104, 208), 14, 680, 0.9, 18, 12, -18, -20, 26, true), _move_id, _effect_index, _type_id, _ident, _family);
+    }
+
+    if (string_pos("powder", _ident) > 0 || string_pos("spore", _ident) > 0 || _effect_index == 2 || _effect_index == 67 || _effect_index == 68){
+        return __battle_anim_profile_distinctify(__battle_anim_profile_set_particle(_profile, "powder", _sprite_powder, make_color_rgb(184, 228, 116), 20, 820, 0.7, 26, 22, 0, -16, -5, false), _move_id, _effect_index, _type_id, _ident, _family);
+    }
+
+    if (string_pos("leaf", _ident) > 0 || string_pos("vine", _ident) > 0 || _type_id == 12){
+        return __battle_anim_profile_distinctify(__battle_anim_profile_set_particle(_profile, "leaf", _sprite_powder, make_color_rgb(92, 210, 92), 14, 660, 0.8, 28, 14, -30, -18, 20, true), _move_id, _effect_index, _type_id, _ident, _family);
+    }
+
+    if (string_pos("gust", _ident) > 0 || string_pos("wind", _ident) > 0 || string_pos("air", _ident) > 0 || _type_id == 3){
+        if (!is_undefined(_sprite_gust)){
+            return __battle_anim_profile_distinctify(__battle_anim_profile_set_sprite(_profile, _sprite_gust, c_white, 760, 1.0, 0, -8, true), _move_id, _effect_index, _type_id, _ident, _family);
+        }
+        return __battle_anim_profile_distinctify(__battle_anim_profile_set_particle(_profile, "wind", _sprite_gust, make_color_rgb(190, 220, 250), 10, 720, 0.95, 28, 18, 58, -8, 0, true), _move_id, _effect_index, _type_id, _ident, _family);
+    }
+
+    if (string_pos("slash", _ident) > 0 || string_pos("scratch", _ident) > 0 || string_pos("claw", _ident) > 0 || _effect_index == 44){
+        if (!is_undefined(_sprite_slash)){
+            return __battle_anim_profile_distinctify(__battle_anim_profile_set_sprite(_profile, _sprite_slash, c_white, 500, 1.0, 0, -8, false), _move_id, _effect_index, _type_id, _ident, _family);
+        }
+        return __battle_anim_profile_distinctify(__battle_anim_profile_set_particle(_profile, "slash", _sprite_slash, make_color_rgb(246, 238, 220), 5, 460, 1.0, 24, 12, 0, -8, 0, false), _move_id, _effect_index, _type_id, _ident, _family);
+    }
+
+    if (string_pos("bite", _ident) > 0 || string_pos("fang", _ident) > 0 || string_pos("crunch", _ident) > 0){
+        if (!is_undefined(_sprite_bite)){
+            return __battle_anim_profile_distinctify(__battle_anim_profile_set_sprite(_profile, _sprite_bite, c_white, 500, 1.0, 0, -6, false), _move_id, _effect_index, _type_id, _ident, _family);
+        }
+        return __battle_anim_profile_distinctify(__battle_anim_profile_set_particle(_profile, "bite", _sprite_bite, make_color_rgb(235, 224, 200), 4, 500, 1.0, 18, 10, 0, -6, 0, false), _move_id, _effect_index, _type_id, _ident, _family);
+    }
+
+    if (string_pos("thunder", _ident) > 0 || string_pos("shock", _ident) > 0 || string_pos("volt", _ident) > 0 || _type_id == 13 || _effect_index == 7 || _effect_index == 153){
+        return __battle_anim_profile_distinctify(__battle_anim_profile_set_particle(_profile, "spark", _sprite_para, make_color_rgb(250, 232, 74), 16, 560, 0.85, 24, 18, 0, -22, 0, false), _move_id, _effect_index, _type_id, _ident, _family);
+    }
+
+    if (string_pos("ember", _ident) > 0 || string_pos("flame", _ident) > 0 || string_pos("fire", _ident) > 0 || string_pos("burn", _ident) > 0 || _type_id == 10 || _effect_index == 5){
+        return __battle_anim_profile_distinctify(__battle_anim_profile_set_particle(_profile, "flame", _sprite_burn, make_color_rgb(250, 112, 52), 16, 620, 0.8, 22, 16, -22, -28, -12, true), _move_id, _effect_index, _type_id, _ident, _family);
+    }
+
+    if (string_pos("ice", _ident) > 0 || string_pos("freeze", _ident) > 0 || string_pos("snow", _ident) > 0 || _type_id == 15 || _effect_index == 6){
+        return __battle_anim_profile_distinctify(__battle_anim_profile_set_particle(_profile, "ice", _sprite_freeze, make_color_rgb(180, 236, 255), 14, 660, 0.75, 22, 16, -18, -20, 18, true), _move_id, _effect_index, _type_id, _ident, _family);
+    }
+
+    if (string_pos("heal", _ident) > 0 || string_pos("recover", _ident) > 0 || string_pos("restore", _ident) > 0 || string_lower(string(_family)) == "heal"){
+        return __battle_anim_profile_distinctify(__battle_anim_profile_set_particle(_profile, "heal", _sprite_heal, make_color_rgb(118, 230, 154), 14, 760, 0.85, 24, 18, 0, -24, -16, false), _move_id, _effect_index, _type_id, _ident, _family);
+    }
+
+    if (string_pos("beam", _ident) > 0 || string_pos("blast", _ident) > 0 || string_pos("pulse", _ident) > 0 || string_pos("ray", _ident) > 0){
+        return __battle_anim_profile_distinctify(__battle_anim_profile_set_particle(_profile, "spark", _type_sprite, __battle_anim_type_color(_type_id), 22, 560, 0.8, 20, 12, -48, -6, 0, true), _move_id, _effect_index, _type_id, _ident, _family);
+    }
+
+    if (string_pos("punch", _ident) > 0 || string_pos("kick", _ident) > 0 || string_pos("chop", _ident) > 0 || string_pos("throw", _ident) > 0){
+        return __battle_anim_profile_distinctify(__battle_anim_profile_set_particle(_profile, "impact", _sprite_hit, make_color_rgb(244, 180, 122), 9, 460, 1.05, 18, 10, 0, -10, 0, false), _move_id, _effect_index, _type_id, _ident, _family);
+    }
+
+    if (string_pos("psych", _ident) > 0 || string_pos("mind", _ident) > 0 || string_pos("confusion", _ident) > 0 || string_pos("dream", _ident) > 0){
+        return __battle_anim_profile_distinctify(__battle_anim_profile_set_particle(_profile, "orb", _type_sprite, make_color_rgb(238, 122, 238), 18, 760, 0.82, 28, 22, 0, -18, -10, false), _move_id, _effect_index, _type_id, _ident, _family);
+    }
+
+    if (string_pos("shadow", _ident) > 0 || string_pos("ghost", _ident) > 0 || string_pos("hex", _ident) > 0 || string_pos("curse", _ident) > 0 || string_pos("night", _ident) > 0){
+        return __battle_anim_profile_distinctify(__battle_anim_profile_set_particle(_profile, "orb", _sprite_ghost, make_color_rgb(132, 92, 190), 16, 720, 0.9, 24, 20, -12, -12, -6, true), _move_id, _effect_index, _type_id, _ident, _family);
+    }
+
+    if (string_pos("metal", _ident) > 0 || string_pos("steel", _ident) > 0 || string_pos("iron", _ident) > 0){
+        return __battle_anim_profile_distinctify(__battle_anim_profile_set_particle(_profile, "slash", _sprite_slash, make_color_rgb(190, 206, 218), 8, 520, 0.95, 18, 10, 0, -8, 0, false), _move_id, _effect_index, _type_id, _ident, _family);
+    }
+
+    if (string_pos("bug", _ident) > 0 || string_pos("web", _ident) > 0 || string_pos("sting", _ident) > 0 || string_pos("pin", _ident) > 0){
+        return __battle_anim_profile_distinctify(__battle_anim_profile_set_particle(_profile, "leaf", _sprite_powder, make_color_rgb(156, 210, 78), 18, 620, 0.72, 26, 16, -28, -14, 10, true), _move_id, _effect_index, _type_id, _ident, _family);
+    }
+
+    if (string_pos("roar", _ident) > 0 || string_pos("sing", _ident) > 0 || string_pos("voice", _ident) > 0 || string_pos("sound", _ident) > 0 || string_pos("screech", _ident) > 0){
+        return __battle_anim_profile_distinctify(__battle_anim_profile_set_particle(_profile, "ring", undefined, make_color_rgb(244, 232, 164), 12, 700, 0.85, 30, 18, -8, -12, -4, true), _move_id, _effect_index, _type_id, _ident, _family);
+    }
+
+    if (string_pos("detect", _ident) > 0 || string_pos("protect", _ident) > 0 || string_pos("guard", _ident) > 0 || string_pos("shield", _ident) > 0){
+        return __battle_anim_profile_distinctify(__battle_anim_profile_set_particle(_profile, "ring", _sprite_detect, make_color_rgb(168, 236, 250), 10, 620, 0.95, 18, 16, 0, -18, -12, false), _move_id, _effect_index, _type_id, _ident, _family);
+    }
+
+    if (string_pos("helping-hand", _ident) > 0 || string_pos("helping_hand", _ident) > 0 || string_pos("helping", _ident) > 0 || string_pos("assist", _ident) > 0){
+        return __battle_anim_profile_distinctify(__battle_anim_profile_set_particle(_profile, "orb", _sprite_help, make_color_rgb(255, 224, 132), 12, 720, 0.9, 22, 18, 0, -22, -14, false), _move_id, _effect_index, _type_id, _ident, _family);
+    }
+
+    if (string_pos("dance", _ident) > 0 || string_pos("focus", _ident) > 0 || string_pos("calm", _ident) > 0 || string_pos("bulk", _ident) > 0 || string_pos("swords", _ident) > 0){
+        return __battle_anim_profile_distinctify(__battle_anim_profile_set_particle(_profile, "orb", _sprite_heal, make_color_rgb(238, 220, 132), 14, 760, 0.78, 22, 20, 0, -22, -14, false), _move_id, _effect_index, _type_id, _ident, _family);
+    }
 
     // Sleep status / Dream Eater-style sleep visuals.
     if (_effect_index == 2 || _effect_index == 9){
@@ -589,17 +874,17 @@ function __battle_anim_effect_visual_profile(_effect_id, _move_id, _family){
         _profile.duration = 820;
         _profile.scale = 1;
         _profile.offset_y = -28;
-        return _profile;
+        return __battle_anim_profile_distinctify(_profile, _move_id, _effect_index, _type_id, _ident, _family);
     }
 
     // Poison, burn, freeze, paralysis: prefer specific status sprite, then fall back to type animation sprite.
     if (_effect_index == 3){
         _profile.visual_kind = "sprite_overlay";
-        _profile.sprite = __battle_anim_sprite_from_names(["spr_status_poison", "spr_anim_poison_status", "spr_poison_status"]);
+        _profile.sprite = __battle_anim_sprite_from_names(["spr_poison", "spr_status_poison", "spr_anim_poison_status", "spr_poison_status"]);
         if (is_undefined(_profile.sprite)) _profile.sprite = _type_sprite;
         _profile.duration = 720;
         _profile.scale = 1;
-        return _profile;
+        return __battle_anim_profile_distinctify(_profile, _move_id, _effect_index, _type_id, _ident, _family);
     }
     if (_effect_index == 5){
         _profile.visual_kind = "sprite_overlay";
@@ -607,7 +892,7 @@ function __battle_anim_effect_visual_profile(_effect_id, _move_id, _family){
         if (is_undefined(_profile.sprite)) _profile.sprite = _type_sprite;
         _profile.duration = 720;
         _profile.scale = 1;
-        return _profile;
+        return __battle_anim_profile_distinctify(_profile, _move_id, _effect_index, _type_id, _ident, _family);
     }
     if (_effect_index == 6){
         _profile.visual_kind = "sprite_overlay";
@@ -615,7 +900,7 @@ function __battle_anim_effect_visual_profile(_effect_id, _move_id, _family){
         if (is_undefined(_profile.sprite)) _profile.sprite = _type_sprite;
         _profile.duration = 760;
         _profile.scale = 1;
-        return _profile;
+        return __battle_anim_profile_distinctify(_profile, _move_id, _effect_index, _type_id, _ident, _family);
     }
     if (_effect_index == 7){
         _profile.visual_kind = "sprite_overlay";
@@ -623,7 +908,7 @@ function __battle_anim_effect_visual_profile(_effect_id, _move_id, _family){
         if (is_undefined(_profile.sprite)) _profile.sprite = _type_sprite;
         _profile.duration = 700;
         _profile.scale = 1;
-        return _profile;
+        return __battle_anim_profile_distinctify(_profile, _move_id, _effect_index, _type_id, _ident, _family);
     }
 
     // Drain moves: Absorb / Mega Drain / Leech Life etc.
@@ -633,7 +918,7 @@ function __battle_anim_effect_visual_profile(_effect_id, _move_id, _family){
         if (is_undefined(_profile.sprite)) _profile.sprite = _type_sprite;
         _profile.duration = 760;
         _profile.scale = 1;
-        return _profile;
+        return __battle_anim_profile_distinctify(_profile, _move_id, _effect_index, _type_id, _ident, _family);
     }
 
     // Self-destruct / Explosion.
@@ -642,19 +927,15 @@ function __battle_anim_effect_visual_profile(_effect_id, _move_id, _family){
         _profile.sprite = __battle_anim_sprite_from_names(["spr_anim_explosion", "spr_explosion", "spr_boom", "spr_hiteffect"]);
         _profile.duration = 760;
         _profile.scale = 1.25;
-        return _profile;
+        return __battle_anim_profile_distinctify(_profile, _move_id, _effect_index, _type_id, _ident, _family);
     }
 
     // Generic damage/status fallback: use move type animation if present.
     if (!is_undefined(_type_sprite)){
-        _profile.visual_kind = "sprite_overlay";
-        _profile.sprite = _type_sprite;
-        _profile.duration = 560;
-        _profile.scale = 1;
-        return _profile;
+        return __battle_anim_profile_distinctify(__battle_anim_profile_set_sprite(_profile, _type_sprite, c_white, 560, 0.9, 0, -12, false), _move_id, _effect_index, _type_id, _ident, _family);
     }
 
-    return _profile;
+    return __battle_anim_profile_distinctify(__battle_anim_profile_set_particle(_profile, "impact", _sprite_hit, __battle_anim_color_for_family(_family), 8, 520, 0.9, 16, 10, 0, -10, 4, false), _move_id, _effect_index, _type_id, _ident, _family);
 }
 
 
@@ -685,6 +966,14 @@ function __battle_anim_queue_normalize(_slot, _spec){
                 _out.orbit_radius_y = _effect_visual_profile.orbit_radius_y;
                 _out.spin_speed = _effect_visual_profile.spin_speed;
                 _out.tint = _effect_visual_profile.tint;
+                _out.particle_kind = _effect_visual_profile.particle_kind;
+                _out.particle_count = _effect_visual_profile.particle_count;
+                _out.spread_x = _effect_visual_profile.spread_x;
+                _out.spread_y = _effect_visual_profile.spread_y;
+                _out.speed_x = _effect_visual_profile.speed_x;
+                _out.speed_y = _effect_visual_profile.speed_y;
+                _out.gravity = _effect_visual_profile.gravity;
+                _out.from_user = _effect_visual_profile.from_user;
                 _out.duration = __battle_anim_duration_for_family(_out.family, _effect_visual_profile.duration);
                 if (is_real(_effect_visual_profile.duration)) _out.duration = max(_out.duration, floor(_effect_visual_profile.duration));
             }
@@ -700,6 +989,14 @@ function __battle_anim_queue_normalize(_slot, _spec){
             if (variable_struct_exists(_spec, "orbit_radius_y") && is_real(variable_struct_get(_spec, "orbit_radius_y"))) _out.orbit_radius_y = variable_struct_get(_spec, "orbit_radius_y");
             if (variable_struct_exists(_spec, "spin_speed") && is_real(variable_struct_get(_spec, "spin_speed"))) _out.spin_speed = real(variable_struct_get(_spec, "spin_speed"));
             if (variable_struct_exists(_spec, "tint") && is_real(variable_struct_get(_spec, "tint"))) _out.tint = variable_struct_get(_spec, "tint");
+            if (variable_struct_exists(_spec, "particle_kind")) _out.particle_kind = string(variable_struct_get(_spec, "particle_kind"));
+            if (variable_struct_exists(_spec, "particle_count") && is_real(variable_struct_get(_spec, "particle_count"))) _out.particle_count = floor(variable_struct_get(_spec, "particle_count"));
+            if (variable_struct_exists(_spec, "spread_x") && is_real(variable_struct_get(_spec, "spread_x"))) _out.spread_x = real(variable_struct_get(_spec, "spread_x"));
+            if (variable_struct_exists(_spec, "spread_y") && is_real(variable_struct_get(_spec, "spread_y"))) _out.spread_y = real(variable_struct_get(_spec, "spread_y"));
+            if (variable_struct_exists(_spec, "speed_x") && is_real(variable_struct_get(_spec, "speed_x"))) _out.speed_x = real(variable_struct_get(_spec, "speed_x"));
+            if (variable_struct_exists(_spec, "speed_y") && is_real(variable_struct_get(_spec, "speed_y"))) _out.speed_y = real(variable_struct_get(_spec, "speed_y"));
+            if (variable_struct_exists(_spec, "gravity") && is_real(variable_struct_get(_spec, "gravity"))) _out.gravity = real(variable_struct_get(_spec, "gravity"));
+            if (variable_struct_exists(_spec, "from_user")) _out.from_user = (variable_struct_get(_spec, "from_user") == true);
             if (variable_struct_exists(_spec, "duration") && is_real(variable_struct_get(_spec, "duration"))) _out.duration = max(1, floor(variable_struct_get(_spec, "duration")));
             var _actor_index_move = undefined;
             if (variable_struct_exists(_spec, "actor") && is_struct(variable_struct_get(_spec, "actor")) && variable_struct_exists(variable_struct_get(_spec, "actor"), "actor_index") && is_real(variable_struct_get(variable_struct_get(_spec, "actor"), "actor_index"))){
@@ -773,6 +1070,24 @@ function __battle_anim_queue_normalize(_slot, _spec){
             _out.offset_y = (variable_struct_exists(_spec, "offset_y") && is_real(variable_struct_get(_spec, "offset_y"))) ? variable_struct_get(_spec, "offset_y") : _sy;
             // how many logical pixels the Z will rise over the duration
             _out.rise = (variable_struct_exists(_spec, "rise") && is_real(variable_struct_get(_spec, "rise"))) ? variable_struct_get(_spec, "rise") : 22;
+            break;
+        case "status_apply":
+        case "status_inflict":
+            _out.status = string_lower(string(variable_struct_exists(_spec, "status") ? variable_struct_get(_spec, "status") : ""));
+            if (_out.status == "paralysis" || _out.status == "poison" || _out.status == "toxic"){
+                _out.channel = "overlay";
+                _out.target_index = __battle_anim_queue_resolve_target_index(_slot, _spec);
+                if (variable_struct_exists(_spec, "target")) _out.actor = variable_struct_get(_spec, "target");
+                if (variable_struct_exists(_spec, "sprite")) _out.sprite = variable_struct_get(_spec, "sprite");
+                else if (_out.status == "paralysis") _out.sprite = __battle_anim_sprite_from_names(["spr_paralyze", "spr_status_paralyze", "spr_anim_paralyze"]);
+                else _out.sprite = __battle_anim_sprite_from_names(["spr_poison", "spr_status_poison", "spr_anim_poison_status", "spr_poison_status", "spr_anim_poison"]);
+                _out.scale = (variable_struct_exists(_spec, "scale") && is_real(variable_struct_get(_spec, "scale"))) ? real(variable_struct_get(_spec, "scale")) : 1;
+                _out.offset_y = (variable_struct_exists(_spec, "offset_y") && is_real(variable_struct_get(_spec, "offset_y"))) ? real(variable_struct_get(_spec, "offset_y")) : -14;
+                _out.duration = (variable_struct_exists(_spec, "duration") && is_real(variable_struct_get(_spec, "duration"))) ? max(1, floor(variable_struct_get(_spec, "duration"))) : 560;
+            } else {
+                _out.channel = "primary";
+                _out.target_index = __battle_anim_queue_resolve_target_index(_slot, _spec);
+            }
             break;
         case "stat_change_group":
         case "heal":
@@ -884,12 +1199,53 @@ function battle_anim_queue_enqueue(_pid_or_slot, _spec){
         if (variable_struct_exists(_norm, "orbit_radius_y")) _entry.orbit_radius_y = _norm.orbit_radius_y;
         if (variable_struct_exists(_norm, "spin_speed")) _entry.spin_speed = _norm.spin_speed;
         if (variable_struct_exists(_norm, "tint")) _entry.tint = _norm.tint;
+        if (variable_struct_exists(_norm, "particle_kind")) _entry.particle_kind = _norm.particle_kind;
+        if (variable_struct_exists(_norm, "particle_count")) _entry.particle_count = _norm.particle_count;
+        if (variable_struct_exists(_norm, "spread_x")) _entry.spread_x = _norm.spread_x;
+        if (variable_struct_exists(_norm, "spread_y")) _entry.spread_y = _norm.spread_y;
+        if (variable_struct_exists(_norm, "speed_x")) _entry.speed_x = _norm.speed_x;
+        if (variable_struct_exists(_norm, "speed_y")) _entry.speed_y = _norm.speed_y;
+        if (variable_struct_exists(_norm, "gravity")) _entry.gravity = _norm.gravity;
+        if (variable_struct_exists(_norm, "from_user")) _entry.from_user = _norm.from_user;
         if (variable_struct_exists(_norm, "move_id")) _entry.move_id = _norm.move_id;
         if (variable_struct_exists(_norm, "effect_id")) _entry.effect_id = _norm.effect_id;
         if (variable_struct_exists(_norm, "family")) _entry.family = _norm.family;
+        if (variable_struct_exists(_norm, "status")) _entry.status = _norm.status;
         // Allow callers to provide a base alpha for overlays so we can fade them independently
         if (variable_struct_exists(_norm, "alpha")) _entry.alpha = variable_struct_get(_norm, "alpha");
     // (alpha is computed by the draw-state for most overlays; no explicit copy needed)
+
+        if ((_entry.type == "status_apply" || _entry.type == "status_inflict") && variable_struct_exists(_entry, "status")){
+            var _entry_status = string_lower(string(variable_struct_get(_entry, "status")));
+            if (_entry_status != "paralysis" && _entry_status != "poison" && _entry_status != "toxic"){
+                array_push(_aq.overlays, _entry);
+                return;
+            }
+            try {
+                var _actor_par = undefined;
+                if (variable_struct_exists(_entry, "actor") && is_struct(variable_struct_get(_entry, "actor"))) _actor_par = variable_struct_get(_entry, "actor");
+                else if (variable_struct_exists(_slot, "actor") && is_array(variable_struct_get(_slot, "actor")) && is_real(_entry.target_index)){
+                    var _actors_par = variable_struct_get(_slot, "actor");
+                    var _idx_par = floor(_entry.target_index);
+                    if (_idx_par >= 0 && _idx_par < array_length(_actors_par)) _actor_par = _actors_par[_idx_par];
+                }
+                if (is_struct(_actor_par)){
+                    variable_struct_set(_actor_par, "_nudge_active", true);
+                    variable_struct_set(_actor_par, "_nudge_start_ms", current_time);
+                    variable_struct_set(_actor_par, "_nudge_dur", _entry.duration);
+                    variable_struct_set(_actor_par, "_nudge_mag", 5);
+                    variable_struct_set(_actor_par, "_nudge_dir", ((__battle_actor_side(_entry.target_index) == 0) ? 1 : -1));
+                }
+                if (_entry_status == "paralysis" && is_struct(_actor_par)){
+                    variable_struct_set(_actor_par, "_nudge_active", true);
+                    variable_struct_set(_actor_par, "_nudge_start_ms", current_time);
+                    variable_struct_set(_actor_par, "_nudge_dur", _entry.duration);
+                    variable_struct_set(_actor_par, "_nudge_mag", 5);
+                    variable_struct_set(_actor_par, "_nudge_dir", ((__battle_actor_side(_entry.target_index) == 0) ? 1 : -1));
+                }
+            } catch (e_par_nudge) {}
+        }
+
         array_push(_aq.overlays, _entry);
     } else {
         array_push(_aq.pending, _norm);
@@ -1221,6 +1577,64 @@ function __battle_anim_queue_build_draw_state(_pid, _slot, _entry){
                 tint: _tint_fx
             };
         }
+
+        if (_visual_kind == "sprite_projectile"){
+            var _src_idx_proj = undefined;
+            try {
+                if (variable_struct_exists(_entry, "actor") && is_struct(variable_struct_get(_entry, "actor"))) _src_idx_proj = __battle_anim_queue_find_actor_index_by_ref(_slot, variable_struct_get(_entry, "actor"));
+            } catch (e_src_idx_proj) { _src_idx_proj = undefined; }
+            try {
+                if (!is_real(_src_idx_proj) && variable_struct_exists(_entry, "actor") && is_struct(variable_struct_get(_entry, "actor"))){
+                    var _actor_proj_ref = variable_struct_get(_entry, "actor");
+                    if (variable_struct_exists(_actor_proj_ref, "actor_index") && is_real(variable_struct_get(_actor_proj_ref, "actor_index"))) _src_idx_proj = floor(variable_struct_get(_actor_proj_ref, "actor_index"));
+                }
+            } catch (e_src_idx_proj_field) {}
+            var _spr_count_proj = 1;
+            try { if (!is_undefined(_sprite_fx) && sprite_exists(_sprite_fx)) _spr_count_proj = max(1, sprite_get_number(_sprite_fx)); } catch (_sprite_proj_count_error) { _spr_count_proj = 1; }
+            var _frame_proj = clamp(floor(_prog * _spr_count_proj * 1.25), 0, max(0, _spr_count_proj - 1));
+            return {
+                kind: "sprite_projectile",
+                target_index: _idx_fx,
+                source_index: _src_idx_proj,
+                sprite: _sprite_fx,
+                frame: _frame_proj,
+                scale: _scale_fx,
+                alpha: 1 - max(0, (_prog - 0.84) / 0.16),
+                progress: _prog,
+                offset_x: _offset_x_fx,
+                offset_y: _offset_y_fx,
+                tint: _tint_fx
+            };
+        }
+
+        if (_visual_kind == "particle_burst"){
+            var _src_idx_fx = undefined;
+            try {
+                if (variable_struct_exists(_entry, "actor") && is_struct(variable_struct_get(_entry, "actor"))) _src_idx_fx = __battle_anim_queue_find_actor_index_by_ref(_slot, variable_struct_get(_entry, "actor"));
+            } catch (e_src_idx_fx) { _src_idx_fx = undefined; }
+            var _from_user_fx = (variable_struct_exists(_entry, "from_user") && variable_struct_get(_entry, "from_user") == true);
+            return {
+                kind: "particle_burst",
+                target_index: _idx_fx,
+                source_index: _src_idx_fx,
+                from_user: _from_user_fx,
+                sprite: _sprite_fx,
+                progress: _prog,
+                alpha: 1 - max(0, (_prog - 0.72) / 0.28),
+                scale: _scale_fx,
+                offset_x: _offset_x_fx,
+                offset_y: _offset_y_fx,
+                tint: _tint_fx,
+                particle_kind: (variable_struct_exists(_entry, "particle_kind") ? string(variable_struct_get(_entry, "particle_kind")) : "spark"),
+                particle_count: (variable_struct_exists(_entry, "particle_count") && is_real(variable_struct_get(_entry, "particle_count"))) ? max(1, floor(variable_struct_get(_entry, "particle_count"))) : 10,
+                spread_x: (variable_struct_exists(_entry, "spread_x") && is_real(variable_struct_get(_entry, "spread_x"))) ? __battle_anim_queue_wu(_pid, variable_struct_get(_entry, "spread_x"), variable_struct_get(_entry, "spread_x")) : __battle_anim_queue_wu(_pid, 18, 18),
+                spread_y: (variable_struct_exists(_entry, "spread_y") && is_real(variable_struct_get(_entry, "spread_y"))) ? __battle_anim_queue_hu(_pid, variable_struct_get(_entry, "spread_y"), variable_struct_get(_entry, "spread_y")) : __battle_anim_queue_hu(_pid, 14, 14),
+                speed_x: (variable_struct_exists(_entry, "speed_x") && is_real(variable_struct_get(_entry, "speed_x"))) ? __battle_anim_queue_wu(_pid, variable_struct_get(_entry, "speed_x"), variable_struct_get(_entry, "speed_x")) : 0,
+                speed_y: (variable_struct_exists(_entry, "speed_y") && is_real(variable_struct_get(_entry, "speed_y"))) ? __battle_anim_queue_hu(_pid, variable_struct_get(_entry, "speed_y"), variable_struct_get(_entry, "speed_y")) : __battle_anim_queue_hu(_pid, -10, -10),
+                gravity: (variable_struct_exists(_entry, "gravity") && is_real(variable_struct_get(_entry, "gravity"))) ? __battle_anim_queue_hu(_pid, variable_struct_get(_entry, "gravity"), variable_struct_get(_entry, "gravity")) : 0,
+                move_id: (variable_struct_exists(_entry, "move_id") && is_real(variable_struct_get(_entry, "move_id"))) ? floor(variable_struct_get(_entry, "move_id")) : -1
+            };
+        }
     }
     if (_type == "move"){
         var _family_mv = string_lower(string(variable_struct_exists(_entry, "family") ? variable_struct_get(_entry, "family") : "damage"));
@@ -1359,6 +1773,51 @@ function __battle_anim_queue_build_draw_state(_pid, _slot, _entry){
         var _smag_s = (variable_struct_exists(_entry, "slide_mag") && is_real(_entry.slide_mag)) ? _entry.slide_mag : 6;
         return { kind: "sprite_overlay", target_index: _idx_s, sprite: _sprite_s, frame: _frame_s, scale: _scale_s, alpha: _alpha_s, progress: _prog, offset_x: _offx_s, offset_y: _offy_apply, slide_dir: _sdir_s, slide_mag: _smag_s };
     }
+    if ((_type == "status_apply" || _type == "status_inflict") && variable_struct_exists(_entry, "status")){
+        var _status_apply = string_lower(string(variable_struct_get(_entry, "status")));
+        if (_status_apply == "paralysis" || _status_apply == "poison" || _status_apply == "toxic"){
+            var _idx_pz = (variable_struct_exists(_entry, "target_index") && is_real(_entry.target_index)) ? floor(_entry.target_index) : 0;
+            var _sprite_pz = (variable_struct_exists(_entry, "sprite") && !is_undefined(_entry.sprite)) ? _entry.sprite : ((_status_apply == "paralysis") ? spr_paralyze : spr_poison);
+            var _spr_count_pz = 1;
+            try { if (!is_undefined(_sprite_pz) && sprite_exists(_sprite_pz)) _spr_count_pz = max(1, sprite_get_number(_sprite_pz)); } catch (e_pz_count) { _spr_count_pz = 1; }
+            var _frame_pz = clamp(floor(_prog * _spr_count_pz * ((_status_apply == "paralysis") ? 1.2 : 1)), 0, max(0, _spr_count_pz - 1));
+            var _scale_pz = (variable_struct_exists(_entry, "scale") && is_real(_entry.scale)) ? real(_entry.scale) : 1;
+            var _offset_y_pz = (variable_struct_exists(_entry, "offset_y") && is_real(_entry.offset_y)) ? __battle_anim_queue_hu(_pid, _entry.offset_y, _entry.offset_y) : __battle_anim_queue_hu(_pid, -14, -14);
+            var _alpha_pz = 1 - max(0, (_prog - 0.62) / 0.38);
+            if (_status_apply == "paralysis"){
+                var _flip_phase_pz = floor(_prog * 9) mod 2;
+                var _shake_wave_pz = sin(_prog * pi * 8);
+                var _offset_x_pz = __battle_anim_queue_wu(_pid, _shake_wave_pz * 3, _shake_wave_pz * 3);
+                return {
+                    kind: "sprite_overlay",
+                    target_index: _idx_pz,
+                    sprite: _sprite_pz,
+                    frame: _frame_pz,
+                    scale_x: ((_flip_phase_pz == 0) ? -_scale_pz : _scale_pz),
+                    scale_y: _scale_pz,
+                    alpha: _alpha_pz,
+                    progress: _prog,
+                    offset_x: _offset_x_pz,
+                    offset_y: _offset_y_pz,
+                    slide_dir: 0,
+                    slide_mag: 0
+                };
+            }
+            return {
+                kind: "sprite_overlay",
+                target_index: _idx_pz,
+                sprite: _sprite_pz,
+                frame: _frame_pz,
+                scale: _scale_pz,
+                alpha: _alpha_pz,
+                progress: _prog,
+                offset_x: 0,
+                offset_y: _offset_y_pz,
+                slide_dir: 0,
+                slide_mag: 0
+            };
+        }
+    }
     if (_type == "stat_change"){
         var _idx = (variable_struct_exists(_entry, "target_index") && is_real(_entry.target_index)) ? floor(_entry.target_index) : 0;
         var _dir = (variable_struct_exists(_entry, "direction") && is_real(_entry.direction)) ? _entry.direction : 0;
@@ -1424,6 +1883,7 @@ function __battle_anim_queue_draw_states(_pid, _states){
     var _player_cy = _player_cy_base + _offy;
     var _enemy_cx = _enemy_cx_base + _offx;
     var _enemy_cy = _enemy_cy_base + _offy;
+    var _ui_scale_anim = __battle_anim_queue_ui_scale(_pid);
     var _full_x1_base = __battle_anim_queue_xu(_pid, 0);
     var _full_y1_base = __battle_anim_queue_yu(_pid, 0);
     var _full_x2_base = __battle_anim_queue_xu(_pid, 240);
@@ -1636,6 +2096,192 @@ function __battle_anim_queue_draw_states(_pid, _states){
             draw_rectangle(_sf0, _sf1, _sf2, _sf3, false);
             draw_set_alpha(1);
             draw_set_color(c_white);
+        } else if (_kind == "sprite_projectile"){
+            var _idx_pr = (variable_struct_exists(_st, "target_index") && is_real(_st.target_index)) ? floor(_st.target_index) : 0;
+            var _target_center_pr = __battle_anim_queue_actor_center(_pid, _idx_pr);
+            var _tx_pr = (is_array(_target_center_pr) && array_length(_target_center_pr) >= 2) ? _target_center_pr[0] + _offx : _enemy_cx;
+            var _ty_pr = (is_array(_target_center_pr) && array_length(_target_center_pr) >= 2) ? _target_center_pr[1] + _offy : _enemy_cy;
+            var _sx_pr = _player_cx;
+            var _sy_pr = _player_cy;
+            if (variable_struct_exists(_st, "source_index") && is_real(_st.source_index)){
+                var _source_center_pr = __battle_anim_queue_actor_center(_pid, floor(_st.source_index));
+                if (is_array(_source_center_pr) && array_length(_source_center_pr) >= 2){
+                    _sx_pr = _source_center_pr[0] + _offx;
+                    _sy_pr = _source_center_pr[1] + _offy;
+                }
+            }
+            var _p_pr = clamp((variable_struct_exists(_st, "progress") && is_real(_st.progress)) ? _st.progress : 0, 0, 1);
+            var _travel_pr = clamp(_p_pr / 0.78, 0, 1);
+            var _ease_pr = 1 - power(1 - _travel_pr, 2);
+            var _dir_pr = sign(_tx_pr - _sx_pr);
+            if (_dir_pr == 0) _dir_pr = 1;
+            var _overshoot_pr = __battle_anim_queue_wu(_pid, 42, 42) * max(0, (_p_pr - 0.78) / 0.22) * _dir_pr;
+            var _arc_pr = sin(_travel_pr * pi) * __battle_anim_queue_hu(_pid, 12, 12);
+            var _x_pr = lerp(_sx_pr, _tx_pr, _ease_pr) + _overshoot_pr;
+            var _y_pr = lerp(_sy_pr, _ty_pr, _ease_pr) - _arc_pr;
+            if (variable_struct_exists(_st, "offset_x") && is_real(_st.offset_x)) _x_pr += _st.offset_x;
+            if (variable_struct_exists(_st, "offset_y") && is_real(_st.offset_y)) _y_pr += _st.offset_y;
+            var _sprite_pr = variable_struct_exists(_st, "sprite") ? _st.sprite : undefined;
+            var _has_sprite_pr = false;
+            try { _has_sprite_pr = (!is_undefined(_sprite_pr) && sprite_exists(_sprite_pr)); } catch (e_sprite_pr) { _has_sprite_pr = false; }
+            if (_has_sprite_pr){
+                var _frame_pr = (variable_struct_exists(_st, "frame") && is_real(_st.frame)) ? floor(_st.frame) : 0;
+                var _scale_pr = ((variable_struct_exists(_st, "scale") && is_real(_st.scale)) ? real(_st.scale) : 1) * _ui_scale_anim;
+                var _alpha_pr = clamp((variable_struct_exists(_st, "alpha") && is_real(_st.alpha)) ? _st.alpha : 1, 0, 1);
+                var _tint_pr = (variable_struct_exists(_st, "tint") && is_real(_st.tint)) ? _st.tint : c_white;
+                var _sw_pr = sprite_get_width(_sprite_pr);
+                var _sh_pr = sprite_get_height(_sprite_pr);
+                draw_sprite_ext(_sprite_pr, _frame_pr, _x_pr - (_sw_pr * _scale_pr) * 0.5, _y_pr - (_sh_pr * _scale_pr) * 0.5, _scale_pr, _scale_pr, 0, _tint_pr, _alpha_pr);
+            }
+        } else if (_kind == "particle_burst"){
+            var _idx_pb = (variable_struct_exists(_st, "target_index") && is_real(_st.target_index)) ? floor(_st.target_index) : 0;
+            var _target_center_pb = __battle_anim_queue_actor_center(_pid, _idx_pb);
+            var _tx_pb = (is_array(_target_center_pb) && array_length(_target_center_pb) >= 2) ? _target_center_pb[0] + _offx : _player_cx;
+            var _ty_pb = (is_array(_target_center_pb) && array_length(_target_center_pb) >= 2) ? _target_center_pb[1] + _offy : _player_cy;
+
+            var _sx_pb = _tx_pb;
+            var _sy_pb = _ty_pb;
+            if (variable_struct_exists(_st, "source_index") && is_real(_st.source_index)){
+                var _source_center_pb = __battle_anim_queue_actor_center(_pid, floor(_st.source_index));
+                if (is_array(_source_center_pb) && array_length(_source_center_pb) >= 2){
+                    _sx_pb = _source_center_pb[0] + _offx;
+                    _sy_pb = _source_center_pb[1] + _offy;
+                }
+            }
+
+            var _p_pb = clamp((variable_struct_exists(_st, "progress") && is_real(_st.progress)) ? _st.progress : 0, 0, 1);
+            var _alpha_pb = clamp((variable_struct_exists(_st, "alpha") && is_real(_st.alpha)) ? _st.alpha : 1, 0, 1);
+            var _count_pb = (variable_struct_exists(_st, "particle_count") && is_real(_st.particle_count)) ? max(1, floor(_st.particle_count)) : 10;
+            var _spread_x_pb = (variable_struct_exists(_st, "spread_x") && is_real(_st.spread_x)) ? real(_st.spread_x) : __battle_anim_queue_wu(_pid, 18, 18);
+            var _spread_y_pb = (variable_struct_exists(_st, "spread_y") && is_real(_st.spread_y)) ? real(_st.spread_y) : __battle_anim_queue_hu(_pid, 14, 14);
+            var _speed_x_pb = (variable_struct_exists(_st, "speed_x") && is_real(_st.speed_x)) ? real(_st.speed_x) : 0;
+            var _speed_y_pb = (variable_struct_exists(_st, "speed_y") && is_real(_st.speed_y)) ? real(_st.speed_y) : __battle_anim_queue_hu(_pid, -10, -10);
+            var _gravity_pb = (variable_struct_exists(_st, "gravity") && is_real(_st.gravity)) ? real(_st.gravity) : 0;
+            var _scale_pb = (variable_struct_exists(_st, "scale") && is_real(_st.scale)) ? real(_st.scale) : 1;
+            var _offset_x_pb = (variable_struct_exists(_st, "offset_x") && is_real(_st.offset_x)) ? real(_st.offset_x) : 0;
+            var _offset_y_pb = (variable_struct_exists(_st, "offset_y") && is_real(_st.offset_y)) ? real(_st.offset_y) : 0;
+            var _tint_pb = (variable_struct_exists(_st, "tint") && is_real(_st.tint)) ? _st.tint : c_white;
+            var _pk_pb = variable_struct_exists(_st, "particle_kind") ? string_lower(string(_st.particle_kind)) : "spark";
+            var _sprite_pb = variable_struct_exists(_st, "sprite") ? _st.sprite : undefined;
+            var _has_sprite_pb = false;
+            try { _has_sprite_pb = (!is_undefined(_sprite_pb) && sprite_exists(_sprite_pb)); } catch (e_sprite_pb) { _has_sprite_pb = false; }
+            var _sprite_frames_pb = 1;
+            try { if (_has_sprite_pb) _sprite_frames_pb = max(1, sprite_get_number(_sprite_pb)); } catch (e_frames_pb) { _sprite_frames_pb = 1; }
+            var _from_user_pb = (variable_struct_exists(_st, "from_user") && _st.from_user == true);
+            var _travel_pb = clamp(_p_pb * 1.18, 0, 1);
+            var _ease_pb = 1 - power(1 - _travel_pb, 2);
+            var _base_x_pb = (_from_user_pb ? (_sx_pb + (_tx_pb - _sx_pb) * _ease_pb) : _tx_pb) + _offset_x_pb;
+            var _base_y_pb = (_from_user_pb ? (_sy_pb + (_ty_pb - _sy_pb) * _ease_pb - sin(_travel_pb * pi) * __battle_anim_queue_hu(_pid, 16, 16)) : _ty_pb) + _offset_y_pb;
+            var _move_seed_pb = (variable_struct_exists(_st, "move_id") && is_real(_st.move_id)) ? floor(_st.move_id) : 0;
+
+            for (var _pi_pb = 0; _pi_pb < _count_pb; ++_pi_pb){
+                var _seed_a_pb = sin((_pi_pb + 1) * 12.9898 + _idx_pb * 78.233 + _move_seed_pb * 3.117);
+                var _seed_b_pb = sin((_pi_pb + 5) * 39.3467 + _idx_pb * 11.135 + _move_seed_pb * 5.331);
+                var _rand_a_pb = abs(_seed_a_pb - floor(_seed_a_pb));
+                var _rand_b_pb = abs(_seed_b_pb - floor(_seed_b_pb));
+                var _ang_pb = (_rand_a_pb * 2 * pi) + (_p_pb * pi * 0.65);
+                var _burst_pb = sin(clamp(_p_pb * pi, 0, pi));
+                var _phase_pb = clamp((_p_pb - (_pi_pb / max(1, _count_pb)) * 0.16), 0, 1);
+                var _dx_pb = cos(_ang_pb) * _spread_x_pb * (0.25 + _burst_pb * (0.65 + _rand_b_pb * 0.5));
+                var _dy_pb = sin(_ang_pb) * _spread_y_pb * (0.25 + _burst_pb * (0.65 + _rand_a_pb * 0.5));
+                var _dir_pb = (_idx_pb <= 1) ? -1 : 1;
+                if (_from_user_pb) _dir_pb = sign(_tx_pb - _sx_pb);
+                if (_dir_pb == 0) _dir_pb = 1;
+                _dx_pb += _speed_x_pb * _phase_pb * _dir_pb;
+                _dy_pb += _speed_y_pb * _phase_pb + _gravity_pb * _phase_pb * _phase_pb;
+
+                var _draw_x_pb = _base_x_pb + _dx_pb;
+                var _draw_y_pb = _base_y_pb + _dy_pb;
+                if (_pk_pb == "water_blast"){
+                    var _face_dir_wb = sign(_tx_pb - _sx_pb);
+                    if (_face_dir_wb == 0) _face_dir_wb = _dir_pb;
+                    var _impact_mix_wb = clamp((_p_pb - 0.16) / 0.56, 0, 1);
+                    var _face_x_wb = _tx_pb + __battle_anim_queue_wu(_pid, 7, 7) * _face_dir_wb;
+                    var _face_y_wb = _ty_pb - __battle_anim_queue_hu(_pid, 10, 10);
+                    _draw_x_pb = lerp(_draw_x_pb, _face_x_wb + _dx_pb * 0.48, _impact_mix_wb);
+                    _draw_y_pb = lerp(_draw_y_pb, _face_y_wb + _dy_pb * 0.52, _impact_mix_wb);
+                }
+                if (_pk_pb == "sand" || _pk_pb == "mud"){
+                    var _face_dir_pb = sign(_tx_pb - _sx_pb);
+                    if (_face_dir_pb == 0) _face_dir_pb = _dir_pb;
+                    var _impact_mix_pb = clamp((_p_pb - 0.22) / 0.58, 0, 1);
+                    var _face_x_pb = _tx_pb + __battle_anim_queue_wu(_pid, 8, 8) * _face_dir_pb;
+                    var _face_y_pb = _ty_pb - __battle_anim_queue_hu(_pid, 12, 12);
+                    _draw_x_pb = lerp(_draw_x_pb, _face_x_pb + _dx_pb * 0.55, _impact_mix_pb);
+                    _draw_y_pb = lerp(_draw_y_pb, _face_y_pb + _dy_pb * 0.42, _impact_mix_pb);
+                }
+                var _a_pb = _alpha_pb * (1 - power(_p_pb, 1.6)) * (0.72 + _rand_b_pb * 0.28);
+                if (_a_pb <= 0) continue;
+                var _size_pb = max(1, __battle_anim_queue_wu(_pid, 2 + floor(_rand_a_pb * 3), 2) * _scale_pb);
+
+                if (_has_sprite_pb){
+                    var _frame_pb = clamp(floor((_p_pb * _sprite_frames_pb * 1.5) + _pi_pb) mod _sprite_frames_pb, 0, max(0, _sprite_frames_pb - 1));
+                    var _sw_pb = sprite_get_width(_sprite_pb);
+                    var _sh_pb = sprite_get_height(_sprite_pb);
+                    var _sc_pb = max(0.25, _scale_pb * _ui_scale_anim * (0.55 + _rand_a_pb * 0.35));
+                    draw_sprite_ext(_sprite_pb, _frame_pb, _draw_x_pb - (_sw_pb * _sc_pb) * 0.5, _draw_y_pb - (_sh_pb * _sc_pb) * 0.5, _sc_pb, _sc_pb, (_rand_a_pb - 0.5) * 38, _tint_pb, _a_pb);
+                } else {
+                    draw_set_color(_tint_pb);
+                    draw_set_alpha(_a_pb);
+                    if (_pk_pb == "slash" || _pk_pb == "wind"){
+                        var _len_pb = _size_pb * ((_pk_pb == "wind") ? 5 : 4);
+                        draw_line_width(_draw_x_pb - _len_pb * 0.5, _draw_y_pb + _size_pb, _draw_x_pb + _len_pb * 0.5, _draw_y_pb - _size_pb, max(1, floor(_size_pb * 0.6)));
+                    } else if (_pk_pb == "spark"){
+                        draw_line_width(_draw_x_pb - _size_pb * 2, _draw_y_pb, _draw_x_pb + _size_pb * 2, _draw_y_pb, max(1, floor(_size_pb * 0.5)));
+                        draw_line_width(_draw_x_pb, _draw_y_pb - _size_pb * 2, _draw_x_pb, _draw_y_pb + _size_pb * 2, max(1, floor(_size_pb * 0.5)));
+                    } else if (_pk_pb == "water_blast"){
+                        var _water_r_pb = max(1, floor(_size_pb * (0.8 + _rand_a_pb * 0.65)));
+                        var _tail_len_pb = max(1, floor(_water_r_pb * (1.6 + _rand_b_pb * 1.4)));
+                        draw_circle(_draw_x_pb, _draw_y_pb, _water_r_pb, false);
+                        draw_set_alpha(_a_pb * 0.72);
+                        draw_line_width(_draw_x_pb - _tail_len_pb, _draw_y_pb + _water_r_pb * 0.25, _draw_x_pb + _water_r_pb * 0.6, _draw_y_pb - _water_r_pb * 0.35, max(1, floor(_water_r_pb * 0.55)));
+                        if (_rand_b_pb > 0.42){
+                            draw_circle(_draw_x_pb + _water_r_pb * 1.05, _draw_y_pb - _water_r_pb * 0.4, max(1, floor(_water_r_pb * 0.68)), false);
+                        }
+                        draw_set_alpha(_a_pb);
+                    } else if (_pk_pb == "ring"){
+                        var _rw_pb = _size_pb * (2.2 + _rand_a_pb);
+                        var _rh_pb = _size_pb * (1.1 + _rand_b_pb * 0.5);
+                        draw_ellipse(_draw_x_pb - _rw_pb, _draw_y_pb - _rh_pb, _draw_x_pb + _rw_pb, _draw_y_pb + _rh_pb, true);
+                    } else if (_pk_pb == "powder"){
+                        var _d_pb = max(1, floor(_size_pb * (0.55 + _rand_a_pb * 0.45)));
+                        draw_rectangle(_draw_x_pb - _d_pb, _draw_y_pb - _d_pb, _draw_x_pb + _d_pb, _draw_y_pb + _d_pb, false);
+                        draw_rectangle(_draw_x_pb + _d_pb * 2, _draw_y_pb - _d_pb, _draw_x_pb + _d_pb * 3, _draw_y_pb, false);
+                    } else if (_pk_pb == "orb"){
+                        var _star_pb = max(1, floor(_size_pb * (0.75 + _rand_a_pb * 0.5)));
+                        draw_line_width(_draw_x_pb - _star_pb, _draw_y_pb, _draw_x_pb + _star_pb, _draw_y_pb, 1);
+                        draw_line_width(_draw_x_pb, _draw_y_pb - _star_pb, _draw_x_pb, _draw_y_pb + _star_pb, 1);
+                    } else if (_pk_pb == "sand"){
+                        var _sand_r_pb = max(1, floor(_size_pb * (0.45 + _rand_a_pb * 0.45)));
+                        draw_circle(_draw_x_pb, _draw_y_pb, _sand_r_pb, false);
+                        if (_rand_b_pb > 0.58){
+                            draw_set_alpha(_a_pb * 0.72);
+                            draw_circle(_draw_x_pb - _sand_r_pb * 1.4, _draw_y_pb + _sand_r_pb * 0.35, max(1, floor(_sand_r_pb * 0.72)), false);
+                            draw_set_alpha(_a_pb);
+                        }
+                    } else if (_pk_pb == "mud"){
+                        var _mud_r_pb = max(1, floor(_size_pb * (0.65 + _rand_a_pb * 0.55)));
+                        draw_circle(_draw_x_pb, _draw_y_pb, _mud_r_pb, false);
+                        if (_rand_b_pb > 0.35){
+                            draw_set_alpha(_a_pb * 0.8);
+                            draw_circle(_draw_x_pb + _mud_r_pb * 0.8, _draw_y_pb - _mud_r_pb * 0.2, max(1, floor(_mud_r_pb * 0.75)), false);
+                            draw_set_alpha(_a_pb);
+                        }
+                    } else if (_pk_pb == "rock"){
+                        draw_rectangle(_draw_x_pb - _size_pb, _draw_y_pb - _size_pb * 0.7, _draw_x_pb + _size_pb, _draw_y_pb + _size_pb * 0.7, false);
+                    } else if (_pk_pb == "droplet" || _pk_pb == "blob" || _pk_pb == "flame" || _pk_pb == "ice"){
+                        draw_ellipse(_draw_x_pb - _size_pb * 0.8, _draw_y_pb - _size_pb * 1.3, _draw_x_pb + _size_pb * 0.8, _draw_y_pb + _size_pb * 1.3, false);
+                    } else if (_pk_pb == "leaf"){
+                        draw_ellipse(_draw_x_pb - _size_pb * 1.5, _draw_y_pb - _size_pb * 0.55, _draw_x_pb + _size_pb * 1.5, _draw_y_pb + _size_pb * 0.55, false);
+                        draw_line_width(_draw_x_pb - _size_pb * 1.2, _draw_y_pb, _draw_x_pb + _size_pb * 1.2, _draw_y_pb, 1);
+                    } else {
+                        draw_triangle(_draw_x_pb, _draw_y_pb - _size_pb, _draw_x_pb + _size_pb, _draw_y_pb, _draw_x_pb, _draw_y_pb + _size_pb, false);
+                        draw_triangle(_draw_x_pb, _draw_y_pb - _size_pb, _draw_x_pb - _size_pb, _draw_y_pb, _draw_x_pb, _draw_y_pb + _size_pb, false);
+                    }
+                }
+            }
+            draw_set_alpha(1);
+            draw_set_color(c_white);
         } else if (_kind == "sprite_orbit"){
             var _idx_orbit = (variable_struct_exists(_st, "target_index") && is_real(_st.target_index)) ? floor(_st.target_index) : 0;
             var _center_orbit = __battle_anim_queue_actor_center(_pid, _idx_orbit);
@@ -1648,7 +2294,7 @@ function __battle_anim_queue_draw_states(_pid, _states){
 
             var _progress_orbit = (variable_struct_exists(_st, "progress") && is_real(_st.progress)) ? clamp(_st.progress, 0, 1) : 0;
             var _alpha_orbit = (variable_struct_exists(_st, "alpha") && is_real(_st.alpha)) ? clamp(_st.alpha, 0, 1) : 1;
-            var _scale_orbit = (variable_struct_exists(_st, "scale") && is_real(_st.scale)) ? real(_st.scale) : 1;
+            var _scale_orbit = ((variable_struct_exists(_st, "scale") && is_real(_st.scale)) ? real(_st.scale) : 1) * _ui_scale_anim;
             var _offset_x_orbit = (variable_struct_exists(_st, "offset_x") && is_real(_st.offset_x)) ? _st.offset_x : 0;
             var _offset_y_orbit = (variable_struct_exists(_st, "offset_y") && is_real(_st.offset_y)) ? _st.offset_y : 0;
             var _orbit_count = (variable_struct_exists(_st, "orbit_count") && is_real(_st.orbit_count)) ? max(1, floor(_st.orbit_count)) : 3;
@@ -1673,10 +2319,13 @@ function __battle_anim_queue_draw_states(_pid, _states){
             var _cys = (is_array(_center_s) && array_length(_center_s) >= 2) ? _center_s[1] + _offy : _player_cy;
             var _sprs = (variable_struct_exists(_st, "sprite") ? _st.sprite : undefined);
             var _frs = (variable_struct_exists(_st, "frame") && is_real(_st.frame)) ? floor(_st.frame) : 0;
-            var _scs = (variable_struct_exists(_st, "scale") && is_real(_st.scale)) ? _st.scale : 1;
+            var _scale_base_s = (variable_struct_exists(_st, "scale") && is_real(_st.scale)) ? _st.scale : 1;
+            var _scx = ((variable_struct_exists(_st, "scale_x") && is_real(_st.scale_x)) ? _st.scale_x : _scale_base_s) * _ui_scale_anim;
+            var _scy = ((variable_struct_exists(_st, "scale_y") && is_real(_st.scale_y)) ? _st.scale_y : _scale_base_s) * _ui_scale_anim;
             var _als = clamp((variable_struct_exists(_st, "alpha") ? _st.alpha : 1), 0, 1);
-            var _offx = (variable_struct_exists(_st, "offset_x") && is_real(_st.offset_x)) ? _st.offset_x : 0;
-            var _offy = (variable_struct_exists(_st, "offset_y") && is_real(_st.offset_y)) ? _st.offset_y : 0;
+            var _sprite_offx = (variable_struct_exists(_st, "offset_x") && is_real(_st.offset_x)) ? _st.offset_x : 0;
+            var _sprite_offy = (variable_struct_exists(_st, "offset_y") && is_real(_st.offset_y)) ? _st.offset_y : 0;
+            var _rot_s = (variable_struct_exists(_st, "rotation") && is_real(_st.rotation)) ? real(_st.rotation) : 0;
             var _sdir = (variable_struct_exists(_st, "slide_dir") && is_real(_st.slide_dir)) ? clamp(_st.slide_dir, -1, 1) : 0;
             var _smag = (variable_struct_exists(_st, "slide_mag") && is_real(_st.slide_mag)) ? _st.slide_mag : 8;
             // Compute slide progress: quick outward then return (0..1 -> 0 out, 1 back to origin)
@@ -1694,16 +2343,17 @@ function __battle_anim_queue_draw_states(_pid, _states){
             var _slide_px = __battle_anim_queue_wu(_pid, _smag);
             var _apply_slide_x = _sdir * _slide_px * _slide_frac;
             // Compute draw position so the overlay is centered on the actor center
-            var _draw_x = _cxs + _offx + _apply_slide_x;
-            var _draw_y = _cys + _offy;
+            var _draw_x = _cxs + _sprite_offx + _apply_slide_x;
+            var _draw_y = _cys + _sprite_offy;
             if (!is_undefined(_sprs) && sprite_exists(_sprs)){
                 var _sw = sprite_get_width(_sprs);
                 var _sh = sprite_get_height(_sprs);
                 // Adjust so sprite is centered at (_cxs, _cys) (matching battler centering logic)
-                _draw_x = _draw_x - (_sw * _scs) / 2;
-                _draw_y = _draw_y - (_sh * _scs) / 2;
+                _draw_x = _draw_x - (_sw * abs(_scx)) / 2;
+                _draw_y = _draw_y - (_sh * abs(_scy)) / 2;
                 gpu_set_blendmode(bm_normal);
-                draw_sprite_ext(_sprs, _frs, _draw_x, _draw_y, _scs, _scs, 0, c_white, _als);
+                var _tint_s = (variable_struct_exists(_st, "tint") && is_real(_st.tint)) ? _st.tint : c_white;
+                draw_sprite_ext(_sprs, _frs, _draw_x, _draw_y, _scx, _scy, _rot_s, _tint_s, _als);
                 gpu_set_blendmode(bm_normal);
                 draw_set_alpha(1);
                 draw_set_color(c_white);
@@ -1760,8 +2410,10 @@ function __battle_anim_create_catch(_B, _item_id, _caught_struct, _opts){
         var _local_opts = (argument_count > 3 && is_struct(_opts)) ? _opts : {};
     var now = current_time;
     var ball_spr = undefined;
-    if (!is_undefined(pkicons_get_item_icon_by_id) && is_real(_item_id) && _item_id > 0){
-        try { var s_try = pkicons_get_item_icon_by_id(floor(_item_id)); if (!is_undefined(s_try) && sprite_exists(s_try)) ball_spr = s_try; } catch (e) { ball_spr = undefined; }
+    if (!is_undefined(pkicons_get_capture_ball_icon_by_id) && is_real(_item_id) && _item_id > 0){
+        try { var s_try = pkicons_get_capture_ball_icon_by_id(floor(_item_id)); if (!is_undefined(s_try) && sprite_exists(s_try)) ball_spr = s_try; } catch (e) { ball_spr = undefined; }
+    } else if (!is_undefined(pkicons_get_item_icon_by_id) && is_real(_item_id) && _item_id > 0){
+        try { var s_fallback = pkicons_get_item_icon_by_id(floor(_item_id)); if (!is_undefined(s_fallback) && sprite_exists(s_fallback)) ball_spr = s_fallback; } catch (e_fallback) { ball_spr = undefined; }
     }
 
     var hop_total = (variable_struct_exists(_local_opts, "hop_total") ? max(1, floor(variable_struct_get(_local_opts, "hop_total"))) : 3);

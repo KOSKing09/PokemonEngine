@@ -38,13 +38,52 @@ function party_model_ensure_species_id(_mon){
     return _mon;
 }
 
+function party_model_normalize_hp_fields(_mon){
+    if (!is_struct(_mon)) return _mon;
+
+    var _cur_hp = 0;
+    if (variable_struct_exists(_mon, "hp_now") && is_real(variable_struct_get(_mon, "hp_now"))) _cur_hp = real(variable_struct_get(_mon, "hp_now"));
+    else if (variable_struct_exists(_mon, "hp") && is_real(variable_struct_get(_mon, "hp"))) _cur_hp = real(variable_struct_get(_mon, "hp"));
+
+    var _cur_max = 0;
+    if (variable_struct_exists(_mon, "hp_max") && is_real(variable_struct_get(_mon, "hp_max"))) _cur_max = max(_cur_max, real(variable_struct_get(_mon, "hp_max")));
+    if (variable_struct_exists(_mon, "maxhp") && is_real(variable_struct_get(_mon, "maxhp"))) _cur_max = max(_cur_max, real(variable_struct_get(_mon, "maxhp")));
+
+    var _final_max = max(1, max(_cur_hp, _cur_max));
+    variable_struct_set(_mon, "hp_max", _final_max);
+    variable_struct_set(_mon, "maxhp", _final_max);
+
+    if (!variable_struct_exists(_mon, "hp_now") && variable_struct_exists(_mon, "hp")) variable_struct_set(_mon, "hp_now", variable_struct_get(_mon, "hp"));
+    if (!variable_struct_exists(_mon, "hp") && variable_struct_exists(_mon, "hp_now")) variable_struct_set(_mon, "hp", variable_struct_get(_mon, "hp_now"));
+
+    return _mon;
+}
+
 // Return the mons array for a player id, or an empty array when missing.
 // Params: _pid (int)
 // Returns: array of mon structs (may be empty)
 function party_model_get_mons(_pid){
     if (variable_global_exists("PARTY") && is_array(global.PARTY) && array_length(global.PARTY) > _pid){
         var _p = global.PARTY[_pid];
-        if (is_struct(_p) && variable_struct_exists(_p,"mons") && is_array(_p.mons)) return _p.mons;
+        if (is_struct(_p) && variable_struct_exists(_p,"mons") && is_array(_p.mons)){
+            var _mons = _p.mons;
+            var _cleanMons = [];
+            var _hadHole = false;
+            for (var _pm = 0; _pm < array_length(_mons); _pm++){
+                var _partyMon = _mons[_pm];
+                if (is_struct(_partyMon)){
+                    array_push(_cleanMons, _partyMon);
+                } else {
+                    _hadHole = true;
+                }
+            }
+            if (_hadHole){
+                _p.mons = _cleanMons;
+                global.PARTY[_pid] = _p;
+                return _cleanMons;
+            }
+            return _mons;
+        }
     }
     return [];
 }
@@ -77,18 +116,7 @@ function party_model_add_mon(_pid, _mon){
     // Normalize HP fields to avoid hp_max < current HP issues
     if (is_struct(_mon)){
         _mon = party_model_ensure_species_id(_mon);
-        var cur_hp = 0;
-        if (variable_struct_exists(_mon, "hp_now") && is_real(variable_struct_get(_mon, "hp_now"))) cur_hp = variable_struct_get(_mon, "hp_now");
-        else if (variable_struct_exists(_mon, "hp") && is_real(variable_struct_get(_mon, "hp"))) cur_hp = variable_struct_get(_mon, "hp");
-        var cur_max = undefined;
-        if (variable_struct_exists(_mon, "hp_max") && is_real(variable_struct_get(_mon, "hp_max"))) cur_max = variable_struct_get(_mon, "hp_max");
-        else if (variable_struct_exists(_mon, "maxhp") && is_real(variable_struct_get(_mon, "maxhp"))) cur_max = variable_struct_get(_mon, "maxhp");
-        var final_max = max(1, max(cur_hp, (is_real(cur_max) ? cur_max : 0)));
-        variable_struct_set(_mon, "hp_max", final_max);
-        variable_struct_set(_mon, "maxhp", final_max);
-        // Ensure canonical current hp fields exist
-        if (!variable_struct_exists(_mon, "hp_now") && variable_struct_exists(_mon, "hp")) variable_struct_set(_mon, "hp_now", variable_struct_get(_mon, "hp"));
-        if (!variable_struct_exists(_mon, "hp") && variable_struct_exists(_mon, "hp_now")) variable_struct_set(_mon, "hp", variable_struct_get(_mon, "hp_now"));
+        _mon = party_model_normalize_hp_fields(_mon);
     }
     array_push(_mons, _mon);
     // ensure global.PARTY updated below
@@ -214,6 +242,7 @@ function party_model_store_caught_mon(_pid, _mon){
 
     _stored = party_model__copy_capture_move_fields(_stored, party_model__find_capture_mon_source(_mon), true);
     _stored = party_model__copy_capture_move_fields(_stored, _mon, false);
+    _stored = party_model_normalize_hp_fields(_stored);
 
     if (!variable_struct_exists(_stored, "pokeball_item_id") || !is_real(variable_struct_get(_stored, "pokeball_item_id")) || variable_struct_get(_stored, "pokeball_item_id") <= 0){
         variable_struct_set(_stored, "pokeball_item_id", 4);
@@ -229,6 +258,7 @@ function party_model_store_caught_mon(_pid, _mon){
         // Preserve moves after OT/ID assignment too.
         _stored = party_model__copy_capture_move_fields(_stored, party_model__find_capture_mon_source(_mon), true);
         _stored = party_model__copy_capture_move_fields(_stored, _mon, false);
+        _stored = party_model_normalize_hp_fields(_stored);
 
         var _slot = party_model_add_mon(_pid, _stored);
         _stored = party_model_assign_level_moves_if_missing(_stored);
@@ -280,6 +310,7 @@ function party_model_store_caught_mon(_pid, _mon){
 
     _stored = party_model__copy_capture_move_fields(_stored, party_model__find_capture_mon_source(_mon), true);
     _stored = party_model__copy_capture_move_fields(_stored, _mon, false);
+    _stored = party_model_normalize_hp_fields(_stored);
 
     var _dst_box = _boxes[_target_box];
     array_push(_dst_box.mons, _stored);
@@ -347,6 +378,8 @@ function party_model_set_stored_mon_nickname(_pid, _store_info, _nick){
 // Performs defensive normalization (hp_max >= current hp).
 // Returns: true on success, false on failure.
 function party_model_update_mon(_pid, _index, _mon){
+    if (is_undefined(_mon)) return party_model_remove_mon(_pid, _index);
+
     if (!is_struct(_mon)) return false;
     if (!variable_global_exists("PARTY")) global.PARTY = [];
     if (!is_array(global.PARTY)) global.PARTY = [];

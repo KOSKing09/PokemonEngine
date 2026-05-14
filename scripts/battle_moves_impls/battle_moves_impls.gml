@@ -34,10 +34,40 @@ function __battle_perform_action_impl(_pid, _step){
         return _switch_msg;
     }
 
+    function __battle_impl_request_move_anim_once(_pid_in, _step_in, _A_in, _D_in, _mid_in){
+        if (!is_real(_mid_in)) return;
+        try {
+            if (is_struct(_step_in) && variable_struct_exists(_step_in, "__move_anim_requested") && variable_struct_get(_step_in, "__move_anim_requested") == true) return;
+        } catch (e_anim_seen) {}
+        var _target_anim_in = _D_in;
+        var _target_index_anim_in = undefined;
+        try {
+            if (is_struct(_target_anim_in) && variable_struct_exists(_target_anim_in, "actor_index") && is_real(variable_struct_get(_target_anim_in, "actor_index"))) _target_index_anim_in = floor(variable_struct_get(_target_anim_in, "actor_index"));
+            if (!is_real(_target_index_anim_in) && is_struct(_step_in) && variable_struct_exists(_step_in, "target_index") && is_real(variable_struct_get(_step_in, "target_index"))) _target_index_anim_in = floor(variable_struct_get(_step_in, "target_index"));
+            if (!is_struct(_target_anim_in) && is_struct(_A_in)){
+                var _actor_index_anim_in = undefined;
+                if (variable_struct_exists(_A_in, "actor_index") && is_real(variable_struct_get(_A_in, "actor_index"))) _actor_index_anim_in = floor(variable_struct_get(_A_in, "actor_index"));
+                if (!is_real(_target_index_anim_in) && is_real(_actor_index_anim_in) && !is_undefined(__battle_get_default_target_index)) _target_index_anim_in = __battle_get_default_target_index(_pid_in, _actor_index_anim_in);
+                var _B_anim_once = __battle_ensure_slot(_pid_in);
+                if (is_real(_target_index_anim_in) && is_struct(_B_anim_once) && variable_struct_exists(_B_anim_once, "actor") && is_array(variable_struct_get(_B_anim_once, "actor"))){
+                    var _actors_anim_once = variable_struct_get(_B_anim_once, "actor");
+                    if (_target_index_anim_in >= 0 && _target_index_anim_in < array_length(_actors_anim_once) && is_struct(_actors_anim_once[_target_index_anim_in])) _target_anim_in = _actors_anim_once[_target_index_anim_in];
+                }
+            }
+        } catch (e_anim_target_once) {}
+        try {
+            __battle_request_animation_safe(_pid_in, { type: "move", actor: _A_in, target: _target_anim_in, target_index: _target_index_anim_in, user: _A_in, move_id: _mid_in });
+            if (is_struct(_step_in)) variable_struct_set(_step_in, "__move_anim_requested", true);
+        } catch (e_move_anim_once) {}
+    }
+
     // Local helper to centralize the 'used' vs 'ohko miss' return message.
     // Also stamps the actor with last_move_dialog id/ts so other paths can de-dup their own messages.
     // Accept explicit parameters to avoid closure/scope issues with the static analyser.
     function __battle_impl_return_used(_pid_in, _A_in, _mv_name_in, _mid_in){
+        var _anim_mid_in = _mid_in;
+        var _anim_target_in = undefined;
+        __battle_impl_request_move_anim_once(_pid_in, undefined, _A_in, _anim_target_in, _anim_mid_in);
         var _actor_name = "The user";
         try {
             if (is_struct(_A_in) && variable_struct_exists(_A_in, "name")) _actor_name = string(variable_struct_get(_A_in, "name"));
@@ -60,8 +90,8 @@ function __battle_perform_action_impl(_pid, _step){
         // Best-effort: stamp last_move_dialog fields so inner enqueuers can skip duplicates
         try {
             if (is_struct(_A_in)){
-                if (is_real(_mid_in)){
-                    variable_struct_set(_A_in, "_last_move_dialog_id", _mid_in);
+                if (is_real(_anim_mid_in)){
+                    variable_struct_set(_A_in, "_last_move_dialog_id", _anim_mid_in);
                     variable_struct_set(_A_in, "_last_move_dialog_ts", current_time);
                 }
             }
@@ -104,7 +134,7 @@ function __battle_perform_action_impl(_pid, _step){
                 if (variable_struct_exists(_target_in, "actor_index")) _t_idx = variable_struct_get(_target_in, "actor_index");
                 else if (variable_struct_exists(_target_in, "slot")) _t_idx = variable_struct_get(_target_in, "slot");
             }
-            array_push(_user_hist, { move: _move_in, target: _target_in, target_index: _t_idx, ts: current_time });
+            array_push(_user_hist, { move: _move_in, target_index: _t_idx, ts: current_time });
             if (array_length(_user_hist) > 8){
                 var _trim_hist = [];
                 var _start_hist = array_length(_user_hist) - 8;
@@ -122,7 +152,15 @@ function __battle_perform_action_impl(_pid, _step){
                     _target_hist = variable_struct_get(_target_in, "_last_moves");
                 }
             } catch (e_tHist) {}
-            array_push(_target_hist, { move: _move_in, src: _user_in, ts: current_time });
+            var _src_idx = undefined;
+            var _src_name = "";
+            try {
+                if (is_struct(_user_in)){
+                    if (variable_struct_exists(_user_in, "actor_index") && is_real(variable_struct_get(_user_in, "actor_index"))) _src_idx = floor(variable_struct_get(_user_in, "actor_index"));
+                    if (variable_struct_exists(_user_in, "name")) _src_name = string(variable_struct_get(_user_in, "name"));
+                }
+            } catch (e_src_light) {}
+            array_push(_target_hist, { move: _move_in, src_index: _src_idx, src_name: _src_name, ts: current_time });
             if (array_length(_target_hist) > 8){
                 var _trim_target = [];
                 var _start_target = array_length(_target_hist) - 8;
@@ -145,12 +183,48 @@ function __battle_perform_action_impl(_pid, _step){
 
     function __battle_apply_called_move(_pid_in, _caller_in, _target_in, _source_move_in, _called_move_in){
         if (!is_struct(_caller_in) || !is_real(_called_move_in)) return;
+        var _resolved_target = _target_in;
+        var _caller_idx = undefined;
+        var _target_idx = undefined;
+        try {
+            if (variable_struct_exists(_caller_in, "actor_index") && is_real(variable_struct_get(_caller_in, "actor_index"))) _caller_idx = floor(variable_struct_get(_caller_in, "actor_index"));
+            else if (!is_undefined(__battle_actor_index_of)) _caller_idx = __battle_actor_index_of(_caller_in);
+
+            if (is_real(_caller_idx) && !is_undefined(__battle_target_candidates)){
+                var _candidates = __battle_target_candidates(_pid_in, _caller_idx, _called_move_in);
+                if (is_array(_candidates) && array_length(_candidates) > 0){
+                    var _want_idx = undefined;
+                    if (is_struct(_target_in) && variable_struct_exists(_target_in, "actor_index") && is_real(variable_struct_get(_target_in, "actor_index"))) _want_idx = floor(variable_struct_get(_target_in, "actor_index"));
+                    else if (!is_undefined(__battle_actor_index_of)) _want_idx = __battle_actor_index_of(_target_in);
+
+                    _target_idx = _candidates[0];
+                    for (var _ci = 0; _ci < array_length(_candidates); ++_ci){
+                        if (is_real(_want_idx) && floor(_candidates[_ci]) == floor(_want_idx)){
+                            _target_idx = _candidates[_ci];
+                            break;
+                        }
+                    }
+
+                    var _B_called = __battle_ensure_slot(_pid_in);
+                    if (is_struct(_B_called) && variable_struct_exists(_B_called, "actor") && is_array(variable_struct_get(_B_called, "actor"))){
+                        var _actors_called = variable_struct_get(_B_called, "actor");
+                        if (_target_idx >= 0 && _target_idx < array_length(_actors_called) && is_struct(_actors_called[_target_idx])) _resolved_target = _actors_called[_target_idx];
+                    }
+                }
+            }
+        } catch (e_ctx_target) { _resolved_target = _target_in; }
         try {
             variable_struct_set(_caller_in, "_called_move_source_id", _source_move_in);
             variable_struct_set(_caller_in, "_called_move_active", true);
             variable_struct_set(_caller_in, "_suppress_called_move_dialog", true);
         } catch (e_ctx_set) {}
-        try { __battle_apply_move(_pid_in, _caller_in, _target_in, _called_move_in); } catch (e_ctx_apply) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][called-move] apply failed: " + string(e_ctx_apply)); }
+        try {
+            if (!is_undefined(__battle_perform_action_impl) && is_real(_caller_idx) && is_real(_target_idx)){
+                __battle_perform_action_impl(_pid_in, { slot: -1, move_id: _called_move_in, actor_index: _caller_idx, target_index: _target_idx, called_move: true, source_move_id: _source_move_in });
+            } else {
+                __battle_apply_move(_pid_in, _caller_in, _resolved_target, _called_move_in);
+            }
+        } catch (e_ctx_apply) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][called-move] apply failed: " + string(e_ctx_apply)); }
         try { variable_struct_set(_caller_in, "_called_move_source_id", undefined); } catch (e_ctx_clear1) {}
         try { variable_struct_set(_caller_in, "_called_move_active", false); } catch (e_ctx_clear2) {}
         try { variable_struct_set(_caller_in, "_suppress_called_move_dialog", false); } catch (e_ctx_clear3) {}
@@ -864,11 +938,13 @@ function __battle_perform_action_impl(_pid, _step){
             var ally_moves = [];
             try {
                 if (is_struct(_Bslot) && variable_struct_exists(_Bslot, "actor") && is_array(variable_struct_get(_Bslot, "actor"))){
+                    var _assist_actor_idx = (variable_struct_exists(A, "actor_index") && is_real(variable_struct_get(A, "actor_index"))) ? floor(variable_struct_get(A, "actor_index")) : undefined;
                     var acts = variable_struct_get(_Bslot, "actor");
                     for (var ai=0; ai<array_length(acts); ++ai){
                         var act = acts[ai];
                         if (!is_struct(act)) continue;
                         if (act == A) continue; // skip self
+                        if (is_real(_assist_actor_idx) && !__battle_is_ally_index(_assist_actor_idx, ai)) continue;
                         if (is_real(variable_struct_get(act, "hp_now")) && variable_struct_get(act, "hp_now") <= 0) continue; // fainted
                         if (!variable_struct_exists(act, "moves") || !is_array(variable_struct_get(act, "moves"))) continue;
                         var mlist = variable_struct_get(act, "moves");
@@ -1147,7 +1223,15 @@ function __battle_perform_action_impl(_pid, _step){
                 try {
                     if (!variable_struct_exists(D, "_last_moves") || !is_array(variable_struct_get(D, "_last_moves"))) variable_struct_set(D, "_last_moves", []);
                     var _arr = variable_struct_get(D, "_last_moves");
-                    array_push(_arr, { move: move_id, src: A, ts: current_time });
+                    var _src_idx_rec = undefined;
+                    var _src_name_rec = "";
+                    try {
+                        if (is_struct(A)){
+                            if (variable_struct_exists(A, "actor_index") && is_real(variable_struct_get(A, "actor_index"))) _src_idx_rec = floor(variable_struct_get(A, "actor_index"));
+                            if (variable_struct_exists(A, "name")) _src_name_rec = string(variable_struct_get(A, "name"));
+                        }
+                    } catch (e_src_rec) {}
+                    array_push(_arr, { move: move_id, src_index: _src_idx_rec, src_name: _src_name_rec, ts: current_time });
                     if (array_length(_arr) > 8){ var _start = array_length(_arr) - 8; var _new = []; for (var _k=_start; _k < array_length(_arr); ++_k) array_push(_new, _arr[_k]); _arr = _new; }
                     variable_struct_set(D, "_last_moves", _arr);
                     // Keep the global scalar in sync for the simple Copycat implementation
@@ -2215,7 +2299,6 @@ function __battle_perform_action_impl(_pid, _step){
                             try { variable_struct_set(_charge_rec, "sky_drop", true); } catch (e_sdflag) {}
                         }
                         if (is_struct(D)){
-                            try { variable_struct_set(_charge_rec, "target_actor", D); } catch (e_tar) {}
                         }
                         variable_struct_set(A, "_charging_move", _charge_rec);
                         if (move_id == 130){
@@ -2252,7 +2335,7 @@ function __battle_perform_action_impl(_pid, _step){
                         } catch (e_si) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][two-turn] failed to set _semi_invuln: " + string(e_si)); }
                     // Request a charge animation if available and return the 'used' dialog
                     try { __battle_request_animation_safe(A, { type: "charge", move_id: move_id }); } catch (e_ch) {}
-                    return __battle_impl_return_used(_pid, A, mv_name);
+                    return __battle_impl_return_used(_pid, A, mv_name, move_id);
                 }
             }
         }
@@ -2450,7 +2533,7 @@ function __battle_perform_action_impl(_pid, _step){
                     if (is_real(atk_idx) && is_struct(_Bslot2)){
                         __battle_apply_damage(_pid, atk_idx, reflect, 1.0);
                         try { __battle_request_animation_safe(A, { type: "counter", amount: reflect }); } catch (e_ca) {}
-                        return __battle_impl_return_used(_pid, A, mv_name);
+                        return __battle_impl_return_used(_pid, A, mv_name, move_id);
                     }
                 }
                 // If nothing to reflect, play a blocked/miss animation
@@ -2469,7 +2552,7 @@ function __battle_perform_action_impl(_pid, _step){
                     if (is_real(atk_idx2) && is_struct(_Bslot3)){
                         __battle_apply_damage(_pid, atk_idx2, reflect2, 1.0);
                         try { __battle_request_animation_safe(A, { type: "mirror_coat", amount: reflect2 }); } catch (e_mc) {}
-                        return __battle_impl_return_used(_pid, A, mv_name);
+                        return __battle_impl_return_used(_pid, A, mv_name, move_id);
                     }
                 }
                 try { __battle_request_animation_safe(A, { type: "blocked", reason: "mirror_none" }); } catch (e_bn2) {}
@@ -2486,11 +2569,11 @@ function __battle_perform_action_impl(_pid, _step){
                     if (is_real(atk_idx3) && is_struct(_Bslot4)){
                         __battle_apply_damage(_pid, atk_idx3, reflect3, 1.0);
                         try { __battle_request_animation_safe(A, { type: "metal_burst", amount: reflect3 }); } catch (e_mb) {}
-                        return __battle_impl_return_used(_pid, A, mv_name);
+                        return __battle_impl_return_used(_pid, A, mv_name, move_id);
                     }
                 }
                 try { __battle_request_animation_safe(A, { type: "blocked", reason: "metal_none" }); } catch (e_mb2) {}
-                return __battle_impl_return_used(_pid, A, mv_name);
+                return __battle_impl_return_used(_pid, A, mv_name, move_id);
             }
         }
     } catch (e_cm) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][counter] handler error: " + string(e_cm)); }
@@ -2559,6 +2642,7 @@ function __battle_perform_action_impl(_pid, _step){
             __battle_set_held_item_snapshot(A, -1, "");
         }
     } catch (e_natural_gift_consume) {}
+    __battle_impl_request_move_anim_once(_pid, _step, A, D, move_id);
     var resf = __battle_apply_move_damage(_pid, target_idx, A, D, move_id, mv_power);
         var _semi_blocked = false;
         try {
@@ -2926,6 +3010,7 @@ function __battle_perform_action_impl(_pid, _step){
         // For non-damaging/status moves (mv_power <= 0), ensure meta effects run here
         // before returning the generic 'used' dialog (e.g., terrains, weather, setup moves).
         if (!(is_real(mv_power) && mv_power > 0)){
+            __battle_impl_request_move_anim_once(_pid, _step, A, D, move_id);
             try {
                 if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
                     show_debug_message("[battle][impl] applying meta (status) for move_id=" + string(move_id));
@@ -2953,6 +3038,7 @@ function __battle_perform_action_impl(_pid, _step){
 try {
     if (!variable_global_exists("_battle_impls") || !is_struct(variable_global_get("_battle_impls"))) variable_global_set("_battle_impls", {});
     try { variable_struct_set(variable_global_get("_battle_impls"), "__battle_perform_action_impl", __battle_perform_action_impl); } catch (e_reg) {}
+    try { variable_struct_set(variable_global_get("_battle_impls"), "__battle_perform_action_impl_real", __battle_perform_action_impl); } catch (e_reg_real) {}
 } catch (e) {}
 
 // Expose a small registration function to handle load-order: callers can invoke
