@@ -125,6 +125,8 @@ They carry:
 - `encounter_lifetime`
 - movement bounds and wander target fields
 
+Visible Pokemon are scaled to `0.67` on both axes. Contact uses `__overworld_encounter_pokemon_npc_bounds(...)`, which reads the active sprite's bounding box at that scale, with a fallback rectangle only when sprite data is unavailable.
+
 Contact with the player opens a wild battle through `battle_open(...)` using an opts struct that includes:
 
 - `encounter_region_key`

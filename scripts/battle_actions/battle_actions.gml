@@ -1,3 +1,50 @@
+function __battle_dialog_actor_name(_actor, _fallback){
+    var _fb = is_string(_fallback) ? _fallback : "The Pokemon";
+    if (!is_struct(_actor)) return _fb;
+
+    if (!is_undefined(__battle_actor_display_name)){
+        var _resolved = __battle_actor_display_name(_actor);
+        if (is_string(_resolved) && string_length(string_trim(_resolved)) > 0 && string(_resolved) != "???") return string_trim(_resolved);
+    }
+
+    var _mon_ref = undefined;
+    if (variable_struct_exists(_actor, "mon") && is_struct(variable_struct_get(_actor, "mon"))) _mon_ref = variable_struct_get(_actor, "mon");
+    else if (variable_struct_exists(_actor, "pokemon") && is_struct(variable_struct_get(_actor, "pokemon"))) _mon_ref = variable_struct_get(_actor, "pokemon");
+    else if (variable_struct_exists(_actor, "original_mon") && is_struct(variable_struct_get(_actor, "original_mon"))) _mon_ref = variable_struct_get(_actor, "original_mon");
+    else if (variable_struct_exists(_actor, "source_mon") && is_struct(variable_struct_get(_actor, "source_mon"))) _mon_ref = variable_struct_get(_actor, "source_mon");
+    else if (variable_struct_exists(_actor, "wild_mon") && is_struct(variable_struct_get(_actor, "wild_mon"))) _mon_ref = variable_struct_get(_actor, "wild_mon");
+    else _mon_ref = _actor;
+
+    if (is_struct(_mon_ref)){
+        if (variable_struct_exists(_mon_ref, "nickname")){
+            var _nick = variable_struct_get(_mon_ref, "nickname");
+            if (is_string(_nick) && string_length(string_trim(_nick)) > 0) return string_trim(_nick);
+        }
+
+        if (!is_undefined(mon_display_name)){
+            var _display = mon_display_name(_mon_ref);
+            if (is_string(_display) && string_length(string_trim(_display)) > 0 && string(_display) != "???") return string_trim(_display);
+        }
+
+        if (variable_struct_exists(_mon_ref, "name")){
+            var _mon_name = variable_struct_get(_mon_ref, "name");
+            if (is_string(_mon_name) && string_length(string_trim(_mon_name)) > 0 && string(_mon_name) != "???") return string_trim(_mon_name);
+        }
+    }
+
+    if (variable_struct_exists(_actor, "nickname")){
+        var _actor_nick = variable_struct_get(_actor, "nickname");
+        if (is_string(_actor_nick) && string_length(string_trim(_actor_nick)) > 0) return string_trim(_actor_nick);
+    }
+
+    if (variable_struct_exists(_actor, "name")){
+        var _actor_name = variable_struct_get(_actor, "name");
+        if (is_string(_actor_name) && string_length(string_trim(_actor_name)) > 0 && string(_actor_name) != "???") return string_trim(_actor_name);
+    }
+
+    return _fb;
+}
+
 // Battle action helpers (extracted from battle_system.gml)
 
 function __battle_consume_pp(_A, _move_slot){
@@ -133,8 +180,8 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
                     } catch (e_mid) { _move_name_lower = ""; }
                 }
             }
-            var _target_name = (variable_struct_exists(_D, "name") ? string(variable_struct_get(_D, "name")) : "The target");
-            var _attacker_name = (is_struct(_A) && variable_struct_exists(_A, "name") ? string(variable_struct_get(_A, "name")) : "The attacker");
+            var _target_name = __battle_dialog_actor_name(_D, "The target");
+            var _attacker_name = __battle_dialog_actor_name(_A, "The attacker");
             var _state_msg = "";
             var _allow_hit = false;
 
@@ -186,7 +233,7 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
     try {
         if (is_real(_move_id) && _move_id != 217){
             if (!__battle_can_hit_target(_A, _D, _move_id)){
-                var _miss_name = (is_struct(_A) && variable_struct_exists(_A, "name") ? string(variable_struct_get(_A, "name")) : "The attacker");
+                var _miss_name = __battle_dialog_actor_name(_A, "The attacker");
                 dialog_queue(_miss_name + "'s attack missed!");
                 try {
                     var _Bmiss_flag = __battle_ensure_slot(_pid);
@@ -209,7 +256,7 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
     try {
         if (is_real(_move_id) && _move_id == 217){
             if (!__battle_can_hit_target(_A, _D, _move_id)){
-                var _present_miss_name = (is_struct(_A) && variable_struct_exists(_A, "name") ? string(variable_struct_get(_A, "name")) : "The attacker");
+                var _present_miss_name = __battle_dialog_actor_name(_A, "The attacker");
                 dialog_queue(_present_miss_name + "'s attack missed!");
                 try {
                     var _Bpresent_miss = __battle_ensure_slot(_pid);
@@ -226,7 +273,7 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
                 __battle_set_hp_now(_D, min(_max_present, _before_present + _heal_present));
                 __battle_clear_fainted_if_healed(_D);
                 try { __battle_request_animation_safe(_A, { type: "heal", actor: _A, target: _D, amount: _heal_present }); } catch (e_present_anim) {}
-                dialog_queue((is_struct(_D) && variable_struct_exists(_D, "name") ? string(variable_struct_get(_D, "name")) : "The target") + " had its HP restored!");
+                dialog_queue(__battle_dialog_actor_name(_D, "The target") + " had its HP restored!");
                 var _after_present = __battle_hp_now(_D);
                 return [0, _before_present, _after_present];
             }
@@ -395,7 +442,7 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
 
     try {
         if (is_real(dmg) && dmg > 0 && !is_undefined(__battle_actor_has_any_ability) && __battle_actor_has_any_ability(_D, ["wonder-guard"]) && is_real(mult) && mult <= 1.0){
-            var _wg_name = (is_struct(_D) && variable_struct_exists(_D, "name")) ? string(variable_struct_get(_D, "name")) : "The target";
+            var _wg_name = __battle_dialog_actor_name(_D, "The target");
             dialog_queue(_wg_name + "'s Wonder Guard protected it!");
             return [0, before, before];
         }
@@ -525,7 +572,7 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
                 var _sturdy_max = __battle_hp_max(_D);
                 if (before >= _sturdy_max && before - dmg <= 0){
                     dmg = max(0, before - 1);
-                    var _sturdy_name = (is_struct(_D) && variable_struct_exists(_D, "name")) ? string(variable_struct_get(_D, "name")) : "The target";
+                    var _sturdy_name = __battle_dialog_actor_name(_D, "The target");
                     dialog_queue(_sturdy_name + " held on with Sturdy!");
                 }
             }
@@ -716,7 +763,7 @@ function __battle_apply_move_damage(_pid, _target_index, _A, _D, _move_id, _mv_p
                     if (_sub_left <= 0){
                         try { status_system_clear_status(_D, "substitute"); } catch (e_sub_clear) {}
                         try {
-                            var _sub_name_break = (is_struct(_D) && variable_struct_exists(_D, "name") ? string(variable_struct_get(_D, "name")) : "The substitute");
+                            var _sub_name_break = __battle_dialog_actor_name(_D, "The substitute");
                             dialog_queue(_sub_name_break + "'s substitute faded!");
                         } catch (e_sub_msg_break) {}
                     }

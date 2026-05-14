@@ -107,6 +107,11 @@ global.OVERWORLD_VISIBLE_PATCH_MAX = 8;
 global.OVERWORLD_ENCOUNTER_GRACE_MS = 1500;
 global.OVERWORLD_ENCOUNTER_BLOCK_UNTIL_MS = 0;
 
+// Selectable Emerald-inspired transition styles.
+transition_init();
+transition_set_battle_style("emerald_blinds");
+transition_set_room_style("emerald_fade_black");
+
 // Ensure PKICONS debug flags exist (preserve pre-existing settings when possible)
     if (variable_global_exists("PKICONS")){
         if (variable_struct_exists(global.PKICONS, "debug")) global.PKICONS.debug = false;
@@ -247,6 +252,7 @@ scr_controls();   // creates global CTRL, loads options.ini
 if (!is_undefined(multiplayer_sync_runtime)) multiplayer_sync_runtime();
 pause_init();     // pause system
 dialog2p_init();  // dialog system (if you’re using it)
+cutscene_init();  // overworld/battle cutscene queue
 evolution_init(); // evolution scene manager
 virtual_keyboard_init();
 

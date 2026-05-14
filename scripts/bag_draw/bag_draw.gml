@@ -1,6 +1,6 @@
 // Bag draw helpers — rendering the bag UI. Keep UI-only logic here.
 function __bag_impl_bag_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
-    if (!bag_is_open(_pid)) return;
+    if (!bag_is_open(_pid) || (!is_undefined(pc_is_open) && pc_is_open(_pid))) return;
     if (!variable_global_exists("BAGS") || !is_array(global.BAGS) || array_length(global.BAGS) <= _pid) return;
     var b  = global.BAGS[_pid];
 

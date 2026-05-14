@@ -621,6 +621,9 @@ function overworld_npc_init(_inst){
     if (!variable_instance_exists(_inst, "trainer_battle_sprite")) variable_instance_set(_inst, "trainer_battle_sprite", -1);
     if (!variable_instance_exists(_inst, "trainer_battle_sprite_index")) variable_instance_set(_inst, "trainer_battle_sprite_index", 0);
     if (!variable_instance_exists(_inst, "trainer_battle_started")) variable_instance_set(_inst, "trainer_battle_started", false);
+    if (!variable_instance_exists(_inst, "cutscene_on_interact")) variable_instance_set(_inst, "cutscene_on_interact", false);
+    if (!variable_instance_exists(_inst, "cutscene_shared")) variable_instance_set(_inst, "cutscene_shared", true);
+    if (!variable_instance_exists(_inst, "cutscene_lines")) variable_instance_set(_inst, "cutscene_lines", []);
     __overworld_npc_resolve_sprites(_inst);
     return true;
 }
@@ -698,8 +701,21 @@ function __overworld_npc_dialog_closed_pid1(){
 }
 
 function __overworld_npc_asset_sprite(_name){
-    var _idx = asset_get_index(string(_name));
+    var _n = string_trim(string(_name));
+    if (string_length(_n) <= 0) return -1;
+    var _idx = asset_get_index(_n);
     return sprite_exists(_idx) ? _idx : -1;
+}
+
+function __overworld_npc_direction_sprite_name(_base, _dir){
+    var _b = string_trim(string(_base));
+    if (string_length(_b) <= 0) return "";
+    var _d = string_lower(string(_dir));
+    var _suffix = "_" + _d;
+    var _len = string_length(_b);
+    var _slen = string_length(_suffix);
+    if (_len > _slen && string_lower(string_copy(_b, _len - _slen + 1, _slen)) == _suffix) return _b;
+    return _b + _suffix;
 }
 
 function __overworld_npc_resolve_sprites(_inst){
@@ -719,17 +735,40 @@ function __overworld_npc_resolve_sprites(_inst){
     var _up = variable_instance_get(_inst, "npc_sprite_up");
     var _right = variable_instance_get(_inst, "npc_sprite_right");
     var _left = variable_instance_get(_inst, "npc_sprite_left");
-    if (!sprite_exists(_down)) _down = __overworld_npc_asset_sprite(_base + "_down");
-    if (!sprite_exists(_up)) _up = __overworld_npc_asset_sprite(_base + "_up");
-    if (!sprite_exists(_right)) _right = __overworld_npc_asset_sprite(_base + "_right");
-    if (!sprite_exists(_left)) _left = __overworld_npc_asset_sprite(_base + "_left");
+    if (!sprite_exists(_down)) _down = __overworld_npc_asset_sprite(__overworld_npc_direction_sprite_name(_base, "down"));
+    if (!sprite_exists(_up)) _up = __overworld_npc_asset_sprite(__overworld_npc_direction_sprite_name(_base, "up"));
+    if (!sprite_exists(_right)) _right = __overworld_npc_asset_sprite(__overworld_npc_direction_sprite_name(_base, "right"));
+    if (!sprite_exists(_left)) _left = __overworld_npc_asset_sprite(__overworld_npc_direction_sprite_name(_base, "left"));
     if (!sprite_exists(_down)) _down = __overworld_npc_asset_sprite(_base);
+    if (!sprite_exists(_up)) _up = _down;
+    if (!sprite_exists(_right)) _right = _down;
+    if (!sprite_exists(_left)) _left = _down;
     variable_instance_set(_inst, "npc_sprite_down", _down);
     variable_instance_set(_inst, "npc_sprite_up", _up);
     variable_instance_set(_inst, "npc_sprite_right", _right);
     variable_instance_set(_inst, "npc_sprite_left", _left);
     if (sprite_exists(_down) && !sprite_exists(variable_instance_get(_inst, "sprite_index"))) variable_instance_set(_inst, "sprite_index", _down);
     return sprite_exists(_down) || sprite_exists(_up) || sprite_exists(_right) || sprite_exists(_left);
+}
+
+function __overworld_npc_start_cutscene(_inst, _pid){
+    if (!instance_exists(_inst) || is_undefined(cutscene_play_overworld)) return false;
+    var _lines = variable_instance_exists(_inst, "cutscene_lines") ? variable_instance_get(_inst, "cutscene_lines") : [];
+    if (!is_array(_lines) || array_length(_lines) <= 0){
+        _lines = [string(variable_instance_get(_inst, "dialog_text"))];
+    }
+    var _pids = [_pid];
+    if (variable_instance_get(_inst, "cutscene_shared") == true && !is_undefined(multiplayer_player_joined) && multiplayer_player_joined(1)){
+        _pids = [0, 1];
+    }
+    var _steps = [
+        { action: "face_npc", inst: _inst, dir: 2 }
+    ];
+    for (var _i = 0; _i < array_length(_lines); ++_i){
+        array_push(_steps, { action: "dialog", pid: _pid, text: string(_lines[_i]) });
+    }
+    array_push(_steps, { action: "wait", duration_ms: 180 });
+    return cutscene_play_overworld(_pids, _steps, "npc_cutscene_" + string(variable_instance_get(_inst, "npc_id"))) != noone;
 }
 
 function __overworld_npc_anim_update(_inst, _moving, _dx = 0, _dy = 0){
@@ -1040,6 +1079,10 @@ function overworld_npc_interact(_inst, _pid){
     if (variable_instance_get(_inst, "trainer_enabled") == true){
         if (variable_instance_get(_inst, "trainer_defeated") != true) return __overworld_trainer_begin_dialog(_inst, _pid);
         if (variable_instance_exists(_inst, "trainer_after_dialog")) variable_instance_set(_inst, "dialog_text", string(variable_instance_get(_inst, "trainer_after_dialog")));
+    }
+
+    if (variable_instance_get(_inst, "cutscene_on_interact") == true){
+        return __overworld_npc_start_cutscene(_inst, _pid);
     }
 
     var _text = string(variable_instance_get(_inst, "dialog_text"));
@@ -1453,7 +1496,9 @@ function __overworld_encounter_visible_spawn(_inst){
     variable_instance_set(_npc, "dialog_text", "");
     variable_instance_set(_npc, "image_speed", 0);
     variable_instance_set(_npc, "image_alpha", 1);
-    variable_instance_set(_npc, "depth", -(_p.y + 32));
+    variable_instance_set(_npc, "image_xscale", 0.67);
+    variable_instance_set(_npc, "image_yscale", 0.67);
+    variable_instance_set(_npc, "depth", -(_p.y + 16));
     var _arr_live = [];
     if (variable_instance_exists(_inst, "_encounter_visible_npcs") && is_array(variable_instance_get(_inst, "_encounter_visible_npcs"))) _arr_live = variable_instance_get(_inst, "_encounter_visible_npcs");
     array_push(_arr_live, _npc);
@@ -1466,18 +1511,40 @@ function __overworld_encounter_visible_spawn(_inst){
     return true;
 }
 
+function __overworld_encounter_pokemon_npc_bounds(_inst, _x, _y){
+    var _spr = variable_instance_exists(_inst, "sprite_index") ? variable_instance_get(_inst, "sprite_index") : -1;
+    var _sx = variable_instance_exists(_inst, "image_xscale") ? real(variable_instance_get(_inst, "image_xscale")) : 0.67;
+    var _sy = variable_instance_exists(_inst, "image_yscale") ? real(variable_instance_get(_inst, "image_yscale")) : 0.67;
+    if (sprite_exists(_spr)){
+        var _ox = sprite_get_xoffset(_spr);
+        var _oy = sprite_get_yoffset(_spr);
+        var _bl = sprite_get_bbox_left(_spr);
+        var _bt = sprite_get_bbox_top(_spr);
+        var _br = sprite_get_bbox_right(_spr) + 1;
+        var _bb = sprite_get_bbox_bottom(_spr) + 1;
+        return {
+            left: _x + (_bl - _ox) * _sx,
+            top: _y + (_bt - _oy) * _sy,
+            right: _x + (_br - _ox) * _sx,
+            bottom: _y + (_bb - _oy) * _sy
+        };
+    }
+    return { left: _x, top: _y, right: _x + 16, bottom: _y + 16 };
+}
+
 function __overworld_encounter_visible_player_hit(_npc, _pl){
     if (!instance_exists(_npc) || !instance_exists(_pl)) return false;
     var _mx = variable_instance_get(_npc, "x");
     var _my = variable_instance_get(_npc, "y");
+    var _npc_bounds = __overworld_encounter_pokemon_npc_bounds(_npc, _mx, _my);
     if (variable_instance_exists(_pl, "bbox_left") && variable_instance_exists(_pl, "bbox_top") && variable_instance_exists(_pl, "bbox_right") && variable_instance_exists(_pl, "bbox_bottom")){
-        return __overworld_rects_intersect(_mx, _my, _mx + 32, _my + 32,
+        return __overworld_rects_intersect(_npc_bounds.left, _npc_bounds.top, _npc_bounds.right, _npc_bounds.bottom,
             variable_instance_get(_pl, "bbox_left"),
             variable_instance_get(_pl, "bbox_top"),
             variable_instance_get(_pl, "bbox_right"),
             variable_instance_get(_pl, "bbox_bottom"));
     }
-    return point_in_rectangle(variable_instance_get(_pl, "x"), variable_instance_get(_pl, "y"), _mx, _my, _mx + 32, _my + 32);
+    return point_in_rectangle(variable_instance_get(_pl, "x"), variable_instance_get(_pl, "y"), _npc_bounds.left, _npc_bounds.top, _npc_bounds.right, _npc_bounds.bottom);
 }
 
 function __overworld_encounter_pokemon_npc_sprite_update(_inst, _moving){
@@ -1511,9 +1578,11 @@ function __overworld_encounter_pokemon_npc_sprite_update(_inst, _moving){
         if (_old_spr != _spr) variable_instance_set(_inst, "image_index", 0);
         variable_instance_set(_inst, "image_speed", _moving ? 0.18 : 0);
         if (!_moving) variable_instance_set(_inst, "image_index", 0);
+        variable_instance_set(_inst, "image_xscale", 0.67);
+        variable_instance_set(_inst, "image_yscale", 0.67);
         variable_instance_set(_inst, "mask_index", _spr);
     }
-    variable_instance_set(_inst, "depth", -(variable_instance_get(_inst, "y") + 32));
+    variable_instance_set(_inst, "depth", -(variable_instance_get(_inst, "y") + 16));
 }
 
 function __overworld_encounter_pokemon_npc_rect_clear(_inst, _x, _y){
@@ -1527,9 +1596,9 @@ function __overworld_encounter_pokemon_npc_rect_clear(_inst, _x, _y){
     for (var _i = 0; _i < array_length(_arr); ++_i){
         var _other = _arr[_i];
         if (_other == noone || _other == _inst || !instance_exists(_other)) continue;
-        var _ox = variable_instance_get(_other, "x");
-        var _oy = variable_instance_get(_other, "y");
-        if (__overworld_rects_intersect(_x, _y, _x + 31, _y + 31, _ox, _oy, _ox + 31, _oy + 31)) return false;
+        var _probe = __overworld_encounter_pokemon_npc_bounds(_inst, _x, _y);
+        var _other_bounds = __overworld_encounter_pokemon_npc_bounds(_other, variable_instance_get(_other, "x"), variable_instance_get(_other, "y"));
+        if (__overworld_rects_intersect(_probe.left, _probe.top, _probe.right, _probe.bottom, _other_bounds.left, _other_bounds.top, _other_bounds.right, _other_bounds.bottom)) return false;
     }
     return true;
 }
@@ -1741,13 +1810,13 @@ function overworld_encounter_draw(_inst){
     var _x = real(variable_struct_get(_mon, "x"));
     var _y = real(variable_struct_get(_mon, "y"));
     draw_set_alpha(0.25);
-    draw_ellipse_color(_x - 9, _y + 8, _x + 9, _y + 13, c_black, c_black, false);
+    draw_ellipse_color(_x - 7, _y + 6, _x + 7, _y + 10, c_black, c_black, false);
     draw_set_alpha(1);
     if (sprite_exists(_spr)){
-        draw_sprite(_spr, _sub mod max(1, sprite_get_number(_spr)), _x - 16, _y - 24);
+        draw_sprite_ext(_spr, _sub mod max(1, sprite_get_number(_spr)), _x - 16, _y - 24, 0.67, 0.67, 0, c_white, 1);
     } else {
         draw_set_color(c_white);
-        draw_rectangle(_x - 8, _y - 16, _x + 8, _y, false);
+        draw_rectangle(_x - 6, _y - 11, _x + 6, _y, false);
     }
     return true;
 }
@@ -1941,6 +2010,7 @@ function overworld_encounter_can_start(_pid){
     if (!is_undefined(poke_index_is_open) && poke_index_is_open(_pid)) return false;
     if (!is_undefined(pause_is_open) && pause_is_open(_pid)) return false;
     if (!is_undefined(party_is_open) && party_is_open(_pid)) return false;
+    if (!is_undefined(pc_is_open) && pc_is_open(_pid)) return false;
     return true;
 }
 

@@ -19,13 +19,14 @@ This index documents the script folders by responsibility so later work can find
 - `scripts/scr_controls/`: boot-time control singleton and per-frame input helpers
 - `scripts/pause_system/`: pause state and pause UI
 - `scripts/DialogSystem/`: dialog queue, dialog sessions, and dialog rendering helpers
-- `scripts/virtual_keyboard_system/`: caught-Pokemon nickname prompt, controller keyboard grid, and physical-keyboard bridge
-- `scripts/CutsceneSystem/`: queued cutscene execution and gating
+- `scripts/virtual_keyboard_system/`: caught-Pokemon nickname prompt, controller keyboard grid, physical-keyboard bridge, input-grace timing, and repeated-character handling
+- `scripts/CutsceneSystem/`: queued cutscene execution and gating, including split-screen-safe overworld cutscene locks
 - `scripts/CutsceneBuilders/`: reusable cutscene payload builders
 - `scripts/camera_system/`: battle/world camera state and draw offsets
+- `scripts/transition_system/`: Emerald-inspired battle and room transition styles, draw helpers, and `transition_room_goto`
 - `scripts/collision_system/`: world collision helpers
 - `scripts/grid_system/`: grid utilities used by map/world systems
-- `scripts/player_helper_scripts/`: player-instance helpers outside the main object events, including multiplayer versus requests and overworld encounter volumes or tables
+- `scripts/player_helper_scripts/`: player-instance helpers outside the main object events, including multiplayer versus requests, NPC sprite resolution, NPC interaction cutscenes, visible Pokemon collision bounds, and overworld encounter volumes or tables
 - `scripts/SkinSystem/`: sprite/skin presentation helpers
 - `scripts/font_pokemon/`: sprite-font loading and font helpers
 - `scripts/currency_system/`: player money and payout helpers
@@ -58,7 +59,7 @@ This index documents the script folders by responsibility so later work can find
 
 - `scripts/battle_system/`: public battle entrypoints, main update loop, and shared hit-rate resolution such as `__battle_can_hit_target`
 - `scripts/battle_command_helpers/`: player command queue, command actor routing, and target-pick helpers
-- `scripts/battle_draw_helpers/`: scene anchors, doubles placement helpers, target-selector rectangles, and shared draw geometry
+- `scripts/battle_draw_helpers/`: scene anchors, doubles placement helpers, target-selector rectangles, sprite-grounding geometry, send-out flash/grow animation, catch-ball wiggle overlay, and shared draw geometry
 - `scripts/battle_theme_helpers/`: platform/environment theme resolution and UI text-color refresh
 - `scripts/battle_actions/`: action resolution helpers used by the turn engine
 - `scripts/battle_impls/`: registered battle implementation functions used in hot paths
@@ -66,7 +67,7 @@ This index documents the script folders by responsibility so later work can find
 - `scripts/battle_move_meta_helpers/`: meta-effect dispatch and effect target resolution
 - `scripts/battle_draw/`: battler draw helpers and GUI presentation helpers
 - `scripts/battle_ui/`: command box and battle UI components
-- `scripts/battle_animations/`: animation queue, overlays, and effect draw/update helpers
+- `scripts/battle_animations/`: animation queue, overlays, and effect draw/update helpers anchored to live battler render centers
 - `scripts/battle_state_overlay/`: battle overlay state and stat-change overlay helpers
 - `scripts/battle_trainer/`: trainer battle send-out, reward, and prompt helpers
 

@@ -208,6 +208,8 @@ Caught-Pokemon naming is no longer a party-only concern. The current flow is:
 
 This matters because a caught mon may already have been routed into PC storage before the nickname is entered. Do not assume the target is still a live party slot.
 
+The virtual keyboard owns both controller-grid input and physical-keyboard entry while this prompt is active. It applies a short input grace when the prompt enters name-entry mode so the same `Interact` press that opened the prompt is not consumed as a character action, and physical text entry accepts repeated characters from `keyboard_string` deltas.
+
 If you need to change caught-mon naming behavior, start in `scripts/virtual_keyboard_system/virtual_keyboard_system.gml`, `scripts/party_model/party_model.gml`, and the catch-finalization seam in `scripts/battle_impls/battle_impls.gml`.
 
 ## Copyable examples

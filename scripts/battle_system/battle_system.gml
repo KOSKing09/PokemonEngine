@@ -177,7 +177,7 @@ function __battle_is_local_versus_slot(_B){
 function __battle_any_player_party_open(_pid){
     var _B = __battle_ensure_slot(_pid);
     if (!is_struct(_B)) return false;
-    if (!__battle_is_local_versus_slot(_B)) return (is_undefined(party_is_open) ? false : party_is_open(_pid));
+    if (!__battle_is_local_versus_slot(_B)) return (is_undefined(party_is_open) ? false : party_is_open(_pid) || (!is_undefined(pc_is_open) && pc_is_open(_pid)));
     if (!variable_struct_exists(_B, "player_pids") || !is_array(variable_struct_get(_B, "player_pids"))) return false;
     if (is_undefined(party_is_open)) return false;
     var _player_pids = variable_struct_get(_B, "player_pids");
@@ -1144,6 +1144,11 @@ function battle_open(_a0 = undefined, _a1 = undefined, _a2 = undefined, _a3 = un
 
     _B.sys_open = true;
     _B.phase    = "transition_in";
+    var _battle_transition_style = (!is_undefined(transition_battle_style)) ? transition_battle_style() : "emerald_fade_black";
+    if (is_struct(_opts) && variable_struct_exists(_opts, "transition_style") && !is_undefined(transition_normalize_style)){
+        _battle_transition_style = transition_normalize_style(variable_struct_get(_opts, "transition_style"));
+    }
+    _B.transition_style = _battle_transition_style;
     _B.turn     = 0;
     _B.result   = "ongoing";
     _B.sys_rng  = random_get_seed();
@@ -1158,7 +1163,8 @@ function battle_open(_a0 = undefined, _a1 = undefined, _a2 = undefined, _a3 = un
 
 // Field helpers now live in battle_field_helpers.gml
     _B.phase_start_ms = current_time;
-    _B.phase_durs = { transition: 300, enemy: 400, call: 700, player: 400, switch_in: 600 };
+    var _battle_transition_ms = (variable_global_exists("TRANSITION_BATTLE_DURATION_MS") && is_real(global.TRANSITION_BATTLE_DURATION_MS)) ? max(1, real(global.TRANSITION_BATTLE_DURATION_MS)) : 620;
+    _B.phase_durs = { transition: _battle_transition_ms, enemy: 400, call: 700, player: 400, switch_in: 600 };
     _B._intro_completed = false;
 
     // Optional gated debug dump for battle-open state (useful for hazard/move meta debugging)
@@ -1284,8 +1290,8 @@ function battle_open(_a0 = undefined, _a1 = undefined, _a2 = undefined, _a3 = un
     __battle_clear_jaw_lock_party_flags(_player_pids[0]);
     if (_coop_enabled && _player_pids[1] != _player_pids[0]) __battle_clear_jaw_lock_party_flags(_player_pids[1]);
 
-    var _player0_candidates = __battle_collect_opening_party_indexes(_player_pids[0], 2, true);
-    var _player1_candidates = __battle_collect_opening_party_indexes(_player_pids[1], 1, true);
+    var _player0_candidates = __battle_collect_opening_party_indexes(_player_pids[0], 2, false);
+    var _player1_candidates = __battle_collect_opening_party_indexes(_player_pids[1], 1, false);
     if (array_length(_player0_candidates) <= 0) array_push(_player0_candidates, 0);
 
     var _requested_double = (_battle_format == "double");
@@ -1984,8 +1990,8 @@ function battle_update(_pid){
     // while a ball throw/impact/shake animation is underway.
     // Note: __battle_update_animations has already been called above so
     // catch animations will still advance.
-    var _bag_open_here = (is_undefined(bag_is_open) ? false : bag_is_open(_pid));
-    var _party_open_here = (is_undefined(party_is_open) ? false : party_is_open(_pid));
+    var _bag_open_here = (is_undefined(bag_is_open) ? false : bag_is_open(_pid) || (!is_undefined(pc_is_open) && pc_is_open(_pid)));
+    var _party_open_here = (is_undefined(party_is_open) ? false : party_is_open(_pid) || (!is_undefined(pc_is_open) && pc_is_open(_pid)));
     if (_bag_open_here || _party_open_here) return;
     if (__battle_any_player_party_open(_pid)) return;
     if (is_struct(_B) && variable_struct_exists(_B, "_catch_anim")){
@@ -3006,11 +3012,16 @@ function battle_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
 
     if (string(_B.phase) == "transition_in"){
         var p = (variable_struct_exists(_B,"phase_progress") ? _B.phase_progress : 0);
-        var alpha = 1 - max(0, min(1, p));
-        draw_set_color(c_black);
-        draw_set_alpha(alpha);
-        draw_rectangle(__bxu(_pid,0), __byu(_pid,0), __bxu(_pid,240), __byu(_pid,160), false);
-        draw_set_alpha(1);
+        var _tr_style = (variable_struct_exists(_B, "transition_style")) ? string(variable_struct_get(_B, "transition_style")) : "emerald_fade_black";
+        if (!is_undefined(transition_draw_battle_cover)){
+            transition_draw_battle_cover(_tr_style, p, __bxu(_pid, 0), __byu(_pid, 0), 240 * _S, 160 * _S);
+        } else {
+            var alpha = 1 - max(0, min(1, p));
+            draw_set_color(c_black);
+            draw_set_alpha(alpha);
+            draw_rectangle(__bxu(_pid,0), __byu(_pid,0), __bxu(_pid,240), __byu(_pid,160), false);
+            draw_set_alpha(1);
+        }
     }
 
     // Draw any overlays that should appear above the UI (pok�ball during catch animation)
@@ -3105,8 +3116,8 @@ function __battle_process_input(_pid){
     var _B = __battle_ensure_slot(_pid);
     var _UI = __battle_command_ui_state(_B, _pid);
     // If the Bag or Party UI is open for this player, block battle input
-    if ((is_undefined(bag_is_open) ? false : bag_is_open(_pid))) return;
-    if ((is_undefined(party_is_open) ? false : party_is_open(_pid))) return;
+    if ((is_undefined(bag_is_open) ? false : bag_is_open(_pid) || (!is_undefined(pc_is_open) && pc_is_open(_pid)))) return;
+    if ((is_undefined(party_is_open) ? false : party_is_open(_pid) || (!is_undefined(pc_is_open) && pc_is_open(_pid)))) return;
     if (string(_B.phase) != "command") return;
 
     try {

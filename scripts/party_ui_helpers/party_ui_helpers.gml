@@ -325,15 +325,7 @@ function __party_impl_draw_left_panel(_P, _M, _OX, _OY, _S, _LEFT_X, _LEFT_Y, _L
     draw_set_color(c_white);
 
     if (is_struct(_M)){
-        var _nm = "???";
-        if (variable_struct_exists(_M,"species_id") && is_real(_M.species_id)){
-            var _idn = scr_poke_name_by_id(_M.species_id);
-            if (string_length(_idn) > 0){
-                _nm = string_replace_all(_idn, "-", " ");
-                if (string_length(_nm) > 0) _nm = string_upper(string_copy(_nm,1,1)) + string_delete(_nm,1,1);
-            }
-        } else if (variable_struct_exists(_M,"species")) _nm = string(_M.species);
-        else if (variable_struct_exists(_M,"name"))     _nm = string(_M.name);
+        var _nm = __party_impl_species_display_name(_M);
         draw_text(_lx1 + 6*_S, _ly1 + 6*_S, _nm);
 
         // (Badge moved to level area) — no badge drawn here any more.
@@ -417,6 +409,31 @@ function __party_impl_draw_left_panel(_P, _M, _OX, _OY, _S, _LEFT_X, _LEFT_Y, _L
     }
 
     return { descPad: _DESC_PAD, descAreaH: _DESC_AREA_H, descX: (_lx1 + _DESC_PAD), descY: (_ly2 - _DESC_AREA_H + _DESC_PAD), descW: min((_LEFT_W + 10) * _S, (108 - _LEFT_X - 4) * _S) - _DESC_PAD*2, descH: _DESC_AREA_H - _DESC_PAD*2 };
+}
+
+function __party_impl_species_display_name(_M){
+    if (!is_struct(_M)) return "???";
+
+    var _sid = -1;
+    if (variable_struct_exists(_M, "species_id") && is_real(_M.species_id)) _sid = floor(_M.species_id);
+    else if (variable_struct_exists(_M, "species") && is_real(_M.species)) _sid = floor(_M.species);
+    else if (variable_struct_exists(_M, "id") && is_real(_M.id)) _sid = floor(_M.id);
+    else if (variable_struct_exists(_M, "_id") && is_real(_M._id)) _sid = floor(_M._id);
+
+    if (_sid > 0 && !is_undefined(scr_poke_name_by_id)){
+        var _idn = scr_poke_name_by_id(_sid);
+        if (is_string(_idn) && string_length(string_trim(_idn)) > 0){
+            var _out = string_replace_all(string_trim(_idn), "-", " ");
+            return string_upper(string_copy(_out, 1, 1)) + string_delete(_out, 1, 1);
+        }
+    }
+
+    if (variable_struct_exists(_M, "name")){
+        var _name = string(variable_struct_get(_M, "name"));
+        if (string_length(string_trim(_name)) > 0 && string_lower(string_trim(_name)) != "undefined") return string_trim(_name);
+    }
+
+    return "???";
 }
 
 // Draw the right parchment frame and return its GUI coordinates.

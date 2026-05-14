@@ -78,6 +78,7 @@ The current boot path is:
   - call `virtual_keyboard_draw_gui(pid)` or `virtual_keyboard_draw_gui_rect(pid, rx, ry, rw, rh)` from Draw GUI
   - use `virtual_keyboard_request_caught_nickname(pid, store_info, species_name)` after a successful catch-storage handoff
   - treat `virtual_keyboard_blocks_input(pid)` as a gameplay/input gate for movement and overlapping menus
+  - preserve the name-entry input grace and `keyboard_string` delta path so the opening `Interact` press is ignored and repeated typed characters are accepted
 - Pkicons:
   - call `pkicons_set_art96_base(...)`, `pkicons_set_icon32_base(...)`, and `pkicons_set_cries_base(...)` before relying on external assets
 
@@ -92,7 +93,7 @@ The current boot path is:
 - pid `0` uses the left half of the GUI and pid `1` uses the right half.
 - `objects/oGame/Draw_64.gml` is the main composition seam for split-screen UI ownership.
 - Systems with split-screen-aware draw entrypoints currently include battle, pause, bag, party, evolution, the virtual keyboard, and overworld dialog.
-- Physical keyboard character entry for the virtual keyboard is intentionally owned by the first active nickname-entry pid to avoid both sides consuming the same `keyboard_lastchar` events.
+- Physical keyboard character entry for the virtual keyboard is intentionally owned by the first active nickname-entry pid so split-screen players do not both consume the same typed text.
 
 ## Smoke tests
 

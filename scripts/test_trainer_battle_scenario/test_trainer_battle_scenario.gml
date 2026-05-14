@@ -180,7 +180,7 @@ function __status_smoke_queue_turn(_pid, _player_slot, _enemy_move_id){
 }
 
 function __status_smoke_advance_dialog(_pid, _state){
-    if (!is_undefined(party_is_open) && party_is_open(_pid)) return false;
+    if (!is_undefined(party_is_open) && party_is_open(_pid) || (!is_undefined(pc_is_open) && pc_is_open(_pid)) || (!is_undefined(pc_is_open) && pc_is_open(_pid))) return false;
     if (is_undefined(dialog2p_is_open) || !dialog2p_is_open(_pid)) return false;
     if (!variable_global_exists("DIALOG2P") || !is_array(global.DIALOG2P) || array_length(global.DIALOG2P) <= _pid) return true;
     var _d = global.DIALOG2P[_pid];
@@ -1628,7 +1628,7 @@ function test_battle_field_switch_smoke_update(_pid = 0){
             break;
 
         case "await_baton_party":
-            var _party_open = (is_undefined(party_is_open) ? false : party_is_open(_pid));
+            var _party_open = (is_undefined(party_is_open) ? false : party_is_open(_pid) || (!is_undefined(pc_is_open) && pc_is_open(_pid)));
             var _switch_pending = (variable_struct_exists(_B, "_switch_target_idx") && is_real(variable_struct_get(_B, "_switch_target_idx")) && variable_struct_get(_B, "_switch_target_idx") == 1);
             var _bp_pending = (variable_struct_exists(_B, "_baton_pass_pending") && is_struct(variable_struct_get(_B, "_baton_pass_pending")));
             if (_party_open || _switch_pending || _bp_pending || (variable_struct_exists(_B, "phase") && (variable_struct_get(_B, "phase") == "intro_call" || variable_struct_get(_B, "phase") == "switch_in"))){
@@ -3889,7 +3889,7 @@ function test_battle_effect_211_229_smoke_start(_auto_close = false){
     __effect_smoke_slot(_pid, _ut_active, _D);
     __battle_perform_action_impl(_pid, { slot: 0, move_id: 369, actor_index: 0, target_index: 1 });
     var _ut_party = party_ensure(_pid);
-    var _ut_ok = party_is_open(_pid) && variable_struct_exists(_ut_party, "_battle_swap_mode") && variable_struct_get(_ut_party, "_battle_swap_mode") == true;
+    var _ut_ok = party_is_open(_pid) || (!is_undefined(pc_is_open) && pc_is_open(_pid)) && variable_struct_exists(_ut_party, "_battle_swap_mode") && variable_struct_get(_ut_party, "_battle_swap_mode") == true;
     __status_smoke_assert(_S, _ut_ok, "effect 229 U-turn opened the player's battle swap flow after a hit");
     try { party_close(_pid); } catch (e_ut_close) {}
 

@@ -971,6 +971,19 @@ function battle_anim_queue_get_states(_pid){
 
 function __battle_anim_queue_actor_center(_pid, _idx){
     var _B = __battle_ensure_slot(_pid);
+    try {
+        if (is_struct(_B) && variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor"))){
+            var _actors_center = variable_struct_get(_B, "actor");
+            if (_idx >= 0 && _idx < array_length(_actors_center)){
+                var _actor_center = _actors_center[_idx];
+                if (is_struct(_actor_center)
+                    && variable_struct_exists(_actor_center, "_render_center_x") && is_real(variable_struct_get(_actor_center, "_render_center_x"))
+                    && variable_struct_exists(_actor_center, "_render_center_y") && is_real(variable_struct_get(_actor_center, "_render_center_y"))){
+                    return [variable_struct_get(_actor_center, "_render_center_x"), variable_struct_get(_actor_center, "_render_center_y")];
+                }
+            }
+        }
+    } catch (e_render_center) {}
     if (is_struct(_B) && !is_undefined(__battle_get_actor_scene_anchor)){
         var _anchor = __battle_get_actor_scene_anchor(_pid, _B, _idx);
         if (is_struct(_anchor) && variable_struct_exists(_anchor, "battler")){

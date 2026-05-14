@@ -48,6 +48,10 @@ function __battle_draw_platform(_pid, _B, _side, _anchor_x, _anchor_bottom, _ui_
     draw_sprite_ext(spr, subimg, draw_x, draw_y, scale, scale, 0, c_white, 1);
 }
 
+function __battle_platform_surface_y(_pid, _anchor_bottom, _ui_scale){
+    return _anchor_bottom - __bhu(_pid, 16);
+}
+
 function __battle_confusion_dialog_overlay_state(_pid, _actor, _center_x, _center_y, _alpha_mult = 1){
     if (!is_struct(_actor)) return undefined;
 
@@ -159,6 +163,26 @@ function __battle_get_target_selector_rect(_pid, _B, _actorIndex){
     var _actor = _B.actor[_actorIndex];
     if (!is_struct(_actor) || !variable_struct_exists(_actor, "mon")) return undefined;
 
+    var _view_target = __battle_actor_view_side_slot(_pid, _actorIndex);
+    var _side = (is_struct(_view_target) && variable_struct_exists(_view_target, "side")) ? variable_struct_get(_view_target, "side") : __battle_actor_side(_actorIndex);
+
+    if (variable_struct_exists(_actor, "_render_center_x") && is_real(variable_struct_get(_actor, "_render_center_x"))
+        && variable_struct_exists(_actor, "_render_center_y") && is_real(variable_struct_get(_actor, "_render_center_y"))){
+        var _live_cx = real(variable_struct_get(_actor, "_render_center_x"));
+        var _live_cy = real(variable_struct_get(_actor, "_render_center_y"));
+        var _live_w = __bwu(_pid, (_side == 0) ? 46 : 42);
+        var _live_h = __bhu(_pid, (_side == 0) ? 38 : 34);
+        if (variable_struct_exists(_actor, "_render_opaque_w") && is_real(variable_struct_get(_actor, "_render_opaque_w"))) _live_w = clamp(real(variable_struct_get(_actor, "_render_opaque_w")) * 0.82, __bwu(_pid, 28), __bwu(_pid, 60));
+        if (variable_struct_exists(_actor, "_render_opaque_h") && is_real(variable_struct_get(_actor, "_render_opaque_h"))) _live_h = clamp(real(variable_struct_get(_actor, "_render_opaque_h")) * 0.72, __bhu(_pid, 24), __bhu(_pid, 54));
+        return {
+            x: _live_cx - _live_w * 0.5,
+            y: _live_cy - _live_h * 0.5,
+            w: _live_w,
+            h: _live_h,
+            side: _side
+        };
+    }
+
     var _anchor = __battle_get_actor_scene_anchor(_pid, _B, _actorIndex);
     if (!is_struct(_anchor) || !variable_struct_exists(_anchor, "battler")) return undefined;
     var _pt = variable_struct_get(_anchor, "battler");
@@ -172,6 +196,12 @@ function __battle_get_target_selector_rect(_pid, _B, _actorIndex){
 
     var _spr = undefined;
     if (!is_undefined(pkicons_get_art96_by_mon)) _spr = pkicons_get_art96_by_mon(variable_struct_get(_actor, "mon"));
+    if (is_undefined(_spr) || !sprite_exists(_spr)){
+        if (variable_global_exists("spr_mon_placeholder")) _spr = global.spr_mon_placeholder;
+        if (is_undefined(_spr) || !sprite_exists(_spr)){
+            try { _spr = asset_get_index("spr_mon_placeholder"); } catch (e_target_placeholder) { _spr = undefined; }
+        }
+    }
 
     var _w = 64;
     var _h = 64;
@@ -180,21 +210,29 @@ function __battle_get_target_selector_rect(_pid, _B, _actorIndex){
         _h = sprite_get_height(_spr);
     }
 
-    var _view_target = __battle_actor_view_side_slot(_pid, _actorIndex);
-    var _side = (is_struct(_view_target) && variable_struct_exists(_view_target, "side")) ? variable_struct_get(_view_target, "side") : __battle_actor_side(_actorIndex);
     var _scale_mult = (variable_struct_exists(_anchor, "scale_mult") && is_real(variable_struct_get(_anchor, "scale_mult"))) ? real(variable_struct_get(_anchor, "scale_mult")) : 1;
     var _draw_scale = ((_side == 0) ? 1.1 : 1.0) * _scale_mult * _ui_s;
     var _origin_x = (!is_undefined(_spr) && sprite_exists(_spr)) ? sprite_get_xoffset(_spr) : (_w * 0.5);
     var _origin_y = (!is_undefined(_spr) && sprite_exists(_spr)) ? sprite_get_yoffset(_spr) : ((_side == 0) ? (_h * 0.88) : (_h * 0.5));
     var _platform_bottom = _pt[1] + (_h * _draw_scale) * 0.5;
+    var _platform_surface = __battle_platform_surface_y(_pid, _platform_bottom, _ui_s);
+    var _foot_y = __battle_sprite_opaque_bottom(_spr, _h);
     var _draw_x = _pt[0] + (_origin_x - (_w * 0.5)) * _draw_scale;
-    var _draw_y = _platform_bottom - (_h - _origin_y) * _draw_scale;
-    var _sprite_w = _w * _draw_scale;
-    var _sprite_h = _h * _draw_scale;
-    var _box_w = clamp(_sprite_w * 0.58, __bwu(_pid, 34), __bwu(_pid, 58));
-    var _box_h = clamp(_sprite_h * 0.58, __bhu(_pid, 28), __bhu(_pid, 50));
-    var _cx = _draw_x + (_sprite_w * 0.5);
-    var _cy = _draw_y + (_sprite_h * 0.5);
+    var _draw_y = _platform_surface - (_foot_y - _origin_y) * _draw_scale;
+    var _bbox_l = (!is_undefined(_spr) && sprite_exists(_spr)) ? sprite_get_bbox_left(_spr) : 0;
+    var _bbox_t = (!is_undefined(_spr) && sprite_exists(_spr)) ? sprite_get_bbox_top(_spr) : 0;
+    var _bbox_r = (!is_undefined(_spr) && sprite_exists(_spr)) ? (sprite_get_bbox_right(_spr) + 1) : _w;
+    var _bbox_b = (!is_undefined(_spr) && sprite_exists(_spr)) ? (sprite_get_bbox_bottom(_spr) + 1) : _h;
+    var _opaque_left = _draw_x + (_bbox_l - _origin_x) * _draw_scale;
+    var _opaque_right = _draw_x + (_bbox_r - _origin_x) * _draw_scale;
+    var _opaque_top = _draw_y + (_bbox_t - _origin_y) * _draw_scale;
+    var _opaque_bottom = _draw_y + (_bbox_b - _origin_y) * _draw_scale;
+    var _opaque_w = max(1, abs(_opaque_right - _opaque_left));
+    var _opaque_h = max(1, abs(_opaque_bottom - _opaque_top));
+    var _box_w = clamp(_opaque_w * 0.82, __bwu(_pid, 28), __bwu(_pid, 60));
+    var _box_h = clamp(_opaque_h * 0.72, __bhu(_pid, 24), __bhu(_pid, 54));
+    var _cx = (_opaque_left + _opaque_right) * 0.5;
+    var _cy = lerp(_opaque_top, _opaque_bottom, 0.48);
 
     return {
         x: _cx - (_box_w * 0.5),
@@ -405,24 +443,79 @@ function __battle_get_sendout_ball_sprite(_mon){
     return ball_sprite;
 }
 
-function __battle_draw_player_throw_overlay(_pid, _progress, _origin_x, _origin_y, _target_x, _target_y, _mon, _ui_s, _ball_alpha){
+function __battle_sprite_opaque_bottom(_spr, _fallback_h){
+    if (!is_undefined(_spr) && sprite_exists(_spr)){
+        try { return clamp(sprite_get_bbox_bottom(_spr) + 1, 1, _fallback_h); } catch (e_bbox_bottom) {}
+    }
+    return _fallback_h;
+}
+
+function __battle_draw_player_throw_overlay(_pid, _progress, _origin_x, _origin_y, _target_x, _target_y, _mon, _ui_s, _ball_alpha, _ground_y = undefined){
     var ball_sprite = __battle_get_sendout_ball_sprite(_mon);
     if (is_undefined(ball_sprite) || !sprite_exists(ball_sprite)) return false;
 
-    var t = clamp(_progress, 0, 1);
-    var bx = lerp(_origin_x, _target_x, t);
-    var by = lerp(_origin_y, _target_y, t);
-    by -= sin(t * pi) * __bhu(_pid, 26);
-
     var frames = max(1, sprite_get_number(ball_sprite));
-    var subimg = (frames <= 1) ? 0 : clamp(floor(t * (frames - 1)), 0, frames - 1);
     var scale_draw = 0.8 * _ui_s;
     var spr_w = sprite_get_width(ball_sprite);
     var spr_h = sprite_get_height(ball_sprite);
+    var t = clamp(_progress, 0, 1);
+    var target_center_y = is_real(_ground_y) ? (_ground_y - spr_h * scale_draw * 0.5) : _target_y;
+    var bx = lerp(_origin_x, _target_x, t);
+    var by = lerp(_origin_y, target_center_y, t);
+    by -= sin(t * pi) * __bhu(_pid, 26);
+
+    var subimg = (frames <= 1) ? 0 : clamp(floor(t * (frames - 1)), 0, frames - 1);
     var origin_off_x = (spr_w * 0.5 - sprite_get_xoffset(ball_sprite)) * scale_draw;
     var origin_off_y = (spr_h * 0.5 - sprite_get_yoffset(ball_sprite)) * scale_draw;
+    var ground_y = is_real(_ground_y) ? _ground_y : (_target_y + spr_h * scale_draw * 0.5);
+    var hop = max(0, ground_y - (by + spr_h * scale_draw * 0.5));
+    var shadow_alpha = clamp((1 - hop / max(1, __bhu(_pid, 34))) * clamp(_ball_alpha, 0, 1), 0, 1);
+    draw_set_color(c_black);
+    draw_set_alpha(0.32 * shadow_alpha);
+    var shadow_w = max(3, spr_w * scale_draw * lerp(0.42, 0.68, shadow_alpha));
+    var shadow_h = max(2, shadow_w * 0.22);
+    draw_ellipse(_target_x - shadow_w * 0.5, ground_y - shadow_h * 0.5, _target_x + shadow_w * 0.5, ground_y + shadow_h * 0.5, false);
+    draw_set_alpha(1);
+    draw_set_color(c_white);
     draw_sprite_ext(ball_sprite, subimg, bx - origin_off_x, by - origin_off_y, scale_draw, scale_draw, 0, c_white, clamp(_ball_alpha, 0, 1));
     return true;
+}
+
+function __battle_sendout_anim_values(_progress, _target_scale){
+    var p = clamp(_progress, 0, 1);
+    var flash_end = 0.28;
+    var grow_prog = clamp((p - flash_end) / max(0.001, 1 - flash_end), 0, 1);
+    var grow_ease = 1 - power(1 - grow_prog, 3);
+    var scale_now = 0;
+    if (grow_prog > 0) scale_now = lerp(_target_scale * 0.18, _target_scale, grow_ease);
+    return {
+        scale: scale_now,
+        alpha: clamp(grow_prog * 2.4, 0, 1),
+        flash: max(0, 1 - clamp(p / 0.72, 0, 1))
+    };
+}
+
+function __battle_draw_sendout_flash(_pid, _x, _y, _progress, _ui_s){
+    var p = clamp(_progress, 0, 1);
+    if (p <= 0 || p >= 0.78) return;
+
+    var flash_alpha = max(0, 1 - (p / 0.78));
+    var pulse = sin(clamp(p / 0.78, 0, 1) * pi);
+    var core_r = __bhu(_pid, lerp(8, 22, p));
+    var ray_r = __bhu(_pid, lerp(12, 34, p));
+
+    draw_set_color(c_white);
+    draw_set_alpha(0.72 * flash_alpha + 0.18 * pulse);
+    draw_circle(_x, _y, core_r, false);
+
+    draw_set_alpha(0.52 * flash_alpha);
+    draw_line_width(_x - ray_r, _y, _x + ray_r, _y, max(1, floor(2 * _ui_s)));
+    draw_line_width(_x, _y - ray_r, _x, _y + ray_r, max(1, floor(2 * _ui_s)));
+    draw_line_width(_x - ray_r * 0.72, _y - ray_r * 0.72, _x + ray_r * 0.72, _y + ray_r * 0.72, max(1, floor(1 * _ui_s)));
+    draw_line_width(_x - ray_r * 0.72, _y + ray_r * 0.72, _x + ray_r * 0.72, _y - ray_r * 0.72, max(1, floor(1 * _ui_s)));
+
+    draw_set_alpha(1);
+    draw_set_color(c_white);
 }
 
 function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
@@ -495,7 +588,8 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
     } catch (e_ui) { ui_s = 1; }
     var _enemy_layout = __battle_get_actor_scene_anchor(_pid, _B, _actorIndex);
     var _enemy_scale_mult = (is_struct(_enemy_layout) && variable_struct_exists(_enemy_layout, "scale_mult") && is_real(variable_struct_get(_enemy_layout, "scale_mult"))) ? real(variable_struct_get(_enemy_layout, "scale_mult")) : 1;
-    var drawScaleE = scale_foe * _enemy_scale_mult * ui_s * __trainer_scale;
+    var _enemy_target_scale = scale_foe * _enemy_scale_mult * ui_s;
+    var drawScaleE = _enemy_target_scale * __trainer_scale;
     var __trainer_switch = undefined;
     try {
         if (variable_struct_exists(_B, "_trainer_switch")){
@@ -552,10 +646,20 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
         }
     } catch (e_early_hide) {}
     var base_fy = fy;
-    var platform_bottom = base_fy + (h * drawScaleE) * 0.5;
+    var platform_bottom = base_fy + (h * _enemy_target_scale) * 0.5;
+    var platform_surface = __battle_platform_surface_y(_pid, platform_bottom, ui_s);
     // Use the preserved origin for platform drawing so the platform stays
     // anchored even when we temporarily move `fx` offscreen for the sprite.
     __battle_draw_platform(_pid, _B, "enemy", __orig_fx, platform_bottom, ui_s);
+    try {
+        if (__is_lead_enemy && is_struct(_B) && variable_struct_exists(_B, "_trainer_intro")){
+            var __flash_intro = variable_struct_get(_B, "_trainer_intro");
+            if (is_struct(__flash_intro) && variable_struct_exists(__flash_intro, "_enemy_scale_progress")){
+                var __flash_prog = clamp(real(variable_struct_get(__flash_intro, "_enemy_scale_progress")), 0, 1);
+                __battle_draw_sendout_flash(_pid, fx, fy - __bhu(_pid, 8), __flash_prog, ui_s);
+            }
+        }
+    } catch (e_intro_flash) {}
 
     var _local_versus_switch_intro = false;
     var _incoming_switch_mon = undefined;
@@ -594,9 +698,10 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
         var _ball_origin_x_intro = (is_array(_trainer_anchor_intro) && array_length(_trainer_anchor_intro) >= 2) ? _trainer_anchor_intro[0] + __bwu(_pid, 8) : __bxu(_pid, 173);
         var _ball_origin_y_intro = (is_array(_trainer_anchor_intro) && array_length(_trainer_anchor_intro) >= 2) ? _trainer_anchor_intro[1] - __bhu(_pid, 20) : __byu(_pid, 20);
         var _ball_target_x_intro = fx;
-        var _ball_target_y_intro = fy - __bhu(_pid, 10);
+        var _ball_ground_y_intro = platform_surface;
+        var _ball_target_y_intro = _ball_ground_y_intro;
         var _ball_alpha_intro = (_switch_prog_intro < _throw_split_intro) ? 1 : max(0, 1 - _reveal_prog_intro);
-        __battle_draw_player_throw_overlay(_pid, _throw_prog_intro, _ball_origin_x_intro, _ball_origin_y_intro, _ball_target_x_intro, _ball_target_y_intro, _incoming_switch_mon, ui_s, _ball_alpha_intro);
+        __battle_draw_player_throw_overlay(_pid, _throw_prog_intro, _ball_origin_x_intro, _ball_origin_y_intro, _ball_target_x_intro, _ball_target_y_intro, _incoming_switch_mon, ui_s, _ball_alpha_intro, _ball_ground_y_intro);
 
         if (_switch_prog_intro >= _throw_split_intro && !is_undefined(pkicons_get_art96_by_mon) && !is_undefined(pkicons_get_art96_subimg_by_mon)){
             var _spr_intro = pkicons_get_art96_by_mon(_incoming_switch_mon);
@@ -606,19 +711,23 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
                 var _h_intro = sprite_get_height(_spr_intro);
                 var _origin_x_intro = sprite_get_xoffset(_spr_intro);
                 var _origin_y_intro = sprite_get_yoffset(_spr_intro);
-                var _scale_intro = lerp(drawScaleE * 0.55, drawScaleE, _reveal_ease_intro);
+                var _foot_y_intro = __battle_sprite_opaque_bottom(_spr_intro, _h_intro);
+                var _send_intro = __battle_sendout_anim_values(_reveal_prog_intro, _enemy_target_scale);
+                var _scale_intro = variable_struct_get(_send_intro, "scale");
                 var _draw_x_intro = fx + (_origin_x_intro - (_w_intro * 0.5)) * _scale_intro;
-                var _platform_bottom_intro = base_fy + (_h_intro * _scale_intro) * 0.5;
-                var _draw_y_intro = _platform_bottom_intro - (_h_intro - _origin_y_intro) * _scale_intro - __bhu(_pid, 8) * (1 - _reveal_prog_intro);
+                var _platform_bottom_intro = base_fy + (_h_intro * _enemy_target_scale) * 0.5;
+                var _platform_surface_intro = __battle_platform_surface_y(_pid, _platform_bottom_intro, ui_s);
+                var _draw_y_intro = _platform_surface_intro - (_foot_y_intro - _origin_y_intro) * _scale_intro;
+                __battle_draw_sendout_flash(_pid, _ball_target_x_intro, _ball_target_y_intro, _reveal_prog_intro, ui_s);
                 draw_set_color(make_color_rgb(20,20,20));
                 draw_set_alpha(0.45);
                 var _shadow_w_intro = floor((_w_intro * _scale_intro) * 0.6);
                 var _shadow_h_intro = max(2, floor((_w_intro * _scale_intro) * 0.12));
                 var _shadow_cx_intro = floor(_draw_x_intro + (_w_intro * _scale_intro) * 0.5);
-                var _shadow_cy_intro = floor(_platform_bottom_intro + _shadow_h_intro * 0.8 + floor(15 * ui_s));
+                var _shadow_cy_intro = floor(_platform_surface_intro + _shadow_h_intro * 0.15);
                 draw_ellipse(_shadow_cx_intro - _shadow_w_intro div 2, _shadow_cy_intro - _shadow_h_intro div 2, _shadow_cx_intro + _shadow_w_intro div 2, _shadow_cy_intro + _shadow_h_intro div 2, false);
                 draw_set_alpha(1);
-                draw_sprite_ext(_spr_intro, _sub_intro, _draw_x_intro, _draw_y_intro, _scale_intro, _scale_intro, 0, c_white, clamp(_reveal_ease_intro, 0, 1));
+                draw_sprite_ext(_spr_intro, _sub_intro, _draw_x_intro, _draw_y_intro, _scale_intro, _scale_intro, 0, c_white, variable_struct_get(_send_intro, "alpha"));
             }
         }
         return;
@@ -681,10 +790,10 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
         } else if (__ts_phase == "materialize"){
             var __mat_dur = (variable_struct_exists(__trainer_switch, "materialize_duration") && is_real(variable_struct_get(__trainer_switch, "materialize_duration"))) ? max(1, real(variable_struct_get(__trainer_switch, "materialize_duration"))) : 180;
             var __mat_prog = clamp((current_time - __ts_start) / __mat_dur, 0, 1);
-            var __mat_ease = 1 - power(1 - __mat_prog, 2);
-            enemy_alpha *= lerp(0.15, 1, __mat_ease);
-            drawScaleE *= lerp(0.05, 1, __mat_ease);
-            fy -= __bhu(_pid, 12) * (1 - __mat_ease);
+            var __mat_send = __battle_sendout_anim_values(__mat_prog, drawScaleE);
+            enemy_alpha *= variable_struct_get(__mat_send, "alpha");
+            drawScaleE = variable_struct_get(__mat_send, "scale");
+            __battle_draw_sendout_flash(_pid, fx, fy - __bhu(_pid, 8), __mat_prog, ui_s);
         }
     }
     if (enemy_alpha <= 0.001 && drawScaleE <= 0.001){
@@ -728,12 +837,12 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
     // Position using sprite origin so large sprites anchor correctly
     var origin_x_e = (is_undefined(sprE) || !sprite_exists(sprE)) ? (w * 0.5) : sprite_get_xoffset(sprE);
     var origin_y_e = (is_undefined(sprE) || !sprite_exists(sprE)) ? (h * 0.5) : sprite_get_yoffset(sprE);
-    // Apply species-origin adjustment computed earlier so visual feet/shadow align with platform
-    origin_y_e = clamp(origin_y_e + species_adj_px_e, 0, h);
+    var foot_y_e = __battle_sprite_opaque_bottom(sprE, h);
     var draw_x = fx + (origin_x_e - (w * 0.5)) * drawScaleE;
     // Anchor sprite bottom to the platform bottom so different sprite origins/sizes align correctly
-    var platform_bottom_local = base_fy + (h * drawScaleE) * 0.5;
-    var draw_y = platform_bottom_local - (h - origin_y_e) * drawScaleE;
+    var platform_bottom_local = base_fy + (h * _enemy_target_scale) * 0.5;
+    var platform_surface_local = __battle_platform_surface_y(_pid, platform_bottom_local, ui_s);
+    var draw_y = platform_surface_local - (foot_y_e - origin_y_e) * drawScaleE;
     __battle_draw_trainer_switch_overlay(_pid, _B, fx, fy);
     // If actor is not grounded (flying / levitate), raise sprite to simulate floating
     try {
@@ -835,10 +944,10 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
     var catch_shadow_center_x = floor(fx);
     var catch_shadow_h = max(2, floor((w * drawScaleE) * 0.12));
     var catch_shadow_center_y = 0;
-    catch_shadow_center_y = floor(platform_bottom_local + catch_shadow_h * 0.8 + floor(15 * ui_s));
+    catch_shadow_center_y = floor(platform_surface_local + catch_shadow_h * 0.15);
     // The ball itself should sit above the shadow, not at the shadow center.
     var catch_land_x = catch_shadow_center_x;
-    var catch_land_y = floor(platform_bottom_local - max(4, floor(6 * ui_s)));
+    var catch_land_y = floor(platform_surface_local);
     if (!fainting && catch_affects_enemy && is_struct(catchA) && catchA.active){
         // Re-stamp the landing point from the live enemy draw path. The catch
         // animation is created during update, where _B._ui may be undefined and
@@ -904,32 +1013,24 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
                 ball_to_draw = {spr: (is_undefined(catchA.ball_sprite) ? undefined : catchA.ball_sprite), x: bx2, y: by2, scale: 0.8};
             anchor_overridden = true;
         } else if (phase == "shake"){
-            // Hopping logic: during shake we run up to hop_total hops. Each hop consists of hop_dur (up/down) + hop_pause.
-            var hop_total = (variable_struct_exists(catchA, "hop_total") ? real(catchA.hop_total) : 3);
-            var hop_index = (variable_struct_exists(catchA, "hop_index") ? real(catchA.hop_index) : 1);
+            // Emerald-style capture checks rock the ball on the platform instead of making it hop.
             var hop_dur_local = (variable_struct_exists(catchA, "hop_dur") ? max(1, real(catchA.hop_dur)) : 320);
             var hop_pause_local = (variable_struct_exists(catchA, "hop_pause") ? max(0, real(catchA.hop_pause)) : 180);
             var cycle = hop_dur_local + hop_pause_local;
             var e3 = now - (variable_struct_exists(catchA, "phase_start") ? catchA.phase_start : now);
-            // clamp e3 within current hop cycle
             var local_t = clamp((e3 % cycle) / hop_dur_local, 0, 1);
-            // hop Y offset: use sine easing for smooth up/down and increase height slightly for visibility
-            var hop_height = max(16, floor((h * ui_s) * 0.18));
-            // eased progress in [0..1] with sine easing (0->1->0 across the hop)
-            var eased = sin(local_t * pi);
-            var arc = eased * hop_height;
-            // if we're in the pause portion (after hop_dur_local), keep at bottom
             var in_pause = ((e3 % cycle) >= hop_dur_local);
             var base_x = (variable_struct_exists(catchA, "land_x") ? variable_struct_get(catchA, "land_x") : catch_land_x);
             var base_y = (variable_struct_exists(catchA, "land_y") ? variable_struct_get(catchA, "land_y") : catch_land_y);
-            var enemy_base_bottom = base_y;
-            var by3 = in_pause ? enemy_base_bottom : (base_y - arc);
-            // enemy remains hidden while hops run
+            var wiggle = in_pause ? 0 : sin(local_t * pi * 2);
+            var wiggle_angle = wiggle * 14;
+            var wiggle_x = wiggle * max(1, __bwu(_pid, 1.25));
+            // enemy remains hidden while the capture checks run
             drawScaleE *= 0;
             enemy_alpha = 0;
-            var ballScale = (in_pause ? 0.65 : 0.8);
-            var bx3 = base_x;
-            ball_to_draw = {spr: (is_undefined(catchA.ball_sprite) ? undefined : catchA.ball_sprite), x: bx3, y: by3, scale: ballScale};
+            var ballScale = 0.72;
+            var bx3 = base_x + wiggle_x;
+            ball_to_draw = {spr: (is_undefined(catchA.ball_sprite) ? undefined : catchA.ball_sprite), x: bx3, y: base_y, scale: ballScale, angle: wiggle_angle};
             anchor_overridden = true;
         } else if (phase == "resolve" || phase == "caught"){
             // ball rests at the bottom of the enemy sprite; enemy remains hidden
@@ -986,7 +1087,7 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
         var p = (variable_struct_exists(_B,"phase_progress") ? _B.phase_progress : 0);
         var start_log = 240 + 40;
         var start_px = __bxu(_pid, start_log);
-        var target_px = fx - (w*drawScaleE)/2;
+        var target_px = fx + (origin_x_e - (w * 0.5)) * drawScaleE;
         var t = 1 - (1 - p) * (1 - p);
         draw_x = floor(lerp(start_px, target_px, t));
             // If the animation entered 'resolve' (caught) and we still have the state, draw the steady ball
@@ -1000,8 +1101,8 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
     // Recompute draw_x/draw_y now that drawScaleE may have been modified by the catch animation
     // (this keeps the sprite centered while scaling instead of shifting left/right)
     // If `intro_enemy` set a custom draw_x we preserve it but still recalc draw_y
-    if (!(string(_B.phase) == "intro_enemy")) draw_x = fx - (w*drawScaleE)/2;
-    draw_y = fy - (h*drawScaleE)/2;
+    if (!(string(_B.phase) == "intro_enemy")) draw_x = fx + (origin_x_e - (w * 0.5)) * drawScaleE;
+    draw_y = platform_surface_local - (foot_y_e - origin_y_e) * drawScaleE;
 
     // Apply nudge offset after recomputing draw_x so it isn't stomped by later recalcs.
     try {
@@ -1026,18 +1127,28 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
     }
     // If the foe is frozen, disable the breathing animation so it appears static
     if (_has_freeze) _bs_e = 1;
+    var _bbox_l_e = (!is_undefined(sprE) && sprite_exists(sprE)) ? sprite_get_bbox_left(sprE) : 0;
+    var _bbox_t_e = (!is_undefined(sprE) && sprite_exists(sprE)) ? sprite_get_bbox_top(sprE) : 0;
+    var _bbox_r_e = (!is_undefined(sprE) && sprite_exists(sprE)) ? (sprite_get_bbox_right(sprE) + 1) : w;
+    var _bbox_b_e = (!is_undefined(sprE) && sprite_exists(sprE)) ? (sprite_get_bbox_bottom(sprE) + 1) : h;
+    var _opaque_left_e = draw_x + (_bbox_l_e - origin_x_e) * drawScaleE * _bs_e;
+    var _opaque_right_e = draw_x + (_bbox_r_e - origin_x_e) * drawScaleE * _bs_e;
+    var _opaque_top_e = draw_y + (_bbox_t_e - origin_y_e) * drawScaleE;
+    var _opaque_bottom_e = draw_y + (_bbox_b_e - origin_y_e) * drawScaleE;
+    var _render_center_x_e = (_opaque_left_e + _opaque_right_e) * 0.5;
+    var _render_center_y_e = lerp(_opaque_top_e, _opaque_bottom_e, 0.48);
     // Skip drawing the shadow while the battler is frozen (visual clarity)
     if (!_has_freeze){
         draw_set_color(make_color_rgb(20,20,20));
         draw_set_alpha(0.45 * enemy_alpha);
-        var shadow_w_e = floor((w * drawScaleE * _bs_e) * 0.6);
-        var shadow_h_e = max(2, floor((w * drawScaleE) * 0.12));
-        var shadow_cx_e = floor(draw_x + (w * drawScaleE * _bs_e) * 0.5);
+        var shadow_w_e = floor(max(8 * ui_s, abs(_opaque_right_e - _opaque_left_e) * 0.72));
+        var shadow_h_e = max(2, floor(shadow_w_e * 0.16));
+        var shadow_cx_e = floor(_render_center_x_e);
         var shadow_cy_e = 0;
         if (typeof(_is_grounded_e) != "undefined" && !_is_grounded_e){
-            shadow_cy_e = floor(base_fy + (h * scale_foe * ui_s) * 0.5 + shadow_h_e * 0.8 + floor(15 * ui_s));
+            shadow_cy_e = floor(platform_surface_local + shadow_h_e * 0.15);
         } else {
-            shadow_cy_e = floor(draw_y + (h * drawScaleE) * 0.5 + shadow_h_e * 0.8 + floor(15 * ui_s));
+            shadow_cy_e = floor(_opaque_bottom_e + shadow_h_e * 0.15);
         }
         draw_ellipse(shadow_cx_e - shadow_w_e div 2, shadow_cy_e - shadow_h_e div 2, shadow_cx_e + shadow_w_e div 2, shadow_cy_e + shadow_h_e div 2, false);
         draw_set_alpha(1);
@@ -1061,9 +1172,25 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
                 variable_struct_set(E, "_render_draw_y", draw_y);
                 variable_struct_set(E, "_render_scale_x", drawScaleE * _bs_e);
                 variable_struct_set(E, "_render_scale_y", drawScaleE);
+                variable_struct_set(E, "_render_center_x", _render_center_x_e);
+                variable_struct_set(E, "_render_center_y", _render_center_y_e);
+                variable_struct_set(E, "_render_ground_y", _opaque_bottom_e);
+                variable_struct_set(E, "_render_opaque_w", abs(_opaque_right_e - _opaque_left_e));
+                variable_struct_set(E, "_render_opaque_h", abs(_opaque_bottom_e - _opaque_top_e));
             } catch (e_render_enemy) {}
             draw_sprite_ext(sprE, subE, draw_x, draw_y, drawScaleE * _bs_e, drawScaleE, 0, _img_blend_e, enemy_alpha);
         } else {
+            try {
+                variable_struct_set(E, "_render_draw_x", draw_x);
+                variable_struct_set(E, "_render_draw_y", draw_y);
+                variable_struct_set(E, "_render_scale_x", drawScaleE * _bs_e);
+                variable_struct_set(E, "_render_scale_y", drawScaleE);
+                variable_struct_set(E, "_render_center_x", _render_center_x_e);
+                variable_struct_set(E, "_render_center_y", _render_center_y_e);
+                variable_struct_set(E, "_render_ground_y", _opaque_bottom_e);
+                variable_struct_set(E, "_render_opaque_w", abs(_opaque_right_e - _opaque_left_e));
+                variable_struct_set(E, "_render_opaque_h", abs(_opaque_bottom_e - _opaque_top_e));
+            } catch (e_render_enemy_fallback) {}
             // Fallback: draw a simple placeholder so enemy isn't invisible (matches player fallback)
             draw_set_color(make_color_rgb(20,20,20)); draw_set_alpha(0.45 * enemy_alpha);
             var fw = max(8, floor(64 * ui_s * drawScaleE));
@@ -1092,7 +1219,7 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
         var bscale_ui = ball_to_draw.scale * ui_s;
         var cx_off = (bsw * 0.5 - origin_x) * bscale_ui;
         var cy_off = (bsh - origin_y) * bscale_ui;
-        var rot = 0;
+        var rot = (variable_struct_exists(ball_to_draw, "angle") ? real(ball_to_draw.angle) : 0);
         var alpha = (variable_struct_exists(ball_to_draw, "alpha") ? real(ball_to_draw.alpha) : 1);
         var th = rot * pi / 180;
         var rx = cx_off * cos(th) - cy_off * sin(th);
@@ -1108,6 +1235,7 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
             frame: fr,
             bx: bx_draw,
             by: by_draw,
+            angle: rot,
             scale: ball_to_draw.scale,
             alpha: alpha,
             base_x: base_x,
@@ -1141,6 +1269,7 @@ function __battle_draw_ball_overlay(_pid, _B){
     var by_draw = bd.by;
     var alpha = bd.alpha;
     var scale = bd.scale;
+    var angle = (variable_struct_exists(bd, "angle") ? real(bd.angle) : 0);
     var base_x = bd.base_x;
     var base_y = bd.base_y;
     var bsw = bd.bsw;
@@ -1163,7 +1292,7 @@ function __battle_draw_ball_overlay(_pid, _B){
     draw_set_alpha(1);
     // Draw the ball sprite (or a circular placeholder if sprite missing)
     if (_ball_sprite_exists){
-        draw_sprite_ext(bs, fr, bx_draw, by_draw, scale * _u, scale * _u, 0, c_white, alpha);
+        draw_sprite_ext(bs, fr, bx_draw, by_draw, scale * _u, scale * _u, angle, c_white, alpha);
     } else {
         // compute a visual size and center for the placeholder
         var raw_bsw = (variable_struct_exists(bd, "bsw") ? bd.bsw : 16);
@@ -1286,13 +1415,14 @@ function __battle_draw_player(_pid, _B, _actorIndex, mx, my, tx, ty, _skip_platf
                 var adj_px_p = lerp(0.14 * h, -0.02 * h, norm_p);
                 var extra_nudge_p = floor(lerp(3, 0, norm_p));
                 species_adj_px_p = floor(adj_px_p) + extra_nudge_p;
-                origin_y_p = clamp(origin_y_p + species_adj_px_p, 0, h);
             }
         }
     }
+    var foot_y_p = __battle_sprite_opaque_bottom(sprP, h);
+    var platform_surface_player = __battle_platform_surface_y(_pid, platform_bottom_player, ui_s);
     var draw_x = mx + (origin_x_p - (w * 0.5)) * drawScaleP;
     // Anchor player sprite bottom to the player's platform bottom to avoid half-height offset
-    var draw_y = platform_bottom_player - (h - origin_y_p) * drawScaleP;
+    var draw_y = platform_surface_player - (foot_y_p - origin_y_p) * drawScaleP;
     // Float flying-type players slightly above ground
     try {
         var _is_grounded_p = true;
@@ -1438,20 +1568,23 @@ function __battle_draw_player(_pid, _B, _actorIndex, mx, my, tx, ty, _skip_platf
         var throw_split = 0.58;
         var throw_prog_p = clamp(_seg_prog_player / throw_split, 0, 1);
         var reveal_prog_p = clamp((_seg_prog_player - throw_split) / max(0.001, 1 - throw_split), 0, 1);
-        var t3 = 1 - (1 - reveal_prog_p) * (1 - reveal_prog_p);
-        var minScale = 0.55;
         var targetScale = drawScaleP;
-        var curScale = (_seg_prog_player < throw_split) ? 0 : lerp(minScale * ui_s, targetScale, t3);
+        var _send_player_intro = __battle_sendout_anim_values(reveal_prog_p, targetScale);
+        var curScale = (_seg_prog_player < throw_split) ? 0 : variable_struct_get(_send_player_intro, "scale");
         // Position intro using the same origin/platform math as normal draw
         var draw_x2 = mx + (origin_x_p - (w * 0.5)) * curScale;
         var platform_bottom_intro = platform_bottom_player;
-        var draw_y2 = platform_bottom_intro - (h - origin_y_p) * curScale;
+        var platform_surface_intro_p = __battle_platform_surface_y(_pid, platform_bottom_intro, ui_s);
+        var draw_y2 = platform_surface_intro_p - (foot_y_p - origin_y_p) * curScale;
+        if (typeof(_is_grounded_p) != "undefined" && !_is_grounded_p) draw_y2 -= __bhu(_pid, 18);
         var ball_origin_x = tx + __bwu(_pid, 8);
         var ball_origin_y = ty - __bhu(_pid, 20);
         var ball_target_x = mx;
-        var ball_target_y = my - __bhu(_pid, 10);
+        var ball_ground_y = platform_surface_intro_p;
+        var ball_target_y = ball_ground_y;
         var ball_alpha_intro = (p3 < throw_split) ? 1 : max(0, 1 - reveal_prog_p);
-        __battle_draw_player_throw_overlay(_pid, throw_prog_p, ball_origin_x, ball_origin_y, ball_target_x, ball_target_y, mP, ui_s, ball_alpha_intro);
+        __battle_draw_player_throw_overlay(_pid, throw_prog_p, ball_origin_x, ball_origin_y, ball_target_x, ball_target_y, mP, ui_s, ball_alpha_intro, ball_ground_y);
+        if (_seg_prog_player >= throw_split) __battle_draw_sendout_flash(_pid, ball_target_x, ball_target_y, reveal_prog_p, ui_s);
         // Don't draw the player shadow while frozen
         if (!_has_freeze_p && curScale > 0.001){
             draw_set_color(make_color_rgb(20,20,20));
@@ -1459,11 +1592,11 @@ function __battle_draw_player(_pid, _B, _actorIndex, mx, my, tx, ty, _skip_platf
             var shadow_w_p = floor((w * curScale) * 0.6);
             var shadow_h_p = max(2, floor((w * curScale) * 0.12));
             var shadow_cx_p = floor(draw_x2 + (w * curScale) * 0.5);
-            var shadow_cy_p = floor(platform_bottom_intro + shadow_h_p * 0.8 + floor(15 * ui_s));
+            var shadow_cy_p = floor(platform_surface_intro_p + shadow_h_p * 0.15);
             draw_ellipse(shadow_cx_p - shadow_w_p div 2, shadow_cy_p - shadow_h_p div 2, shadow_cx_p + shadow_w_p div 2, shadow_cy_p + shadow_h_p div 2, false);
             draw_set_alpha(1);
         }
-    if (curScale > 0.001 && player_has_sprite) draw_sprite_ext(sprP, subP, draw_x2, draw_y2, curScale, curScale, 0, _img_blend_p, 1);
+    if (curScale > 0.001 && player_has_sprite) draw_sprite_ext(sprP, subP, draw_x2, draw_y2, curScale, curScale, 0, _img_blend_p, variable_struct_get(_send_player_intro, "alpha"));
         else {
             if (curScale <= 0.001) return;
             // Fallback: draw a simple placeholder so player isn't invisible
@@ -1491,18 +1624,28 @@ function __battle_draw_player(_pid, _B, _actorIndex, mx, my, tx, ty, _skip_platf
         }
         // Disable breathing while frozen
         if (_has_freeze_p) _bs_p = 1;
+        var _bbox_l_p = player_has_sprite ? sprite_get_bbox_left(sprP) : 0;
+        var _bbox_t_p = player_has_sprite ? sprite_get_bbox_top(sprP) : 0;
+        var _bbox_r_p = player_has_sprite ? (sprite_get_bbox_right(sprP) + 1) : w;
+        var _bbox_b_p = player_has_sprite ? (sprite_get_bbox_bottom(sprP) + 1) : h;
+        var _opaque_left_p = draw_x + (_bbox_l_p - origin_x_p) * drawScaleP * _bs_p;
+        var _opaque_right_p = draw_x + (_bbox_r_p - origin_x_p) * drawScaleP * _bs_p;
+        var _opaque_top_p = draw_y + (_bbox_t_p - origin_y_p) * drawScaleP;
+        var _opaque_bottom_p = draw_y + (_bbox_b_p - origin_y_p) * drawScaleP;
+        var _render_center_x_p = (_opaque_left_p + _opaque_right_p) * 0.5;
+        var _render_center_y_p = lerp(_opaque_top_p, _opaque_bottom_p, 0.48);
         // Don't draw the player shadow while frozen
         if (!_has_freeze_p){
             draw_set_color(make_color_rgb(20,20,20));
             draw_set_alpha(0.45);
-            var shadow_w_p2 = floor((w * drawScaleP * _bs_p) * 0.6);
-            var shadow_h_p2 = max(2, floor((w * drawScaleP) * 0.12));
-            var shadow_cx_p2 = floor(draw_x + (w * drawScaleP * _bs_p) * 0.5);
+            var shadow_w_p2 = floor(max(8 * ui_s, abs(_opaque_right_p - _opaque_left_p) * 0.72));
+            var shadow_h_p2 = max(2, floor(shadow_w_p2 * 0.16));
+            var shadow_cx_p2 = floor(_render_center_x_p);
             var shadow_cy_p2 = 0;
             if (typeof(_is_grounded_p) != "undefined" && !_is_grounded_p){
-                shadow_cy_p2 = floor(platform_bottom_player + (h * drawScaleP) * 0.5 + shadow_h_p2 * 0.8 + floor(15 * ui_s));
+                shadow_cy_p2 = floor(platform_surface_player + shadow_h_p2 * 0.15);
             } else {
-                shadow_cy_p2 = floor(draw_y + (h * drawScaleP) * 0.5 + shadow_h_p2 * 0.8 + floor(15 * ui_s));
+                shadow_cy_p2 = floor(_opaque_bottom_p + shadow_h_p2 * 0.15);
             }
             draw_ellipse(shadow_cx_p2 - shadow_w_p2 div 2, shadow_cy_p2 - shadow_h_p2 div 2, shadow_cx_p2 + shadow_w_p2 div 2, shadow_cy_p2 + shadow_h_p2 div 2, false);
             draw_set_alpha(1);
@@ -1513,10 +1656,26 @@ function __battle_draw_player(_pid, _B, _actorIndex, mx, my, tx, ty, _skip_platf
             variable_struct_set(P, "_render_draw_y", draw_y);
             variable_struct_set(P, "_render_scale_x", drawScaleP * _bs_p);
             variable_struct_set(P, "_render_scale_y", drawScaleP);
+            variable_struct_set(P, "_render_center_x", _render_center_x_p);
+            variable_struct_set(P, "_render_center_y", _render_center_y_p);
+            variable_struct_set(P, "_render_ground_y", _opaque_bottom_p);
+            variable_struct_set(P, "_render_opaque_w", abs(_opaque_right_p - _opaque_left_p));
+            variable_struct_set(P, "_render_opaque_h", abs(_opaque_bottom_p - _opaque_top_p));
         } catch (e_render_player) {}
         draw_sprite_ext(sprP, subP, draw_x, draw_y, drawScaleP * _bs_p, drawScaleP, 0, _img_blend_p, 1);
     }
         else {
+            try {
+                variable_struct_set(P, "_render_draw_x", draw_x);
+                variable_struct_set(P, "_render_draw_y", draw_y);
+                variable_struct_set(P, "_render_scale_x", drawScaleP * _bs_p);
+                variable_struct_set(P, "_render_scale_y", drawScaleP);
+                variable_struct_set(P, "_render_center_x", _render_center_x_p);
+                variable_struct_set(P, "_render_center_y", _render_center_y_p);
+                variable_struct_set(P, "_render_ground_y", _opaque_bottom_p);
+                variable_struct_set(P, "_render_opaque_w", abs(_opaque_right_p - _opaque_left_p));
+                variable_struct_set(P, "_render_opaque_h", abs(_opaque_bottom_p - _opaque_top_p));
+            } catch (e_render_player_fallback) {}
             // Fallback while idle/command
             if (!is_undefined(player_fallback_sprite) && sprite_exists(player_fallback_sprite)){
                 draw_sprite_ext(player_fallback_sprite, 0, draw_x, draw_y, drawScaleP * _bs_p, drawScaleP, 0, c_white, 1);
@@ -1543,17 +1702,20 @@ function __battle_draw_player(_pid, _B, _actorIndex, mx, my, tx, ty, _skip_platf
 
         var outScale = lerp(drawScaleP, drawScaleP * 0.7, out_prog);
         var in_reveal_prog = clamp((in_prog - in_throw_split) / max(0.001, 1 - in_throw_split), 0, 1);
-        var inScale = (in_prog < in_throw_split) ? 0 : lerp(drawScaleP * 0.55, drawScaleP, 1 - power(1 - in_reveal_prog, 2));
+        var _send_switch_in = __battle_sendout_anim_values(in_reveal_prog, drawScaleP);
+        var inScale = (in_prog < in_throw_split) ? 0 : variable_struct_get(_send_switch_in, "scale");
 
         if (prog < 0.5){
             var draw_x_out = mx + (origin_x_p - (w * 0.5)) * outScale;
             var platform_bottom_out = platform_bottom_player;
-            var draw_y_out = platform_bottom_out - (h - origin_y_p) * outScale;
+            var platform_surface_out = __battle_platform_surface_y(_pid, platform_bottom_out, ui_s);
+            var draw_y_out = platform_surface_out - (foot_y_p - origin_y_p) * outScale;
+            if (typeof(_is_grounded_p) != "undefined" && !_is_grounded_p) draw_y_out -= __bhu(_pid, 18);
             draw_set_color(make_color_rgb(20,20,20)); draw_set_alpha(0.45);
             var sw = floor((w * outScale) * 0.6);
             var sh = max(2, floor((w * outScale) * 0.12));
             var scx = floor(draw_x_out + (w * outScale) * 0.5);
-            var scy = floor(platform_bottom_out + sh * 0.8 + floor(15 * ui_s));
+            var scy = floor(platform_surface_out + sh * 0.15);
             draw_ellipse(scx - sw div 2, scy - sh div 2, scx + sw div 2, scy + sh div 2, false);
             draw_set_alpha(1);
             if (player_has_sprite){
@@ -1591,25 +1753,30 @@ function __battle_draw_player(_pid, _B, _actorIndex, mx, my, tx, ty, _skip_platf
             var ball_origin_x_sw = tx + __bwu(_pid, 8);
             var ball_origin_y_sw = ty - __bhu(_pid, 20);
             var ball_target_x_sw = mx;
-            var ball_target_y_sw = my - __bhu(_pid, 10);
+            var ball_ground_y_sw = platform_surface_player;
+            var ball_target_y_sw = ball_ground_y_sw;
             var throw_prog_sw = clamp(in_prog / in_throw_split, 0, 1);
             var ball_alpha_sw = (in_prog < in_throw_split) ? 1 : max(0, 1 - in_reveal_prog);
-            __battle_draw_player_throw_overlay(_pid, throw_prog_sw, ball_origin_x_sw, ball_origin_y_sw, ball_target_x_sw, ball_target_y_sw, curA.mon, ui_s, ball_alpha_sw);
+            __battle_draw_player_throw_overlay(_pid, throw_prog_sw, ball_origin_x_sw, ball_origin_y_sw, ball_target_x_sw, ball_target_y_sw, curA.mon, ui_s, ball_alpha_sw, ball_ground_y_sw);
+            if (in_prog >= in_throw_split) __battle_draw_sendout_flash(_pid, ball_target_x_sw, ball_target_y_sw, in_reveal_prog, ui_s);
 
             if (inScale > 0.001){
                 var origin_x_in = sprite_exists(sprIn) ? sprite_get_xoffset(sprIn) : (wIn * 0.5);
                 var origin_y_in = sprite_exists(sprIn) ? sprite_get_yoffset(sprIn) : (hIn * 0.88);
+                var foot_y_in = __battle_sprite_opaque_bottom(sprIn, hIn);
                 var platform_bottom_in = platform_bottom_player;
+                var platform_surface_in = __battle_platform_surface_y(_pid, platform_bottom_in, ui_s);
                 var draw_x_in = mx + (origin_x_in - (wIn * 0.5)) * inScale;
-                var draw_y_in = platform_bottom_in - (hIn - origin_y_in) * inScale - __bhu(_pid, 8) * (1 - in_reveal_prog);
+                var draw_y_in = platform_surface_in - (foot_y_in - origin_y_in) * inScale;
+                if (typeof(_is_grounded_p) != "undefined" && !_is_grounded_p) draw_y_in -= __bhu(_pid, 18);
                 draw_set_color(make_color_rgb(20,20,20)); draw_set_alpha(0.45);
                 var sw2 = floor((wIn * inScale) * 0.6);
                 var sh2 = max(2, floor((wIn * inScale) * 0.12));
                 var scx2 = floor(draw_x_in + (wIn * inScale) * 0.5);
-                var scy2 = floor(platform_bottom_in + sh2 * 0.8 + floor(15 * ui_s));
+                var scy2 = floor(platform_surface_in + sh2 * 0.15);
                 draw_ellipse(scx2 - sw2 div 2, scy2 - sh2 div 2, scx2 + sw2 div 2, scy2 + sh2 div 2, false);
                 draw_set_alpha(1);
-                if (sprite_exists(sprIn)) draw_sprite_ext(sprIn, subIn, draw_x_in, draw_y_in, inScale, inScale, 0, _img_blend_p, 1);
+                if (sprite_exists(sprIn)) draw_sprite_ext(sprIn, subIn, draw_x_in, draw_y_in, inScale, inScale, 0, _img_blend_p, variable_struct_get(_send_switch_in, "alpha"));
             }
         }
     }

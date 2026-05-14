@@ -6,7 +6,7 @@
 
 // Full-screen party draw (moved from party_system.gml)
 function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
-    if (!party_is_open(_pid)) return;
+    if (!party_is_open(_pid) || (!is_undefined(pc_is_open) && pc_is_open(_pid))) return;
     var _P = party_ensure(_pid);
 
     var _S  = max(1, min(floor(_rw / 240), floor(_rh / 160)));
@@ -207,21 +207,17 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
             }
         }
 
-    var _disp_name = "???";
+        var _disp_name = "???";
         if (is_struct(_M)){
-            if (variable_struct_exists(_M,"species_id")){
-                var _sid = _M.species_id;
-                if (is_real(_sid) && _sid >= 0){
-                    var _idn = scr_poke_name_by_id(_sid);
-                    if (string_length(_idn) > 0){
-                        _disp_name = string_replace_all(_idn, "-", " ");
-                        if (string_length(_disp_name) > 0){
-                            _disp_name = string_upper(string_copy(_disp_name,1,1)) + string_delete(_disp_name,1,1);
-                        }
-                    }
-                }
-            } else if (variable_struct_exists(_M,"species")) _disp_name = string(_M.species);
-            else if (variable_struct_exists(_M,"name"))     _disp_name = string(_M.name);
+            if (!is_undefined(mon_display_name)){
+                _disp_name = mon_display_name(_M);
+            } else if (variable_struct_exists(_M, "nickname") && is_string(_M.nickname) && string_length(string_trim(_M.nickname)) > 0){
+                _disp_name = string_trim(_M.nickname);
+            } else if (variable_struct_exists(_M,"name")) {
+                _disp_name = string(_M.name);
+            } else if (variable_struct_exists(_M,"species")) {
+                _disp_name = string(_M.species);
+            }
         }
         var _name_x_ui = 120 + 2 + _drawnIconW_ui + 6;
         var _name_x_gui = _OX + _name_x_ui * _S;
@@ -255,19 +251,15 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
 
         var _nm_disp = "???";
         if (is_struct(_L)){
-            if (variable_struct_exists(_L,"species_id")){
-                var _sid2 = _L.species_id;
-                if (is_real(_sid2) && _sid2 >= 0){
-                    var _idn2 = scr_poke_name_by_id(_sid2);
-                    if (string_length(_idn2) > 0){
-                        _nm_disp = string_replace_all(_idn2, "-", " ");
-                        if (string_length(_nm_disp) > 0){
-                            _nm_disp = string_upper(string_copy(_nm_disp,1,1)) + string_delete(_nm_disp,1,1);
-                        }
-                    }
-                }
-            } else if (variable_struct_exists(_L,"species")) _nm_disp = string(_L.species);
-            else if (variable_struct_exists(_L,"name"))     _nm_disp = string(_L.name);
+            if (!is_undefined(mon_display_name)){
+                _nm_disp = mon_display_name(_L);
+            } else if (variable_struct_exists(_L, "nickname") && is_string(_L.nickname) && string_length(string_trim(_L.nickname)) > 0){
+                _nm_disp = string_trim(_L.nickname);
+            } else if (variable_struct_exists(_L,"name")) {
+                _nm_disp = string(_L.name);
+            } else if (variable_struct_exists(_L,"species")) {
+                _nm_disp = string(_L.species);
+            }
         }
         draw_set_color(c_white);
         draw_text(_ix1 + 6*_S, _iy1 + 6*_S, _nm_disp);

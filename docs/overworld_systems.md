@@ -182,6 +182,12 @@ Sprite resolution comes from the external icon loader:
 - `pkicons_get_icon32_dir_by_mon(...)` as a fallback
 - placeholder sprite if no overworld skin exists
 
+Presentation and collision:
+
+- visible Pokemon NPCs draw at `image_xscale = image_yscale = 0.67`, matching the 16-pixel overworld scale target
+- `__overworld_encounter_pokemon_npc_bounds(...)` derives contact bounds from the sprite bounding box and instance scale
+- player contact uses those scaled bounds instead of a hard-coded square, so small Pokemon do not trigger battles before the player actually reaches them
+
 Battle handoff:
 
 - contact with a player checks `__overworld_encounter_visible_player_hit(...)`

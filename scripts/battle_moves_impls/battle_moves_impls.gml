@@ -569,7 +569,7 @@ function __battle_perform_action_impl(_pid, _step){
             var _gravity_deny = ["fly", "bounce", "jump-kick", "high-jump-kick", "splash", "telekinesis", "magnet-rise", "sky-drop"];
             for (var _gdi = 0; _gdi < array_length(_gravity_deny); ++_gdi){
                 if (_moveIdent == _gravity_deny[_gdi]){
-                    dialog_queue((variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user") + " can't use that move because of Gravity!");
+                    dialog_queue(__battle_dialog_actor_name(A, "The user") + " can't use that move because of Gravity!");
                     return "";
                 }
             }
@@ -605,7 +605,7 @@ function __battle_perform_action_impl(_pid, _step){
                     if (!_hb_blocks_move && variable_struct_exists(_move_behavior, "drain") && is_real(variable_struct_get(_move_behavior, "drain")) && real(variable_struct_get(_move_behavior, "drain")) > 0) _hb_blocks_move = true;
                 }
                 if (_hb_blocks_move){
-                    var _hb_name = (variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The Pokémon");
+                    var _hb_name = __battle_dialog_actor_name(A, "The Pokémon");
                     dialog_queue(_hb_name + " is prevented from using healing moves!");
                     return __battle_impl_return_used(_pid, A, __battle_move_name(move_id), move_id);
                 }
@@ -617,7 +617,7 @@ function __battle_perform_action_impl(_pid, _step){
 
     try {
         if (is_struct(D) && variable_struct_exists(D, "_magic_coat_turn") && variable_struct_get(D, "_magic_coat_turn") == _turn_now && __battle_magic_coat_can_reflect(move_id, _moveIdent, actor_idx, target_idx)){
-            var _coat_name = (variable_struct_exists(D, "name") ? string(variable_struct_get(D, "name")) : "The target");
+            var _coat_name = __battle_dialog_actor_name(D, "The target");
             variable_struct_set(D, "_magic_coat_turn", undefined);
             variable_struct_set(D, "_magic_coat_active", false);
             D = A;
@@ -641,7 +641,7 @@ function __battle_perform_action_impl(_pid, _step){
                     D = _snatcher;
                     actor_idx = _sai;
                     target_idx = _sai;
-                    dialog_queue((variable_struct_exists(_snatcher, "name") ? string(variable_struct_get(_snatcher, "name")) : "The Pokémon") + " snatched the move!");
+                    dialog_queue(__battle_dialog_actor_name(_snatcher, "The Pokémon") + " snatched the move!");
                     break;
                 }
             }
@@ -652,7 +652,7 @@ function __battle_perform_action_impl(_pid, _step){
         if (is_struct(A) && variable_struct_exists(A, "_recharge_turn") && variable_struct_get(A, "_recharge_turn") == true){
             variable_struct_set(A, "_recharge_turn", false);
             variable_struct_set(A, "_recharge_move", undefined);
-            dialog_queue((variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user") + " must recharge!");
+            dialog_queue(__battle_dialog_actor_name(A, "The user") + " must recharge!");
             return "";
         }
     } catch (e_recharge_gate) {}
@@ -670,7 +670,7 @@ function __battle_perform_action_impl(_pid, _step){
                 }
                 if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][status][torment] last_move=" + string(_last_torment_move) + ", attempted=" + string(move_id));
                 if (is_real(_last_torment_move) && _last_torment_move == move_id){
-                    var _torment_name = (variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The Pokémon");
+                    var _torment_name = __battle_dialog_actor_name(A, "The Pokémon");
                     var _torment_move_name = _moveIdent;
                     if (string_length(_torment_move_name) <= 0) _torment_move_name = "that move";
                     else _torment_move_name = string_replace_all(_torment_move_name, "-", " ");
@@ -696,7 +696,7 @@ function __battle_perform_action_impl(_pid, _step){
                 }
                 var _move_is_taunt = (is_struct(_move_behavior) && variable_struct_exists(_move_behavior, "taunt_target") && variable_struct_get(_move_behavior, "taunt_target") == true);
                 if (_is_status_move && !_move_is_taunt){
-                    dialog_queue((variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The Pokémon") + " can't use status moves after the taunt!");
+                    dialog_queue(__battle_dialog_actor_name(A, "The Pokémon") + " can't use status moves after the taunt!");
                     return "";
                 }
             }
@@ -754,7 +754,7 @@ function __battle_perform_action_impl(_pid, _step){
         if (is_real(_disableExpireA) && _disableActiveA){
             if (_turn_now >= _disableExpireA){
                 if (!_disableNotifiedA){
-                    var _aname_clear = (variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The Pokémon");
+                    var _aname_clear = __battle_dialog_actor_name(A, "The Pokémon");
                     dialog_queue(_aname_clear + " is no longer disabled!");
                 }
                 __battle_clear_disable(A);
@@ -797,7 +797,7 @@ function __battle_perform_action_impl(_pid, _step){
                 try { variable_struct_set(A, "_sky_drop_held", undefined); } catch (e_sdclr1) {}
                 try { if (variable_struct_exists(A, "_semi_invuln")) variable_struct_set(A, "_semi_invuln", undefined); } catch (e_sdclr2) {}
             } else {
-                var _held_name = (variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The target");
+                var _held_name = __battle_dialog_actor_name(A, "The target");
                 dialog_queue(_held_name + " is trapped in the air!");
                 return "";
             }
@@ -1027,7 +1027,7 @@ function __battle_perform_action_impl(_pid, _step){
             } catch (e_sub_apply) { _sub_ok = false; }
             if (_sub_ok){
                 try { __battle_request_animation_safe(A, { type: "substitute" }); } catch (e_sub_anim) {}
-                var _sub_name = (variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user");
+                var _sub_name = __battle_dialog_actor_name(A, "The user");
                 dialog_queue(_sub_name + " made a substitute!");
             } else {
                 __battle_set_hp_now(A, _sub_hp_now);
@@ -1116,7 +1116,7 @@ function __battle_perform_action_impl(_pid, _step){
                 } catch (e_refresh_mon_outer) {}
             }
             if (_refresh_cleared){
-                dialog_queue((variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user") + " refreshed itself!");
+                dialog_queue(__battle_dialog_actor_name(A, "The user") + " refreshed itself!");
             } else {
                 dialog_queue("But it failed!");
             }
@@ -1216,7 +1216,7 @@ function __battle_perform_action_impl(_pid, _step){
     var _disabledMoveA = undefined;
     try { if (is_struct(A) && variable_struct_exists(A, "sys_disabledMove")) _disabledMoveA = variable_struct_get(A, "sys_disabledMove"); } catch (e_dmA) { _disabledMoveA = undefined; }
     if (is_real(_disabledMoveA) && is_real(move_id) && _disabledMoveA == move_id){
-        var _aname_disable_block = (is_struct(A) && variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user");
+        var _aname_disable_block = __battle_dialog_actor_name(A, "The user");
         dialog_queue(_aname_disable_block + " is disabled and can't use that move!");
         return "";
     }
@@ -1331,17 +1331,17 @@ function __battle_perform_action_impl(_pid, _step){
                 variable_struct_set(A, "_bide_state", undefined);
                 if (_bide_damage > 0 && is_struct(D)){
                     __battle_apply_damage(_pid, target_idx, max(1, _bide_damage * 2), 1.0);
-                    dialog_queue((is_struct(A) && variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user") + " unleashed energy!");
+                    dialog_queue(__battle_dialog_actor_name(A, "The user") + " unleashed energy!");
                 } else {
                     dialog_queue("But it failed!");
                 }
             } else {
                 variable_struct_set(A, "_bide_state", _bide_state);
-                dialog_queue((is_struct(A) && variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user") + " is biding its time!");
+                dialog_queue(__battle_dialog_actor_name(A, "The user") + " is biding its time!");
             }
         } else {
             variable_struct_set(A, "_bide_state", { remaining: 2, damage: 0 });
-            dialog_queue((is_struct(A) && variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user") + " began storing energy!");
+            dialog_queue(__battle_dialog_actor_name(A, "The user") + " began storing energy!");
         }
         return _bide_used_msg;
     }
@@ -1370,7 +1370,7 @@ function __battle_perform_action_impl(_pid, _step){
         if (is_struct(_wish_slot) && !variable_struct_exists(_wish_slot, "_pending_wishes")) variable_struct_set(_wish_slot, "_pending_wishes", []);
         var _wish_pending = (is_struct(_wish_slot) && variable_struct_exists(_wish_slot, "_pending_wishes") && is_array(variable_struct_get(_wish_slot, "_pending_wishes"))) ? variable_struct_get(_wish_slot, "_pending_wishes") : [];
         var _wish_heal = max(1, floor(__battle_hp_max(A) * 0.5));
-        array_push(_wish_pending, { side: _wish_side, remaining: 2, amount: _wish_heal, source_name: (variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user") });
+        array_push(_wish_pending, { side: _wish_side, remaining: 2, amount: _wish_heal, source_name: __battle_dialog_actor_name(A, "The user") });
         if (is_struct(_wish_slot)) variable_struct_set(_wish_slot, "_pending_wishes", _wish_pending);
         dialog_queue("A wish was made!");
         return _wish_used_msg;
@@ -1386,7 +1386,7 @@ function __battle_perform_action_impl(_pid, _step){
         var _healing_slot = __battle_ensure_slot(_pid);
         if (is_struct(_healing_slot) && !variable_struct_exists(_healing_slot, "_pending_healing_wishes")) variable_struct_set(_healing_slot, "_pending_healing_wishes", []);
         var _healing_pending = (is_struct(_healing_slot) && variable_struct_exists(_healing_slot, "_pending_healing_wishes") && is_array(variable_struct_get(_healing_slot, "_pending_healing_wishes"))) ? variable_struct_get(_healing_slot, "_pending_healing_wishes") : [];
-        array_push(_healing_pending, { side: _healing_wish_side, source_name: (variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user") });
+        array_push(_healing_pending, { side: _healing_wish_side, source_name: __battle_dialog_actor_name(A, "The user") });
         if (is_struct(_healing_slot)) variable_struct_set(_healing_slot, "_pending_healing_wishes", _healing_pending);
         dialog_queue("A healing wish was made!");
         var _self_ko_hp_hw = __battle_hp_now(A);
@@ -1425,7 +1425,7 @@ function __battle_perform_action_impl(_pid, _step){
         var _role_ability = variable_struct_get(D, "ability");
         var _role_ability_id = (variable_struct_exists(D, "ability_id") && is_real(variable_struct_get(D, "ability_id"))) ? variable_struct_get(D, "ability_id") : undefined;
         __battle_set_ability_value(A, _role_ability, _role_ability_id);
-        dialog_queue((variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user") + " copied the target's Ability!");
+        dialog_queue(__battle_dialog_actor_name(A, "The user") + " copied the target's Ability!");
         return _role_used_msg;
     }
     if (is_real(move_id) && move_id == 227){
@@ -1444,7 +1444,7 @@ function __battle_perform_action_impl(_pid, _step){
         } catch (e_enc_find) { _encore_move = undefined; }
         if (is_real(_encore_move) && _encore_move >= 0 && _encore_move != move_id){
             variable_struct_set(D, "_encore_state", { move_id: _encore_move, remaining: irandom_range(2, 6) });
-            dialog_queue((is_struct(D) && variable_struct_exists(D, "name") ? string(variable_struct_get(D, "name")) : "The target") + " received an encore!");
+            dialog_queue(__battle_dialog_actor_name(D, "The target") + " received an encore!");
         } else {
             dialog_queue("But it failed!");
         }
@@ -1480,7 +1480,7 @@ function __battle_perform_action_impl(_pid, _step){
                     variable_struct_set(_conv_mon, "type2", -1);
                 }
             } catch (e_conv_inner) {}
-            dialog_queue((is_struct(A) && variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user") + " transformed its type!");
+            dialog_queue(__battle_dialog_actor_name(A, "The user") + " transformed its type!");
         }
         return _conversion_used_msg;
     }
@@ -1540,7 +1540,7 @@ function __battle_perform_action_impl(_pid, _step){
                     variable_struct_set(_conv2_mon, "type2", -1);
                 }
             } catch (e_conv2_inner) {}
-            dialog_queue((is_struct(A) && variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user") + " transformed its type!");
+            dialog_queue(__battle_dialog_actor_name(A, "The user") + " transformed its type!");
         }
         return _conv2_used_msg;
     }
@@ -1583,7 +1583,7 @@ function __battle_perform_action_impl(_pid, _step){
             } catch (e_psych_clone) { _copied_stages = {}; }
             variable_struct_set(A, "_stages", _copied_stages);
             try { __battle_request_animation_safe(A, { type: "stat_change", stat: "all", change: 0 }); } catch (e_psych_anim) {}
-            var _psych_name = (variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user");
+            var _psych_name = __battle_dialog_actor_name(A, "The user");
             dialog_queue(_psych_name + " copied the target's stat changes!");
         } else {
             dialog_queue("But it failed!");
@@ -1613,7 +1613,7 @@ function __battle_perform_action_impl(_pid, _step){
         } catch (e_miracle_stage) {}
         variable_struct_set(D, "_miracle_eye_active", true);
         if (variable_struct_exists(D, "mon") && is_struct(variable_struct_get(D, "mon"))) variable_struct_set(variable_struct_get(D, "mon"), "_miracle_eye_active", true);
-        dialog_queue((variable_struct_exists(D, "name") ? string(variable_struct_get(D, "name")) : "The target") + " was identified!");
+        dialog_queue(__battle_dialog_actor_name(D, "The target") + " was identified!");
         return _miracle_used_msg;
     }
     if (is_real(move_id) && move_id == 281){
@@ -1624,7 +1624,7 @@ function __battle_perform_action_impl(_pid, _step){
         try {
             if (is_struct(D) && !is_undefined(status_system_apply_status)) _yawn_ok = status_system_apply_status(D, "yawn", { duration: 2, source: A });
         } catch (e_yawn_apply) { _yawn_ok = false; }
-        if (_yawn_ok) dialog_queue((is_struct(D) && variable_struct_exists(D, "name") ? string(variable_struct_get(D, "name")) : "The target") + " grew drowsy!");
+        if (_yawn_ok) dialog_queue(__battle_dialog_actor_name(D, "The target") + " grew drowsy!");
         else dialog_queue("But it failed!");
         return _yawn_used_msg;
     }
@@ -1642,7 +1642,7 @@ function __battle_perform_action_impl(_pid, _step){
         __battle_set_held_item_snapshot(A, _restore_id, _restore_name);
         variable_struct_set(A, "_last_lost_item_id", -1);
         variable_struct_set(A, "_last_lost_item_name", "");
-        dialog_queue((variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user") + " recovered its item!");
+        dialog_queue(__battle_dialog_actor_name(A, "The user") + " recovered its item!");
         return _recycle_used_msg;
     }
     if (is_real(move_id) && move_id == 285){
@@ -1667,7 +1667,7 @@ function __battle_perform_action_impl(_pid, _step){
         __battle_record_move_usage(_pid, A, D, move_id, false);
         var _grudge_used_msg = __battle_impl_return_used(_pid, A, mv_name, move_id);
         if (is_struct(A)) variable_struct_set(A, "_grudge_active", true);
-        dialog_queue((variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user") + " is bearing a grudge!");
+        dialog_queue(__battle_dialog_actor_name(A, "The user") + " is bearing a grudge!");
         return _grudge_used_msg;
     }
     if (is_real(move_id) && move_id == 298){
@@ -1953,7 +1953,7 @@ function __battle_perform_action_impl(_pid, _step){
         var _disable_used_msg = __battle_impl_return_used(_pid, A, mv_name, move_id);
         var _disabled_success = __battle_apply_disable(_pid, A, D, move_id);
         if (_disabled_success){
-            var _tname_disable = (is_struct(D) && variable_struct_exists(D, "name") ? string(variable_struct_get(D, "name")) : "The target");
+            var _tname_disable = __battle_dialog_actor_name(D, "The target");
             dialog_queue(_tname_disable + " was disabled!");
         } else {
             dialog_queue("But it failed!");
@@ -2043,7 +2043,7 @@ function __battle_perform_action_impl(_pid, _step){
             } catch (e_rest_lerp) {}
             try { __battle_request_animation_safe(A, { type: "heal", amount: _rest_heal }); } catch (e_rest_anim) {}
         }
-        var _rest_name = (variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user");
+        var _rest_name = __battle_dialog_actor_name(A, "The user");
         dialog_queue(_rest_name + " went to sleep and restored its health!");
         return _rest_used_msg;
     }
@@ -2083,7 +2083,7 @@ function __battle_perform_action_impl(_pid, _step){
         } catch (e_roost_lerp) {}
         var _roost_grounded = false;
         try { _roost_grounded = __battle_roost_apply_self(A, _turn_now); } catch (e_roost_apply) { _roost_grounded = false; }
-        if (_roost_grounded) dialog_queue((variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user") + " landed and became grounded!");
+        if (_roost_grounded) dialog_queue(__battle_dialog_actor_name(A, "The user") + " landed and became grounded!");
         return _roost_used_msg;
     }
     if (is_real(move_id) && move_id == 356){
@@ -2225,7 +2225,7 @@ function __battle_perform_action_impl(_pid, _step){
                                 var _skull_prev = (variable_struct_exists(_skull_stages, "def") && is_real(variable_struct_get(_skull_stages, "def"))) ? variable_struct_get(_skull_stages, "def") : 0;
                                 variable_struct_set(_skull_stages, "def", clamp(_skull_prev + 1, -6, 6));
                                 variable_struct_set(A, "_stages", _skull_stages);
-                                dialog_queue((variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user") + "'s Defense rose!");
+                                dialog_queue(__battle_dialog_actor_name(A, "The user") + "'s Defense rose!");
                             } catch (e_skull_def) {}
                         }
                         // If this is a semi-invulnerable two-turn move (fly/dig/dive/bounce/sky-attack),
@@ -2266,7 +2266,7 @@ function __battle_perform_action_impl(_pid, _step){
         if (_focus_punch_interrupted){
             __battle_record_move_usage(_pid, A, D, move_id, false);
             var _focus_used_msg = __battle_impl_return_used(_pid, A, mv_name, move_id);
-            dialog_queue((variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user") + " lost focus and couldn't move!");
+            dialog_queue(__battle_dialog_actor_name(A, "The user") + " lost focus and couldn't move!");
             return _focus_used_msg;
         }
     }
@@ -2276,7 +2276,7 @@ function __battle_perform_action_impl(_pid, _step){
         var _taunt_used_msg = __battle_impl_return_used(_pid, A, mv_name, move_id);
         if (is_struct(D)){
             variable_struct_set(D, "_taunt_state", { remaining: 2, source_move: move_id, source_actor_index: actor_idx });
-            dialog_queue((variable_struct_exists(D, "name") ? string(variable_struct_get(D, "name")) : "The target") + " fell for the taunt!");
+            dialog_queue(__battle_dialog_actor_name(D, "The target") + " fell for the taunt!");
         } else {
             dialog_queue("But it failed!");
         }
@@ -2351,7 +2351,7 @@ function __battle_perform_action_impl(_pid, _step){
                 variable_struct_set(_camo_mon, "type1", _camo_type);
                 variable_struct_set(_camo_mon, "type2", -1);
             }
-            dialog_queue((variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user") + " transformed its type!");
+            dialog_queue(__battle_dialog_actor_name(A, "The user") + " transformed its type!");
         } catch (e_camo_apply) { dialog_queue("But it failed!"); }
         return _camo_used_msg;
     }
@@ -2389,7 +2389,7 @@ function __battle_perform_action_impl(_pid, _step){
         variable_struct_set(_acu_stage_map, _acu_pick, min(6, _acu_cur + 2));
         variable_struct_set(A, "_stages", _acu_stage_map);
         try { __battle_request_animation_safe(A, { type: "stat_change", stat: _acu_pick, change: 2 }); } catch (e_acu_anim) {}
-        dialog_queue((variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user") + " sharply boosted " + string_upper(_acu_pick) + "!");
+        dialog_queue(__battle_dialog_actor_name(A, "The user") + " sharply boosted " + string_upper(_acu_pick) + "!");
         return _acu_used_msg;
     }
 
@@ -2662,15 +2662,15 @@ function __battle_perform_action_impl(_pid, _step){
                     variable_struct_set(D, "_last_lost_item_id", _knock_item.id);
                     variable_struct_set(D, "_last_lost_item_name", _knock_item.name);
                     __battle_set_held_item_snapshot(D, -1, "");
-                    dialog_queue((variable_struct_exists(D, "name") ? string(variable_struct_get(D, "name")) : "The target") + " lost its held item!");
+                    dialog_queue(__battle_dialog_actor_name(D, "The target") + " lost its held item!");
                 }
             }
             if (is_struct(_move_behavior) && variable_struct_exists(_move_behavior, "pluck_berry_after_damage") && variable_struct_get(_move_behavior, "pluck_berry_after_damage") == true && is_real(dmgh) && dmgh > 0 && is_struct(A) && is_struct(D)){
                 var _pluck_item = __battle_get_held_item_snapshot(D);
                 if (__battle_item_snapshot_is_berry(_pluck_item)){
                     __battle_set_held_item_snapshot(D, -1, "");
-                    var _pluck_user_name = (variable_struct_exists(A, "name") ? string(variable_struct_get(A, "name")) : "The user");
-                    var _pluck_target_name = (variable_struct_exists(D, "name") ? string(variable_struct_get(D, "name")) : "The target");
+                    var _pluck_user_name = __battle_dialog_actor_name(A, "The user");
+                    var _pluck_target_name = __battle_dialog_actor_name(D, "The target");
                     var _pluck_can_use = true;
                     try {
                         if (!is_undefined(__battle_meta_held_items_enabled)) _pluck_can_use = (__battle_meta_held_items_enabled(A) != false);
@@ -2699,7 +2699,7 @@ function __battle_perform_action_impl(_pid, _step){
                 } catch (e_central_status_read) {}
                 if (string_length(_central_hit_status) > 0 && _central_hit_status_chance > 0){
                     if (__battle_try_apply_status_with_chance(D, _central_hit_status, _central_hit_status_chance, A)){
-                        var _central_status_target_name = (variable_struct_exists(D, "name") ? string(variable_struct_get(D, "name")) : "The target");
+                        var _central_status_target_name = __battle_dialog_actor_name(D, "The target");
                         switch (_central_hit_status){
                             case "burn": dialog_queue(_central_status_target_name + " was burned!"); break;
                             case "toxic": dialog_queue(_central_status_target_name + " was badly poisoned!"); break;
@@ -2715,7 +2715,7 @@ function __battle_perform_action_impl(_pid, _step){
                     if (is_struct(_secret_family) && variable_struct_exists(_secret_family, "secret_status")) _secret_status = string(variable_struct_get(_secret_family, "secret_status"));
                 } catch (e_secret_family) { _secret_status = "confusion"; }
                 if (__battle_try_apply_status_with_chance(D, _secret_status, 30, A)){
-                    var _secret_target_name = (variable_struct_exists(D, "name") ? string(variable_struct_get(D, "name")) : "The target");
+                    var _secret_target_name = __battle_dialog_actor_name(D, "The target");
                     switch (string_lower(_secret_status)){
                         case "sleep": dialog_queue(_secret_target_name + " grew drowsy!"); break;
                         case "paralysis":
@@ -2733,7 +2733,7 @@ function __battle_perform_action_impl(_pid, _step){
                 if (_wake_had_sleep){
                     status_system_clear_status(D, "sleep");
                     if (variable_struct_exists(D, "mon") && is_struct(variable_struct_get(D, "mon"))) status_system_clear_status(variable_struct_get(D, "mon"), "sleep");
-                    dialog_queue((variable_struct_exists(D, "name") ? string(variable_struct_get(D, "name")) : "The target") + " woke up!");
+                    dialog_queue(__battle_dialog_actor_name(D, "The target") + " woke up!");
                 }
             }
             if (is_struct(_move_behavior) && variable_struct_exists(_move_behavior, "switch_user_after_damage") && variable_struct_get(_move_behavior, "switch_user_after_damage") == true && is_real(dmgh) && dmgh > 0 && is_struct(A)){

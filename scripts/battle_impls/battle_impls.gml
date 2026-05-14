@@ -167,7 +167,7 @@ try {
                 try { variable_struct_set(_user, "sys_protect_last_turn", _turn_now); } catch (e_lp) {}
 
                 if (!_success){
-                    var _fail_name = (variable_struct_exists(_user, "name") ? string(variable_struct_get(_user, "name")) : "The user");
+                    var _fail_name = __battle_dialog_actor_name(_user, "The user");
                     var _fail_move = "Protect";
                     try { _fail_move = __battle_move_name_impl(_move); } catch (e_fn) {}
                     dialog_queue(_fail_name + "'s " + string(_fail_move) + " failed!");
@@ -912,7 +912,7 @@ function __battle_apply_damage_impl(_pid, _target_index, _dmg, _mult){
                         var _grudge_pps = variable_struct_get(_grudge_attacker, "pps");
                         _grudge_pps[_grudge_slot] = 0;
                         variable_struct_set(_grudge_attacker, "pps", _grudge_pps);
-                        dialog_queue((variable_struct_exists(_grudge_attacker, "name") ? string(variable_struct_get(_grudge_attacker, "name")) : "The attacker") + "'s move lost all its PP due to Grudge!");
+                        dialog_queue(__battle_dialog_actor_name(_grudge_attacker, "The attacker") + "'s move lost all its PP due to Grudge!");
                     }
                 }
             } catch (e_grudge_apply) {}
@@ -1143,10 +1143,14 @@ function __battle_finalize_catch_impl(_B, _caught){
     } catch (e_poke_index_caught) {}
 
     var _caught_name = "Pokemon";
-    if (is_struct(_mon) && variable_struct_exists(_mon, "name")) _caught_name = string(variable_struct_get(_mon, "name"));
-    else if (is_struct(_mon) && variable_struct_exists(_mon, "nickname") && string_length(string(variable_struct_get(_mon, "nickname"))) > 0) _caught_name = string(variable_struct_get(_mon, "nickname"));
-    else if (is_array(_B.actor) && _caught_target_idx >= 0 && _caught_target_idx < array_length(_B.actor) && is_struct(_B.actor[_caught_target_idx]) && variable_struct_exists(_B.actor[_caught_target_idx], "name")) _caught_name = string(variable_struct_get(_B.actor[_caught_target_idx], "name"));
-    else if (!is_undefined(__battle_enemy_lead_index) && is_array(_B.actor)){
+    if (is_struct(_mon) && !is_undefined(mon_display_name)){
+        var _caught_display = mon_display_name(_mon);
+        if (is_string(_caught_display) && string_length(string_trim(_caught_display)) > 0 && string(_caught_display) != "???") _caught_name = string_trim(_caught_display);
+    }
+    if (_caught_name == "Pokemon" && is_struct(_mon) && variable_struct_exists(_mon, "nickname") && string_length(string_trim(string(variable_struct_get(_mon, "nickname")))) > 0) _caught_name = string_trim(string(variable_struct_get(_mon, "nickname")));
+    else if (_caught_name == "Pokemon" && is_struct(_mon) && variable_struct_exists(_mon, "name")) _caught_name = string(variable_struct_get(_mon, "name"));
+    else if (_caught_name == "Pokemon" && is_array(_B.actor) && _caught_target_idx >= 0 && _caught_target_idx < array_length(_B.actor) && is_struct(_B.actor[_caught_target_idx]) && variable_struct_exists(_B.actor[_caught_target_idx], "name")) _caught_name = string(variable_struct_get(_B.actor[_caught_target_idx], "name"));
+    else if (_caught_name == "Pokemon" && !is_undefined(__battle_enemy_lead_index) && is_array(_B.actor)){
         var _enemy_idx = __battle_enemy_lead_index(_pid);
         if (_enemy_idx >= 0 && _enemy_idx < array_length(_B.actor) && is_struct(_B.actor[_enemy_idx]) && variable_struct_exists(_B.actor[_enemy_idx], "name")) _caught_name = string(variable_struct_get(_B.actor[_enemy_idx], "name"));
     }
@@ -1496,7 +1500,7 @@ function __battle_apply_move(_pid, _user, _target, _move){
             try { if (variable_struct_exists(_user, "sys_disabled_notified_clear")) _disableNotified = (variable_struct_get(_user, "sys_disabled_notified_clear") == true); } catch (e_notf) { _disableNotified = false; }
             if (_turn_now >= _disableExpire){
                 if (!_disableNotified){
-                    var _uname_clear = (variable_struct_exists(_user, "name") ? string(variable_struct_get(_user, "name")) : "The Pokémon");
+                    var _uname_clear = __battle_dialog_actor_name(_user, "The Pokémon");
                     dialog_queue(_uname_clear + " is no longer disabled!");
                 }
                 __battle_clear_disable(_user);
@@ -1610,7 +1614,7 @@ function __battle_apply_move(_pid, _user, _target, _move){
     if ((_flags & FLAG_DISABLE) != 0){
         var _disabled_ok = __battle_apply_disable(_pid, _user, _target, _move);
         if (_disabled_ok){
-            var _tname_disable = (is_struct(_target) && variable_struct_exists(_target, "name") ? string(variable_struct_get(_target, "name")) : "The target");
+            var _tname_disable = __battle_dialog_actor_name(_target, "The target");
             dialog_queue(_tname_disable + " was disabled!");
         } else {
             dialog_queue("But it failed!");
@@ -1651,7 +1655,7 @@ function __battle_apply_move(_pid, _user, _target, _move){
             try { _mname = string_lower(__battle_move_name(_move)); } catch (e_mn) { _mname = ""; }
             var _allow = false; var _mult = 1.0;
             var _state_msg = "";
-            var _target_name_si = (is_struct(_target) && variable_struct_exists(_target, "name") ? string(variable_struct_get(_target, "name")) : "The target");
+            var _target_name_si = __battle_dialog_actor_name(_target, "The target");
             if (_phase == "fly" || _phase == "bounce" || _phase == "skydrop"){
                 if (string_pos("gust", _mname) > 0 || string_pos("twister", _mname) > 0) { _allow = true; _mult = 2.0; }
                 _state_msg = _target_name_si + " is high in the sky!";
@@ -1680,7 +1684,7 @@ function __battle_apply_move(_pid, _user, _target, _move){
 
             if (!_allow){
                 if (is_string(_state_msg) && string_length(_state_msg) > 0) dialog_queue(_state_msg);
-                var _miss_name = (is_struct(_user) && variable_struct_exists(_user, "name") ? string(variable_struct_get(_user, "name")) : "The attacker");
+                var _miss_name = __battle_dialog_actor_name(_user, "The attacker");
                 dialog_queue(_miss_name + "'s attack missed!");
                 return;
             } else {
@@ -2225,4 +2229,38 @@ function __battle_check_can_act(_user, _move_id){
         default:
             return true;
     }
+}
+
+function vkbd__clear_input_latch(){
+    if (!variable_global_exists("SYS_VKBD") || !is_struct(global.SYS_VKBD)) return;
+    global.SYS_VKBD.sys_input_cooldown = 8;
+    global.SYS_VKBD.sys_last_key = "";
+    global.SYS_VKBD.sys_repeat_key = "";
+    global.SYS_VKBD.sys_repeat_timer = 0;
+}
+
+function vkbd__can_accept_input(){
+    if (!variable_global_exists("SYS_VKBD") || !is_struct(global.SYS_VKBD)) return true;
+    if (!variable_struct_exists(global.SYS_VKBD, "sys_input_cooldown")) global.SYS_VKBD.sys_input_cooldown = 0;
+    if (global.SYS_VKBD.sys_input_cooldown > 0){
+        global.SYS_VKBD.sys_input_cooldown -= 1;
+        return false;
+    }
+    return true;
+}
+
+function vkbd__append_char(_ch){
+    if (!variable_global_exists("SYS_VKBD") || !is_struct(global.SYS_VKBD)) return false;
+    if (!is_string(_ch) || string_length(_ch) <= 0) return false;
+
+    if (!variable_struct_exists(global.SYS_VKBD, "text") || !is_string(global.SYS_VKBD.text)) global.SYS_VKBD.text = "";
+    if (!variable_struct_exists(global.SYS_VKBD, "max_len") || !is_real(global.SYS_VKBD.max_len)) global.SYS_VKBD.max_len = 12;
+
+    if (string_length(global.SYS_VKBD.text) >= global.SYS_VKBD.max_len) return false;
+
+    // Allow the same key repeatedly. The old behavior blocked duplicate keys
+    // because it treated same-key selection as held input instead of a new press.
+    global.SYS_VKBD.text += _ch;
+    global.SYS_VKBD.sys_last_key = _ch;
+    return true;
 }

@@ -325,7 +325,7 @@ function bag__machine_consumes_on_use(_iid, _ident, _flag_set){
     return false;
 }
 
-function bag_is_open(_pid) { return (variable_global_exists("BAGS") && is_array(global.BAGS) && array_length(global.BAGS) > _pid && global.BAGS[_pid].open); }
+function bag_is_open(_pid){ return (variable_global_exists("BAGS") && is_array(global.BAGS) && array_length(global.BAGS) > _pid && global.BAGS[_pid].open); }
 function bag_open(_pid) { if (is_array(global.BAGS) && array_length(global.BAGS) > _pid) global.BAGS[_pid].open = true; }
 function bag_close(_pid){ if (is_array(global.BAGS) && array_length(global.BAGS) > _pid) global.BAGS[_pid].open = false; }
 function bag_toggle(_pid){ if (!variable_global_exists("BAGS") || !is_array(global.BAGS) || array_length(global.BAGS) <= _pid) return; global.BAGS[_pid].open = !global.BAGS[_pid].open; }
@@ -452,6 +452,25 @@ function bag__battle_item_target_block_reason(_pid, _target, _item_id){
 // Parameters:
 //   _pid: player id
 //   _row: a bag row struct (as produced by bags_seed_from_items) containing item_id and name
+
+function bag__store_captured_mon(_pid, _mon){
+    if (!is_undefined(party_model_store_caught_mon)){
+        return party_model_store_caught_mon(_pid, _mon);
+    }
+
+    if (!is_undefined(pc_store_mon)){
+        var _ok = pc_store_mon(_pid, _mon);
+        return { ok:_ok, location:(_ok ? "stored" : "none"), mon:_mon };
+    }
+
+    if (!is_undefined(party_model_add_mon)){
+        var _slot = bag__store_captured_mon(_pid, _mon);
+        return { ok:(_slot >= 0), location:"party", slot_index:_slot, mon:_mon };
+    }
+
+    return { ok:false, location:"none", mon:_mon };
+}
+
 function bag__use_item_on_self(_pid, _row){
     if (!is_struct(_row) || !variable_struct_exists(_row, "item_id")) return false;
     var iid = floor(_row.item_id);

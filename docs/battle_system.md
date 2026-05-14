@@ -19,10 +19,10 @@ For overworld wild battle triggers and encounter-table handoff into `battle_open
 - `transition_in`: fade from black.
 - `intro_enemy`: enemy slide-in and cry.
 - `intro_call`: trainer slide/call, dialog pages.
-- `intro_player`: player mon scales in; leads to command.
+- `intro_player`: player mon flashes, grows out of the ball, then leads to command.
 - `command`: player input.
 - `turn`: turn queue resolves.
-- `switch_in`: swap animation; may consume turn.
+- `switch_in`: swap animation with the same ball flash/grow send-out treatment; may consume turn.
 
 ## Battle slot `_B` (selected fields)
 
@@ -95,6 +95,13 @@ Related non-battle entrypoints that commonly feed this system:
 - Shared move hit, status, and meta logic: `scripts/battle_actions/`, `scripts/battle_impls/`, and `scripts/battle_move_meta_helpers/`
 - Battle presentation and command boxes: `scripts/battle_draw/`, `scripts/battle_ui/`, and `scripts/battle_draw_helpers/`
 - Trainer battle payload shape and wrapper examples: `scripts/battle_trainer/battle_trainer.gml::battle_open_trainer(...)`
+
+## Battle presentation notes
+
+- Battler feet are grounded from the sprite's opaque bounding-box bottom, so small grounded Pokemon sit on the platform while floating Pokemon keep their float offset.
+- Rendered battlers cache `_render_center_x`, `_render_center_y`, `_render_ground_y`, `_render_opaque_w`, and `_render_opaque_h` for hit effects, target selectors, and fallback sprites.
+- Send-out animations for player, enemy, and trainer Pokemon share the same flash-then-grow presentation. Doubles intros segment the timing so paired Pokemon do not flash in at the same time.
+- Catch attempts store the ball's platform contact point. During the shake phase the ball stays on that point and rocks left/right like Emerald; its shadow uses the same contact position.
 
 ## Minimal editing workflow
 

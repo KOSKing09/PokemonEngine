@@ -7,8 +7,8 @@ globalvar PAUSE;
 
 function pause_init(){
     global.PAUSE = [
-        { open:false, sel:0, t:0, mode:"main", options_sel:0, input_sel:0, multiplayer_sel:0 },
-        { open:false, sel:0, t:0, mode:"main", options_sel:0, input_sel:0, multiplayer_sel:0 }
+        { open:false, sel:0, t:0, mode:"main", options_sel:0, input_sel:0, multiplayer_sel:0, misc_sel:0 },
+        { open:false, sel:0, t:0, mode:"main", options_sel:0, input_sel:0, multiplayer_sel:0, misc_sel:0 }
     ];
 
     // safe legacy owner setup
@@ -28,6 +28,7 @@ function pause_toggle(pid){
         p.options_sel = 0;
         p.input_sel = 0;
         p.multiplayer_sel = 0;
+        p.misc_sel = 0;
     }
     pause_set_owner(pid); // record owner for dialog’s legacy check
 }
@@ -56,6 +57,9 @@ function pause_update(){
         var _options_count = 5;
         var _input_count = 2;
         var _multiplayer_count = 5;
+        var _misc_count = 1;
+
+        if (!is_undefined(pc_is_open) && pc_is_open(pid)) continue;
 
         // toggle
         if (controls_pressed(pid,"Pause")){
@@ -188,6 +192,29 @@ function pause_update(){
             continue;
         }
 
+        if (string(p.mode) == "misc"){
+            if (controls_pressed(pid,"MoveDown") || controls_pressed(pid,"MoveRight")) p.misc_sel = (p.misc_sel + 1) mod _misc_count;
+            if (controls_pressed(pid,"MoveUp") || controls_pressed(pid,"MoveLeft")){
+                p.misc_sel -= 1;
+                if (p.misc_sel < 0) p.misc_sel = _misc_count - 1;
+            }
+
+            if (controls_pressed(pid,"Interact")){
+                switch (p.misc_sel){
+                    case 0:
+                        pause_toggle(pid);
+                        if (!is_undefined(pc_open)) pc_open(pid);
+                        break;
+                }
+            }
+
+            if (controls_pressed(pid,"Run") || controls_pressed(pid,"Back")){
+                p.mode = "main";
+                p.misc_sel = 0;
+            }
+            continue;
+        }
+
         // Emerald-style vertical list navigation.
         if (controls_pressed(pid,"MoveDown") || controls_pressed(pid,"MoveRight")) p.sel = (p.sel + 1) mod _entry_count;
         if (controls_pressed(pid,"MoveUp") || controls_pressed(pid,"MoveLeft")){
@@ -209,7 +236,11 @@ function pause_update(){
                 case 2: __pause_do_poke_index(pid); break;
                 case 3: __pause_do_options(pid); break;
                 case 4: __pause_do_save(pid); break;
-                case 5: __pause_do_drop_out(pid); break;
+                case 5:
+                    p.mode = "misc";
+                    p.misc_sel = 0;
+                    break;
+                case 6: __pause_do_drop_out(pid); break;
 			}
 		}
 
@@ -223,7 +254,7 @@ function pause_update(){
 /// pause_draw_gui_rect(pid, rx, ry, rw, rh)
 /// Draws Emerald-style pause menu into a target GUI rect. All text = WHITE.
 function pause_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
-    if (!pause_is_open(_pid)) return;
+    if (!pause_is_open(_pid) || (!is_undefined(pc_is_open) && pc_is_open(_pid))) return;
 
     // Fit 240x160 into the rect (same approach as your bag)
     var s  = max(1, min(floor(_rw / 240), floor(_rh / 160)));
@@ -240,6 +271,7 @@ function pause_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     var options_labels = ["INPUT","TEXT SPEED","SPLIT","MULTIPLAYER","BACK"];
     var multiplayer_labels = ["CO-OP","REQUEST SIDE","VERSUS FORMAT","START VERSUS","BACK"];
     var input_labels = ["DEADZONE","BACK"];
+    var misc_labels = ["PC"];
     var p = global.PAUSE[_pid];
     var line_h = max(12, string_height("A") + 2);
 
@@ -266,6 +298,10 @@ function pause_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         _active_labels = input_labels;
         _active_sel = p.input_sel;
         _title = "INPUT";
+    } else if (string(p.mode) == "misc"){
+        _active_labels = misc_labels;
+        _active_sel = p.misc_sel;
+        _title = "MISC";
     }
     var longest_label = 0;
     for (var _i = 0; _i < array_length(_active_labels); ++_i){
@@ -363,7 +399,7 @@ function __pause_do_options(pid){
 }
 
 function __pause_main_labels(_pid){
-    var _labels = ["POKEMON","BAG","POKE-INDEX","OPTIONS","SAVE"];
+    var _labels = ["POKEMON","BAG","POKE-INDEX","OPTIONS","SAVE","MISC"];
     if (_pid == 1 && multiplayer_player_joined(1)) array_push(_labels, "DROP OUT");
     return _labels;
 }

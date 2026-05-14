@@ -261,23 +261,66 @@ function __battle_measure_stage_counters(_A, _max_width = -1){
 }
 
 function __battle_actor_display_name(_A){
-    var _name_raw = "???";
-    if (is_struct(_A) && variable_struct_exists(_A, "name")) _name_raw = string(variable_struct_get(_A, "name"));
-    else if (is_struct(_A) && variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon")) && variable_struct_exists(variable_struct_get(_A, "mon"), "name")){
-        _name_raw = string(variable_struct_get(variable_struct_get(_A, "mon"), "name"));
-    }
-    if (_name_raw == "???" && is_struct(_A)){
-        var _species_probe = undefined;
-        if (variable_struct_exists(_A, "species") && is_real(variable_struct_get(_A, "species"))) _species_probe = variable_struct_get(_A, "species");
-        else if (variable_struct_exists(_A, "species_id") && is_real(variable_struct_get(_A, "species_id"))) _species_probe = variable_struct_get(_A, "species_id");
-        else if (variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon"))){
-            var _mon_ref_name = variable_struct_get(_A, "mon");
-            if (variable_struct_exists(_mon_ref_name, "species") && is_real(variable_struct_get(_mon_ref_name, "species"))) _species_probe = variable_struct_get(_mon_ref_name, "species");
-            else if (variable_struct_exists(_mon_ref_name, "species_id") && is_real(variable_struct_get(_mon_ref_name, "species_id"))) _species_probe = variable_struct_get(_mon_ref_name, "species_id");
+    if (!is_struct(_A)) return "???";
+
+    // Prefer nickname from the actual Pokemon struct first.
+    // Battle actors often have a top-level name copied from species,
+    // so checking _A.name first causes nicknames to be ignored.
+    var _mon_ref = undefined;
+    if (variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon"))) _mon_ref = variable_struct_get(_A, "mon");
+    else if (variable_struct_exists(_A, "pokemon") && is_struct(variable_struct_get(_A, "pokemon"))) _mon_ref = variable_struct_get(_A, "pokemon");
+    else if (variable_struct_exists(_A, "original_mon") && is_struct(variable_struct_get(_A, "original_mon"))) _mon_ref = variable_struct_get(_A, "original_mon");
+    else if (variable_struct_exists(_A, "source_mon") && is_struct(variable_struct_get(_A, "source_mon"))) _mon_ref = variable_struct_get(_A, "source_mon");
+    else if (variable_struct_exists(_A, "wild_mon") && is_struct(variable_struct_get(_A, "wild_mon"))) _mon_ref = variable_struct_get(_A, "wild_mon");
+    else _mon_ref = _A;
+
+    if (is_struct(_mon_ref)){
+        if (variable_struct_exists(_mon_ref, "nickname")){
+            var _nick = variable_struct_get(_mon_ref, "nickname");
+            if (is_string(_nick) && string_length(string_trim(_nick)) > 0) return string_trim(_nick);
         }
-        if (!is_undefined(_species_probe) && is_real(_species_probe) && !is_undefined(scr_poke_name_by_id)) _name_raw = string(scr_poke_name_by_id(_species_probe));
+
+        // Existing party helper is already nickname-aware; use it if available.
+        if (!is_undefined(mon_display_name)){
+            var _display = mon_display_name(_mon_ref);
+            if (is_string(_display) && string_length(string_trim(_display)) > 0 && string(_display) != "???") return string_trim(_display);
+        }
+
+        if (variable_struct_exists(_mon_ref, "name")){
+            var _mon_name = variable_struct_get(_mon_ref, "name");
+            if (is_string(_mon_name) && string_length(string_trim(_mon_name)) > 0 && string(_mon_name) != "???") return string_trim(_mon_name);
+        }
     }
-    return _name_raw;
+
+    // Top-level actor nickname support, for actors that carry nickname directly.
+    if (variable_struct_exists(_A, "nickname")){
+        var _actor_nick = variable_struct_get(_A, "nickname");
+        if (is_string(_actor_nick) && string_length(string_trim(_actor_nick)) > 0) return string_trim(_actor_nick);
+    }
+
+    // Then top-level actor name.
+    if (variable_struct_exists(_A, "name")){
+        var _name_raw = variable_struct_get(_A, "name");
+        if (is_string(_name_raw) && string_length(string_trim(_name_raw)) > 0 && string(_name_raw) != "???") return string_trim(_name_raw);
+    }
+
+    // Species fallback.
+    var _species_probe = undefined;
+    if (variable_struct_exists(_A, "species") && is_real(variable_struct_get(_A, "species"))) _species_probe = variable_struct_get(_A, "species");
+    else if (variable_struct_exists(_A, "species_id") && is_real(variable_struct_get(_A, "species_id"))) _species_probe = variable_struct_get(_A, "species_id");
+    else if (is_struct(_mon_ref)){
+        if (variable_struct_exists(_mon_ref, "species") && is_real(variable_struct_get(_mon_ref, "species"))) _species_probe = variable_struct_get(_mon_ref, "species");
+        else if (variable_struct_exists(_mon_ref, "species_id") && is_real(variable_struct_get(_mon_ref, "species_id"))) _species_probe = variable_struct_get(_mon_ref, "species_id");
+        else if (variable_struct_exists(_mon_ref, "id") && is_real(variable_struct_get(_mon_ref, "id"))) _species_probe = variable_struct_get(_mon_ref, "id");
+        else if (variable_struct_exists(_mon_ref, "_id") && is_real(variable_struct_get(_mon_ref, "_id"))) _species_probe = variable_struct_get(_mon_ref, "_id");
+    }
+
+    if (!is_undefined(_species_probe) && is_real(_species_probe) && !is_undefined(scr_poke_name_by_id)){
+        var _species_name = scr_poke_name_by_id(_species_probe);
+        if (is_string(_species_name) && string_length(string_trim(_species_name)) > 0) return string_trim(_species_name);
+    }
+
+    return "???";
 }
 
 function __battle_actor_level_value(_A){

@@ -29,6 +29,8 @@ if (_shared_battle){
     if (poke_index_is_open(0)) poke_index_draw_gui_rect(0, 0, 0, _sw, _sh);
     if (poke_index_is_open(1)) poke_index_draw_gui_rect(1, 0, 0, _sw, _sh);
     if (party_is_open(0)) party_draw_gui_rect(0, 0, 0, _sw, _sh);
+    if (!is_undefined(pc_is_open) && pc_is_open(0) && !is_undefined(pc_draw_gui_rect)) pc_draw_gui_rect(0, 0, 0, _sw, _sh);
+    if (!is_undefined(pc_is_open) && pc_is_open(1) && !is_undefined(pc_draw_gui_rect)) pc_draw_gui_rect(1, 0, 0, _sw, _sh);
     if (party_is_open(1)) party_draw_gui_rect(1, 0, 0, _sw, _sh);
     if (_evo0) evolution_draw_gui_rect(0, 0, 0, _sw, _sh);
     if (_evo1) evolution_draw_gui_rect(1, 0, 0, _sw, _sh);
@@ -48,6 +50,7 @@ if (_shared_battle){
     if (bag_is_open(1))   bag_draw_gui_rect(1, _r1[0], _r1[1], _r1[2], _r1[3]);
     if (poke_index_is_open(1)) poke_index_draw_gui_rect(1, _r1[0], _r1[1], _r1[2], _r1[3]);
     if (party_is_open(1)) party_draw_gui_rect(1, _r1[0], _r1[1], _r1[2], _r1[3]);
+    if (!is_undefined(pc_is_open) && pc_is_open(1) && !is_undefined(pc_draw_gui_rect)) pc_draw_gui_rect(1, _r1[0], _r1[1], _r1[2], _r1[3]);
     if (_evo1) evolution_draw_gui_rect(1, _r1[0], _r1[1], _r1[2], _r1[3]);
     if (_vk1) virtual_keyboard_draw_gui_rect(1, _r1[0], _r1[1], _r1[2], _r1[3]);
     if (!battle_is_open(1) && (is_undefined(battle_any_open) || !battle_any_open()) && !is_undefined(dialog2p_is_open) && dialog2p_is_open(1)){
@@ -63,6 +66,7 @@ if (_shared_battle){
     if (bag_is_open(0))   bag_draw_gui_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
     if (poke_index_is_open(0)) poke_index_draw_gui_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
     if (party_is_open(0)) party_draw_gui_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
+    if (!is_undefined(pc_is_open) && pc_is_open(0) && !is_undefined(pc_draw_gui_rect)) pc_draw_gui_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
     if (_evo0) evolution_draw_gui_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
     if (_vk0) virtual_keyboard_draw_gui_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
     if (!battle_is_open(0) && (is_undefined(battle_any_open) || !battle_any_open()) && !is_undefined(dialog2p_is_open) && dialog2p_is_open(0)){
@@ -78,6 +82,7 @@ if (_shared_battle){
     if (bag_is_open(0))   bag_draw_gui(0);                    // your full-screen wrapper
     if (poke_index_is_open(0)) poke_index_draw_gui(0);
     if (party_is_open(0)) party_draw_gui(0);
+    if (!is_undefined(pc_is_open) && pc_is_open(0) && !is_undefined(pc_draw_gui)) pc_draw_gui(0);
     if (_evo0) evolution_draw_gui(0);
     if (_vk0) virtual_keyboard_draw_gui(0);
 
@@ -86,3 +91,5 @@ if (_shared_battle){
         dialog2p_draw_gui_rect(0, 0, 0, _gw, _gh);
     }
 }
+
+if (!is_undefined(transition_draw_gui)) transition_draw_gui();

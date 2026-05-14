@@ -201,6 +201,10 @@ The anchor helper is the core scene-layout seam. It decides where each active ba
 
 If you want to change battler placement, do not start by editing random pixel constants in the top-level draw path. Start with `__battle_get_actor_scene_anchor(...)`.
 
+Target selectors and hit effects prefer the actor's cached live render center and opaque sprite bounds. If a Pokemon sprite is missing, the helper falls back to the placeholder geometry so doubles targeting still points at the visible battler space.
+
+Player-side doubles send-outs use `__battle_player_intro_segment(...)` to split intro timing by slot. That keeps both Pokemon from flashing and growing at the same instant during the battle intro while preserving the shared send-out animation for later switches.
+
 ## Party and bag integration notes
 
 Doubles are still wired into the normal party and bag systems.

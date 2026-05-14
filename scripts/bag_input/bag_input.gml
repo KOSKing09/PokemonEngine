@@ -9,8 +9,8 @@ function __bag_impl_bags_update(){
         // Inventory is a registered-item button in the field. Open the bag via the pause menu.
         if (!b.open){
             var _can_use_registered = true;
-            if (!is_undefined(pause_is_open) && pause_is_open(pid)) _can_use_registered = false;
-            if (!is_undefined(party_is_open) && party_is_open(pid)) _can_use_registered = false;
+            if (!is_undefined(pause_is_open) && pause_is_open(pid) || (!is_undefined(pc_is_open) && pc_is_open(pid)) || (!is_undefined(pc_is_open) && pc_is_open(pid))) _can_use_registered = false;
+            if (!is_undefined(party_is_open) && party_is_open(pid) || (!is_undefined(pc_is_open) && pc_is_open(pid)) || (!is_undefined(pc_is_open) && pc_is_open(pid))) _can_use_registered = false;
             if (!is_undefined(poke_index_is_open) && poke_index_is_open(pid)) _can_use_registered = false;
             if (!is_undefined(dialog2p_is_open) && dialog2p_is_open(pid)) _can_use_registered = false;
             if (!is_undefined(battle_is_open) && battle_is_open(pid)) _can_use_registered = false;
