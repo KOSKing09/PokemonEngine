@@ -56,6 +56,8 @@ if (_shared_battle){
     if (!battle_is_open(1) && (is_undefined(battle_any_open) || !battle_any_open()) && !is_undefined(dialog2p_is_open) && dialog2p_is_open(1)){
         dialog2p_draw_gui_rect(1, _r1[0], _r1[1], _r1[2], _r1[3]);
     }
+    if (!is_undefined(multiplayer_draw_wild_assist_choice_rect)) multiplayer_draw_wild_assist_choice_rect(1, _r1[0], _r1[1], _r1[2], _r1[3]);
+    if (!is_undefined(pokemon_center_draw_yesno_rect)) pokemon_center_draw_yesno_rect(1, _r1[0], _r1[1], _r1[2], _r1[3]);
 
     // P1 draws last so its UI stays on top when battler/platform sprites spill over the split boundary.
     if (battle_is_open(0)){
@@ -72,6 +74,8 @@ if (_shared_battle){
     if (!battle_is_open(0) && (is_undefined(battle_any_open) || !battle_any_open()) && !is_undefined(dialog2p_is_open) && dialog2p_is_open(0)){
         dialog2p_draw_gui_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
     }
+    if (!is_undefined(multiplayer_draw_wild_assist_choice_rect)) multiplayer_draw_wild_assist_choice_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
+    if (!is_undefined(pokemon_center_draw_yesno_rect)) pokemon_center_draw_yesno_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
 } else {
     // --- Single player ---
     if (battle_is_open(0)){
@@ -90,6 +94,9 @@ if (_shared_battle){
     if (!battle_is_open(0) && (is_undefined(battle_any_open) || !battle_any_open()) && !is_undefined(dialog2p_is_open) && dialog2p_is_open(0)){
         dialog2p_draw_gui_rect(0, 0, 0, _gw, _gh);
     }
+    if (!is_undefined(multiplayer_draw_wild_assist_choice_rect)) multiplayer_draw_wild_assist_choice_rect(0, 0, 0, _gw, _gh);
+    if (!is_undefined(pokemon_center_draw_yesno_rect)) pokemon_center_draw_yesno_rect(0, 0, 0, _gw, _gh);
 }
 
+if (!is_undefined(world_draw_route_bar)) world_draw_route_bar();
 if (!is_undefined(transition_draw_gui)) transition_draw_gui();

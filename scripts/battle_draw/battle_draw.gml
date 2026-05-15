@@ -18,6 +18,39 @@ function __battle_draw_battlers(_pid, _B) {
         ? [__battle_actor_index_for_side_slot(_pid, 0, 0), __battle_actor_index_for_side_slot(_pid, 0, 1)]
         : [__battle_actor_index_for_side_slot(_pid, 0, 0)];
 
+    if (string(_B.phase) != "transition_in"){
+        for (var _ep = 0; _ep < array_length(_enemy_draw_order); ++_ep){
+            var _enemy_idx_platform = _enemy_draw_order[_ep];
+            if (!is_array(_B.actor) || _enemy_idx_platform >= array_length(_B.actor) || !is_struct(_B.actor[_enemy_idx_platform])) continue;
+            var _enemy_anchor_platform = __battle_get_actor_scene_anchor(_pid, _B, _enemy_idx_platform);
+            if (!is_struct(_enemy_anchor_platform) || !variable_struct_exists(_enemy_anchor_platform, "battler")) continue;
+            var _enemy_pt_platform = variable_struct_get(_enemy_anchor_platform, "battler");
+            if (!is_array(_enemy_pt_platform) || array_length(_enemy_pt_platform) < 2) continue;
+
+            var _enemy_actor_platform = _B.actor[_enemy_idx_platform];
+            var _enemy_h_platform = 64;
+            if (is_struct(_enemy_actor_platform) && variable_struct_exists(_enemy_actor_platform, "mon") && !is_undefined(pkicons_get_art96_by_mon)){
+                var _enemy_mon_platform = variable_struct_get(_enemy_actor_platform, "mon");
+                var _enemy_spr_platform = pkicons_get_art96_by_mon(_enemy_mon_platform);
+                if (!is_undefined(_enemy_spr_platform) && sprite_exists(_enemy_spr_platform)) _enemy_h_platform = sprite_get_height(_enemy_spr_platform);
+            }
+
+            var _enemy_ui_s_platform = 1;
+            try {
+                if (is_struct(_B) && variable_struct_exists(_B, "_ui")){
+                    var _enemy_ui_platform = variable_struct_get(_B, "_ui");
+                    if (is_struct(_enemy_ui_platform) && variable_struct_exists(_enemy_ui_platform, "s")) _enemy_ui_s_platform = variable_struct_get(_enemy_ui_platform, "s");
+                }
+            } catch (e_enemy_ui_platform) { _enemy_ui_s_platform = 1; }
+
+            var _enemy_layout_platform = __battle_get_actor_scene_anchor(_pid, _B, _enemy_idx_platform);
+            var _enemy_scale_mult_platform = (is_struct(_enemy_layout_platform) && variable_struct_exists(_enemy_layout_platform, "scale_mult") && is_real(variable_struct_get(_enemy_layout_platform, "scale_mult"))) ? real(variable_struct_get(_enemy_layout_platform, "scale_mult")) : 1;
+            var _enemy_draw_scale_platform = _enemy_scale_mult_platform * _enemy_ui_s_platform;
+            var _enemy_platform_bottom = (_enemy_pt_platform[1] + _cam_offy) + (_enemy_h_platform * _enemy_draw_scale_platform) * 0.5;
+            __battle_draw_platform(_pid, _B, "enemy", _enemy_pt_platform[0] + _cam_offx, _enemy_platform_bottom, _enemy_ui_s_platform);
+        }
+    }
+
     for (var _ed = 0; _ed < array_length(_enemy_draw_order); ++_ed){
         var _enemy_idx_draw = _enemy_draw_order[_ed];
         if (!is_array(_B.actor) || _enemy_idx_draw >= array_length(_B.actor) || !is_struct(_B.actor[_enemy_idx_draw])) continue;
@@ -25,7 +58,7 @@ function __battle_draw_battlers(_pid, _B) {
         if (!is_struct(_enemy_anchor) || !variable_struct_exists(_enemy_anchor, "battler")) continue;
         var _enemy_pt = variable_struct_get(_enemy_anchor, "battler");
         if (!is_array(_enemy_pt) || array_length(_enemy_pt) < 2) continue;
-        __battle_draw_enemy(_pid, _B, _enemy_idx_draw, _enemy_pt[0] + _cam_offx, _enemy_pt[1] + _cam_offy);
+        __battle_draw_enemy(_pid, _B, _enemy_idx_draw, _enemy_pt[0] + _cam_offx, _enemy_pt[1] + _cam_offy, true);
         if (!is_undefined(__battle_draw_confusion_dialog_overlay)) __battle_draw_confusion_dialog_overlay(_pid, _B.actor[_enemy_idx_draw], _enemy_pt[0] + _cam_offx, _enemy_pt[1] + _cam_offy);
     }
 

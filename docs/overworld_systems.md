@@ -23,6 +23,8 @@ The main object seams are:
 - `objects/obush/Draw_0.gml` -> direct bush draw
 - `objects/oPlayer/Step_1.gml` -> player `Interact` routing through `overworld_find_interactable_npc(...)`
 
+Room-start collision ownership currently lives in `objects/oGame/Other_4.gml`, which binds `oNpc` into the world collision solids list so NPCs block movement.
+
 Boot configuration currently happens in `objects/oGame/Create_0.gml`.
 
 ## Runtime State
@@ -90,6 +92,12 @@ Sprite-facing fields:
 
 The sprite resolver accepts directional naming like `spr_bugcatcher_down`, `spr_bugcatcher_up`, `spr_bugcatcher_left`, and `spr_bugcatcher_right`. If `npc_sprite_base` is present, the helper tries to resolve those assets automatically.
 
+Pokemon Center specialization:
+
+- Setting `pokemon_center_nurse = true` on an `oNpc` instance upgrades it into Nurse Joy.
+- `overworld_npc_init(...)` auto-fills the directional Nurse Joy sprites when those assets exist.
+- The nurse is forced non-wandering, non-trainer, and gets an interaction radius of at least `40` so the player can talk across a counter.
+
 ## Player Interaction Hook
 
 `objects/oPlayer/Step_1.gml` is the main overworld interaction entrypoint.
@@ -105,6 +113,11 @@ That means NPC interactions now sit in front of the old dialog-box seam.
 `overworld_find_interactable_npc(...)` prefers the tile in front of the player based on `facing_dir`, then checks distance against `interact_radius`.
 
 Visible encounter NPCs are explicitly excluded from this path through the `encounter_pokemon` flag.
+
+Movement lock note:
+
+- `overworld_player_locked_by_npc(pid)` is the shared lock seam used by `objects/oPlayer/Step_0.gml`.
+- Trainer approach/dialog state and the active Pokemon Center nurse flow both route through that same lock, so world movement stops while those interactions own the player.
 
 ## Reward and Quest Flow
 
@@ -187,6 +200,9 @@ Presentation and collision:
 - visible Pokemon NPCs draw at `image_xscale = image_yscale = 0.67`, matching the 16-pixel overworld scale target
 - `__overworld_encounter_pokemon_npc_bounds(...)` derives contact bounds from the sprite bounding box and instance scale
 - player contact uses those scaled bounds instead of a hard-coded square, so small Pokemon do not trigger battles before the player actually reaches them
+- spawn placement and repathing now use rectangle-clear checks against every visible NPC in the owning patch, so wandering Pokemon do not stack on top of each other
+- `__overworld_encounter_pokemon_npc_find_clear_point(...)` is the main anti-overlap seam for both initial spawn and runtime unstick behavior
+- if a visible Pokemon cannot find any clear point in the patch, it is removed instead of remaining embedded in another visible Pokemon
 
 Battle handoff:
 
@@ -207,6 +223,8 @@ Only the anchor bush is allowed to:
 - keep the live visible encounter NPC array
 - tick the visible spawn timer
 - spawn visible wild Pokemon
+
+The anchor now owns `_encounter_visible_npcs` as the canonical list; `_encounter_visible_npc` remains as a legacy first-entry alias.
 
 Non-anchor bushes return early in `overworld_encounter_step(...)`. If they somehow still own visible NPCs, they clear and destroy them.
 

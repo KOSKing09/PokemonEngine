@@ -4,6 +4,9 @@ This index documents the script folders by responsibility so later work can find
 
 ## Detailed guides
 
+- `docs/runtime_systems.md`: start here when changing controls, pause, cutscenes, transitions, split-screen rect ownership, room runtime, or grid and collision contracts
+- `docs/progression_support_systems.md`: start here when changing caught nickname flow, evolution queueing, PC storage, or player money
+- `docs/data_asset_systems.md`: start here when changing CSV-backed runtime data, mon factory shape, demo seeding, sprite-font setup, skin bundles, or external Pokemon and item asset lookup
 - `docs/overworld_systems.md`: start here when changing overworld NPCs, trainer sight or challenge flow, visible wandering wild Pokemon, or world item props
 - `docs/battle_system.md`: start here when changing turn flow, battler state, command routing, or battle UI integration
 - `docs/battle_doubles.md`: start here when changing doubles/co-op actor ownership, target selection, trainer doubles behavior, or scene layout
@@ -26,7 +29,7 @@ This index documents the script folders by responsibility so later work can find
 - `scripts/transition_system/`: Emerald-inspired battle and room transition styles, draw helpers, and `transition_room_goto`
 - `scripts/collision_system/`: world collision helpers
 - `scripts/grid_system/`: grid utilities used by map/world systems
-- `scripts/player_helper_scripts/`: player-instance helpers outside the main object events, including multiplayer versus requests, NPC sprite resolution, NPC interaction cutscenes, visible Pokemon collision bounds, and overworld encounter volumes or tables
+- `scripts/player_helper_scripts/`: player-instance helpers outside the main object events, including multiplayer versus requests, room runtime and world music helpers, warp scheduling, NPC sprite resolution, Nurse Joy flow, visible Pokemon collision bounds, and overworld encounter volumes or tables
 - `scripts/SkinSystem/`: sprite/skin presentation helpers
 - `scripts/font_pokemon/`: sprite-font loading and font helpers
 - `scripts/currency_system/`: player money and payout helpers
@@ -97,6 +100,7 @@ This index documents the script folders by responsibility so later work can find
 - If the change affects split-screen composition or per-pid GUI ownership, start in `objects/oGame/Draw_64.gml` and then hop to the owning subsystem draw entrypoint.
 - If the change affects overworld NPCs, trainer approach behavior, quest or item rewards from world actors, or visible wild spawns, start in `docs/overworld_systems.md`, then use `scripts/player_helper_scripts/`, `objects/oNpc/`, and the player `Interact` hook.
 - If the change affects overworld random encounters, start in `docs/overworld_encounters.md`, then use `scripts/player_helper_scripts/` and the encounter object's Create or Step events as the owning seams.
+- If the change affects room entry, warp routing, route bars, or world/background music, start in `docs/runtime_systems.md`, then use `scripts/player_helper_scripts/`, `objects/oGame/Other_4.gml`, and any warp trigger object.
 - If the change affects local-versus request flow or accept or decline behavior, start in `docs/versus_system.md`, then use `scripts/player_helper_scripts/`, `scripts/battle_ui/`, and `scripts/battle_system/`.
 - If the change affects caught-Pokemon naming, use `scripts/virtual_keyboard_system/`, `scripts/party_model/`, and the catch-finalization code in `scripts/battle_impls/`.
 - If the change affects battle flow, start in `scripts/battle_system/` and then hop to the owning helper module.

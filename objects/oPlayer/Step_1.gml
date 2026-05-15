@@ -2,6 +2,7 @@
 // Drain any queued dialog first (opens next item if allowed), then advance if open
 if (!is_undefined(dialog2p_step)) dialog2p_step(pid);
 if (!is_undefined(multiplayer_update_versus_request)) multiplayer_update_versus_request(pid);
+if (!is_undefined(multiplayer_update_wild_assist_request)) multiplayer_update_wild_assist_request(pid);
 if (!is_undefined(cutscene_blocks_player) && cutscene_blocks_player(pid)) exit;
 
 if (keyboard_check_pressed(vk_f1)){
@@ -42,15 +43,29 @@ if (keyboard_check_pressed(vk_f1)){
                 _revived += 1;
             }
         }
-        battle_open(
-            pid,
-            irandom_range(10,10),
-            choose("dark water", "rocks a", "light", "grassy", "rocks b", "dirt", "river", "snowy", "grassy snow", "ice", "forest", "ugly grass", "wood bridge", "man made paths"),
-            {
-                battle_type: "wild",
-                battle_format: "double"
+        var _debug_area = choose("dark water", "rocks a", "light", "grassy", "rocks b", "dirt", "river", "snowy", "grassy snow", "ice", "forest", "ugly grass", "wood bridge", "man made paths");
+        var _debug_opts = {
+            battle_type: "wild",
+            battle_format: "double"
+        };
+        var _debug_pick_a = undefined;
+        var _debug_pick_b = undefined;
+        if (!is_undefined(__overworld_encounter_table_for) && !is_undefined(__overworld_encounter_pick_from_table)){
+            var _debug_habitat = choose("grass", "bush");
+            var _debug_table = __overworld_encounter_table_for("demo_route_1", _debug_habitat);
+            if (is_array(_debug_table) && array_length(_debug_table) > 0){
+                _debug_pick_a = __overworld_encounter_pick_from_table(_debug_table, 5, 10);
+                _debug_pick_b = __overworld_encounter_pick_from_table(_debug_table, 5, 10);
             }
-        );
+        }
+        if (is_struct(_debug_pick_a) && is_struct(_debug_pick_b)){
+            variable_struct_set(_debug_opts, "enemy_species", [variable_struct_get(_debug_pick_a, "species_id"), variable_struct_get(_debug_pick_b, "species_id")]);
+            variable_struct_set(_debug_opts, "enemy_levels", [variable_struct_get(_debug_pick_a, "level"), variable_struct_get(_debug_pick_b, "level")]);
+        } else {
+            variable_struct_set(_debug_opts, "enemy_species", [irandom_range(1, 901), irandom_range(1, 901)]);
+            variable_struct_set(_debug_opts, "enemy_levels", [irandom_range(5, 10), irandom_range(5, 10)]);
+        }
+        battle_open(pid, irandom_range(5,10), _debug_area, _debug_opts);
 	}else{
 		battle_close(pid);
 	}

@@ -1,4 +1,15 @@
 /// oCamera Step
+if (!is_undefined(player_by_pid)){
+	target1 = player_by_pid(0);
+	target2 = player_by_pid(1);
+}
+
+if (!variable_instance_exists(id, "bound_room")) bound_room = room;
+if (bound_room != room){
+	bound_room = room;
+	split_layout = "";
+}
+
 if (is_undefined(__apply_ports)){
 	split_layout = "";
 } else {

@@ -57,7 +57,7 @@ function pause_update(){
         var _entry_count = array_length(_main_labels);
         var _options_count = 6;
         var _input_count = 2;
-        var _battle_settings_count = 2;
+        var _battle_settings_count = 3;
         var _multiplayer_count = 5;
         var _misc_count = 1;
 
@@ -121,6 +121,9 @@ function pause_update(){
                 if (controls_pressed(pid,"MoveLeft")) battle_xp_cycle_mode(-1);
                 if (controls_pressed(pid,"MoveRight")) battle_xp_cycle_mode(1);
             }
+            if (p.battle_settings_sel == 1){
+                if (controls_pressed(pid,"MoveLeft") || controls_pressed(pid,"MoveRight")) battle_followers_toggle();
+            }
 
             if (controls_pressed(pid,"Interact")){
                 switch (p.battle_settings_sel){
@@ -128,6 +131,9 @@ function pause_update(){
                         battle_xp_cycle_mode(1);
                         break;
                     case 1:
+                        battle_followers_toggle();
+                        break;
+                    case 2:
                         p.mode = "options";
                         p.battle_settings_sel = 0;
                         break;
@@ -306,7 +312,7 @@ function pause_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
 
     var labels = __pause_main_labels(_pid);
     var options_labels = ["INPUT","TEXT SPEED","SPLIT","BATTLE SETTINGS","MULTIPLAYER","BACK"];
-    var battle_settings_labels = ["XP MODE","BACK"];
+    var battle_settings_labels = ["XP MODE","FOLLOWER","BACK"];
     var multiplayer_labels = ["CO-OP","REQUEST SIDE","VERSUS FORMAT","START VERSUS","BACK"];
     var input_labels = ["DEADZONE","BACK"];
     var misc_labels = ["PC"];
@@ -353,7 +359,10 @@ function pause_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         longest_label = max(longest_label, string_width(__pause_dialog_speed_label()));
         longest_label = max(longest_label, string_width(__pause_splitscreen_label()));
     }
-    if (string(p.mode) == "battle_settings") longest_label = max(longest_label, string_width(__pause_battle_xp_label()));
+    if (string(p.mode) == "battle_settings") {
+        longest_label = max(longest_label, string_width(__pause_battle_xp_label()));
+        longest_label = max(longest_label, string_width(__pause_follower_label()));
+    }
     if (string(p.mode) == "multiplayer") {
         longest_label = max(longest_label, string_width(__pause_multiplayer_queue_label()));
         longest_label = max(longest_label, string_width(__pause_multiplayer_request_label()));
@@ -395,6 +404,7 @@ function pause_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         if (string(p.mode) == "options" && i == 1) _label_text = __pause_dialog_speed_label();
         if (string(p.mode) == "options" && i == 2) _label_text = __pause_splitscreen_label();
         if (string(p.mode) == "battle_settings" && i == 0) _label_text = __pause_battle_xp_label();
+        if (string(p.mode) == "battle_settings" && i == 1) _label_text = __pause_follower_label();
         if (string(p.mode) == "multiplayer" && i == 0) _label_text = __pause_multiplayer_queue_label();
         if (string(p.mode) == "multiplayer" && i == 1) _label_text = __pause_multiplayer_request_label();
         if (string(p.mode) == "multiplayer" && i == 2) _label_text = __pause_multiplayer_versus_label();
@@ -521,6 +531,11 @@ function __pause_battle_xp_label(){
         case "all": return "XP MODE ALL PARTY";
     }
     return "XP MODE ACTIVE";
+}
+
+function __pause_follower_label(){
+    var _on = (!is_undefined(battle_followers_enabled) && battle_followers_enabled());
+    return "FOLLOWER " + (_on ? "ON" : "OFF");
 }
 
 function __pause_multiplayer_versus_label(){

@@ -3,7 +3,9 @@
 wc_bind_layers(["WALL", "BLOCKS"]);
 
 // Add any blocking objects; you can include noone as a placeholder
-wc_set_solids([noone]);
+wc_set_solids([oNpc]);
+
+if (!is_undefined(world_room_apply)) world_room_apply();
 
 if !(window_get_fullscreen()) {
     window_set_position(0, 0);

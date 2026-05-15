@@ -127,6 +127,7 @@ global.OVERWORLD_ENCOUNTER_BLOCK_UNTIL_MS = 0;
 transition_init();
 transition_set_battle_style("emerald_blinds");
 transition_set_room_style("emerald_fade_black");
+if (!is_undefined(world_init)) world_init();
 
 // Ensure PKICONS debug flags exist (preserve pre-existing settings when possible)
     if (variable_global_exists("PKICONS")){
@@ -170,6 +171,9 @@ global.PARTY_ASSETS = {
 
 // Region music default (used by battle system to restore pre-battle music)
 global._REGIONMUSIC = snd_Littleroot_Town;
+if (!is_undefined(world_room_register)) world_room_register(room, room_get_name(room), global._REGIONMUSIC, false);
+else if (!is_undefined(world_set_room_music)) world_set_room_music(room, global._REGIONMUSIC);
+if (!is_undefined(world_play_music)) world_play_music(global._REGIONMUSIC);
 
 // --- PARTY / BAGS / PLAYERS -----------------------------------------------
 if (!variable_global_exists("PAUSE_PLAYERS_ACTIVE")) global.PAUSE_PLAYERS_ACTIVE = 1;

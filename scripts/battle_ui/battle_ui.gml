@@ -639,8 +639,16 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
 
                 var _trainer_name = (variable_struct_exists(_prompt, "trainer_name") ? string(variable_struct_get(_prompt, "trainer_name")) : "Trainer");
                 var _mon_name = (variable_struct_exists(_prompt, "enemy_next_name") ? string(variable_struct_get(_prompt, "enemy_next_name")) : "Pokemon");
-                var _msg0 = __battle_text_fit_ellipsis(_pid, _trainer_name + " is about to use", _bw - __bwu(_pid, 18));
-                var _msg1 = __battle_text_fit_ellipsis(_pid, _mon_name + ". Change Pokemon?", _bw - __bwu(_pid, 18));
+                var _prompt_source = (variable_struct_exists(_prompt, "source") ? string(variable_struct_get(_prompt, "source")) : "trainer");
+                var _msg0 = "";
+                var _msg1 = "";
+                if (_prompt_source == "two_player_replace"){
+                    _msg0 = __battle_text_fit_ellipsis(_pid, _trainer_name + " is using", _bw - __bwu(_pid, 18));
+                    _msg1 = __battle_text_fit_ellipsis(_pid, _mon_name + ". Switch Pokemon?", _bw - __bwu(_pid, 18));
+                } else {
+                    _msg0 = __battle_text_fit_ellipsis(_pid, _trainer_name + " is about to use", _bw - __bwu(_pid, 18));
+                    _msg1 = __battle_text_fit_ellipsis(_pid, _mon_name + ". Change Pokemon?", _bw - __bwu(_pid, 18));
+                }
                 var _dialog_col2 = (variable_struct_exists(_t, "col_dialog_text") ? variable_struct_get(_t, "col_dialog_text") : _t.col_text);
                 draw_set_color(_dialog_col2);
                 draw_set_halign(fa_left);

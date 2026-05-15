@@ -6,6 +6,9 @@ Start with these docs:
 
 - `docs/runbook.md` for boot flow, manual run steps, smoke usage, and the Igor VM command
 - `docs/script_systems.md` for a folder-by-folder map of the script subsystems
+- `docs/runtime_systems.md` for controls, grid and collision, pause, split-screen layout, cutscenes, transitions, and room-runtime hooks
+- `docs/progression_support_systems.md` for the virtual keyboard, evolution queue, PC storage, and currency
+- `docs/data_asset_systems.md` for CSV loaders, Pokemon factory and demo seeding, sprite-font and skin helpers, and pkicons external assets
 - `docs/battle_system.md` for battle-slot state, phases, and battle entrypoints
 - `docs/battle_doubles.md` for doubles/co-op actor layout, ownership routing, target selection, and trainer doubles behavior
 - `docs/bag_system.md` for bag boot/update/draw flow, inventory helpers, and battle-bag extension seams

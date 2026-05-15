@@ -233,6 +233,28 @@ function bag__clean_display_name(_s){
     return string_trim(t);
 }
 
+function bag__item_display_name(_iid, _row, _it){
+    var _name = "";
+    if (is_struct(_row)){
+        if (variable_struct_exists(_row, "name") && string_length(string_trim(string(variable_struct_get(_row, "name")))) > 0) _name = string(variable_struct_get(_row, "name"));
+        else if (variable_struct_exists(_row, "real_name") && string_length(string_trim(string(variable_struct_get(_row, "real_name")))) > 0) _name = string(variable_struct_get(_row, "real_name"));
+    }
+    if (string_length(string_trim(_name)) <= 0 && is_struct(_it)){
+        if (variable_struct_exists(_it, "name") && string_length(string_trim(string(variable_struct_get(_it, "name")))) > 0) _name = string(variable_struct_get(_it, "name"));
+        else if (variable_struct_exists(_it, "identifier") && string_length(string_trim(string(variable_struct_get(_it, "identifier")))) > 0) _name = string(variable_struct_get(_it, "identifier"));
+    }
+    if (string_length(string_trim(_name)) <= 0 && is_real(_iid)) _name = "item " + string(floor(_iid));
+    return bag__clean_display_name(_name);
+}
+
+function bag__item_article(_display_name){
+    var _txt = string_lower(string_trim(string(_display_name)));
+    if (string_length(_txt) <= 0) return "a";
+    var _ch = string_copy(_txt, 1, 1);
+    if (_ch == "a" || _ch == "e" || _ch == "i" || _ch == "o" || _ch == "u") return "an";
+    return "a";
+}
+
 // Resolve item flags into a convenient struct: reads global._item_flag_map and builds
 // a tolerant flag_set (struct) plus boolean convenience fields.
 function bag__resolve_item_flags(_iid, _it){
@@ -385,7 +407,7 @@ function bag_registered_find_row(_pid, _item_id){
         if (!is_undefined(_spr) && sprite_exists(_spr)) _icon = _spr;
     }
 
-    var _name = variable_struct_exists(_it, "name") ? bag__clean_display_name(variable_struct_get(_it, "name")) : string(_iid);
+    var _name = bag__item_display_name(_iid, undefined, _it);
     var _real_name = !is_undefined(_lookup_name) ? _lookup_name : _name;
     return { name:_name, real_name:_real_name, qty:bag_inventory_get_qty(_pid, _iid), desc:_desc, icon:_icon, item_id:_iid };
 }
@@ -485,10 +507,8 @@ function bag__use_item_on_self(_pid, _row){
         else if (variable_global_exists("PLAYER_NAME")) trainer = string(global.PLAYER_NAME);
     } else if (variable_global_exists("PLAYER_NAME")) trainer = string(global.PLAYER_NAME);
 
-    var disp = "item";
-    if (variable_struct_exists(_row, "name")) disp = bag__clean_display_name(variable_struct_get(_row, "name"));
-    else if (is_struct(it) && variable_struct_exists(it, "name")) disp = bag__clean_display_name(variable_struct_get(it, "name"));
-    var prefix = string(trainer) + " used a " + string(disp) + "!";
+    var disp = bag__item_display_name(iid, _row, it);
+    var prefix = string(trainer) + " used " + bag__item_article(disp) + " " + string(disp) + "!";
 
     // Determine whether we're in a battle. Some item behaviors (Poké Balls)
     // are battle-only; others (consumables like Potions) should work outside
@@ -507,6 +527,23 @@ function bag__use_item_on_self(_pid, _row){
             show_debug_message("[bag][debug] abort: __battle_ensure_slot returned non-struct for pid=" + string(_pid));
             return false;
         }
+    }
+    var _battle_action_actor_index = 0;
+    if (inBattle && is_struct(_B)){
+        try {
+            if (variable_struct_exists(_B, "versus_enabled") && variable_struct_get(_B, "versus_enabled") == true && !is_undefined(__battle_command_ui_state)){
+                var _bag_ui = __battle_command_ui_state(_B, _pid);
+                if (is_struct(_bag_ui) && variable_struct_exists(_bag_ui, "command_actor_index") && is_real(variable_struct_get(_bag_ui, "command_actor_index"))){
+                    _battle_action_actor_index = floor(variable_struct_get(_bag_ui, "command_actor_index"));
+                }
+            } else if (variable_struct_exists(_B, "_command_actor_index") && is_real(variable_struct_get(_B, "_command_actor_index"))){
+                _battle_action_actor_index = floor(variable_struct_get(_B, "_command_actor_index"));
+            }
+            if (!is_undefined(__battle_actor_control_pid) && __battle_actor_control_pid(_pid, _battle_action_actor_index) != _pid){
+                _battle_action_actor_index = __battle_actor_index_for_side_slot(_pid, 0, 0);
+            }
+            if (!is_real(_battle_action_actor_index) || _battle_action_actor_index < 0) _battle_action_actor_index = 0;
+        } catch (e_bag_actor_index) { _battle_action_actor_index = 0; }
     }
 
     // NOTE: flag array and usable_in_battle are determined later. Check moved down after flags are parsed.
@@ -618,8 +655,9 @@ function bag__use_item_on_self(_pid, _row){
                 return false;
             }
             var _battle_mode_direct = variable_struct_exists(_B, "battle_type") ? string_lower(string(_B.battle_type)) : "wild";
-            if (_battle_mode_direct == "trainer"){
-                out_txt += "\nYou can't escape from this battle.";
+            var _battle_versus_direct = (variable_struct_exists(_B, "versus_enabled") && variable_struct_get(_B, "versus_enabled") == true);
+            if (_battle_mode_direct == "trainer" || _battle_versus_direct){
+                out_txt += "\nNo! There's no running from a Trainer battle!";
                 try { dialog2p_show(_pid, out_txt); } catch (e_escape_trainer) {}
                 return false;
             }
@@ -639,7 +677,7 @@ function bag__use_item_on_self(_pid, _row){
                 return false;
             }
             var _actors_direct = variable_struct_exists(_B, "actor") ? _B.actor : undefined;
-            var _A_direct = (is_array(_actors_direct) && array_length(_actors_direct) > 0) ? _actors_direct[0] : undefined;
+            var _A_direct = (is_array(_actors_direct) && _battle_action_actor_index >= 0 && _battle_action_actor_index < array_length(_actors_direct)) ? _actors_direct[_battle_action_actor_index] : undefined;
             var _M_direct = (is_struct(_A_direct) && variable_struct_exists(_A_direct, "mon") && is_struct(_A_direct.mon)) ? _A_direct.mon : _A_direct;
             var _res_direct = (!is_undefined(scr_apply_item_effects)) ? scr_apply_item_effects(iid, _M_direct, _A_direct) : { applied:false };
             if (is_struct(_res_direct) && _res_direct.applied){
@@ -717,7 +755,8 @@ function bag__use_item_on_self(_pid, _row){
 
         // Wild-vs-trainer is tracked on the battle slot. Avoid inferring it from
         // actor payload shape because wild battlers may also carry canonical mon fields.
-        var is_wild = (battle_mode != "trainer");
+        var _battle_versus_ball = (variable_struct_exists(_B, "versus_enabled") && variable_struct_get(_B, "versus_enabled") == true);
+        var is_wild = (battle_mode != "trainer" && !_battle_versus_ball);
 
         if (!is_wild){
             // Explicit feedback for unusable item in this context
@@ -730,9 +769,9 @@ function bag__use_item_on_self(_pid, _row){
         // action actually executes, and double wild battles can target a specific foe.
         var ball_mult = bag__get_ball_modifier(iid);
         if (true){
-            var action_actor_index = 0;
-            if (variable_struct_exists(_B, "_command_actor_index") && is_real(variable_struct_get(_B, "_command_actor_index"))) action_actor_index = floor(variable_struct_get(_B, "_command_actor_index"));
-            if (!is_undefined(__battle_actor_side) && __battle_actor_side(action_actor_index) != 0) action_actor_index = 0;
+            var action_actor_index = _battle_action_actor_index;
+            var _bag_versus_action = (variable_struct_exists(_B, "versus_enabled") && variable_struct_get(_B, "versus_enabled") == true);
+            if (!_bag_versus_action && !is_undefined(__battle_actor_side) && __battle_actor_side(action_actor_index) != 0) action_actor_index = 0;
 
             var target_candidates = [];
             var battle_format = (variable_struct_exists(_B, "battle_format") ? string_lower(string(variable_struct_get(_B, "battle_format"))) : "single");

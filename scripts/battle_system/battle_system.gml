@@ -731,7 +731,7 @@ function __battle_choose_action_for_actor(_pid, _actorIndex, _randomize){
         var _pp = (variable_struct_exists(_A, "pps") && is_array(variable_struct_get(_A, "pps")) && _i < array_length(variable_struct_get(_A, "pps"))) ? variable_struct_get(_A, "pps")[_i] : 0;
         if (is_real(_mv) && _mv >= 0 && is_real(_pp) && _pp > 0) array_push(_choices, _i);
     }
-    if (array_length(_choices) <= 0) return undefined;
+    if (array_length(_choices) <= 0) return __battle_make_struggle_action(_pid, _idx);
     var _pick = _choices[0];
     if (_randomize && array_length(_choices) > 1) _pick = _choices[irandom(array_length(_choices) - 1)];
     return {
@@ -739,6 +739,46 @@ function __battle_choose_action_for_actor(_pid, _actorIndex, _randomize){
         slot: _pick,
         move_id: _A.moves[_pick],
         target_index: __battle_get_default_target_index(_pid, _idx)
+    };
+}
+
+function __battle_actor_has_usable_pp(_actor){
+    if (!is_struct(_actor)) return false;
+    var _moves = (variable_struct_exists(_actor, "moves") && is_array(variable_struct_get(_actor, "moves"))) ? variable_struct_get(_actor, "moves") : [];
+    var _pps = (variable_struct_exists(_actor, "pps") && is_array(variable_struct_get(_actor, "pps"))) ? variable_struct_get(_actor, "pps") : [];
+    for (var _i = 0; _i < 4; ++_i){
+        var _mv = (_i < array_length(_moves)) ? _moves[_i] : -1;
+        var _pp = (_i < array_length(_pps)) ? _pps[_i] : 0;
+        if (is_real(_mv) && _mv >= 0 && is_real(_pp) && _pp > 0) return true;
+    }
+    return false;
+}
+
+function __battle_close_transition_style(_B){
+    if (is_struct(_B)){
+        if (variable_struct_exists(_B, "result") && string(variable_struct_get(_B, "result")) == "lose") return "emerald_fade_white";
+        if (variable_struct_exists(_B, "_close_transition_style")) return string(variable_struct_get(_B, "_close_transition_style"));
+    }
+    return "emerald_fade_black";
+}
+
+function __battle_begin_close_transition(_B, _now_ms){
+    if (!is_struct(_B)) return false;
+    variable_struct_set(_B, "_close_start_ms", _now_ms);
+    variable_struct_set(_B, "_close_dur_ms", 600);
+    variable_struct_set(_B, "_close_transition_style", __battle_close_transition_style(_B));
+    variable_struct_set(_B, "_closing", true);
+    return true;
+}
+
+function __battle_make_struggle_action(_pid, _actorIndex){
+    var _idx = is_real(_actorIndex) ? floor(_actorIndex) : 0;
+    return {
+        actor_index: _idx,
+        slot: -1,
+        move_id: -1,
+        target_index: __battle_get_default_target_index(_pid, _idx),
+        struggle: true
     };
 }
 
@@ -1953,16 +1993,20 @@ function battle_close(_pid){
             var _prev_audio_local = (variable_struct_exists(_B, "_prev_audio") ? variable_struct_get(_B, "_prev_audio") : undefined);
             try { __battle_restore_prev_audio(_pid); } catch (e_rr) { if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] __battle_restore_prev_audio failed: " + string(e_rr)); }
 
-            // If there was no previous audio to restore, attempt to play the region BGM if available.
+            // If there was no previous audio to restore, re-apply the current room's music policy.
             if (is_undefined(_prev_audio_local) || _prev_audio_local == undefined) {
-                if (variable_global_exists("_REGIONMUSIC") && !is_undefined(global._REGIONMUSIC) && global._REGIONMUSIC != undefined) {
+                if (!is_undefined(world_apply_room_music)) {
                     try {
-                        if (!is_undefined(audio_play_sound)) {
-                            audio_play_sound(global._REGIONMUSIC, 1, true);
-                            if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] played region music res=" + string(global._REGIONMUSIC));
-                        }
+                        world_apply_room_music(room);
                     } catch (e_reg) {
-                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to play region music: " + string(e_reg));
+                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed to reapply room music: " + string(e_reg));
+                    }
+                } else if (variable_global_exists("_REGIONMUSIC") && !is_undefined(global._REGIONMUSIC) && global._REGIONMUSIC != undefined) {
+                    try {
+                        if (!is_undefined(world_play_music)) world_play_music(global._REGIONMUSIC, true);
+                        else if (!is_undefined(audio_play_sound)) audio_play_sound(global._REGIONMUSIC, 1, true);
+                    } catch (e_reg_fallback) {
+                        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][audio] failed region fallback: " + string(e_reg_fallback));
                     }
                 }
             }
@@ -2462,13 +2506,11 @@ function battle_update(_pid){
                     }
                 }
             } catch (e_qdrain) {}
-            // Start or progress a fade-to-black before closing the battle
+            // Start or progress the battle close transition before closing the battle.
             var nowc = current_time;
             var _has_start = (variable_struct_exists(_B, "_close_start_ms") && is_real(variable_struct_get(_B, "_close_start_ms")));
             if (!_has_start){
-                variable_struct_set(_B, "_close_start_ms", nowc);
-                variable_struct_set(_B, "_close_dur_ms", 600);
-                variable_struct_set(_B, "_closing", true);
+                __battle_begin_close_transition(_B, nowc);
                 return;
             } else {
                 var _st = (is_real(variable_struct_get(_B, "_close_start_ms")) ? variable_struct_get(_B, "_close_start_ms") : nowc);
@@ -2565,9 +2607,7 @@ function battle_update(_pid){
             var nowc2 = current_time;
             var hasStart2 = (variable_struct_exists(_B, "_close_start_ms") && is_real(variable_struct_get(_B, "_close_start_ms")));
             if (!hasStart2){
-                variable_struct_set(_B, "_close_start_ms", nowc2);
-                variable_struct_set(_B, "_close_dur_ms", 600);
-                variable_struct_set(_B, "_closing", true);
+                __battle_begin_close_transition(_B, nowc2);
                 return;
             } else {
                 var st2 = (is_real(variable_struct_get(_B, "_close_start_ms")) ? variable_struct_get(_B, "_close_start_ms") : nowc2);
@@ -3160,7 +3200,7 @@ function battle_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         }
     }
 
-    // Fade-to-black overlay during closing
+    // Battle close overlay. Losses whiteout; other endings use the normal black fade.
     if (variable_struct_exists(_B, "_closing") && variable_struct_get(_B, "_closing")){
         var start_ms = current_time;
         if (variable_struct_exists(_B, "_close_start_ms")){
@@ -3174,10 +3214,15 @@ function battle_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         }
         var tnow     = current_time;
         var prog     = clamp((tnow - start_ms) / max(1, dur_ms), 0, 1);
-        draw_set_color(c_black);
-        draw_set_alpha(prog);
-        draw_rectangle(__bxu(_pid,0), __byu(_pid,0), __bxu(_pid,240), __byu(_pid,160), false);
-        draw_set_alpha(1);
+        var _close_style = __battle_close_transition_style(_B);
+        if (!is_undefined(transition_draw_cover_rect)){
+            transition_draw_cover_rect(_close_style, prog, __bxu(_pid,0), __byu(_pid,0), __bxu(_pid,240) - __bxu(_pid,0), __byu(_pid,160) - __byu(_pid,0));
+        } else {
+            draw_set_color((_close_style == "emerald_fade_white") ? c_white : c_black);
+            draw_set_alpha(prog);
+            draw_rectangle(__bxu(_pid,0), __byu(_pid,0), __bxu(_pid,240), __byu(_pid,160), false);
+            draw_set_alpha(1);
+        }
     }
 
     __bui_end(_pid);
@@ -3472,10 +3517,6 @@ function __battle_process_input(_pid){
             // Save the current root selection so we can restore it when returning
             variable_struct_set(_UI, "_prev_root_selX", variable_struct_get(_UI, "selX"));
             variable_struct_set(_UI, "_prev_root_selY", variable_struct_get(_UI, "selY"));
-            if (_versus && idx != 0){
-                try { dialog2p_show_now(_pid, "Versus currently uses Fight-only turns for each active battler."); } catch (e_vs_menu) {}
-                return;
-            }
             if (idx == 0){
                 // Enter Fight submenu
                 variable_struct_set(_UI, "menu", "fight");
@@ -3536,7 +3577,12 @@ function __battle_process_input(_pid){
             if (!is_real(mv) || mv < 0){
                 try { dialog2p_show_now(_pid, "No move registered there.\n(Try another slot.)"); } catch(e_nm) { try { dialog2p_enqueue(_pid, "No move registered there.\n(Try another slot.)"); } catch(e_){} }
             } else if (pp <= 0){
-                try { dialog2p_show_now(_pid, "There's no PP left for that move!\n(TODO: implement Struggle.)"); } catch(e_pp) { try { dialog2p_enqueue(_pid, "There's no PP left for that move!\n(TODO: implement Struggle.)"); } catch(e_){} }
+                if (!__battle_actor_has_usable_pp(A)){
+                    var _struggle_action = __battle_make_struggle_action(_pid, _command_actor_index);
+                    __battle_commit_player_action(_pid, _struggle_action);
+                } else {
+                    try { dialog2p_show_now(_pid, "There's no PP left for that move!"); } catch(e_pp) { try { dialog2p_enqueue(_pid, "There's no PP left for that move!"); } catch(e_){} }
+                }
             } else {
                 var _action = { slot: move_idx, move_id: mv, actor_index: _command_actor_index, target_index: __battle_get_default_target_index(_pid, _command_actor_index) };
                 var _targets = __battle_target_candidates(_pid, _command_actor_index, mv);
@@ -4658,10 +4704,16 @@ function __battle_step_turn_if_ready(_pid){
             if (_enemy_next_idx_vs >= 0){
                 var _enemy_name_vs = (is_struct(A1) && variable_struct_exists(A1, "name")) ? string(variable_struct_get(A1, "name")) : "Pok�mon";
                 try { variable_struct_set(_B, "_faint_pending", true); } catch (e_vs_fp) {}
-                try { variable_struct_set(_B, "_pending_open_party", true); } catch (e_vs_pop) {}
-                try { variable_struct_set(_B, "_pending_open_party_pid", _enemy_owner_pid_vs); } catch (e_vs_poppid) {}
-                try { variable_struct_set(_B, "_pending_open_party_fainted_actor_index", _fainted_enemy_actor_index_vs); } catch (e_vs_popactor) {}
                 if (!is_undefined(__battle_try_enqueue_faint_dialog)) __battle_try_enqueue_faint_dialog(_enemy_owner_pid_vs, _B, _enemy_name_vs + " fainted!", _enemy_name_vs + " fainted!");
+                if (!is_undefined(__battle_two_player_begin_switch_prompt) && __battle_two_player_begin_switch_prompt(_pid, _enemy_owner_pid_vs, _fainted_enemy_actor_index_vs, _enemy_next_idx_vs)){
+                    try { variable_struct_set(_B, "_pending_open_party", false); } catch (e_vs_pop_prompt) {}
+                    try { variable_struct_set(_B, "_pending_open_party_pid", undefined); } catch (e_vs_poppid_prompt) {}
+                    try { variable_struct_set(_B, "_pending_open_party_fainted_actor_index", undefined); } catch (e_vs_popactor_prompt) {}
+                } else {
+                    try { variable_struct_set(_B, "_pending_open_party", true); } catch (e_vs_pop) {}
+                    try { variable_struct_set(_B, "_pending_open_party_pid", _enemy_owner_pid_vs); } catch (e_vs_poppid) {}
+                    try { variable_struct_set(_B, "_pending_open_party_fainted_actor_index", _fainted_enemy_actor_index_vs); } catch (e_vs_popactor) {}
+                }
                 try { variable_struct_set(_B, "_pending_close", false); } catch (e_vs_pc) {}
                 try { variable_struct_set(_B, "_action_active", false); } catch (e_vs_act) {}
                 _B.result = "ongoing";
@@ -5549,6 +5601,16 @@ function __battle_can_hit_target(_A, _D, _move_id){
 
 function __battle_try_escape(_pid){
     var _B = __battle_ensure_slot(_pid);
+    var _battle_type = (is_struct(_B) && variable_struct_exists(_B, "battle_type")) ? string(variable_struct_get(_B, "battle_type")) : "";
+    var _versus = (is_struct(_B) && variable_struct_exists(_B, "versus_enabled") && variable_struct_get(_B, "versus_enabled") == true);
+    if (_versus || _battle_type == "trainer"){
+        try {
+            if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, "No! There's no running\nfrom a Trainer battle!");
+            else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, "No! There's no running\nfrom a Trainer battle!", "No! There's no running\nfrom a Trainer battle!", "any");
+        } catch (e_no_run) {}
+        try { variable_struct_set(_B, "phase", "command"); } catch (e_no_run_phase) {}
+        return;
+    }
     var A0 = __battle_get_side_actor(_pid, 0, 0);
     var A1 = __battle_get_side_actor(_pid, 1, 0);
     if (!is_struct(A0) || !is_struct(A1)){

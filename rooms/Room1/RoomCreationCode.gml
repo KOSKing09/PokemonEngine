@@ -1,6 +1,3 @@
-
-audio_play_sound(snd_Littleroot_Town, 0, 1);
-
 // Room1 NPC implementation sample: a non-trainer bug catcher that starts an
 // overworld cutscene on interact. Copy this block and change id/position/text.
 var _cutscene_npc = instance_create_layer(208, 240, "Instances", oNpc);

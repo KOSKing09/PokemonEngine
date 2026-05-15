@@ -518,7 +518,7 @@ function __battle_draw_sendout_flash(_pid, _x, _y, _progress, _ui_s){
     draw_set_color(c_white);
 }
 
-function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
+function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy, _skip_platform = false){
     var scale_foe = 1.0;
     var E = undefined;
     if (is_array(_B.actor) && _actorIndex >= 0 && _actorIndex < array_length(_B.actor)) E = _B.actor[_actorIndex];
@@ -534,7 +534,7 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
             }
             var _w_tmp = 64; var _h_tmp = 64;
             var platform_bottom_tmp = fy + (_h_tmp * scale_foe * ui_s_tmp) * 0.5;
-            __battle_draw_platform(_pid, _B, "enemy", fx, platform_bottom_tmp, ui_s_tmp);
+            if (!_skip_platform) __battle_draw_platform(_pid, _B, "enemy", fx, platform_bottom_tmp, ui_s_tmp);
         } catch (e_pl) {}
         return;
     }
@@ -650,7 +650,7 @@ function __battle_draw_enemy(_pid, _B, _actorIndex, fx, fy){
     var platform_surface = __battle_platform_surface_y(_pid, platform_bottom, ui_s);
     // Use the preserved origin for platform drawing so the platform stays
     // anchored even when we temporarily move `fx` offscreen for the sprite.
-    __battle_draw_platform(_pid, _B, "enemy", __orig_fx, platform_bottom, ui_s);
+    if (!_skip_platform) __battle_draw_platform(_pid, _B, "enemy", __orig_fx, platform_bottom, ui_s);
     try {
         if (__is_lead_enemy && is_struct(_B) && variable_struct_exists(_B, "_trainer_intro")){
             var __flash_intro = variable_struct_get(_B, "_trainer_intro");

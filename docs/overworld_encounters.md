@@ -113,6 +113,7 @@ Spawn rules in visible mode:
 - off-camera patches can be suppressed when `encounter_visible_camera_only` is true
 - the patch respects both the global visible cap and the patch-local cap
 - each spawn uses the same registered encounter table data as hidden mode
+- each spawn is validated against the rest of the patch through `__overworld_encounter_pokemon_npc_rect_clear(...)` so newly spawned visible Pokemon do not overlap an existing one
 
 Spawned visible Pokemon are `oNpc` instances tagged with `encounter_pokemon = true`.
 
@@ -127,6 +128,13 @@ They carry:
 
 Visible Pokemon are scaled to `0.67` on both axes. Contact uses `__overworld_encounter_pokemon_npc_bounds(...)`, which reads the active sprite's bounding box at that scale, with a fallback rectangle only when sprite data is unavailable.
 
+Anti-overlap and unstick behavior:
+
+- `__overworld_encounter_visible_spawn(...)` records visible NPCs into `_encounter_visible_npcs` on the anchor patch, not only into one legacy slot.
+- `__overworld_encounter_pokemon_npc_pick_target(...)` skips occupied rectangles when choosing a new wander target.
+- `overworld_encounter_pokemon_npc_step(...)` checks whether the current position is still clear; if not, it calls `__overworld_encounter_pokemon_npc_find_clear_point(...)` to unstick the Pokemon.
+- If no clear point exists, the visible Pokemon is destroyed and removed from the patch list instead of getting stuck inside another visible Pokemon.
+
 Contact with the player opens a wild battle through `battle_open(...)` using an opts struct that includes:
 
 - `encounter_region_key`
@@ -134,6 +142,8 @@ Contact with the player opens a wild battle through `battle_open(...)` using an 
 - `encounter_source = "visible_bush_npc"`
 
 Visible encounters can still produce doubles through `encounter_battle_format` or `encounter_double_chance`.
+
+In visible doubles, the first foe comes from the touching visible NPC and the second foe is rolled from the same encounter table through `__overworld_encounter_roll(...)`.
 
 ## Encounter table shape
 

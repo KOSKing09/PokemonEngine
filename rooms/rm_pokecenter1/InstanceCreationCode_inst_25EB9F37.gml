@@ -1,0 +1,1 @@
+pokemon_center_nurse = true;

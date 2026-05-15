@@ -40,6 +40,13 @@ if (!is_undefined(dialog2p_is_open) && !is_undefined(dialog2p_update)){
 	}
 }
 
+if (!is_undefined(pokemon_center_update)){
+	pokemon_center_update(0);
+	if (variable_global_exists("DIALOG2P") && is_array(global.DIALOG2P) && array_length(global.DIALOG2P) > 1) pokemon_center_update(1);
+}
+
+if (!is_undefined(pokemon_followers_update_all)) pokemon_followers_update_all();
+
 if (!is_undefined(battle_controller_update_all)) battle_controller_update_all();
 
 // (Developer F12 debug removed)

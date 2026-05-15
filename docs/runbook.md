@@ -5,6 +5,10 @@ This project is a GameMaker Studio project. The runtime contracts live in script
 ## Documentation map
 
 - `docs/script_systems.md`: quick ownership map when you only need to know which folder owns a behavior
+- `docs/runtime_systems.md`: controls, collision and grid movement, split-screen layout, pause, cutscenes, transitions, and world room runtime
+- `docs/overworld_systems.md`: overworld NPC interaction flow, trainer approach behavior, visible wild wandering mons, and world props
+- `docs/progression_support_systems.md`: virtual keyboard, evolution queue, PC storage, and currency
+- `docs/data_asset_systems.md`: data load, mon factory, demo seeders, font and skin helpers, and external pkicons assets
 - `docs/battle_system.md`: battle slot shape, phase flow, entrypoints, and battle-specific extension seams
 - `docs/battle_doubles.md`: doubles/co-op format rules, actor layout, ownership routing, target helpers, and trainer doubles seams
 - `docs/versus_system.md`: local-versus request state, accept or decline flow, format selection, and battle-slot ownership setup
@@ -28,6 +32,7 @@ The current boot path is:
   - sets up fonts and GUI size (`240x160`)
   - loads data tables
   - initializes pkicons base paths
+  - initializes transition defaults plus world room runtime and startup world music
   - calls `party_init()`, `bags_init()`, `scr_controls()`, `pause_init()`, `dialog2p_init()`, `evolution_init()`, and `virtual_keyboard_init()`
 - `objects/oGame/Step_1.gml`
   - calls `controls_update()` before any input-driven UI reads
@@ -63,6 +68,11 @@ The current boot path is:
   - call `overworld_encounter_step(id)` from that volume's Step event
   - register route data with `overworld_encounter_register_table(region, habitat, entries)`
   - prefer per-instance overrides for local tuning instead of editing global defaults for every route
+- World runtime and room audio:
+  - use `world_room_register(room_id, display_name, music, indoor)` or `world_set_room_music(room_id, music)` to author room music
+  - use `world_play_music(sound)` for immediate world-music playback and `world_stop_room_music()` to stop it cleanly
+  - use `room_music = -1` on warp opts for explicit silent rooms
+  - keep `world_room_apply()` running from `objects/oGame/Other_4.gml` so warp placement, room audio, and route bars re-apply on every room entry
 - Multiplayer versus:
   - use `multiplayer_request_versus_battle(pid)` for player-driven versus starts
   - keep `multiplayer_update_versus_request(pid)` running so accept or decline input is processed
@@ -85,6 +95,8 @@ The current boot path is:
 ## Manual debug entrypoints
 
 - `F1` in the default debug room toggles a sample wild double battle from `objects/oPlayer/Step_1.gml`
+- The F1 path revives up to the first two party mons, picks a random battle theme, and then prefers weighted `demo_route_1` grass/bush encounter-table rolls for both enemy slots at roughly `Lv. 5-10`
+- If the encounter helpers are unavailable, the same F1 path falls back to fully random species ids and levels
 - The default debug startup seeds a party and bag so battle, party, and bag UIs can be exercised immediately
 
 ## Split-screen usage

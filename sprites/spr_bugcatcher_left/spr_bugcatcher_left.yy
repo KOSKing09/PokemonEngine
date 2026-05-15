@@ -27,8 +27,8 @@
   "nineSlice":null,
   "origin":0,
   "parent":{
-    "name":"NPC",
-    "path":"folders/Sprites/Overworld/NPC.yy",
+    "name":"bug catcher",
+    "path":"folders/Sprites/Overworld/NPC/bug catcher.yy",
   },
   "preMultiplyAlpha":false,
   "resourceType":"GMSprite",

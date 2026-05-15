@@ -579,7 +579,9 @@ function __battle_perform_action_impl(_pid, _step){
 
         var disp = "item";
         if (!is_undefined(variable_global_exists) && variable_global_exists("_items") && is_array(global._items) && is_real(item_id) && item_id >= 0 && item_id < array_length(global._items)){
-            var it = global._items[item_id]; if (is_struct(it) && variable_struct_exists(it, "name")) disp = string(variable_struct_get(it, "name"));
+            var it = global._items[item_id];
+            if (!is_undefined(bag__item_display_name)) disp = bag__item_display_name(item_id, undefined, it);
+            else if (is_struct(it) && variable_struct_exists(it, "name")) disp = string_replace_all(string(variable_struct_get(it, "name")), "-", " ");
         }
         return "But nothing happened with " + string(disp) + ".";
     }
@@ -605,6 +607,28 @@ function __battle_perform_action_impl(_pid, _step){
             }
             return ""; // Message already queued by status system (freeze/sleep/etc.)
         }
+    }
+
+    if (is_struct(_step) && variable_struct_exists(_step, "struggle") && variable_struct_get(_step, "struggle") == true){
+        try { target_idx = __battle_resolve_live_target_index(_pid, actor_idx, target_idx, -1); } catch (e_struggle_target) {}
+        if (is_struct(_B) && variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor"))){
+            var _struggle_actors = variable_struct_get(_B, "actor");
+            if (is_real(target_idx) && target_idx >= 0 && target_idx < array_length(_struggle_actors)) D = _struggle_actors[target_idx];
+        }
+        var _struggle_msg = __battle_impl_return_used(_pid, A, "Struggle", -1);
+        if (is_struct(A) && is_struct(D)){
+            var _struggle_damage = 1;
+            try { _struggle_damage = max(1, __battle_calc_damage(A, D, -1, 50)); } catch (e_struggle_damage) { _struggle_damage = 1; }
+            try { __battle_apply_damage(_pid, target_idx, _struggle_damage, 1); } catch (e_struggle_apply) {}
+            var _recoil = max(1, floor(__battle_hp_max(A) / 4));
+            var _before_recoil = __battle_hp_now(A);
+            __battle_set_hp_now(A, max(0, _before_recoil - _recoil));
+            try { __battle_request_animation_safe(_pid, { type: "recoil", actor: A, target: A, amount: _recoil }); } catch (e_struggle_recoil_anim) {}
+            dialog_queue(__battle_dialog_actor_name(A, "The user") + " was hit with recoil!");
+        } else {
+            dialog_queue("But it failed!");
+        }
+        return _struggle_msg;
     }
 
     var _is_protect_like = (is_real(move_id) && (move_id == 182 || move_id == 197 || move_id == 852 || move_id == 908));
