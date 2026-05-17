@@ -11,6 +11,7 @@ BASE_W = 240;
 BASE_H = 160;
 scale  = 3;
 pixel_snap = true;
+allow_room_overscroll = false;
 split_layout = "";
 single_surface_w = BASE_W * scale;
 single_surface_h = BASE_H * scale;

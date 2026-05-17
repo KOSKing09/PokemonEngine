@@ -54,6 +54,7 @@ if (!is_undefined(pokemon_center_update)){
 }
 
 if (!is_undefined(pokemon_followers_update_all)) pokemon_followers_update_all();
+if (!is_undefined(rogue_world_update_all)) rogue_world_update_all();
 
 if (!is_undefined(battle_controller_update_all)) battle_controller_update_all();
 

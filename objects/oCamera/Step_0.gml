@@ -25,8 +25,12 @@ function __hard_center(_cam, _tgt, _shake, _snap){
 	var cx = _tgt.x - vw * 0.5;
 	var cy = _tgt.y - vh * 0.5;
 
-	cx = clamp(cx, 0, max(0, room_width  - vw));
-	cy = clamp(cy, 0, max(0, room_height - vh));
+	var _overscroll = (variable_instance_exists(id, "allow_room_overscroll") && allow_room_overscroll == true);
+	if (room == rm_world) _overscroll = true;
+	if (!_overscroll){
+		cx = clamp(cx, 0, max(0, room_width  - vw));
+		cy = clamp(cy, 0, max(0, room_height - vh));
+	}
 
 	var ofs = cam_shake_update(_shake);
 	var nx = cx + ofs.x;

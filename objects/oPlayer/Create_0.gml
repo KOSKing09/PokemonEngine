@@ -3,7 +3,7 @@ if (!variable_instance_exists(id,"pid"))    pid = 0;
 
 // ensure the grid struct exists, then init (tile=16, walk=2, run=4)
 grid = {};
-grid_init(id, 8, 2, 4);
+grid_init(id, 16, 2, 4);
 grid_snap_to_tile(id);
 
 // Use the named feet-block checker to avoid anonymous function syntax (compat)
@@ -36,5 +36,4 @@ if (!variable_global_exists("battleAnim") && variable_instance_exists(id, "battl
 talk_cd = 0;          // cooldown frames
 can_talk = true;      // release gate
 _dlg_was = false;     // edge detect: dialog just closed
-
 

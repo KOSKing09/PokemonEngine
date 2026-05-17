@@ -48,3 +48,16 @@ if (_cutscene_npc != noone){
     ];
     _cutscene_npc.dialog_text = "Talk to me to test overworld cutscenes.";
 }
+
+// Dev entrance into the infinite roguelike world. Move or delete this when the
+// real gate/door art is placed.
+var _rogue_warp = instance_create_layer(320, 128, "Instances", oroguewarp);
+if (_rogue_warp != noone){
+    _rogue_warp.rogue_seed = 1337;
+    _rogue_warp.rogue_chunk_x = 0;
+    _rogue_warp.rogue_chunk_y = 0;
+    _rogue_warp.rogue_spawn_x = 128;
+    _rogue_warp.rogue_spawn_y = 128;
+    _rogue_warp.rogue_return_edge = "up";
+    _rogue_warp.warp_kind = "door";
+}

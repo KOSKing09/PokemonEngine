@@ -8,6 +8,7 @@ This index documents the script folders by responsibility so later work can find
 - `docs/progression_support_systems.md`: start here when changing caught nickname flow, evolution queueing, PC storage, or player money
 - `docs/data_asset_systems.md`: start here when changing CSV-backed runtime data, mon factory shape, demo seeding, sprite-font setup, skin bundles, or external Pokemon and item asset lookup
 - `docs/overworld_systems.md`: start here when changing overworld NPCs, trainer sight or challenge flow, visible wandering wild Pokemon, or world item props
+- `docs/roguelike_world.md`: start here when changing infinite `rm_world` generation, custom biome definitions, prefab spawning, or rogue-world warp routing
 - `docs/battle_system.md`: start here when changing turn flow, battler state, command routing, or battle UI integration
 - `docs/battle_doubles.md`: start here when changing doubles/co-op actor ownership, target selection, trainer doubles behavior, or scene layout
 - `docs/versus_system.md`: start here when changing local-versus request flow, accept or decline behavior, format selection, or split-screen versus ownership
@@ -30,6 +31,7 @@ This index documents the script folders by responsibility so later work can find
 - `scripts/collision_system/`: world collision helpers
 - `scripts/grid_system/`: grid utilities used by map/world systems
 - `scripts/player_helper_scripts/`: player-instance helpers outside the main object events, including multiplayer versus requests, room runtime and world music helpers, warp scheduling, NPC sprite resolution, Nurse Joy flow, visible Pokemon collision bounds, and overworld encounter volumes or tables
+- `scripts/roguelike_world/`: infinite `rm_world` chunk generation, biome registration, prefab placement, reserved static zones, and rogue-world edge paging
 - `scripts/SkinSystem/`: sprite/skin presentation helpers
 - `scripts/font_pokemon/`: sprite-font loading and font helpers
 - `scripts/currency_system/`: player money and payout helpers

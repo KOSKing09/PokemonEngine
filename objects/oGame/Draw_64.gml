@@ -127,4 +127,5 @@ if (_shared_battle){
 }
 
 if (!is_undefined(world_draw_route_bar)) world_draw_route_bar();
+if (!is_undefined(rogue_world_draw_transition)) rogue_world_draw_transition();
 if (!is_undefined(transition_draw_gui)) transition_draw_gui();

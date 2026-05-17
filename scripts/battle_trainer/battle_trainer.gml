@@ -1367,23 +1367,23 @@ function __battle_trainer_intro_player_name_for_pid(_B, _pid, _fallback){
 // Update tick for the trainer intro animation; advances timelines and dialog.
 function __battle_trainer_intro_update(_pid, _B){
     if (!is_struct(_B) || !variable_struct_exists(_B, "_trainer_intro")) return;
-    var intro = variable_struct_get(_B, "_trainer_intro");
-    if (!is_struct(intro)) return;
+    var _intro = variable_struct_get(_B, "_trainer_intro");
+    if (!is_struct(_intro)) return;
 
     var now = current_time;
     var state = "dialog1";
-    if (variable_struct_exists(intro, "state")) state = string(intro.state);
+    if (variable_struct_exists(_intro, "state")) state = string(_intro.state);
 
     var entry_dur = 360;
-    if (variable_struct_exists(intro, "entry_duration") && is_real(intro.entry_duration)) entry_dur = max(120, real(intro.entry_duration));
+    if (variable_struct_exists(_intro, "entry_duration") && is_real(_intro.entry_duration)) entry_dur = max(120, real(_intro.entry_duration));
     var entry_start = undefined;
-    if (variable_struct_exists(intro, "_entry_start_ms") && is_real(intro._entry_start_ms)) entry_start = intro._entry_start_ms;
+    if (variable_struct_exists(_intro, "_entry_start_ms") && is_real(_intro._entry_start_ms)) entry_start = _intro._entry_start_ms;
     if (!is_real(entry_start)){
         entry_start = now;
-        variable_struct_set(intro, "_entry_start_ms", entry_start);
+        variable_struct_set(_intro, "_entry_start_ms", entry_start);
     }
     var entry_prog = clamp((now - entry_start) / entry_dur, 0, 1);
-    variable_struct_set(intro, "_entry_progress", entry_prog);
+    variable_struct_set(_intro, "_entry_progress", entry_prog);
 
     if (state == "cleanup"){
         battle_intro_set_handlers(_pid, undefined, undefined);
@@ -1392,84 +1392,84 @@ function __battle_trainer_intro_update(_pid, _B){
     }
 
     if (state == "dialog1"){
-        var shown1 = (variable_struct_exists(intro, "_dialog1_shown") && intro._dialog1_shown);
+        var shown1 = (variable_struct_exists(_intro, "_dialog1_shown") && _intro._dialog1_shown);
         if (!shown1){
             var _dialog_pids = __battle_trainer_intro_dialog_pids(_B, _pid);
             for (var _di = 0; _di < array_length(_dialog_pids); ++_di){
                 var _dialog_pid = _dialog_pids[_di];
-                var _intro_trainer_name = __battle_trainer_intro_trainer_name_for_pid(_B, _dialog_pid, intro.trainer_name);
+                var _intro_trainer_name = __battle_trainer_intro_trainer_name_for_pid(_B, _dialog_pid, _intro.trainer_name);
                 __battle_trainer_intro_show_dialog(_dialog_pid, _intro_trainer_name + " would like to battle!");
             }
-            variable_struct_set(intro, "_dialog1_shown", true);
+            variable_struct_set(_intro, "_dialog1_shown", true);
         }
-        variable_struct_set(intro, "state", "wait_dialog1");
+        variable_struct_set(_intro, "state", "wait_dialog1");
     } else if (state == "wait_dialog1"){
-        variable_struct_set(intro, "hide_enemy_mon", true);
-        if (__battle_trainer_intro_all_dialogs_closed(_B, _pid)) variable_struct_set(intro, "state", "throw_prep");
+        variable_struct_set(_intro, "hide_enemy_mon", true);
+        if (__battle_trainer_intro_all_dialogs_closed(_B, _pid)) variable_struct_set(_intro, "state", "throw_prep");
     } else if (state == "throw_prep"){
         var start_ms = current_time;
-        variable_struct_set(intro, "_throw_start_ms", start_ms);
-        variable_struct_set(intro, "_throw_progress", 0);
+        variable_struct_set(_intro, "_throw_start_ms", start_ms);
+        variable_struct_set(_intro, "_throw_progress", 0);
         try { variable_struct_set(_B, "phase_start_ms", start_ms); } catch (e_start) {}
         var slide_dur = 260;
-        if (variable_struct_exists(intro, "slide_out_duration")) slide_dur = max(60, real(variable_struct_get(intro, "slide_out_duration")));
-        variable_struct_set(intro, "_slide_out_start_ms", start_ms);
-        variable_struct_set(intro, "_slide_out_duration", slide_dur);
-        variable_struct_set(intro, "_slide_out_progress", 0);
-        if (!(variable_struct_exists(intro, "_dialog2_shown") && intro._dialog2_shown)){
+        if (variable_struct_exists(_intro, "slide_out_duration")) slide_dur = max(60, real(variable_struct_get(_intro, "slide_out_duration")));
+        variable_struct_set(_intro, "_slide_out_start_ms", start_ms);
+        variable_struct_set(_intro, "_slide_out_duration", slide_dur);
+        variable_struct_set(_intro, "_slide_out_progress", 0);
+        if (!(variable_struct_exists(_intro, "_dialog2_shown") && _intro._dialog2_shown)){
             var _dialog_pids2 = __battle_trainer_intro_dialog_pids(_B, _pid);
             for (var _di2 = 0; _di2 < array_length(_dialog_pids2); ++_di2){
                 var _dialog_pid2 = _dialog_pids2[_di2];
-                var _enemy_name = __battle_trainer_intro_enemy_name_for_pid(_B, _dialog_pid2, intro.enemy_mon_name);
+                var _enemy_name = __battle_trainer_intro_enemy_name_for_pid(_B, _dialog_pid2, _intro.enemy_mon_name);
                 __battle_trainer_intro_show_dialog(_dialog_pid2, "Go " + _enemy_name + "!");
             }
-            variable_struct_set(intro, "_dialog2_shown", true);
+            variable_struct_set(_intro, "_dialog2_shown", true);
         }
-        variable_struct_set(intro, "state", "throw");
+        variable_struct_set(_intro, "state", "throw");
     } else if (state == "throw"){
-        var start = (variable_struct_exists(intro, "_throw_start_ms") ? variable_struct_get(intro, "_throw_start_ms") : now);
-        var dur = (variable_struct_exists(intro, "throw_duration") ? max(1, real(variable_struct_get(intro, "throw_duration"))) : 540);
+        var start = (variable_struct_exists(_intro, "_throw_start_ms") ? variable_struct_get(_intro, "_throw_start_ms") : now);
+        var dur = (variable_struct_exists(_intro, "throw_duration") ? max(1, real(variable_struct_get(_intro, "throw_duration"))) : 540);
         var prog = clamp((now - start) / dur, 0, 1);
-        variable_struct_set(intro, "_throw_progress", prog);
-        var slide_start = (variable_struct_exists(intro, "_slide_out_start_ms") ? variable_struct_get(intro, "_slide_out_start_ms") : start);
-        var slide_dur_cur = (variable_struct_exists(intro, "_slide_out_duration") ? max(1, real(variable_struct_get(intro, "_slide_out_duration"))) : 260);
+        variable_struct_set(_intro, "_throw_progress", prog);
+        var slide_start = (variable_struct_exists(_intro, "_slide_out_start_ms") ? variable_struct_get(_intro, "_slide_out_start_ms") : start);
+        var slide_dur_cur = (variable_struct_exists(_intro, "_slide_out_duration") ? max(1, real(variable_struct_get(_intro, "_slide_out_duration"))) : 260);
         var slide_prog = clamp((now - slide_start) / slide_dur_cur, 0, 1);
-        variable_struct_set(intro, "_slide_out_progress", slide_prog);
-        var reveal_at = (variable_struct_exists(intro, "reveal_at") ? clamp(real(variable_struct_get(intro, "reveal_at")), 0, 1) : 0.85);
+        variable_struct_set(_intro, "_slide_out_progress", slide_prog);
+        var reveal_at = (variable_struct_exists(_intro, "reveal_at") ? clamp(real(variable_struct_get(_intro, "reveal_at")), 0, 1) : 0.85);
         if (prog >= reveal_at){
-            variable_struct_set(intro, "show_enemy_mon", true);
-            variable_struct_set(intro, "hide_enemy_mon", false);
-            if (!variable_struct_exists(intro, "_enemy_reveal_start_ms")){
-                variable_struct_set(intro, "_enemy_reveal_start_ms", now);
-                variable_struct_set(intro, "_enemy_scale_progress", 0);
+            variable_struct_set(_intro, "show_enemy_mon", true);
+            variable_struct_set(_intro, "hide_enemy_mon", false);
+            if (!variable_struct_exists(_intro, "_enemy_reveal_start_ms")){
+                variable_struct_set(_intro, "_enemy_reveal_start_ms", now);
+                variable_struct_set(_intro, "_enemy_scale_progress", 0);
             }
         }
         if (prog >= 1){
-            variable_struct_set(intro, "state", "wait_dialog2");
+            variable_struct_set(_intro, "state", "wait_dialog2");
         }
     } else if (state == "wait_dialog2"){
-        variable_struct_set(intro, "show_enemy_mon", true);
-        variable_struct_set(intro, "hide_enemy_mon", false);
-        variable_struct_set(intro, "_slide_out_progress", 1);
-        if (!variable_struct_exists(intro, "_enemy_reveal_start_ms")){
-            variable_struct_set(intro, "_enemy_reveal_start_ms", now);
-            variable_struct_set(intro, "_enemy_scale_progress", 1);
-            variable_struct_set(intro, "enemy_scale_mult", 1);
+        variable_struct_set(_intro, "show_enemy_mon", true);
+        variable_struct_set(_intro, "hide_enemy_mon", false);
+        variable_struct_set(_intro, "_slide_out_progress", 1);
+        if (!variable_struct_exists(_intro, "_enemy_reveal_start_ms")){
+            variable_struct_set(_intro, "_enemy_reveal_start_ms", now);
+            variable_struct_set(_intro, "_enemy_scale_progress", 1);
+            variable_struct_set(_intro, "enemy_scale_mult", 1);
         }
         if (__battle_trainer_intro_all_dialogs_closed(_B, _pid)){
-            if (!(variable_struct_exists(intro, "_player_dialog_shown") && intro._player_dialog_shown)){
+            if (!(variable_struct_exists(_intro, "_player_dialog_shown") && _intro._player_dialog_shown)){
                 var _dialog_pids3 = __battle_trainer_intro_dialog_pids(_B, _pid);
                 for (var _di3 = 0; _di3 < array_length(_dialog_pids3); ++_di3){
                     var _dialog_pid3 = _dialog_pids3[_di3];
-                    var _player_name = __battle_trainer_intro_player_name_for_pid(_B, _dialog_pid3, intro.player_mon_name);
+                    var _player_name = __battle_trainer_intro_player_name_for_pid(_B, _dialog_pid3, _intro.player_mon_name);
                     __battle_trainer_intro_show_dialog(_dialog_pid3, "Go " + _player_name + "!");
                 }
-                variable_struct_set(intro, "_player_dialog_shown", true);
+                variable_struct_set(_intro, "_player_dialog_shown", true);
             }
             _B.phase = "intro_call";
             _B.phase_start_ms = now;
             _B.phase_progress = 0;
-            variable_struct_set(intro, "state", "player_dialog");
+            variable_struct_set(_intro, "state", "player_dialog");
         } else {
             _B.phase_progress = 1;
         }
@@ -1480,7 +1480,7 @@ function __battle_trainer_intro_update(_pid, _B){
             _B.phase_progress = 0;
         }
         if (__battle_trainer_intro_all_dialogs_closed(_B, _pid)){
-            variable_struct_set(intro, "state", "cleanup");
+            variable_struct_set(_intro, "state", "cleanup");
             _B.phase = "intro_call";
             _B.phase_start_ms = now;
             _B.phase_progress = 0;
@@ -1498,35 +1498,35 @@ function __battle_trainer_intro_update(_pid, _B){
     } else if (ph == "intro_call" || ph == "intro_player" || ph == "command" || ph == "turn"){
         slide_prog = 1;
     }
-    variable_struct_set(intro, "_slide_progress", slide_prog);
+    variable_struct_set(_intro, "_slide_progress", slide_prog);
 
     var slide_out_prog_now = 0;
-    if (variable_struct_exists(intro, "_slide_out_progress")) slide_out_prog_now = clamp(real(variable_struct_get(intro, "_slide_out_progress")), 0, 1);
-    var state_now = string(variable_struct_exists(intro, "state") ? intro.state : "");
+    if (variable_struct_exists(_intro, "_slide_out_progress")) slide_out_prog_now = clamp(real(variable_struct_get(_intro, "_slide_out_progress")), 0, 1);
+    var state_now = string(variable_struct_exists(_intro, "state") ? _intro.state : "");
     if (state_now == "wait_dialog2" || state_now == "player_dialog" || state_now == "cleanup") slide_out_prog_now = 1;
-    variable_struct_set(intro, "_slide_out_progress", slide_out_prog_now);
+    variable_struct_set(_intro, "_slide_out_progress", slide_out_prog_now);
 
     var reveal_start = undefined;
-    if (variable_struct_exists(intro, "_enemy_reveal_start_ms")) reveal_start = variable_struct_get(intro, "_enemy_reveal_start_ms");
+    if (variable_struct_exists(_intro, "_enemy_reveal_start_ms")) reveal_start = variable_struct_get(_intro, "_enemy_reveal_start_ms");
     if (is_real(reveal_start)){
         var reveal_dur = 280;
-        if (variable_struct_exists(intro, "enemy_reveal_duration")) reveal_dur = max(60, real(variable_struct_get(intro, "enemy_reveal_duration")));
+        if (variable_struct_exists(_intro, "enemy_reveal_duration")) reveal_dur = max(60, real(variable_struct_get(_intro, "enemy_reveal_duration")));
         var scale_prog = clamp((now - reveal_start) / reveal_dur, 0, 1);
         var sendout_values = __battle_sendout_anim_values(scale_prog, 1);
-        variable_struct_set(intro, "_enemy_scale_progress", scale_prog);
-        variable_struct_set(intro, "enemy_scale_mult", clamp(variable_struct_get(sendout_values, "scale"), 0, 1.2));
+        variable_struct_set(_intro, "_enemy_scale_progress", scale_prog);
+        variable_struct_set(_intro, "enemy_scale_mult", clamp(variable_struct_get(sendout_values, "scale"), 0, 1.2));
     } else {
         if (state_now == "dialog1" || state_now == "wait_dialog1" || state_now == "throw_prep" || state_now == "throw"){
-            variable_struct_set(intro, "enemy_scale_mult", 0);
+            variable_struct_set(_intro, "enemy_scale_mult", 0);
         }
     }
 }
 
-// Draw the trainer intro cinematic (trainer sprite, throw animation, overlays).
+// Draw the trainer _intro cinematic (trainer sprite, throw animation, overlays).
 function __battle_trainer_intro_draw(_pid, _B){
     if (!is_struct(_B) || !variable_struct_exists(_B, "_trainer_intro")) return;
-    var intro = variable_struct_get(_B, "_trainer_intro");
-    if (!is_struct(intro)) return;
+    var _intro = variable_struct_get(_B, "_trainer_intro");
+    if (!is_struct(_intro)) return;
 
     var ui_s = 1;
     try {
@@ -1571,25 +1571,25 @@ function __battle_trainer_intro_draw(_pid, _B){
 
     var slide_start = __bxu(_pid, 280);
     var entry_prog_local = 0;
-    if (variable_struct_exists(intro, "_entry_progress")) entry_prog_local = clamp(real(variable_struct_get(intro, "_entry_progress")), 0, 1);
+    if (variable_struct_exists(_intro, "_entry_progress")) entry_prog_local = clamp(real(variable_struct_get(_intro, "_entry_progress")), 0, 1);
     var slide_prog = entry_prog_local;
-    if (variable_struct_exists(intro, "_slide_progress")) slide_prog = max(slide_prog, clamp(real(variable_struct_get(intro, "_slide_progress")), 0, 1));
+    if (variable_struct_exists(_intro, "_slide_progress")) slide_prog = max(slide_prog, clamp(real(variable_struct_get(_intro, "_slide_progress")), 0, 1));
     var ease_in = 1 - (1 - slide_prog) * (1 - slide_prog);
     var trainer_entry_cx = lerp(slide_start, trainer_target_x, ease_in);
 
     var slide_out_prog = 0;
-    if (variable_struct_exists(intro, "_slide_out_progress")) slide_out_prog = clamp(real(variable_struct_get(intro, "_slide_out_progress")), 0, 1);
+    if (variable_struct_exists(_intro, "_slide_out_progress")) slide_out_prog = clamp(real(variable_struct_get(_intro, "_slide_out_progress")), 0, 1);
     var ease_out = 1 - power(1 - slide_out_prog, 2);
     var trainer_cx = lerp(trainer_entry_cx, slide_start, ease_out);
 
-    var trainer_sprite = intro.trainer_sprite;
+    var trainer_sprite = _intro.trainer_sprite;
     if (!(!is_undefined(trainer_sprite) && sprite_exists(trainer_sprite))){
         if (sprite_exists(spr_PokemonEmeraldTrainers)) trainer_sprite = spr_PokemonEmeraldTrainers;
         else trainer_sprite = -1;
     }
     if (trainer_sprite != -1){
-        var trainer_scale = (variable_struct_exists(intro, "trainer_scale") && is_real(intro.trainer_scale)) ? intro.trainer_scale : 1;
-        var subimg_raw = (variable_struct_exists(intro, "trainer_subimg") && is_real(intro.trainer_subimg)) ? intro.trainer_subimg : 0;
+        var trainer_scale = (variable_struct_exists(_intro, "trainer_scale") && is_real(_intro.trainer_scale)) ? _intro.trainer_scale : 1;
+        var subimg_raw = (variable_struct_exists(_intro, "trainer_subimg") && is_real(_intro.trainer_subimg)) ? _intro.trainer_subimg : 0;
         var frames = max(1, sprite_get_number(trainer_sprite));
         var trainer_subimg = ((floor(subimg_raw) % frames) + frames) % frames;
         var spr_w = sprite_get_width(trainer_sprite);
@@ -1599,32 +1599,32 @@ function __battle_trainer_intro_draw(_pid, _B){
         draw_sprite_ext(trainer_sprite, trainer_subimg, draw_x, draw_y, trainer_scale * ui_s, trainer_scale * ui_s, 0, c_white, 1);
     }
 
-    var state = string(variable_struct_exists(intro, "state") ? intro.state : "");
-    var throw_progress = (variable_struct_exists(intro, "_throw_progress") ? clamp(real(intro._throw_progress), 0, 1) : 0);
+    var state = string(variable_struct_exists(_intro, "state") ? _intro.state : "");
+    var throw_progress = (variable_struct_exists(_intro, "_throw_progress") ? clamp(real(_intro._throw_progress), 0, 1) : 0);
     var ball_target_x = enemy_anchor_x;
     var ball_ground_y = enemy_center_y + (enemy_sprite_h * ui_s) * 0.5 - max(1, floor(2 * ui_s));
     var ball_target_y = ball_ground_y;
-    variable_struct_set(intro, "_enemy_ball_anchor_y", ball_target_y);
+    variable_struct_set(_intro, "_enemy_ball_anchor_y", ball_target_y);
     var draw_ball = (state == "throw" || state == "wait_dialog2" || state == "player_dialog");
 
     if (draw_ball){
-        var ball_sprite = (variable_struct_exists(intro, "ball_sprite") ? intro.ball_sprite : undefined);
+        var ball_sprite = (variable_struct_exists(_intro, "ball_sprite") ? _intro.ball_sprite : undefined);
         if (is_undefined(ball_sprite) || !sprite_exists(ball_sprite)){
             if (!is_undefined(pkicons_get_item_icon_by_id)){
                 var pb_try = pkicons_get_item_icon_by_id(4);
-                if (is_struct(intro) && !variable_struct_exists(intro, "_pokeball_debug_retry")){
+                if (is_struct(_intro) && !variable_struct_exists(_intro, "_pokeball_debug_retry")){
                     show_debug_message("[trainer_intro] draw retry pkicons item 4 => " + string(pb_try));
-                    variable_struct_set(intro, "_pokeball_debug_retry", true);
+                    variable_struct_set(_intro, "_pokeball_debug_retry", true);
                 }
                 if (!is_undefined(pb_try) && sprite_exists(pb_try)){
                     ball_sprite = pb_try;
-                    variable_struct_set(intro, "ball_sprite", pb_try);
+                    variable_struct_set(_intro, "ball_sprite", pb_try);
                 }
             }
         }
-        var ball_scale = (variable_struct_exists(intro, "ball_scale") && is_real(intro.ball_scale)) ? intro.ball_scale : 0.75;
-        var origin_log_x = (variable_struct_exists(intro, "throw_origin_x") && is_real(intro.throw_origin_x)) ? intro.throw_origin_x : 210;
-        var origin_log_y = (variable_struct_exists(intro, "throw_origin_y") && is_real(intro.throw_origin_y)) ? intro.throw_origin_y : 72;
+        var ball_scale = (variable_struct_exists(_intro, "ball_scale") && is_real(_intro.ball_scale)) ? _intro.ball_scale : 0.75;
+        var origin_log_x = (variable_struct_exists(_intro, "throw_origin_x") && is_real(_intro.throw_origin_x)) ? _intro.throw_origin_x : 210;
+        var origin_log_y = (variable_struct_exists(_intro, "throw_origin_y") && is_real(_intro.throw_origin_y)) ? _intro.throw_origin_y : 72;
         var start_x = __bxu(_pid, origin_log_x);
         var start_y = __byu(_pid, origin_log_y);
         var bx = ball_target_x;
@@ -1632,25 +1632,25 @@ function __battle_trainer_intro_draw(_pid, _B){
         if (state == "throw"){
             bx = lerp(start_x, ball_target_x, throw_progress);
             by = lerp(start_y, ball_target_y, throw_progress);
-            var arc_h = __bhu(_pid, (variable_struct_exists(intro, "throw_height") && is_real(intro.throw_height)) ? intro.throw_height : 52);
+            var arc_h = __bhu(_pid, (variable_struct_exists(_intro, "throw_height") && is_real(_intro.throw_height)) ? _intro.throw_height : 52);
             by -= sin(throw_progress * pi) * arc_h;
-            variable_struct_set(intro, "_ball_land_x", bx);
-            variable_struct_set(intro, "_ball_land_y", by);
+            variable_struct_set(_intro, "_ball_land_x", bx);
+            variable_struct_set(_intro, "_ball_land_y", by);
         } else {
-            if (!variable_struct_exists(intro, "_ball_land_x")){
-                variable_struct_set(intro, "_ball_land_x", ball_target_x);
-                variable_struct_set(intro, "_ball_land_y", ball_target_y);
+            if (!variable_struct_exists(_intro, "_ball_land_x")){
+                variable_struct_set(_intro, "_ball_land_x", ball_target_x);
+                variable_struct_set(_intro, "_ball_land_y", ball_target_y);
             }
-            if (variable_struct_exists(intro, "_ball_land_x")) bx = variable_struct_get(intro, "_ball_land_x");
-            if (variable_struct_exists(intro, "_ball_land_y")) by = variable_struct_get(intro, "_ball_land_y");
+            if (variable_struct_exists(_intro, "_ball_land_x")) bx = variable_struct_get(_intro, "_ball_land_x");
+            if (variable_struct_exists(_intro, "_ball_land_y")) by = variable_struct_get(_intro, "_ball_land_y");
         }
 
         var ball_alpha = 1;
-        if (variable_struct_exists(intro, "_enemy_scale_progress")){
-            var scale_prog_raw = variable_struct_get(intro, "_enemy_scale_progress");
+        if (variable_struct_exists(_intro, "_enemy_scale_progress")){
+            var scale_prog_raw = variable_struct_get(_intro, "_enemy_scale_progress");
             if (is_real(scale_prog_raw)) ball_alpha = clamp(1 - clamp(scale_prog_raw, 0, 1), 0, 1);
-        } else if (variable_struct_exists(intro, "enemy_scale_mult")){
-            var scale_mult_raw = variable_struct_get(intro, "enemy_scale_mult");
+        } else if (variable_struct_exists(_intro, "enemy_scale_mult")){
+            var scale_mult_raw = variable_struct_get(_intro, "enemy_scale_mult");
             if (is_real(scale_mult_raw)) ball_alpha = clamp(1 - clamp(scale_mult_raw, 0, 1), 0, 1);
         }
 
@@ -1664,17 +1664,17 @@ function __battle_trainer_intro_draw(_pid, _B){
             if (state == "throw"){
                 bx = lerp(start_x, ball_target_x, throw_progress);
                 by = lerp(start_y, ball_center_target_y, throw_progress);
-                var arc_h_late = __bhu(_pid, (variable_struct_exists(intro, "throw_height") && is_real(intro.throw_height)) ? intro.throw_height : 52);
+                var arc_h_late = __bhu(_pid, (variable_struct_exists(_intro, "throw_height") && is_real(_intro.throw_height)) ? _intro.throw_height : 52);
                 by -= sin(throw_progress * pi) * arc_h_late;
-                variable_struct_set(intro, "_ball_land_x", bx);
-                variable_struct_set(intro, "_ball_land_y", by);
+                variable_struct_set(_intro, "_ball_land_x", bx);
+                variable_struct_set(_intro, "_ball_land_y", by);
             } else {
-                if (!variable_struct_exists(intro, "_ball_land_x")){
-                    variable_struct_set(intro, "_ball_land_x", ball_target_x);
-                    variable_struct_set(intro, "_ball_land_y", ball_center_target_y);
+                if (!variable_struct_exists(_intro, "_ball_land_x")){
+                    variable_struct_set(_intro, "_ball_land_x", ball_target_x);
+                    variable_struct_set(_intro, "_ball_land_y", ball_center_target_y);
                 }
-                if (variable_struct_exists(intro, "_ball_land_x")) bx = variable_struct_get(intro, "_ball_land_x");
-                if (variable_struct_exists(intro, "_ball_land_y")) by = variable_struct_get(intro, "_ball_land_y");
+                if (variable_struct_exists(_intro, "_ball_land_x")) bx = variable_struct_get(_intro, "_ball_land_x");
+                if (variable_struct_exists(_intro, "_ball_land_y")) by = variable_struct_get(_intro, "_ball_land_y");
             }
             var center_off_x = (spr_w_ball * 0.5 - origin_x) * scale_draw;
             var center_off_y = (spr_h_ball * 0.5 - origin_y) * scale_draw;

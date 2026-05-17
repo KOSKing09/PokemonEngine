@@ -1489,14 +1489,22 @@ function world_apply_room_music(_room_id, _override_music = undefined, _override
 function world_place_player_after_warp(_pid, _x, _y, _facing = undefined){
     var _pl = player_by_pid(_pid);
     if (_pl == noone) return false;
-    variable_instance_set(_pl, "x", real(_x));
-    variable_instance_set(_pl, "y", real(_y));
+    var _place_x = real(_x);
+    var _place_y = real(_y);
+    if (variable_instance_exists(_pl, "grid") && is_struct(variable_instance_get(_pl, "grid"))){
+        var _pg = variable_instance_get(_pl, "grid");
+        var _tile = variable_struct_exists(_pg, "tile") ? max(1, real(variable_struct_get(_pg, "tile"))) : 16;
+        _place_x = !is_undefined(grid_snap_value) ? grid_snap_value(_place_x, _tile) : __overworld_npc_snap_value(_place_x, _tile);
+        _place_y = !is_undefined(grid_snap_value) ? grid_snap_value(_place_y, _tile) : __overworld_npc_snap_value(_place_y, _tile);
+    }
+    variable_instance_set(_pl, "x", _place_x);
+    variable_instance_set(_pl, "y", _place_y);
     if (!is_undefined(_facing) && is_real(_facing)) variable_instance_set(_pl, "facing_dir", floor(_facing) mod 4);
     if (variable_instance_exists(_pl, "grid") && is_struct(variable_instance_get(_pl, "grid"))){
         var _g = variable_instance_get(_pl, "grid");
         variable_struct_set(_g, "state", "idle");
-        variable_struct_set(_g, "tx", real(_x));
-        variable_struct_set(_g, "ty", real(_y));
+        variable_struct_set(_g, "tx", _place_x);
+        variable_struct_set(_g, "ty", _place_y);
         variable_struct_set(_g, "buffer_dir", -1);
         variable_struct_set(_g, "buffer_ttl", 0);
         variable_instance_set(_pl, "grid", _g);
@@ -1768,7 +1776,12 @@ function pokemon_follower_player_tile(_pl){
 function pokemon_follower_player_speed(_pl){
     if (instance_exists(_pl) && variable_instance_exists(_pl, "grid") && is_struct(variable_instance_get(_pl, "grid"))){
         var _g = variable_instance_get(_pl, "grid");
-        if (variable_struct_exists(_g, "walk_speed")) return max(0.1, real(variable_struct_get(_g, "walk_speed")));
+        var _walk = variable_struct_exists(_g, "walk_speed") ? max(0.1, real(variable_struct_get(_g, "walk_speed"))) : 2;
+        var _run = variable_struct_exists(_g, "run_speed") ? max(_walk, real(variable_struct_get(_g, "run_speed"))) : _walk;
+        var _pid = variable_instance_exists(_pl, "pid") ? max(0, floor(variable_instance_get(_pl, "pid"))) : 0;
+        var _running = false;
+        try { _running = controls_down(_pid, "Run"); } catch (e_follow_run) { _running = false; }
+        return _running ? _run : _walk;
     }
     return 2;
 }
@@ -1872,6 +1885,30 @@ function pokemon_follower_record_player(_inst, _pl){
     return _trail;
 }
 
+function pokemon_follower_player_behind_tile(_pl){
+    var _tile = pokemon_follower_player_tile(_pl);
+    var _x = __overworld_npc_snap_value(variable_instance_get(_pl, "x"), _tile);
+    var _y = __overworld_npc_snap_value(variable_instance_get(_pl, "y"), _tile);
+    var _face = variable_instance_exists(_pl, "facing_dir") ? floor(variable_instance_get(_pl, "facing_dir")) : 2;
+    switch (_face mod 4){
+        case 0: _y += _tile; break;
+        case 1: _x -= _tile; break;
+        case 2: _y -= _tile; break;
+        case 3: _x += _tile; break;
+    }
+    return { x:_x, y:_y };
+}
+
+function pokemon_follower_should_hold_near_player(_inst, _pl){
+    var _tile = pokemon_follower_player_tile(_pl);
+    if (point_distance(variable_instance_get(_inst, "x"), variable_instance_get(_inst, "y"), variable_instance_get(_pl, "x"), variable_instance_get(_pl, "y")) > _tile * 1.25) return false;
+    if (variable_instance_exists(_pl, "grid") && is_struct(variable_instance_get(_pl, "grid"))){
+        var _g = variable_instance_get(_pl, "grid");
+        if (variable_struct_exists(_g, "state") && string(variable_struct_get(_g, "state")) == "move") return false;
+    }
+    return true;
+}
+
 function pokemon_follower_step(_inst){
     if (!instance_exists(_inst)) return false;
     var _pid = variable_instance_exists(_inst, "follower_pid") ? max(0, floor(variable_instance_get(_inst, "follower_pid"))) : 0;
@@ -1905,6 +1942,13 @@ function pokemon_follower_step(_inst){
     var _trail = pokemon_follower_record_player(_inst, _pl);
     var _follow_gap = 2;
     if (array_length(_trail) < _follow_gap){
+        if (pokemon_follower_should_hold_near_player(_inst, _pl)){
+            var _behind = pokemon_follower_player_behind_tile(_pl);
+            if (__overworld_npc_can_stand_at(_inst, _behind.x, _behind.y)){
+                variable_instance_set(_inst, "x", _behind.x);
+                variable_instance_set(_inst, "y", _behind.y);
+            }
+        }
         pokemon_follower_sprite_update(_inst, false);
         return true;
     }

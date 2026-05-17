@@ -7,6 +7,7 @@ This project is a GameMaker Studio project. The runtime contracts live in script
 - `docs/script_systems.md`: quick ownership map when you only need to know which folder owns a behavior
 - `docs/runtime_systems.md`: controls, collision and grid movement, split-screen layout, pause, cutscenes, transitions, and world room runtime
 - `docs/overworld_systems.md`: overworld NPC interaction flow, trainer approach behavior, visible wild wandering mons, and world props
+- `docs/roguelike_world.md`: infinite `rm_world` chunk generation, custom biomes, prefab hooks, reserved zones, and rogue-world warp setup
 - `docs/progression_support_systems.md`: virtual keyboard, evolution queue, PC storage, and currency
 - `docs/data_asset_systems.md`: data load, mon factory, demo seeders, font and skin helpers, and external pkicons assets
 - `docs/battle_system.md`: battle slot shape, phase flow, entrypoints, and battle-specific extension seams

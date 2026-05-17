@@ -9,6 +9,8 @@ It focuses on four related pieces:
 - visible wild Pokemon that wander inside encounter patches
 - overworld item and prop objects added alongside those systems
 
+For the infinite route-style world in `rm_world`, use `docs/roguelike_world.md`. That guide covers `oroguewarp`, biome setup, prefab registration, reserved city zones, and the edge-paging chunk generator.
+
 ## Field Move Props
 
 Reusable overworld field-move props are available as placeable objects:

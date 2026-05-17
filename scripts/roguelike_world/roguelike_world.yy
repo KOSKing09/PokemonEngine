@@ -1,0 +1,13 @@
+{
+  "$GMScript":"v1",
+  "%Name":"roguelike_world",
+  "isCompatibility":false,
+  "isDnD":false,
+  "name":"roguelike_world",
+  "parent":{
+    "name":"World",
+    "path":"folders/Scripts/World.yy",
+  },
+  "resourceType":"GMScript",
+  "resourceVersion":"2.0",
+}
