@@ -5,8 +5,8 @@ Owner: `scripts/PokemonDataLoaders/PokemonDataLoaders.gml`, `scripts/bag_system/
 This tracker separates item data that is loaded from item behavior that is actually running in game.
 
 ## Item Conversion Tracker
-
-Latest verified count from `tmp/igor/pokemon_art_gate_compile.log`:
+            
+Latest verified count from `tmp/igor/item_runtime_held_patch_compile.log`:
 
 - Total CSV items loaded: 2180
 - Converted into the generic runtime layer: 2180
@@ -46,16 +46,8 @@ Generic runtime layer:
   - `item_runtime_has_group(item_id, group)`
   - `item_runtime_actions(item_id, hook)`
   - `item_runtime_actor_held_item_id(actor)`
-- `item_runtime_actor_has_held_group(actor, group)`
-- `item_runtime_actor_held_actions(actor, hook)`
-
-Overworld pickup runtime:
-
-- `oitem` is the map pickup object for items found in the overworld.
-- Set `item_id` and optional `item_qty` on an `oitem` instance to choose what it gives.
-- Optional `item_message` overrides the default pickup line.
-- Pressing Interact while facing `oitem` calls `overworld_item_pickup_interact(...)`, adds the item through `bag_inventory_add_item(...)`, refreshes bag seeds, plays `snd_Receive_Item` or `snd_Receive_HM`, shows dialog, and destroys the pickup when `item_pickup_once` is true.
-- `oitem` is part of world solids, so the player cannot walk through the pickup.
+  - `item_runtime_actor_has_held_group(actor, group)`
+  - `item_runtime_actor_held_actions(actor, hook)`
 
 Category fallback grouping:
 
@@ -119,28 +111,11 @@ Direct bag or party target use:
 - Held priority items:
   - Quick Claw now rolls from its generic `move_select/move_first_chance` hook.
   - Lagging Tail and Full Incense now move the holder later inside the same priority bracket.
-- Held reward items:
-  - Exp Share now adds the holder to the EXP recipient list through its `reward_calc` hook.
-  - Lucky Egg now boosts the holder's gained EXP through its `reward_calc` hook.
-  - Amulet Coin and Luck Incense now double trainer prize money through their `reward_calc` hooks.
-- Runtime-only battle-use items:
-  - Ability Urge now re-runs the target ally's entry ability hook.
-  - Item Drop now removes the target ally's held item.
-  - Item Urge now attempts to trigger the target ally's held auto-use item.
-  - Reset Urge now clears the target ally's stat stage changes.
 - Registered inventory systems:
   - Key items have `key_item_registered` and `field_use/key_item_context` records.
   - Fossils have `fossil_restore` and `field_use/restore_fossil_species` records.
   - Crafting, curry, sandwich, picnic, Apricorn, and TM material items have crafting or field-use registry records.
-- Mega Stones, Z-Crystals, Dynamax crystals, memories, drives, and species-specific form items have transformation/form registry records.
-- Mega / Z / Dynamax flow:
-  - In the battle Fight menu, press `PageDown` / `S` to cycle the active Pokemon's available burst transformation.
-  - Choose a move after selecting the burst mode to trigger it before the move resolves.
-  - Mega Evolution uses held Mega Stone runtime records and searches the CSV Pokemon form rows for the matching `-mega`, `-mega-x`, `-mega-y`, Primal, or Ultra battle form.
-  - Mega/Gigantamax forms require real 96x96 Pokemon art. If the form only resolves to the placeholder art, the battle blocks the transformation and shows that the Pokemon has not been fully added yet.
-  - Z-Power uses held Z-Crystal runtime records and powers up the chosen move once.
-  - Dynamax searches for a matching `-gmax` form; if none exists, it still Dynamaxes the current Pokemon. Dynamax doubles max HP, boosts move damage, lasts three turns, and reverts automatically.
-  - Temporary Mega/Dynamax species/stat changes are restored when battle closes so party Pokemon do not remain mutated outside battle.
+  - Mega Stones, Z-Crystals, Dynamax crystals, memories, drives, and species-specific form items have transformation/form registry records.
 - Full item grouping coverage:
   - All 2180 loaded CSV items now have runtime groups.
   - No `_pending` runtime buckets remain.
@@ -158,21 +133,6 @@ Direct bag or party target use:
   - `POKEMON's burn was healed.`
 - Direct battle items now show all returned effect messages, not only the first one.
 - Repel and encounter-rate items now show a specific field-effect line instead of only `It took effect.`
-- Overworld `oitem` pickups show `PLAYER found one ITEM!` or `PLAYER found N ITEM!` unless the instance sets `item_message`.
-
-## Item And UI Sounds
-
-- `snd_select`: selector movement in bag pages/rows, pause/options menus, battle command menus, target picking, party selection, PC cursor movement, and co-op team/yes-no pickers.
-- `snd_pickup`: picking up, placing, or swapping Pokemon in the PC storage and breeding UI.
-- `snd_Receive_Item`: normal overworld item pickup.
-- `snd_Receive_HM`: HM-style overworld item pickup.
-- `snd_Use_Item`: generic item use from the bag or battle bag.
-- `snd_Use_Repel`: Repel-style field item use.
-- `snd_Receive_Egg`: Egg creation in the PC breeding system.
-- `snd_Save`: pause menu save.
-- `snd_LogOn` / `snd_TurnOff`: PC open and close.
-- `snd_MegaEvolution`: Mega Evolution activation.
-- `snd_SuperEffective`, `snd_NotVeryEffective`, and `snd_Heal`: battle feedback for effectiveness/no-effect/healing text.
 
 ## Runtime Registered
 
@@ -181,11 +141,9 @@ Direct bag or party target use:
 - Runtime Berry patch: high-impact held Berries now also have exact hooks and live battle consumers for status cures, HP recovery, pinch boosts, type-resist damage reduction, Enigma healing, Jaboca/Rowap retaliation, Micle accuracy, and Custap priority.
 - Battle choice/lock items: Choice Band, Choice Specs, and Choice Scarf now apply stat multipliers and consume their generic `move_select` lock.
 - Priority-held items: Quick Claw, Lagging Tail, and Full Incense now run through generic `move_select` records.
-- Reward-held items: Exp Share, Lucky Egg, Amulet Coin, and Luck Incense now run through generic `reward_calc` records.
-- Miracle Shooter / ally battle-use items: Ability Urge, Item Drop, Item Urge, and Reset Urge now execute through generic `battle_use` records.
 - Type-boost items and plates: common boosters, plates, incenses, Muscle Band, and Wise Glasses are grouped under `held_type_boost` and now apply generic damage multipliers.
 - Weather rocks, terrain extenders, Light Clay-style duration items: runtime actions are registered and consumed; legacy name/id checks remain only as fallback compatibility.
-- Mega stones, Z-Crystals, Dynamax/Gigantamax-style items: registered as transformation or raid-access records and now consumed by the battle command/runtime transformation flow.
+- Mega stones, Z-Crystals, Dynamax/Gigantamax-style items: registered as transformation or raid-access records.
 - Form-change key items: registered as `form_or_type_change_item` records.
 - Mail and cosmetic key items: storage/UI only, no gameplay effect yet.
 - Category fallback items: grouped for tracking and exposed through generic registry actions.
@@ -196,7 +154,7 @@ No item is unconverted or marked pending. Future polish is about deeper mechanic
 
 - Complete automatic Berry trigger timing for every battle condition.
 - Full item-specific battle messages for every passive held-item trigger.
-- Tera battle command flow. Tera Shards already set stored Pokemon Tera Type from the bag; the battle-side Terastallization command still needs its own visual/runtime hook.
+- Full transformation flow for Mega Evolution, Z-Moves, Tera, and Dynamax.
 - Fossil restoration UI/object flow.
 - Bike/rod/field-tool key item object interactions.
 - Save/load persistence audit for every new item-side state field.
