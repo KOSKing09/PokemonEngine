@@ -1486,17 +1486,53 @@ function world_apply_room_music(_room_id, _override_music = undefined, _override
     return true;
 }
 
+function world_player_spawn_is_safe(_pl, _x, _y){
+    if (_pl == noone) return false;
+    if (_x < 0 || _y < 0 || _x > room_width || _y > room_height) return false;
+    if (!is_undefined(rogue_world_point_is_blocked) && rogue_world_point_is_blocked(_x, _y)) return false;
+    if (!is_undefined(wc_collides_at) && wc_collides_at(_pl, real(_x), real(_y), _pl)) return false;
+    return true;
+}
+
+function world_find_safe_player_spawn(_pl, _x, _y){
+    var _place_x = real(_x);
+    var _place_y = real(_y);
+    var _tile = 16;
+    if (variable_instance_exists(_pl, "grid") && is_struct(variable_instance_get(_pl, "grid"))){
+        var _pg = variable_instance_get(_pl, "grid");
+        _tile = variable_struct_exists(_pg, "tile") ? max(1, real(variable_struct_get(_pg, "tile"))) : 16;
+    } else if (variable_global_exists("WC") && is_struct(WC) && variable_struct_exists(WC, "tile_size")){
+        _tile = max(1, real(WC.tile_size));
+    }
+    _place_x = !is_undefined(grid_snap_value) ? grid_snap_value(_place_x, _tile) : __overworld_npc_snap_value(_place_x, _tile);
+    _place_y = !is_undefined(grid_snap_value) ? grid_snap_value(_place_y, _tile) : __overworld_npc_snap_value(_place_y, _tile);
+
+    if (world_player_spawn_is_safe(_pl, _place_x, _place_y)) return { x:_place_x, y:_place_y, adjusted:false };
+
+    for (var _r = 1; _r <= 6; ++_r){
+        for (var _dy = -_r; _dy <= _r; ++_dy){
+            for (var _dx = -_r; _dx <= _r; ++_dx){
+                if (abs(_dx) != _r && abs(_dy) != _r) continue;
+                var _cx = _place_x + (_dx * _tile);
+                var _cy = _place_y + (_dy * _tile);
+                if (world_player_spawn_is_safe(_pl, _cx, _cy)){
+                    show_debug_message("[WORLD][warp] adjusted blocked spawn from " + string(_place_x) + "," + string(_place_y) + " to " + string(_cx) + "," + string(_cy) + " in " + room_get_name(room));
+                    return { x:_cx, y:_cy, adjusted:true };
+                }
+            }
+        }
+    }
+
+    show_debug_message("[WORLD][warp] WARNING: no safe spawn found near " + string(_place_x) + "," + string(_place_y) + " in " + room_get_name(room));
+    return { x:_place_x, y:_place_y, adjusted:false };
+}
+
 function world_place_player_after_warp(_pid, _x, _y, _facing = undefined){
     var _pl = player_by_pid(_pid);
     if (_pl == noone) return false;
-    var _place_x = real(_x);
-    var _place_y = real(_y);
-    if (variable_instance_exists(_pl, "grid") && is_struct(variable_instance_get(_pl, "grid"))){
-        var _pg = variable_instance_get(_pl, "grid");
-        var _tile = variable_struct_exists(_pg, "tile") ? max(1, real(variable_struct_get(_pg, "tile"))) : 16;
-        _place_x = !is_undefined(grid_snap_value) ? grid_snap_value(_place_x, _tile) : __overworld_npc_snap_value(_place_x, _tile);
-        _place_y = !is_undefined(grid_snap_value) ? grid_snap_value(_place_y, _tile) : __overworld_npc_snap_value(_place_y, _tile);
-    }
+    var _safe_spawn = world_find_safe_player_spawn(_pl, _x, _y);
+    var _place_x = _safe_spawn.x;
+    var _place_y = _safe_spawn.y;
     variable_instance_set(_pl, "x", _place_x);
     variable_instance_set(_pl, "y", _place_y);
     if (!is_undefined(_facing) && is_real(_facing)) variable_instance_set(_pl, "facing_dir", floor(_facing) mod 4);
@@ -3775,18 +3811,22 @@ function __overworld_encounter_pokemon_npc_start_battle(_inst, _trigger_pid){
     if (!instance_exists(_owner)) return false;
     overworld_encounter_init(_owner);
 
+    var _enc_region = variable_instance_exists(_inst, "encounter_region_key") ? string(variable_instance_get(_inst, "encounter_region_key")) : string(variable_instance_get(_owner, "encounter_region_key"));
+    var _enc_habitat = variable_instance_exists(_inst, "encounter_habitat") ? string(variable_instance_get(_inst, "encounter_habitat")) : string(variable_instance_get(_owner, "encounter_habitat"));
+    var _enc_area = variable_instance_exists(_inst, "encounter_area_type") ? string(variable_instance_get(_inst, "encounter_area_type")) : string(variable_instance_get(_owner, "encounter_area_type"));
+
     var _coop_requested_vis = (multiplayer_queue_mode() == "coop");
     var _assist_pid_vis = _coop_requested_vis ? multiplayer_find_joined_assist_pid(_trigger_pid) : -1;
     var _coop_vis = (_assist_pid_vis >= 0);
 
-    var _battle_format_vis = string(variable_instance_get(_owner, "encounter_battle_format"));
+    var _battle_format_vis = variable_instance_exists(_inst, "encounter_battle_format") ? string(variable_instance_get(_inst, "encounter_battle_format")) : string(variable_instance_get(_owner, "encounter_battle_format"));
     if (_battle_format_vis != "double") _battle_format_vis = "single";
-    var _double_chance_vis = variable_instance_exists(_owner, "encounter_double_chance") ? real(variable_instance_get(_owner, "encounter_double_chance")) : 0;
+    var _double_chance_vis = variable_instance_exists(_inst, "encounter_double_chance") ? real(variable_instance_get(_inst, "encounter_double_chance")) : (variable_instance_exists(_owner, "encounter_double_chance") ? real(variable_instance_get(_owner, "encounter_double_chance")) : 0);
     if (_battle_format_vis != "double" && _double_chance_vis > 0 && random(1) < _double_chance_vis) _battle_format_vis = "double";
     if (_coop_requested_vis) _battle_format_vis = _coop_vis ? "double" : "single";
 
-    var _level_min_vis = max(1, floor(variable_instance_get(_owner, "encounter_level_min")));
-    var _level_max_vis = max(_level_min_vis, floor(variable_instance_get(_owner, "encounter_level_max")));
+    var _level_min_vis = variable_instance_exists(_inst, "encounter_level_min") ? max(1, floor(variable_instance_get(_inst, "encounter_level_min"))) : max(1, floor(variable_instance_get(_owner, "encounter_level_min")));
+    var _level_max_vis = variable_instance_exists(_inst, "encounter_level_max") ? max(_level_min_vis, floor(variable_instance_get(_inst, "encounter_level_max"))) : max(_level_min_vis, floor(variable_instance_get(_owner, "encounter_level_max")));
     var _species_vis = variable_instance_get(_inst, "encounter_species_id");
     var _levels_vis = variable_instance_get(_inst, "encounter_level");
     var _shinies_vis = variable_instance_exists(_inst, "encounter_shiny") && variable_instance_get(_inst, "encounter_shiny") == true;
@@ -3795,15 +3835,14 @@ function __overworld_encounter_pokemon_npc_start_battle(_inst, _trigger_pid){
     var _shinies_single_vis = _shinies_vis;
 
     if (_battle_format_vis == "double"){
-        var _second = __overworld_encounter_roll(_owner, "single", _level_min_vis, _level_max_vis);
+        var _second_table_vis = variable_instance_exists(_inst, "encounter_table") && is_array(variable_instance_get(_inst, "encounter_table")) ? variable_instance_get(_inst, "encounter_table") : __overworld_encounter_table_for(_enc_region, _enc_habitat);
+        var _second_pick_vis = __overworld_encounter_pick_from_table(_second_table_vis, _level_min_vis, _level_max_vis);
         var _species_b = _species_vis;
         var _level_b = _levels_vis;
-        var _shiny_b = __overworld_encounter_roll_shiny(_owner);
-        if (is_struct(_second)){
-            var _second_species = variable_struct_get(_second, "species");
-            var _second_levels = variable_struct_get(_second, "levels");
-            if (is_real(_second_species)) _species_b = _second_species;
-            if (is_real(_second_levels)) _level_b = _second_levels;
+        var _shiny_b = variable_instance_exists(_inst, "encounter_shiny_chance") ? (random(1) < real(variable_instance_get(_inst, "encounter_shiny_chance"))) : __overworld_encounter_roll_shiny(_owner);
+        if (is_struct(_second_pick_vis)){
+            if (variable_struct_exists(_second_pick_vis, "species_id")) _species_b = variable_struct_get(_second_pick_vis, "species_id");
+            if (variable_struct_exists(_second_pick_vis, "level")) _level_b = variable_struct_get(_second_pick_vis, "level");
         }
         _species_vis = [_species_vis, _species_b];
         _levels_vis = [_levels_vis, _level_b];
@@ -3820,9 +3859,9 @@ function __overworld_encounter_pokemon_npc_start_battle(_inst, _trigger_pid){
         enemy_species: _species_vis,
         enemy_levels: _levels_vis,
         enemy_shiny: _shinies_vis,
-        encounter_region_key: string(variable_instance_get(_owner, "encounter_region_key")),
-        encounter_habitat: string(variable_instance_get(_owner, "encounter_habitat")),
-        encounter_source: "visible_bush_npc"
+        encounter_region_key: _enc_region,
+        encounter_habitat: _enc_habitat,
+        encounter_source: variable_instance_exists(_inst, "encounter_source") ? string(variable_instance_get(_inst, "encounter_source")) : "visible_bush_npc"
     };
     var _opts_single_vis = {
         battle_type: "wild",
@@ -3830,9 +3869,9 @@ function __overworld_encounter_pokemon_npc_start_battle(_inst, _trigger_pid){
         enemy_species: _species_single_vis,
         enemy_levels: _levels_single_vis,
         enemy_shiny: _shinies_single_vis,
-        encounter_region_key: string(variable_instance_get(_owner, "encounter_region_key")),
-        encounter_habitat: string(variable_instance_get(_owner, "encounter_habitat")),
-        encounter_source: "visible_bush_npc"
+        encounter_region_key: _enc_region,
+        encounter_habitat: _enc_habitat,
+        encounter_source: variable_instance_exists(_inst, "encounter_source") ? string(variable_instance_get(_inst, "encounter_source")) : "visible_bush_npc"
     };
     if (_coop_vis){
         _opts_vis.coop_enabled = true;
@@ -3845,11 +3884,11 @@ function __overworld_encounter_pokemon_npc_start_battle(_inst, _trigger_pid){
     if (_coop_vis){
         var _assist_player_vis = player_by_pid(_assist_pid_vis);
         if (_assist_player_vis != noone && !is_undefined(player_force_stand_still)) player_force_stand_still(_assist_player_vis);
-        if (multiplayer_request_wild_assist_battle(_trigger_pid, _assist_pid_vis, _open_level_vis, string(variable_instance_get(_owner, "encounter_area_type")), _opts_single_vis, _opts_vis, _inst, _owner)) return true;
+        if (multiplayer_request_wild_assist_battle(_trigger_pid, _assist_pid_vis, _open_level_vis, _enc_area, _opts_single_vis, _opts_vis, _inst, _owner)) return true;
         _opts_vis = _opts_single_vis;
         _battle_format_vis = "single";
     }
-    battle_open(_trigger_pid, _open_level_vis, string(variable_instance_get(_owner, "encounter_area_type")), _opts_vis);
+    battle_open(_trigger_pid, _open_level_vis, _enc_area, _opts_vis);
     if (!is_undefined(battle_is_open) && !battle_is_open(_trigger_pid)){
         var _E_unlock_vis = overworld_encounter_tables_init();
         variable_struct_set(_E_unlock_vis, "pending", false);

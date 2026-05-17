@@ -165,7 +165,12 @@ function pc_update(){
         pc__ensure_party_capacity(_pid);
 
         if (pc__is_breeding_mode(_pid) && pc__ctrl_pressed(_pid, "Inventory")){
-            pc__breeding_toggle_source(_pid);
+            if (_pc.sys_held_mon != undefined){
+                _pc.sys_status_text = "Place or return the Pokemon first.";
+                if (!is_undefined(ui_play_select_sound)) ui_play_select_sound();
+            } else {
+                pc__breeding_toggle_source(_pid);
+            }
             continue;
         }
 
@@ -190,8 +195,13 @@ function pc_update(){
 
         if (pc__ctrl_pressed(_pid, "Back") || pc__ctrl_pressed(_pid, "Run")){
             if (_pc.sys_held_mon != undefined){
-                pc__return_held_to_origin(_pid);
-                _pc.sys_status_text = "Returned Pokemon";
+                if (pc__return_held_to_origin(_pid)){
+                    _pc.sys_status_text = "Returned Pokemon";
+                } else if (pc__force_store_held_mon(_pid)){
+                    _pc.sys_status_text = "Stored Pokemon safely";
+                } else {
+                    _pc.sys_status_text = "No room to return Pokemon";
+                }
             } else {
                 pc_close(_pid);
             }
@@ -398,10 +408,18 @@ function pc__ctrl_repeat(_pid, _action_name, _initial_delay, _repeat_interval){
 }
 
 function pc__draw_round_panel_scaled(_OX, _OY, _S, _x, _y, _w, _h, _edge_col, _fill_col){
+    draw_set_alpha(0.22);
+    draw_set_colour(make_color_rgb(16, 24, 32));
+    draw_roundrect(_OX + (_x + 2) * _S, _OY + (_y + 2) * _S, _OX + (_x + _w + 2) * _S, _OY + (_y + _h + 2) * _S, false);
+    draw_set_alpha(1);
     draw_set_colour(_edge_col);
     draw_roundrect(_OX + _x * _S, _OY + _y * _S, _OX + (_x + _w) * _S, _OY + (_y + _h) * _S, false);
     draw_set_colour(_fill_col);
     draw_roundrect(_OX + (_x + 1) * _S, _OY + (_y + 1) * _S, _OX + (_x + _w - 1) * _S, _OY + (_y + _h - 1) * _S, false);
+    draw_set_alpha(0.35);
+    draw_set_colour(c_white);
+    draw_roundrect(_OX + (_x + 2) * _S, _OY + (_y + 2) * _S, _OX + (_x + _w - 2) * _S, _OY + (_y + _h - 2) * _S, true);
+    draw_set_alpha(1);
 }
 
 function pc__draw_theme_pattern_scaled(_theme, _OX, _OY, _S){
@@ -1000,6 +1018,18 @@ function pc__return_held_to_origin(_pid){
         }
     }
 
+    if (!_returned && (_restore_area == "breed_slot" || _restore_area == "party" || _restore_area == "breed_party") && pc__is_breeding_mode(_pid)){
+        pc__ensure_breeding_state(_pid);
+        for (var _bs_fallback = 0; _bs_fallback < 12; ++_bs_fallback){
+            if (_pc.sys_breed_slots[_bs_fallback] == undefined){
+                _pc.sys_breed_slots[_bs_fallback] = _restore_mon;
+                pc__breeding_refresh_pair(_pid, pc__breeding_pair_index_from_slot(_bs_fallback));
+                _returned = true;
+                break;
+            }
+        }
+    }
+
     if (!_returned){
         _returned = pc__set_first_available(_pid, _restore_mon);
     }
@@ -1043,6 +1073,19 @@ function pc__force_store_held_mon(_pid){
     if (_pc.sys_held_mon == undefined) return true;
 
     var _mon = _pc.sys_held_mon;
+
+    if (pc__is_breeding_mode(_pid)){
+        pc__ensure_breeding_state(_pid);
+        for (var _bs = 0; _bs < 12; ++_bs){
+            if (_pc.sys_breed_slots[_bs] == undefined){
+                _pc.sys_breed_slots[_bs] = _mon;
+                pc__breeding_refresh_pair(_pid, pc__breeding_pair_index_from_slot(_bs));
+                pc__clear_held_state(_pc);
+                return true;
+            }
+        }
+    }
+
     var _info = pc_store_mon_to_box_info(_pid, _mon);
     if (is_struct(_info) && variable_struct_exists(_info, "ok") && _info.ok == true){
         pc__clear_held_state(_pc);

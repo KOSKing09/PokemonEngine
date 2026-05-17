@@ -37,6 +37,7 @@ Common fields:
 - `mons`: array of canonical mon structs
 - `sum_move_sel`, `sum_learn_sel`: summary and learn-flow selection state
 - `learn_pending`: move-learn payload used by the summary/forget flow
+- `teach_pending`: TM/HM payload passed in from the bag while `mode = "select_item"`
 - `give_pending` and `use_pending`: temporary payloads passed in from the bag system
 - `_battle_swap_mode`, `_battle_swap_mode_forced`, `_battle_baton_pass_mode`: battle-owned flags for switch behavior
 
@@ -164,9 +165,10 @@ Captured Pokemon are normalized through `party_model_store_caught_mon(...)`, and
 - `menu`: per-mon action menu, usually `Summary / Switch or Swap In / Item / Cancel`
 - `select`: choosing another party member for a swap flow
 - `select_item`: choosing a target mon for a bag action
+- `select_item` with `teach_pending`: choosing which Pokemon should learn a TM/HM; each row shows `OK` or `NO` based on `party__machine_can_teach(...)`
 - `summary_profile`: Pokemon summary info page, with the left description box and the right-side profile block
 - `summary_moves`: move list page, with move selection on the right and move description text on the left
-- `summary_forget`: replacement flow when learning a new move
+- `summary_forget`: replacement flow when learning a new move; TM/HM flows keep the machine move as the pending move and draw the current move list as the replacement choices
 
 The main mode dispatcher lives in `scripts/party_input/party_input.gml::__party_impl_party_update()`.
 

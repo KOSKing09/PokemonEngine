@@ -127,8 +127,6 @@ function __bag_impl_draw_description(_b, _ox, _oy, _s, _desc_x, _desc_y, _desc_w
     if (variable_global_exists("FNT_POKEMON_SMALL")) draw_set_font(global.FNT_POKEMON_SMALL);
     else if (variable_global_exists("FNT_POKEMON")) draw_set_font(global.FNT_POKEMON);
     else draw_set_font(-1);
-    draw_set_color(make_color_rgb(48, 56, 72));
-
     var pad_ui = 3;
     var scroll_w = 4 * _s;
     var wrap_w = (_desc_w - pad_ui*2) * _s - scroll_w - _s;
@@ -146,11 +144,43 @@ function __bag_impl_draw_description(_b, _ox, _oy, _s, _desc_x, _desc_y, _desc_w
     var yline = ty;
     for (var li = start_line; li < array_length_1d(lines); ++li){
         if (yline > ty + box_h - line_h + 1) break;
-        draw_text(tx, yline, lines[li]);
+        __bag_impl_draw_colored_desc_line(tx, yline, lines[li], wrap_w);
         yline += line_h;
     }
 
     __bag_impl_draw_desc_scrollbar(x2 - scroll_w - _s, ty, scroll_w, box_h, _b.desc_scroll, box_h, total_h, _C_PAPER_E);
+}
+
+function __bag_impl_desc_word_color(_word){
+    var _w = string_lower(string(_word));
+    _w = string_replace_all(_w, ".", "");
+    _w = string_replace_all(_w, ",", "");
+    _w = string_replace_all(_w, ":", "");
+    _w = string_replace_all(_w, ";", "");
+    if (_w == "hp" || _w == "heal" || _w == "heals" || _w == "restores" || _w == "restore") return make_color_rgb(42, 132, 76);
+    if (_w == "pp" || _w == "move" || _w == "moves") return make_color_rgb(46, 112, 180);
+    if (_w == "battle" || _w == "attack" || _w == "power") return make_color_rgb(184, 72, 56);
+    if (_w == "pokemon" || _w == "egg" || _w == "eggs") return make_color_rgb(128, 80, 176);
+    if (_w == "berry" || _w == "berries") return make_color_rgb(204, 92, 132);
+    var _first = string_char_at(_w, 1);
+    if (string_length(_first) > 0){
+        var _ord = ord(_first);
+        if (_ord >= ord("0") && _ord <= ord("9")) return make_color_rgb(34, 144, 132);
+    }
+    return make_color_rgb(48, 56, 72);
+}
+
+function __bag_impl_draw_colored_desc_line(_x, _y, _line, _max_w){
+    var _words = string_split(string(_line), " ");
+    var _xx = _x;
+    for (var _i = 0; _i < array_length(_words); ++_i){
+        var _word = string(_words[_i]);
+        var _draw = (_i < array_length(_words) - 1) ? _word + " " : _word;
+        if (_xx + string_width(_draw) > _x + _max_w + 1) break;
+        draw_set_color(__bag_impl_desc_word_color(_word));
+        draw_text(_xx, _y, _draw);
+        _xx += string_width(_draw);
+    }
 }
 
 function __bag_impl_draw_desc_scrollbar(_rx, _ry, _rw, _rh, _scroll, _pageSize, _totalSize, _accent){
@@ -341,13 +371,25 @@ function __bag_impl_draw_item_submenu(_b, _ox, _oy, _s, _list_x, _list_y, _list_
     px = clamp(px, list_left + 2 * _s, list_right - box_w * _s - 2 * _s);
     py = clamp(py, list_top + 2 * _s, list_bottom - box_h * _s - 2 * _s);
 
-    draw_set_color(make_color_rgb(250,250,240)); draw_rectangle(px, py, px + box_w * _s, py + box_h * _s, false);
-    draw_set_color(make_color_rgb(120,90,60)); draw_rectangle(px - _s, py - _s, px + box_w * _s + _s, py + box_h * _s + _s, true);
+    var _menu_fill = make_color_rgb(255, 243, 195);
+    var _menu_edge = make_color_rgb(136, 100, 36);
+    var _menu_text = make_color_rgb(44, 54, 78);
+    var _menu_sel = make_color_rgb(92, 132, 204);
+    draw_set_color(_menu_fill); draw_rectangle(px, py, px + box_w * _s, py + box_h * _s, false);
+    draw_set_color(_menu_edge); draw_rectangle(px - _s, py - _s, px + box_w * _s + _s, py + box_h * _s + _s, true);
 
     for (var i = 0; i < array_length(labels); i++){
         var ly = py + i * 14 * _s + 2 * _s;
-        if (i == menu_sel){ draw_set_color(c_white); draw_text(px + 4 * _s, ly, "> " + labels[i]); }
-        else { draw_set_color(c_white); draw_text(px + 8 * _s, ly, labels[i]); }
+        if (i == menu_sel){
+            draw_set_color(_menu_sel);
+            draw_rectangle(px + 3 * _s, ly - _s, px + (box_w - 3) * _s, ly + 10 * _s, false);
+            draw_set_color(c_white);
+            draw_text(px + 5 * _s, ly, "> " + labels[i]);
+        }
+        else {
+            draw_set_color(_menu_text);
+            draw_text(px + 8 * _s, ly, labels[i]);
+        }
     }
 }
 

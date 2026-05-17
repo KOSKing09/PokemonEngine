@@ -106,15 +106,17 @@ The bag now uses the CSV data for both medicine-style items and machines.
 - `data/csv/machines.csv` is parsed by `data_load_machine_moves_structs()` into `global._machine_item_to_move[item_id]`.
 - `data/csv/pokemon_moves.csv` is also parsed for method `4` rows, producing `global._species_machine_moves[species_id]` for TM/HM compatibility checks.
 - Machine lookup prefers Emerald's `version_group_id = 6` when the same TM/HM item id appears in multiple generations.
+- HM01-HM08 also have a small hardcoded Emerald fallback in `bag__machine_move_id(...)`, so Cut, Fly, Surf, Strength, Flash, Rock Smash, Waterfall, and Dive still teach if the CSV machine cache is unavailable.
 
 TM/HM use flow:
 
 1. Bag `Use` detects a machine item with `bag__machine_move_id(item_id, item_struct)`.
 2. The bag closes and opens the player's party in `mode = "select_item"` with `P.teach_pending`.
-3. Party input checks `party__machine_can_teach(mon, move_id)`.
-4. If the Pokemon has room, `scr_move_learn_try(...)` teaches immediately.
-5. If four moves are already known, the party enters `summary_forget` and teaches the pending machine move after the player chooses a move to replace.
-6. TMs consume one item after a successful learn; HMs do not.
+3. Party draw shows an `OK` or `NO` badge beside every Pokemon while choosing who to teach.
+4. Party input checks `party__machine_can_teach(mon, move_id)`.
+5. If the Pokemon has room, `scr_move_learn_try(...)` teaches immediately and persists through `party_model_update_mon(...)`.
+6. If four moves are already known, the party enters the normal summary forget screen, shows the pending TM/HM move, and lets the player pick one current move to replace.
+7. TMs consume one item after a successful learn; HMs do not.
 
 Other direct-use CSV items:
 

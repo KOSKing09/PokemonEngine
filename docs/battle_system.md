@@ -408,6 +408,8 @@ battle_open(0, 8, "forest", {
 
 For normal route encounters, do not call `battle_open(...)` directly from the player Step event. Use encounter objects so cooldowns, pending locks, and route tables stay consistent.
 
+For `rm_world`, rogue encounters also go through encounter objects. The default rogue behavior uses NEW visible encounters: nearby `obush` patches spawn visible wild `oNpc` Pokemon, and the tile/biome under the bush chooses the encounter table and battle arena. Hidden walking battles are opt-in only with `global.ROGUE_WORLD.encounter_hidden_enabled = true`.
+
 Yes, you can set route encounter tables from a room's `RoomCreationCode.gml`. That is a good place for room-specific route data because it keeps the encounter table near the map that uses it.
 
 Room creation code pattern:

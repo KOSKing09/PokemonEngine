@@ -11,6 +11,41 @@ It focuses on four related pieces:
 
 For the infinite route-style world in `rm_world`, use `docs/roguelike_world.md`. That guide covers `oroguewarp`, biome setup, prefab registration, reserved city zones, and the edge-paging chunk generator.
 
+## Weather And Day/Night
+
+The overworld environment runtime lives in `scripts/overworld_environment_system/overworld_environment_system.gml`.
+
+It is initialized from `objects/oGame/Create_0.gml`, updated from `objects/oGame/Step_1.gml`, and draws its day/night world tint from `objects/oGame/Draw_0.gml`.
+
+Useful calls:
+
+```gml
+overworld_environment_set_time(20, 30);
+overworld_environment_set_weather("rain", 0.75);
+overworld_environment_set_weather("clear");
+```
+
+Weather ids:
+
+- `clear`
+- `rain`
+- `snow`
+- `sand` or `sandstorm`
+- `fog`
+- `ash`
+
+Weather is rendered with GameMaker's particle system on a runtime layer named `__ENV_WEATHER`. Day/night uses `global.OVERWORLD_ENV.time_minutes`, `time_scale`, `day_length_minutes`, and `night_alpha_max`.
+
+The clock ticks in `overworld_environment_update()` every Step:
+
+```gml
+time_minutes += real_seconds_passed * global.OVERWORLD_ENV.time_scale;
+```
+
+Default `time_scale` is `1`, so one real second equals one in-game minute. A full day lasts about 24 real minutes. Use `overworld_environment_set_time(hour, minute)` to jump the clock for testing.
+
+Roguelike chunks can drive weather automatically. When `global.OVERWORLD_ENV.auto_weather` is true, the chunk's dominant biome, temperature, and moisture choose rain, snow, fog, sand, or clear weather.
+
 ## Field Move Props
 
 Reusable overworld field-move props are available as placeable objects:
@@ -234,6 +269,7 @@ Battle handoff:
 - contact with a player checks `__overworld_encounter_visible_player_hit(...)`
 - `__overworld_encounter_pokemon_npc_start_battle(...)` builds a wild battle opts struct
 - that opts struct tags the source as `encounter_source = "visible_bush_npc"`
+- visible encounter NPCs can override the owning bush's `encounter_region_key`, `encounter_habitat`, `encounter_area_type`, level range, battle format, and encounter table. The roguelike world uses that override so a Pokemon spawned from a forest tile can open the forest arena even when the owning patch is managed generically.
 
 The visible NPC is destroyed after a successful battle open or when its lifetime expires.
 
@@ -254,6 +290,17 @@ The anchor now owns `_encounter_visible_npcs` as the canonical list; `_encounter
 Non-anchor bushes return early in `overworld_encounter_step(...)`. If they somehow still own visible NPCs, they clear and destroy them.
 
 This is the main reason visible encounter state should stay on the encounter object rather than on the player.
+
+## Roguelike Encounter Rules
+
+`rm_world` follows the NEW encounter system by default:
+
+- visible Pokemon are spawned as `oNpc` encounter Pokemon
+- normal hidden walking rolls are disabled unless `global.ROGUE_WORLD.encounter_hidden_enabled = true`
+- visible spawns must come from nearby `obush` patches unless `global.ROGUE_WORLD.encounter_visible_loose_spawns = true`
+- each rogue bush is configured from the biome/tile under that bush, so the encounter table and battle arena can change by tile
+
+Use `obush` in rogue prefabs when you want visible Pokemon to appear in that authored patch. For caves or old-style tall-grass rooms, opt into hidden walking encounters explicitly with the room's creation code.
 
 ## Bush Objects and Draw Events
 

@@ -57,6 +57,52 @@ function world_is_paused_both(){
          && global.PAUSE[0].open && global.PAUSE[1].open);
 }
 
+function __pause_ui_palette(){
+    return {
+        shade: make_color_rgb(12, 18, 28),
+        panel: make_color_rgb(236, 228, 184),
+        paper: make_color_rgb(246, 239, 204),
+        border_dark: make_color_rgb(52, 60, 76),
+        border_mid: make_color_rgb(120, 160, 220),
+        text: c_white,
+        text_dim: c_white,
+        selected: make_color_rgb(96, 136, 208),
+        selected_dark: make_color_rgb(40, 64, 168),
+        very_hard: make_color_rgb(232, 48, 48),
+        title: c_white
+    };
+}
+
+function __pause_draw_emerald_panel(_x, _y, _w, _h, _pal){
+    draw_set_alpha(0.32);
+    draw_set_color(_pal.shade);
+    draw_rectangle(_x + 3, _y + 3, _x + _w + 3, _y + _h + 3, false);
+    draw_set_alpha(1);
+    draw_set_color(_pal.border_dark);
+    draw_rectangle(_x - 2, _y - 2, _x + _w + 2, _y + _h + 2, false);
+    draw_set_color(_pal.border_mid);
+    draw_rectangle(_x - 1, _y - 1, _x + _w + 1, _y + _h + 1, false);
+    draw_set_color(_pal.panel);
+    draw_rectangle(_x + 2, _y + 2, _x + _w - 2, _y + _h - 2, false);
+    draw_set_color(_pal.paper);
+    draw_rectangle(_x + 5, _y + 5, _x + _w - 5, _y + _h - 5, false);
+    draw_set_color(_pal.border_dark);
+    draw_rectangle(_x + 2, _y + 2, _x + _w - 2, _y + _h - 2, true);
+}
+
+function __pause_draw_fit_text(_txt, _x, _y, _max_w, _color, _min_scale = 0.72){
+    var _t = string(_txt);
+    var _scale = 1;
+    var _w = max(1, string_width(_t));
+    if (_w > _max_w) _scale = max(real(_min_scale), real(_max_w) / _w);
+    while (string_length(_t) > 3 && string_width(_t + "..") * _scale > _max_w){
+        _t = string_delete(_t, string_length(_t), 1);
+    }
+    if (_t != string(_txt)) _t += "..";
+    draw_set_color(_color);
+    draw_text_transformed(_x, _y, _t, _scale, _scale, 0);
+}
+
 
 function pause_update(){
     for (var pid = 0; pid < 2; pid++){
@@ -341,6 +387,7 @@ function pause_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     draw_rectangle(_rx, _ry, _rx + _rw, _ry + _rh, false);
     draw_set_alpha(1);
 
+    var _pal = __pause_ui_palette();
     var labels = __pause_main_labels(_pid);
     var options_labels = ["INPUT","TEXT SPEED","SPLIT","DIFFICULTY","BATTLE SETTINGS","MULTIPLAYER","BACK"];
     var battle_settings_labels = ["XP MODE","FOLLOWER","BACK"];
@@ -351,11 +398,12 @@ function pause_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     var line_h = max(12, string_height("A") + 2);
 
     // Emerald-style narrow menu column, tucked into the top-right of the logical screen.
-    var item_gap = 4*s;
-    var top_pad = 10*s;
-    var bottom_pad = 10*s;
+    var item_gap = 2*s;
+    var title_h = 16*s;
+    var top_pad = 21*s;
+    var bottom_pad = 6*s;
     var left_pad = 18*s;
-    var right_pad = 16*s;
+    var right_pad = 14*s;
     var pointer_w = 12*s;
     var item_h = max(16*s, line_h + 4*s);
     var _active_labels = labels;
@@ -402,36 +450,37 @@ function pause_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     }
     if (string(p.mode) == "input") longest_label = max(longest_label, string_width(__pause_deadzone_label()));
     var pw = left_pad + pointer_w + longest_label + right_pad;
+    pw = clamp(pw, 104*s, min(214*s, 240*s - 18*s));
     var ph = top_pad + bottom_pad + array_length(_active_labels) * item_h + (array_length(_active_labels) - 1) * item_gap;
     var px = ox + 240*s - pw - 10*s;
     var py = oy + 10*s;
 
-    draw_set_color(make_color_rgb(236, 228, 184));
-    draw_roundrect(px, py, px + pw, py + ph, false);
-    draw_set_color(make_color_rgb(52, 60, 76));
-    draw_roundrect(px - 1, py - 1, px + pw + 1, py + ph + 1, true);
+    __pause_draw_emerald_panel(px, py, pw, ph, _pal);
+    draw_set_color(_pal.border_dark);
+    draw_rectangle(px + 5*s, py + 5*s, px + pw - 5*s, py + title_h, false);
+    draw_set_color(_pal.border_mid);
+    draw_rectangle(px + 6*s, py + 6*s, px + pw - 6*s, py + title_h - 1*s, false);
 
     // "MENU" — WHITE title above the command list.
     if (variable_global_exists("FNT_POKEMON")) draw_set_font(global.FNT_POKEMON); else draw_set_font(-1);
-    draw_set_color(c_white);
-    draw_text(px + 10*s, py + 4*s, _title);
+    __pause_draw_fit_text(_title, px + 10*s, py + 7*s, pw - 20*s, _pal.title, 0.72);
 
     for (var i = 0; i < array_length(_active_labels); i++){
         var row_y = py + top_pad + i * (item_h + item_gap);
         var sel = (i == _active_sel);
         if (sel){
-            draw_set_color(make_color_rgb(120, 160, 220));
-            draw_roundrect(px + 8*s, row_y - 1*s, px + pw - 8*s, row_y + item_h - 1*s, false);
-            draw_set_color(make_color_rgb(40, 64, 168));
-            draw_roundrect(px + 7*s, row_y - 2*s, px + pw - 7*s, row_y + item_h, true);
+            draw_set_color(_pal.selected_dark);
+            draw_rectangle(px + 7*s, row_y - 2*s, px + pw - 7*s, row_y + item_h, false);
+            draw_set_color(_pal.selected);
+            draw_rectangle(px + 8*s, row_y - 1*s, px + pw - 8*s, row_y + item_h - 1*s, false);
         }
 
         var pointer_x = px + 12*s;
-        var pointer_y = row_y + max(0, (item_h - line_h) * 0.5) + 5*s;
+        var pointer_y = row_y + max(0, (item_h - line_h) * 0.5) + 4*s;
         draw_set_color(c_white);
-        if (sel) draw_text(pointer_x, pointer_y, "> ");
+        if (sel) draw_text(pointer_x, pointer_y, ">");
         var tx = px + left_pad + pointer_w;
-        var ty = row_y + max(0, (item_h - line_h) * 0.5) + 5*s;
+        var ty = row_y + max(0, (item_h - line_h) * 0.5) + 4*s;
         var _label_text = _active_labels[i];
         if (string(p.mode) == "options" && i == 1) _label_text = __pause_dialog_speed_label();
         if (string(p.mode) == "options" && i == 2) _label_text = __pause_splitscreen_label();
@@ -443,11 +492,10 @@ function pause_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         if (string(p.mode) == "multiplayer" && i == 2) _label_text = __pause_multiplayer_versus_label();
         if (string(p.mode) == "input" && i == 0) _label_text = __pause_deadzone_label();
         if (string(p.mode) == "options" && i == 3 && __pause_difficulty_is_very_hard()){
-            draw_set_color(make_color_rgb(232, 48, 48));
+            __pause_draw_fit_text(_label_text, tx, ty, px + pw - 10*s - tx, _pal.very_hard);
         } else {
-            draw_set_color(c_white);
+            __pause_draw_fit_text(_label_text, tx, ty, px + pw - 10*s - tx, c_white);
         }
-        draw_text(tx, ty, _label_text);
     }
 }
 

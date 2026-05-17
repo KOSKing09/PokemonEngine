@@ -123,6 +123,7 @@ transition_init();
 transition_set_battle_style("emerald_blinds");
 transition_set_room_style("emerald_fade_black");
 if (!is_undefined(world_init)) world_init();
+if (!is_undefined(overworld_environment_init)) overworld_environment_init();
 
 // Ensure PKICONS debug flags exist (preserve pre-existing settings when possible)
     if (variable_global_exists("PKICONS")){

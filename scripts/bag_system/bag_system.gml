@@ -333,10 +333,34 @@ function bag__machine_move_id(_iid, _it){
         var mapped = global._machine_item_to_move[_iid];
         if (is_real(mapped) && mapped > 0) return floor(mapped);
     }
+    switch (floor(_iid)){
+        case 397: return 15;  // HM01 Cut
+        case 398: return 19;  // HM02 Fly
+        case 399: return 57;  // HM03 Surf
+        case 400: return 70;  // HM04 Strength
+        case 401: return 148; // HM05 Flash
+        case 402: return 249; // HM06 Rock Smash
+        case 403: return 127; // HM07 Waterfall
+        case 404: return 291; // HM08 Dive
+    }
     var ident = "";
     if (is_struct(_it)){
         if (variable_struct_exists(_it, "identifier")) ident = string_lower(string(variable_struct_get(_it, "identifier")));
         else if (variable_struct_exists(_it, "name")) ident = string_lower(string(variable_struct_get(_it, "name")));
+    }
+    if (string_length(ident) >= 4 && string_copy(ident, 1, 2) == "hm"){
+        var hm_no = -1;
+        try { hm_no = real(string_copy(ident, 3, 2)); } catch (e_hm_parse) { hm_no = -1; }
+        switch (floor(hm_no)){
+            case 1: return 15;
+            case 2: return 19;
+            case 3: return 57;
+            case 4: return 70;
+            case 5: return 148;
+            case 6: return 249;
+            case 7: return 127;
+            case 8: return 291;
+        }
     }
     if (string_length(ident) >= 4){
         var prefix = string_copy(ident, 1, 2);

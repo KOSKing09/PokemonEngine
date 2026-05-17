@@ -26,10 +26,18 @@ function __hard_center(_cam, _tgt, _shake, _snap){
 	var cy = _tgt.y - vh * 0.5;
 
 	var _overscroll = (variable_instance_exists(id, "allow_room_overscroll") && allow_room_overscroll == true);
-	if (room == rm_world) _overscroll = true;
 	if (!_overscroll){
-		cx = clamp(cx, 0, max(0, room_width  - vw));
-		cy = clamp(cy, 0, max(0, room_height - vh));
+		var _bound_w = room_width;
+		var _bound_h = room_height;
+		if (variable_global_exists("ROGUE_ROOM_BOUNDS") && is_struct(global.ROGUE_ROOM_BOUNDS)){
+			var _B = global.ROGUE_ROOM_BOUNDS;
+			if (variable_struct_exists(_B, "active") && _B.active == true && variable_struct_exists(_B, "room") && _B.room == room){
+				_bound_w = variable_struct_exists(_B, "w") ? real(_B.w) : _bound_w;
+				_bound_h = variable_struct_exists(_B, "h") ? real(_B.h) : _bound_h;
+			}
+		}
+		cx = clamp(cx, 0, max(0, _bound_w - vw));
+		cy = clamp(cy, 0, max(0, _bound_h - vh));
 	}
 
 	var ofs = cam_shake_update(_shake);

@@ -102,6 +102,14 @@ function transition_update(){
     if (_T.mode != "room") return;
 
     var _dur = max(1, real(_T.duration_ms));
+    if (current_time - real(_T.start_ms) > _dur + 2500){
+        _T.active = false;
+        _T.phase = "idle";
+        _T.changed_room = false;
+        global.TRANSITION_SYS = _T;
+        show_debug_message("[transition] room transition timed out and was cleared.");
+        return;
+    }
     var _p = clamp((current_time - real(_T.start_ms)) / _dur, 0, 1);
     if (_T.phase == "out" && _p >= 1){
         if (!_T.changed_room && _T.target_room != noone){

@@ -776,15 +776,53 @@ function __dlg_draw_lines_spritefont(_l0, _l1, _x, _y, _base_color = c_white){
 function __dlg_pause_palette(){
     return {
         panel_fill: make_color_rgb(236, 228, 184),
+        panel_inner: make_color_rgb(246, 239, 204),
         panel_border: make_color_rgb(52, 60, 76),
+        panel_shadow: make_color_rgb(16, 24, 28),
         text: c_white,
         accent: make_color_rgb(120, 160, 220),
         accent_dark: make_color_rgb(40, 64, 168),
+        title_fill: make_color_rgb(120, 160, 220),
         title_text: c_white,
         arrow: c_red
     };
 }
 
+function __dlg_draw_panel(_x, _y, _w, _h, _pal){
+    draw_set_alpha(0.35);
+    draw_set_color(_pal.panel_shadow);
+    draw_rectangle(_x + 3, _y + 3, _x + _w + 3, _y + _h + 3, false);
+    draw_set_alpha(1);
+
+    draw_set_color(_pal.accent_dark);
+    draw_rectangle(_x - 2, _y - 2, _x + _w + 2, _y + _h + 2, false);
+    draw_set_color(_pal.accent);
+    draw_rectangle(_x - 1, _y - 1, _x + _w + 1, _y + _h + 1, false);
+    draw_set_color(_pal.panel_border);
+    draw_rectangle(_x, _y, _x + _w, _y + _h, true);
+    draw_set_color(_pal.panel_fill);
+    draw_rectangle(_x + 3, _y + 3, _x + _w - 3, _y + _h - 3, false);
+    draw_set_color(_pal.panel_inner);
+    draw_rectangle(_x + 6, _y + 6, _x + _w - 6, _y + _h - 6, false);
+    draw_set_color(_pal.panel_border);
+    draw_rectangle(_x + 3, _y + 3, _x + _w - 3, _y + _h - 3, true);
+}
+
+function __dlg_draw_nameplate(_x, _y, _label, _pal){
+    if (string_length(string(_label)) <= 0) return false;
+    var _pad_x = 8;
+    var _w = max(42, string_width(string(_label)) + _pad_x * 2);
+    var _h = 14;
+    draw_set_color(_pal.accent_dark);
+    draw_rectangle(_x, _y, _x + _w, _y + _h, false);
+    draw_set_color(_pal.title_fill);
+    draw_rectangle(_x + 1, _y + 1, _x + _w - 1, _y + _h - 1, false);
+    draw_set_color(_pal.title_text);
+    draw_set_halign(fa_left);
+    draw_set_valign(fa_top);
+    draw_text(_x + _pad_x, _y + 3, string(_label));
+    return true;
+}
 
 function dialog2p_draw_world(_pid, _cam){
     // If a battle is active for this pid, prefer drawing inside the battle GUI
@@ -830,18 +868,12 @@ function dialog2p_draw_world(_pid, _cam){
     var px = round(vx + (vw - bw) * 0.5);
     var py = round(vy + vh - (bh + d.margin_v));
 
-    // panel
-    draw_set_color(_pal.panel_fill);
-    draw_roundrect(px, py, px + bw, py + bh, false);
-    draw_set_color(_pal.panel_border);
-    draw_roundrect(px - 1, py - 1, px + bw + 1, py + bh + 1, true);
+    __dlg_draw_panel(px, py, bw, bh, _pal);
 
     // name
     var y_off = 0;
     if (d.name_label != ""){
-        draw_set_color(_pal.title_text);
-        draw_set_halign(fa_left);
-        draw_text(px + pad, py + 4, d.name_label);
+        __dlg_draw_nameplate(px + pad, py + 5, d.name_label, _pal);
         y_off = 14;
     }
 
@@ -880,6 +912,8 @@ function dialog2p_draw_world(_pid, _cam){
         if ((d.arrow_tick div 30) == 0){
             var ax = round(px + bw - pad - 12);
             var ay = round(py + bh - pad - 10);
+            draw_set_color(_pal.accent_dark);
+            draw_triangle(ax - 1, ay - 1, ax + 9, ay - 1, ax + 4, ay + 7, false);
             draw_set_color(_pal.arrow);
             draw_triangle(ax, ay, ax+8, ay, ax+4, ay+6, false);
         }
@@ -907,18 +941,12 @@ function dialog2p_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     var px = round(_rx + (_rw - bw) * 0.5);
     var py = round(_ry + _rh - (bh + d.margin_v));
 
-    // panel
-    draw_set_color(_pal.panel_fill);
-    draw_roundrect(px, py, px + bw, py + bh, false);
-    draw_set_color(_pal.panel_border);
-    draw_roundrect(px - 1, py - 1, px + bw + 1, py + bh + 1, true);
+    __dlg_draw_panel(px, py, bw, bh, _pal);
 
     // name
     var y_off = 0;
     if (d.name_label != ""){
-        draw_set_color(_pal.title_text);
-        draw_set_halign(fa_left);
-        draw_text(px + pad, py + 4, d.name_label);
+        __dlg_draw_nameplate(px + pad, py + 5, d.name_label, _pal);
         y_off = 14;
     }
 
@@ -957,6 +985,8 @@ function dialog2p_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         if ((d.arrow_tick div 30) == 0){
             var ax = round(px + bw - pad - 12);
             var ay = round(py + bh - pad - 10);
+            draw_set_color(_pal.accent_dark);
+            draw_triangle(ax - 1, ay - 1, ax + 9, ay - 1, ax + 4, ay + 7, false);
             draw_set_color(_pal.arrow);
             draw_triangle(ax, ay, ax+8, ay, ax+4, ay+6, false);
         }
