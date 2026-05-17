@@ -249,6 +249,15 @@ function status_system_apply_status(mon, status_id, opts){
             }
         }
         if (!is_undefined(__battle_actor_has_any_ability)){
+            var _blocked_by_csv_ability = false;
+            try {
+                if (!is_undefined(__battle_ability_effect_status_immune)){
+                    _blocked_by_csv_ability = __battle_ability_effect_status_immune(_ability_actor, _sid_ability);
+                    if (!_blocked_by_csv_ability && _sid_ability == "paralyze") _blocked_by_csv_ability = __battle_ability_effect_status_immune(_ability_actor, "paralysis");
+                    if (!_blocked_by_csv_ability && _sid_ability == "paralysis") _blocked_by_csv_ability = __battle_ability_effect_status_immune(_ability_actor, "paralyze");
+                }
+            } catch (e_csv_ability_guard) { _blocked_by_csv_ability = false; }
+            if (_blocked_by_csv_ability) return false;
             if ((_sid_ability == "poison" || _sid_ability == "toxic") && __battle_actor_has_any_ability(_ability_actor, ["immunity"])) return false;
             if (_sid_ability == "burn" && __battle_actor_has_any_ability(_ability_actor, ["water-veil", "water-bubble"])) return false;
             if ((_sid_ability == "paralysis" || _sid_ability == "paralyze") && __battle_actor_has_any_ability(_ability_actor, ["limber"])) return false;
@@ -463,6 +472,33 @@ function status_system_apply_status(mon, status_id, opts){
     if (is_struct(meta) && variable_struct_exists(meta, "on_apply") && !is_undefined(variable_struct_get(meta, "on_apply"))){
         try { variable_struct_get(meta, "on_apply")(mon, inst, opts); } catch (e) {}
     }
+    try {
+        var _reflecting = (is_struct(opts) && variable_struct_exists(opts, "_ability_status_reflect") && variable_struct_get(opts, "_ability_status_reflect") == true);
+        if (!_reflecting && !is_undefined(__battle_actor_ability_actions)){
+            var _status_actions = __battle_actor_ability_actions(mon, "after_status_received");
+            for (var _sai = 0; _sai < array_length(_status_actions); ++_sai){
+                var _sact = _status_actions[_sai];
+                if (!is_struct(_sact)) continue;
+                var _skind = variable_struct_exists(_sact, "kind") ? string_lower(string(variable_struct_get(_sact, "kind"))) : "";
+                if (_skind != "copy_status_to_source") continue;
+                var _sdata = (!is_undefined(__battle_ability_action_data)) ? __battle_ability_action_data(_sact) : {};
+                var _allowed = variable_struct_exists(_sdata, "statuses") ? variable_struct_get(_sdata, "statuses") : [];
+                if (!is_array(_allowed)) _allowed = [string(_allowed)];
+                var _match_status = false;
+                for (var _ali = 0; _ali < array_length(_allowed); ++_ali){
+                    if (string_lower(string(_allowed[_ali])) == string_lower(string(status_id))){ _match_status = true; break; }
+                }
+                if (!_match_status) continue;
+                var _src_live = undefined;
+                if (is_struct(opts) && variable_struct_exists(opts, "source")) _src_live = variable_struct_get(opts, "source");
+                if (!is_struct(_src_live) || _src_live == mon || _src_live == _target_mon) continue;
+                if (status_system_has_status(_src_live, status_id)) continue;
+                if (status_system_apply_status(_src_live, status_id, { source:mon, _ability_status_reflect:true })){
+                    try { if (!is_undefined(__battle_queue_ability_action_dialog)) __battle_queue_ability_action_dialog(mon, _sact, _src_live, {}); } catch (e_reflect_dialog) {}
+                }
+            }
+        }
+    } catch (e_status_ability_reflect) {}
     return true;
 }
 

@@ -592,6 +592,33 @@ function __battle_perform_action_impl(_pid, _step){
         if (is_struct(A) && is_real(move_slot)) variable_struct_set(A, "_last_selected_move_slot", move_slot);
     } catch (e_move_slot_stamp) {}
 
+    if (is_struct(A) && is_real(move_id)){
+        try {
+            var _turn_actions = __battle_actor_ability_actions(A, "turn_check");
+            for (var _tca = 0; _tca < array_length(_turn_actions); ++_tca){
+                var _tcact = _turn_actions[_tca];
+                if (!is_struct(_tcact)) continue;
+                var _tckind = variable_struct_exists(_tcact, "kind") ? string_lower(string(variable_struct_get(_tcact, "kind"))) : "";
+                if (_tckind == "skip_every_other_turn"){
+                    var _skip_next = false;
+                    try { _skip_next = variable_struct_exists(A, "_ability_skip_turn_next") && variable_struct_get(A, "_ability_skip_turn_next") == true; } catch (e_skip_read) { _skip_next = false; }
+                    variable_struct_set(A, "_ability_skip_turn_next", !_skip_next);
+                    if (_skip_next){
+                        try { __battle_queue_ability_action_dialog(A, _tcact, A, {}); } catch (e_truant_dialog) {}
+                        return "";
+                    }
+                    break;
+                } else if (_tckind == "consecutive_action_rule"){
+                    var _last_ability_move = (variable_struct_exists(A, "_ability_last_turn_move") && is_real(variable_struct_get(A, "_ability_last_turn_move"))) ? variable_struct_get(A, "_ability_last_turn_move") : undefined;
+                    if (is_real(_last_ability_move) && _last_ability_move == move_id){
+                        try { __battle_queue_ability_action_dialog(A, _tcact, A, {}); } catch (e_sequence_dialog) {}
+                    }
+                    variable_struct_set(A, "_ability_last_turn_move", move_id);
+                }
+            }
+        } catch (e_turn_ability_check) {}
+    }
+
     // Status gate: prevent acting when frozen/asleep/etc. before consuming PP or applying meta moves.
     if (is_struct(A) && !is_undefined(__battle_check_can_act) && !(is_real(move_id) && (move_id == 173 || move_id == 214))){
         var _can_act = true;
@@ -1303,6 +1330,21 @@ function __battle_perform_action_impl(_pid, _step){
             } catch (e_in2) {}
             try { __battle_request_animation_safe(A, { type: "flinch" }); } catch (e_fa) {}
             try { dialog2p_show_now(_pid, string(variable_struct_exists(A,"name")?variable_struct_get(A,"name"):"The user") + " flinched!"); } catch (e_fd) {}
+            try {
+                var _volatile_actions = __battle_actor_ability_actions(A, "after_volatile_received");
+                for (var _vai = 0; _vai < array_length(_volatile_actions); ++_vai){
+                    var _vact = _volatile_actions[_vai];
+                    if (!is_struct(_vact)) continue;
+                    var _vkind = variable_struct_exists(_vact, "kind") ? string_lower(string(variable_struct_get(_vact, "kind"))) : "";
+                    var _vdata = (!is_undefined(__battle_ability_action_data)) ? __battle_ability_action_data(_vact) : {};
+                    var _volatile_name = variable_struct_exists(_vdata, "volatile") ? string_lower(string(variable_struct_get(_vdata, "volatile"))) : "";
+                    if (_vkind == "self_stage_change" && _volatile_name == "flinch"){
+                        if (!is_undefined(__battle_ability_change_stage) && __battle_ability_change_stage(A, variable_struct_exists(_vdata, "stat") ? variable_struct_get(_vdata, "stat") : "spe", variable_struct_exists(_vdata, "delta") ? variable_struct_get(_vdata, "delta") : 1)){
+                            try { __battle_queue_ability_action_dialog(A, _vact, A, {}); } catch (e_steadfast_dialog) {}
+                        }
+                    }
+                }
+            } catch (e_flinch_ability) {}
             // Debug: report post-clear state
             if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
                 try {
@@ -2629,6 +2671,23 @@ function __battle_perform_action_impl(_pid, _step){
                 else if (is_real(mh_max) && mh_max > 0) total_hits = mh_max;
             }
         } catch (e_h) { total_hits = 1; }
+        try {
+            if (is_struct(A) && total_hits > 1){
+                var _mh_actions = __battle_actor_ability_actions(A, "multi_hit_check");
+                for (var _mha = 0; _mha < array_length(_mh_actions); ++_mha){
+                    var _mhact = _mh_actions[_mha];
+                    if (!is_struct(_mhact)) continue;
+                    var _mhkind = variable_struct_exists(_mhact, "kind") ? string_lower(string(variable_struct_get(_mhact, "kind"))) : "";
+                    if (_mhkind == "force_max_hits"){
+                        if (is_struct(mm_local) && variable_struct_exists(mm_local, "max_hits") && is_real(variable_struct_get(mm_local, "max_hits"))){
+                            total_hits = max(total_hits, floor(variable_struct_get(mm_local, "max_hits")));
+                            try { __battle_queue_ability_action_dialog(A, _mhact, D, {}); } catch (e_skill_link_dialog) {}
+                        }
+                        break;
+                    }
+                }
+            }
+        } catch (e_multi_hit_ability) {}
 
         var _natural_gift_profile = undefined;
         try {
@@ -2664,6 +2723,7 @@ function __battle_perform_action_impl(_pid, _step){
         if (is_struct(_move_behavior) && variable_struct_exists(_move_behavior, "natural_gift_uses_berry") && variable_struct_get(_move_behavior, "natural_gift_uses_berry") == true && is_struct(_natural_gift_profile) && is_struct(A)){
             variable_struct_set(A, "_pending_natural_gift", _natural_gift_profile);
             __battle_set_held_item_snapshot(A, -1, "");
+            try { if (!is_undefined(__battle_apply_after_item_consumed_ability)) __battle_apply_after_item_consumed_ability(A, variable_struct_get(_natural_gift_profile, "id")); } catch (e_natural_gift_ability) {}
         }
     } catch (e_natural_gift_consume) {}
     __battle_impl_request_move_anim_once(_pid, _step, A, D, move_id);
@@ -2767,15 +2827,23 @@ function __battle_perform_action_impl(_pid, _step){
             if (is_real(move_id) && move_id == 282 && is_real(dmgh) && dmgh > 0 && is_struct(D)){
                 var _knock_item = __battle_get_held_item_snapshot(D);
                 if (is_real(_knock_item.id) && _knock_item.id > 0){
+                    if (!is_undefined(__battle_ability_blocks_item_removal) && __battle_ability_blocks_item_removal(D, A)){
+                        dialog_queue(__battle_dialog_actor_name(D, "The target") + " kept its held item!");
+                    } else {
                     variable_struct_set(D, "_last_lost_item_id", _knock_item.id);
                     variable_struct_set(D, "_last_lost_item_name", _knock_item.name);
                     __battle_set_held_item_snapshot(D, -1, "");
                     dialog_queue(__battle_dialog_actor_name(D, "The target") + " lost its held item!");
+                    }
                 }
             }
             if (is_struct(_move_behavior) && variable_struct_exists(_move_behavior, "pluck_berry_after_damage") && variable_struct_get(_move_behavior, "pluck_berry_after_damage") == true && is_real(dmgh) && dmgh > 0 && is_struct(A) && is_struct(D)){
                 var _pluck_item = __battle_get_held_item_snapshot(D);
                 if (__battle_item_snapshot_is_berry(_pluck_item)){
+                    if (!is_undefined(__battle_ability_blocks_item_removal) && __battle_ability_blocks_item_removal(D, A)){
+                        dialog_queue(__battle_dialog_actor_name(D, "The target") + " kept its Berry!");
+                        return __battle_impl_return_used(_pid, A, mv_name, move_id);
+                    }
                     __battle_set_held_item_snapshot(D, -1, "");
                     var _pluck_user_name = __battle_dialog_actor_name(A, "The user");
                     var _pluck_target_name = __battle_dialog_actor_name(D, "The target");
@@ -2785,6 +2853,7 @@ function __battle_perform_action_impl(_pid, _step){
                     } catch (e_pluck_embargo) { _pluck_can_use = true; }
                     if (_pluck_can_use){
                         var _pluck_res = __battle_consume_borrowed_berry(_pluck_item.id, A);
+                        try { if (!is_undefined(__battle_apply_after_item_consumed_ability)) __battle_apply_after_item_consumed_ability(A, _pluck_item.id); } catch (e_pluck_ability) {}
                         dialog_queue(_pluck_user_name + " ate " + _pluck_target_name + "'s Berry!");
                         if (is_struct(_pluck_res) && variable_struct_exists(_pluck_res, "messages") && is_array(variable_struct_get(_pluck_res, "messages"))){
                             var _pluck_msgs = variable_struct_get(_pluck_res, "messages");

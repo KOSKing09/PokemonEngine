@@ -263,6 +263,26 @@ if (is_undefined(__battle_weather_apply_item_extension)){
     function __battle_weather_apply_item_extension(_dur, _wid, _source){
         var dur = max(0, floor(_dur));
         if (!is_struct(_source)) return dur;
+        try {
+            if (!is_undefined(item_runtime_actor_held_actions)){
+                var _runtime_actions = item_runtime_actor_held_actions(_source, "weather_duration");
+                var _wid_runtime = __battle_weather_normalize_id(_wid);
+                for (var _ri = 0; _ri < array_length(_runtime_actions); ++_ri){
+                    var _act = _runtime_actions[_ri];
+                    if (!is_struct(_act) || !variable_struct_exists(_act, "data")) continue;
+                    var _data = variable_struct_get(_act, "data");
+                    if (!is_struct(_data) || !variable_struct_exists(_data, "turns")) continue;
+                    var _turns = variable_struct_get(_data, "turns");
+                    if (!is_real(_turns)) continue;
+                    var _weather_ok = true;
+                    if (variable_struct_exists(_data, "weather")){
+                        var _need = __battle_weather_normalize_id(variable_struct_get(_data, "weather"));
+                        _weather_ok = (_need == _wid_runtime || (_need == "hail" && _wid_runtime == "snow") || (_need == "snow" && _wid_runtime == "hail") || (_need == "sun" && _wid_runtime == "harsh-sun"));
+                    }
+                    if (_weather_ok) dur = max(dur, floor(_turns));
+                }
+            }
+        } catch (e_weather_runtime_item) {}
         var texts = [];
         try {
             if (variable_struct_exists(_source, "held_item_identifier")) array_push(texts, string_lower(string(variable_struct_get(_source, "held_item_identifier"))));
@@ -417,10 +437,29 @@ if (is_undefined(__battle_weather_actor_has_ability)){
     }
 }
 
+if (is_undefined(__battle_weather_suppressed_by_ability)){
+    function __battle_weather_suppressed_by_ability(_pid){
+        var _B = __battle_ensure_slot(_pid);
+        if (!is_struct(_B) || !variable_struct_exists(_B, "actor") || !is_array(variable_struct_get(_B, "actor"))) return false;
+        var actors = variable_struct_get(_B, "actor");
+        for (var wi = 0; wi < array_length(actors); ++wi){
+            var act = actors[wi];
+            if (!is_struct(act)) continue;
+            if (__battle_hp_now(act) <= 0) continue;
+            try {
+                if (!is_undefined(__battle_actor_ability_has_group) && __battle_actor_ability_has_group(act, "weather_suppress")) return true;
+            } catch (e_weather_group) {}
+            if (__battle_weather_actor_has_ability(act, ["cloud nine", "cloud-nine", "air lock", "air-lock"])) return true;
+        }
+        return false;
+    }
+}
+
 if (is_undefined(__battle_weather_apply_end_of_turn)){
     function __battle_weather_apply_end_of_turn(_pid, _weather){
         if (!is_struct(_weather)) return;
         if (!__battle_weather_is_active(_weather)) return;
+        if (__battle_weather_suppressed_by_ability(_pid)) return;
         var wid = __battle_weather_normalize_id(variable_struct_exists(_weather, "id") ? variable_struct_get(_weather, "id") : "");
         if (string_length(wid) <= 0) return;
         var _B = __battle_ensure_slot(_pid);

@@ -249,6 +249,45 @@ Practical rule:
 - keep `overworld_encounter_tables_init()` for demo defaults and emergency fallback data
 - put real route data in route-owned Create scripts or a dedicated loader so content is not buried in the helper library
 
+## Room creation code example
+
+Room creation code is a good place to define a route's encounter table and assign that table to the encounter objects placed in that room.
+
+```gml
+// rooms/Route3/RoomCreationCode.gml
+
+if (!is_undefined(overworld_encounter_register_table)){
+    overworld_encounter_register_table("route_3", "grass", [
+        { species_id: 16, weight: 45, min_level: 4, max_level: 6 },
+        { species_id: 19, weight: 35, min_level: 4, max_level: 6 },
+        { species_id: 25, weight: 20, min_level: 5, max_level: 7 }
+    ]);
+
+    overworld_encounter_register_table("route_3", "bush", [
+        { species_id: 10, weight: 50, min_level: 3, max_level: 5 },
+        { species_id: 13, weight: 40, min_level: 3, max_level: 5 },
+        { species_id: 43, weight: 10, min_level: 5, max_level: 7 }
+    ]);
+}
+
+with (obush){
+    if (!is_undefined(overworld_encounter_init)) overworld_encounter_init(id);
+    encounter_region_key = "route_3";
+    encounter_habitat = "bush";
+    encounter_area_type = "forest";
+    encounter_chance = 1 / 12;
+    encounter_level_min = 3;
+    encounter_level_max = 7;
+}
+```
+
+The important connection is:
+
+- `overworld_encounter_register_table("route_3", "bush", [...])` creates the data.
+- `encounter_region_key = "route_3"` selects the route table group.
+- `encounter_habitat = "bush"` selects the specific table inside that route.
+- `encounter_area_type = "forest"` chooses the battle arena, not the Pokemon table.
+
 ## Adding a new encounter object
 
 Any object can become an encounter volume if it calls the runtime helpers.

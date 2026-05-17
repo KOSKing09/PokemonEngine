@@ -206,6 +206,8 @@ Target selectors and hit effects prefer the actor's cached live render center an
 
 Player-side doubles send-outs use `__battle_player_intro_segment(...)` to split intro timing by slot. That keeps both Pokemon from flashing and growing at the same instant during the battle intro while preserving the shared send-out animation for later switches.
 
+Stat overlay stencils support doubles targets. If a move lowers or raises stats on both opposing Pokemon, the battle system batches the matching pending stat overlays and sends one animation payload with `target_indexes`. `scripts/battle_animations/battle_animations.gml` then draws the tiled stat effect through each affected Pokemon's sprite cutout, so both battlers show the stat stencil together.
+
 Platform draw ordering:
 
 - Doubles now draw enemy platforms in a separate background pass before the enemy sprite pass.

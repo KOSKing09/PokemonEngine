@@ -535,12 +535,48 @@ function scr_move_type_id_by_id(_mid, _A = undefined) {
             }
         } catch (e_natural_gift_type) {}
     }
+    try {
+        if (is_struct(_A) && !is_undefined(__battle_actor_ability_actions)){
+            var _type_actions = __battle_actor_ability_actions(_A, "move_type_check");
+            if (array_length(_type_actions) > 0){
+                var _ab_key = "";
+                try { if (!is_undefined(__battle_actor_ability_name_lc)) _ab_key = __battle_actor_ability_name_lc(_A); } catch (e_ab_type_key) { _ab_key = ""; }
+                var _base_mv = (is_array(global._moves) && is_real(_mid) && _mid >= 0 && _mid < array_length(global._moves)) ? global._moves[_mid] : undefined;
+                var _base_type = -1;
+                if (is_struct(_base_mv) && variable_struct_exists(_base_mv, "type_id") && is_real(variable_struct_get(_base_mv, "type_id"))) _base_type = real(variable_struct_get(_base_mv, "type_id"));
+                var _normal_id = __pokemon_index_type_id_safe("normal", 1);
+                var _converted_type = -1;
+                if (_ab_key == "normalize") _converted_type = _normal_id;
+                else if (_base_type == _normal_id){
+                    if (_ab_key == "refrigerate") _converted_type = __pokemon_index_type_id_safe("ice", 15);
+                    else if (_ab_key == "pixilate") _converted_type = __pokemon_index_type_id_safe("fairy", 18);
+                    else if (_ab_key == "aerilate") _converted_type = __pokemon_index_type_id_safe("flying", 3);
+                    else if (_ab_key == "galvanize") _converted_type = __pokemon_index_type_id_safe("electric", 13);
+                } else if (_ab_key == "liquid-voice"){
+                    var _sound_move = false;
+                    try { if (!is_undefined(__battle_ability_move_is_sound)) _sound_move = __battle_ability_move_is_sound(_mid); } catch (e_sound_type) { _sound_move = false; }
+                    if (_sound_move) _converted_type = __pokemon_index_type_id_safe("water", 11);
+                }
+                if (_converted_type > 0) return _converted_type;
+            }
+        }
+    } catch (e_ability_move_type) {}
     var mv = (is_array(global._moves) && is_real(_mid) && _mid >= 0 && _mid < array_length(global._moves))
              ? global._moves[_mid] : undefined;
     if (is_struct(mv) && variable_struct_exists(mv, "type_id") && is_real(variable_struct_get(mv, "type_id"))) {
         return real(variable_struct_get(mv, "type_id"));
     }
     return -1;
+}
+
+function __pokemon_index_type_id_safe(_name, _fallback){
+    try {
+        if (variable_global_exists("TYPE_ID_BY_NAME")){
+            var _tm = variable_global_get("TYPE_ID_BY_NAME");
+            if (ds_exists(_tm, ds_type_map) && ds_map_exists(_tm, string_lower(string(_name)))) return ds_map_find_value(_tm, string_lower(string(_name)));
+        }
+    } catch (e_type_lookup_safe) {}
+    return _fallback;
 }
 
 /// Damage class ID (1=status, 2=physical, 3=special in most datasets)
@@ -795,6 +831,20 @@ function poke_index__species_ids(){
     return _out;
 }
 
+function poke_index__species_art_ready(_sid){
+    if (!is_real(_sid) || _sid < 0) return false;
+    try {
+        if (!is_undefined(pkicons_has_art96)) return pkicons_has_art96(floor(_sid));
+        if (!is_undefined(pkicons_get_art96)){
+            var _spr = pkicons_get_art96(floor(_sid));
+            if (!sprite_exists(_spr)) return false;
+            if (variable_global_exists("PKICONS") && is_struct(global.PKICONS) && variable_struct_exists(global.PKICONS, "missing_art96") && _spr == global.PKICONS.missing_art96) return false;
+            return true;
+        }
+    } catch (e_pidx_art) {}
+    return true;
+}
+
 function poke_index__display_name(_sid, _known){
     if (!_known) return "----------";
     var _name = "";
@@ -813,6 +863,7 @@ function poke_index__rows(){
     var _rows = [];
     for (var _i = 0; _i < array_length(_ids); ++_i){
         var _sid = _ids[_i];
+        if (!poke_index__species_art_ready(_sid)) continue;
         array_push(_rows, { species_id:_sid, dex_no:_sid });
     }
     return _rows;

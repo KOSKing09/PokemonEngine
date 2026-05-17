@@ -268,6 +268,11 @@ Music and warp notes:
 - Warp callers can override destination music by passing `room_music` in the warp opts struct.
 - Passing `room_music = -1` makes the destination room silent even if `_REGIONMUSIC` exists.
 - `objects/owarp/Step_0.gml` uses `world_warp_player_if_in_rect(...)` as the canonical map-trigger seam and forwards `transition_style` plus optional `room_music` overrides.
+- `owarp` has `warp_kind` for default warp audio:
+  - `warp_kind = "exit"` plays `snd_Warp_Exit`.
+  - `warp_kind = "door"` plays `snd_Warp_Door`.
+  - `warp_kind = "ladder"` plays `snd_Warp_Ladder`.
+- `owarp.warp_sound` defaults to `-1`. Leave it at `-1` to use `warp_kind`, or set it to a sound resource for a one-off override.
 
 This runtime is the seam between room entry, music restoration, route naming, warp placement, and world-audio state. If a room change behaves incorrectly, check `world_room_apply()` before changing player or NPC code.
 

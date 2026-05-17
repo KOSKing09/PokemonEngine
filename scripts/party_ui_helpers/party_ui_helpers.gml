@@ -42,9 +42,9 @@ function __party_impl_draw_summary(_pid, _P, _OX, _OY, _S){
 
     // Defensive reads for leftInfo geometry
     var _descPad = (is_struct(_leftInfo) && variable_struct_exists(_leftInfo, "descPad")) ? variable_struct_get(_leftInfo, "descPad") : (3 * _S);
-    var _descAreaH = (is_struct(_leftInfo) && variable_struct_exists(_leftInfo, "descAreaH")) ? variable_struct_get(_leftInfo, "descAreaH") : (38 * _S);
+    var _descAreaH = (is_struct(_leftInfo) && variable_struct_exists(_leftInfo, "descAreaH")) ? variable_struct_get(_leftInfo, "descAreaH") : (50 * _S);
     var _descX = (is_struct(_leftInfo) && variable_struct_exists(_leftInfo, "descX")) ? variable_struct_get(_leftInfo, "descX") : (_OX + _LEFT_X * _S + (3 * _S));
-    var _descY = (is_struct(_leftInfo) && variable_struct_exists(_leftInfo, "descY")) ? variable_struct_get(_leftInfo, "descY") : ((_OY + (_LEFT_Y + _LEFT_H) * _S) - (38 * _S) + (3 * _S));
+    var _descY = (is_struct(_leftInfo) && variable_struct_exists(_leftInfo, "descY")) ? variable_struct_get(_leftInfo, "descY") : ((_OY + (_LEFT_Y + _LEFT_H) * _S) - (50 * _S) + (3 * _S));
     var _descW = (is_struct(_leftInfo) && variable_struct_exists(_leftInfo, "descW")) ? variable_struct_get(_leftInfo, "descW") : (min((_LEFT_W + 10) * _S, (108 - _LEFT_X - 4) * _S) - (3 * _S) * 2);
     var _descH = (is_struct(_leftInfo) && variable_struct_exists(_leftInfo, "descH")) ? variable_struct_get(_leftInfo, "descH") : ((_descAreaH) - (_descPad) * 2);
 
@@ -335,7 +335,7 @@ function __party_impl_draw_left_panel(_P, _M, _OX, _OY, _S, _LEFT_X, _LEFT_Y, _L
     draw_set_color(_C_EDGE);  draw_rectangle(_lx1- _S, _ly1- _S, _lx2+ _S, _ly2+ _S, true);
 
     var _DESC_PAD = 3 * _S;
-    var _DESC_AREA_H = 38 * _S;
+    var _DESC_AREA_H = 50 * _S;
 
     if (variable_global_exists("FNT_POKEMON")) draw_set_font(global.FNT_POKEMON); else draw_set_font(-1);
     draw_set_color(c_white);

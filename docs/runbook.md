@@ -59,7 +59,9 @@ The current boot path is:
   - use `party_ensure(pid)` before touching `global.PARTY[pid]`
   - use `party_model_set_stored_mon_nickname(pid, store_info, nick)` when updating a caught mon that may already have been routed into party or PC storage
 - Battle:
-  - open with `battle_open(...)` or `battle_open_trainer(...)`
+  - open wild battles with `battle_open(wildLevel)`, `battle_open(pid, wildLevel)`, or `battle_open(pid, wildLevel, areaTypeOrOpts, opts)`
+  - open trainer battles with `battle_open_trainer(pid, trainer_payload)`, which forwards into `battle_open(...)`
+  - press F1 in `objects/oPlayer/Step_1.gml` for the debug wild battle path
   - call `battle_update(pid)` in Step
   - call `battle_draw_gui(pid)` in Draw GUI
   - battle close waits while nickname entry is active through `virtual_keyboard_blocks_input(pid)`

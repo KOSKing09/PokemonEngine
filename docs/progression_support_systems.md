@@ -75,6 +75,7 @@ Purpose:
 - per-player Pokemon storage boxes
 - split-screen-safe PC UI
 - drag or swap style party-to-box and box-to-party movement
+- PC nursery/breeding mode opened from `MISC -> BREEDING`
 
 Main contract:
 
@@ -107,8 +108,12 @@ Behavior notes:
 - `PageUp` and `PageDown` change either theme or active box depending on modifier state.
 - Closing the PC returns any currently held mon to its origin first.
 - Legacy storage import still runs on first state creation through `pc_import_legacy_storage` when available.
+- Breeding mode uses six nursery pairs plus a separate `sys_egg_box`; the right-side picker can switch between PC boxes and the party with `Inventory`, and Egg creation/hatching advance once per completed battle.
+- The Egg Box is opened from `MISC -> EGGS`; it is a read-only storage view for Eggs waiting to hatch.
 
 The PC system is intended to be safe for split-screen draw composition. Use the rect draw entrypoint rather than drawing directly to full GUI space.
+
+For breeding setup and rules, see `docs/breeding_system.md`.
 
 ## Currency
 

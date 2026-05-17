@@ -3,69 +3,62 @@
 if (!is_undefined(dialog2p_step)) dialog2p_step(pid);
 if (!is_undefined(multiplayer_update_versus_request)) multiplayer_update_versus_request(pid);
 if (!is_undefined(multiplayer_update_wild_assist_request)) multiplayer_update_wild_assist_request(pid);
+if (!is_undefined(multiplayer_update_trainer_team_select)) multiplayer_update_trainer_team_select(pid);
 if (!is_undefined(cutscene_blocks_player) && cutscene_blocks_player(pid)) exit;
 
 if (keyboard_check_pressed(vk_f1)){
     if (!battle_is_open(pid)){
-    /* 
-        var trainer_party = [];
-        if (!is_undefined(pokemon_factory_create)){
-            trainer_party = [
-                pokemon_factory_create(133, 5, {}),
-                pokemon_factory_create(10, 5, {}),
-                pokemon_factory_create(252, 5, {})
-            ];
+        var _debug_anchor = noone;
+        if (instance_exists(obush)){
+            _debug_anchor = instance_nearest(x, y, obush);
         }
-        var trainer_payload = {
-            trainer_name: "Bug Catcher Rick",
-            sprite: spr_PokemonEmeraldTrainers,
-            sprite_index: 12,
-            party: trainer_party,
-            area_type: "forest"
-            
-        };
-        battle_open_trainer(0, trainer_payload);
-       */
-        var _debug_party = party_ensure(pid);
-        if (is_struct(_debug_party) && variable_struct_exists(_debug_party, "mons") && is_array(_debug_party.mons)){
-            var _revived = 0;
-            for (var _pi = 0; _pi < array_length(_debug_party.mons) && _revived < 2; ++_pi){
-                var _mon = _debug_party.mons[_pi];
-                if (!is_struct(_mon)) continue;
-                var _max_hp = 1;
-                if (variable_struct_exists(_mon, "hp_max") && is_real(variable_struct_get(_mon, "hp_max"))) _max_hp = max(1, floor(variable_struct_get(_mon, "hp_max")));
-                else if (variable_struct_exists(_mon, "maxhp") && is_real(variable_struct_get(_mon, "maxhp"))) _max_hp = max(1, floor(variable_struct_get(_mon, "maxhp")));
-                else if (variable_struct_exists(_mon, "hp") && is_real(variable_struct_get(_mon, "hp"))) _max_hp = max(1, floor(variable_struct_get(_mon, "hp")));
-                variable_struct_set(_mon, "hp", _max_hp);
-                variable_struct_set(_mon, "hp_now", _max_hp);
-                if (!variable_struct_exists(_mon, "hp_max") || !is_real(variable_struct_get(_mon, "hp_max"))) variable_struct_set(_mon, "hp_max", _max_hp);
-                if (!variable_struct_exists(_mon, "maxhp") || !is_real(variable_struct_get(_mon, "maxhp"))) variable_struct_set(_mon, "maxhp", _max_hp);
-                _revived += 1;
-            }
-        }
+
         var _debug_area = choose("dark water", "rocks a", "light", "grassy", "rocks b", "dirt", "river", "snowy", "grassy snow", "ice", "forest", "ugly grass", "wood bridge", "man made paths");
+        var _debug_level_min = 5;
+        var _debug_level_max = 10;
+        var _debug_format = "single";
         var _debug_opts = {
             battle_type: "wild",
-            battle_format: "double"
+            battle_format: _debug_format
         };
-        var _debug_pick_a = undefined;
-        var _debug_pick_b = undefined;
-        if (!is_undefined(__overworld_encounter_table_for) && !is_undefined(__overworld_encounter_pick_from_table)){
-            var _debug_habitat = choose("grass", "bush");
-            var _debug_table = __overworld_encounter_table_for("demo_route_1", _debug_habitat);
-            if (is_array(_debug_table) && array_length(_debug_table) > 0){
-                _debug_pick_a = __overworld_encounter_pick_from_table(_debug_table, 5, 10);
-                _debug_pick_b = __overworld_encounter_pick_from_table(_debug_table, 5, 10);
+
+        if (_debug_anchor != noone && !is_undefined(overworld_encounter_init)){
+            overworld_encounter_init(_debug_anchor);
+
+            if (variable_instance_exists(_debug_anchor, "encounter_level_min")) _debug_level_min = max(1, floor(variable_instance_get(_debug_anchor, "encounter_level_min")));
+            if (variable_instance_exists(_debug_anchor, "encounter_level_max")) _debug_level_max = max(_debug_level_min, floor(variable_instance_get(_debug_anchor, "encounter_level_max")));
+            if (variable_instance_exists(_debug_anchor, "encounter_area_type")) _debug_area = string(variable_instance_get(_debug_anchor, "encounter_area_type"));
+            if (variable_instance_exists(_debug_anchor, "encounter_battle_format")) _debug_format = string_lower(string(variable_instance_get(_debug_anchor, "encounter_battle_format")));
+            if (_debug_format != "double") _debug_format = "single";
+            if (_debug_format != "double" && variable_instance_exists(_debug_anchor, "encounter_double_chance") && random(1) < real(variable_instance_get(_debug_anchor, "encounter_double_chance"))) _debug_format = "double";
+
+            _debug_opts.battle_format = _debug_format;
+            if (variable_instance_exists(_debug_anchor, "encounter_region_key")) _debug_opts.encounter_region_key = string(variable_instance_get(_debug_anchor, "encounter_region_key"));
+            if (variable_instance_exists(_debug_anchor, "encounter_habitat")) _debug_opts.encounter_habitat = string(variable_instance_get(_debug_anchor, "encounter_habitat"));
+
+            if (!is_undefined(__overworld_encounter_roll)){
+                var _debug_roll = __overworld_encounter_roll(_debug_anchor, _debug_format, _debug_level_min, _debug_level_max);
+                if (is_struct(_debug_roll)){
+                    _debug_opts.enemy_species = variable_struct_get(_debug_roll, "species");
+                    _debug_opts.enemy_levels = variable_struct_get(_debug_roll, "levels");
+                }
             }
         }
-        if (is_struct(_debug_pick_a) && is_struct(_debug_pick_b)){
-            variable_struct_set(_debug_opts, "enemy_species", [variable_struct_get(_debug_pick_a, "species_id"), variable_struct_get(_debug_pick_b, "species_id")]);
-            variable_struct_set(_debug_opts, "enemy_levels", [variable_struct_get(_debug_pick_a, "level"), variable_struct_get(_debug_pick_b, "level")]);
-        } else {
-            variable_struct_set(_debug_opts, "enemy_species", [irandom_range(1, 901), irandom_range(1, 901)]);
-            variable_struct_set(_debug_opts, "enemy_levels", [irandom_range(5, 10), irandom_range(5, 10)]);
+
+        if (!variable_struct_exists(_debug_opts, "enemy_species")){
+            var _debug_count = (_debug_format == "double") ? 2 : 1;
+            var _debug_species = [];
+            var _debug_levels = [];
+            for (var _debug_i = 0; _debug_i < _debug_count; ++_debug_i){
+                array_push(_debug_species, irandom_range(1, 386));
+                array_push(_debug_levels, irandom_range(_debug_level_min, _debug_level_max));
+            }
+            _debug_opts.enemy_species = (_debug_count == 1) ? _debug_species[0] : _debug_species;
+            _debug_opts.enemy_levels = (_debug_count == 1) ? _debug_levels[0] : _debug_levels;
         }
-        battle_open(pid, irandom_range(5,10), _debug_area, _debug_opts);
+
+        var _debug_open_level = is_array(_debug_opts.enemy_levels) ? _debug_opts.enemy_levels[0] : _debug_opts.enemy_levels;
+        battle_open(pid, _debug_open_level, _debug_area, _debug_opts);
 	}else{
 		battle_close(pid);
 	}
@@ -288,7 +281,7 @@ if (talk_cd > 0) talk_cd--;
 
 // open when close to a box, but respect cooldown
 
-if (!is_undefined(dialog2p_is_open) && !dialog2p_is_open(pid)) {
+if (!is_undefined(dialog2p_is_open) && !dialog2p_is_open(pid) && (is_undefined(overworld_field_interaction_blocked) || !overworld_field_interaction_blocked(pid))) {
     if (controls_pressed(pid,"Interact") && talk_cd <= 0) {
         var _handled_interact = false;
         if (!is_undefined(overworld_find_interactable_npc) && !is_undefined(overworld_npc_interact)) {

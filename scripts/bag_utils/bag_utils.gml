@@ -1,7 +1,7 @@
 // Bag utilities: defaults, placeholder lookup, rect scaler, and item helpers.
 function __bag_impl__ensure_props(_s, _names, _defs){ if (!is_struct(_s) || !is_array(_names) || !is_array(_defs)) return; var n = min(array_length(_names), array_length(_defs)); for (var i = 0; i < n; i++){ var k = _names[i]; if (!variable_struct_exists(_s, k)) variable_struct_set(_s, k, _defs[i]); } }
 
-function __bag_impl__default_bag(){ return { open:false, mode:"bag", page:0, sel:0, scroll:0, spin_ticks:0, items:[[],[],[],[],[]], sys_qty:[], item_menu_open:false, item_menu_sel:0, item_menu_row:0, lock:0, registered_item_id:-1, registered_item_name:"", registered_item_real_name:"" }; }
+function __bag_impl__default_bag(){ return { open:false, mode:"bag", page:0, sel:0, scroll:0, desc_scroll:0, desc_key:"", spin_ticks:0, items:[[],[],[],[],[]], sys_qty:[], item_menu_open:false, item_menu_sel:0, item_menu_row:0, lock:0, registered_item_id:-1, registered_item_name:"", registered_item_real_name:"" }; }
 
 function __bag_impl__empty_items(){ return [[],[],[],[],[]]; }
 

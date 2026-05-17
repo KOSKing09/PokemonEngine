@@ -948,6 +948,33 @@ function pkicons_get_art96(_species){
     if (PKICONS.debug_crys) pkicons__log_cry("art96 sliced species="+string(_species)+" frame="+string(frameW)+"x"+string(frameH));
     return quad;
 }
+
+function pkicons_has_art96(_species){
+    pkicons_init();
+    if (is_real(_species)){
+        var _sid = floor(_species);
+        var _key = "ART|" + string(_sid);
+        if (variable_struct_exists(PKICONS.art_meta, _key)){
+            var _meta = variable_struct_get(PKICONS.art_meta, _key);
+            return is_struct(_meta) && variable_struct_exists(_meta, "mode") && string(_meta.mode) == "quad";
+        }
+        var _spr = pkicons_get_art96(_sid);
+        if (!sprite_exists(_spr)) return false;
+        if (variable_struct_exists(PKICONS.art_meta, _key)){
+            var _meta2 = variable_struct_get(PKICONS.art_meta, _key);
+            return is_struct(_meta2) && variable_struct_exists(_meta2, "mode") && string(_meta2.mode) == "quad";
+        }
+    }
+    return false;
+}
+
+function pkicons_has_art96_by_mon(_mon){
+    if (!is_struct(_mon)) return false;
+    var _sid = pkicons__resolve_mon_species_id(_mon);
+    if (_sid < 0 && variable_struct_exists(_mon, "species") && is_real(variable_struct_get(_mon, "species"))) _sid = variable_struct_get(_mon, "species");
+    return is_real(_sid) && _sid >= 0 && pkicons_has_art96(_sid);
+}
+
 function pkicons__resolve_mon_species_id(_mon){
     if (!is_struct(_mon)) return -1;
 

@@ -52,7 +52,34 @@ function wc_tiles_hit_rect(_l,_t,_r,_b){
 }
 
 /// Collide at proposed position using YOUR mask (no offsets)
-function wc_collides_at(_inst, _px, _py){
+function __wc_rects_overlap(_l1, _t1, _r1, _b1, _l2, _t2, _r2, _b2){
+    return (_l1 < _r2 && _r1 > _l2 && _t1 < _b2 && _b1 > _t2);
+}
+
+function wc_instance_blocks_movement(_inst){
+    if (!instance_exists(_inst)) return false;
+    if (variable_instance_exists(_inst, "world_solid") && variable_instance_get(_inst, "world_solid") == false) return false;
+    if (variable_instance_exists(_inst, "follower_pokemon") && variable_instance_get(_inst, "follower_pokemon") == true) return false;
+    if (variable_instance_exists(_inst, "encounter_pokemon") && variable_instance_get(_inst, "encounter_pokemon") == true) return false;
+    return true;
+}
+
+function wc_objects_hit_rect(_l, _t, _r, _b, _ignore_inst = noone){
+    if (!is_array(WC.solids)) return false;
+    for (var i = 0; i < array_length(WC.solids); i++){
+        var o = WC.solids[i];
+        if (o == noone) continue;
+        for (var j = 0; j < instance_number(o); ++j){
+            var _hit_inst = instance_find(o, j);
+            if (_hit_inst == noone || _hit_inst == _ignore_inst) continue;
+            if (!wc_instance_blocks_movement(_hit_inst)) continue;
+            if (__wc_rects_overlap(_l, _t, _r, _b, _hit_inst.bbox_left, _hit_inst.bbox_top, _hit_inst.bbox_right, _hit_inst.bbox_bottom)) return true;
+        }
+    }
+    return false;
+}
+
+function wc_collides_at(_inst, _px, _py, _ignore_inst = noone){
     var dx = _px - _inst.x;
     var dy = _py - _inst.y;
 
@@ -65,13 +92,7 @@ function wc_collides_at(_inst, _px, _py){
     if (wc_tiles_hit_rect(l,t,r,b)) return true;
 
     // blocking objects via your mask
-    if (is_array(WC.solids)){
-        for (var i = 0; i < array_length(WC.solids); i++){
-            var o = WC.solids[i];
-            if (o == noone) continue;
-            if (place_meeting(_px, _py, o)) return true;
-        }
-    }
+    if (wc_objects_hit_rect(l, t, r, b, _ignore_inst)) return true;
 
     return false;
 }

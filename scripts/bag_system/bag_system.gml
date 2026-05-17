@@ -21,7 +21,7 @@ function bags_init(_players){
                 _b = bag__default_bag();
                 global.BAGS[_pid] = _b;
             } else {
-                bag__ensure_props(_b, ["items","sys_qty","page","sel","scroll","spin_ticks","mode","open"], [bag__empty_items(), [], 0, 0, 0, 0, "bag", false]);
+                bag__ensure_props(_b, ["items","sys_qty","page","sel","scroll","desc_scroll","desc_key","spin_ticks","mode","open"], [bag__empty_items(), [], 0, 0, 0, 0, "", 0, "bag", false]);
             }
         }
     }
@@ -31,7 +31,7 @@ function bags_init(_players){
 function bag__ensure_props(_s, _names, _defs){ if (!is_undefined(__bag_impl__ensure_props)) return __bag_impl__ensure_props(_s,_names,_defs); }
 
 // Return a fresh default bag struct (used in multiple places)
-function bag__default_bag(){ if (!is_undefined(__bag_impl__default_bag)) return __bag_impl__default_bag(); return { open:false, mode:"bag", page:0, sel:0, scroll:0, spin_ticks:0, items:[[],[],[],[],[]], sys_qty:[], item_menu_open:false, item_menu_sel:0, item_menu_row:0, lock:0, registered_item_id:-1, registered_item_name:"", registered_item_real_name:"" }; }
+function bag__default_bag(){ if (!is_undefined(__bag_impl__default_bag)) return __bag_impl__default_bag(); return { open:false, mode:"bag", page:0, sel:0, scroll:0, desc_scroll:0, desc_key:"", spin_ticks:0, items:[[],[],[],[],[]], sys_qty:[], item_menu_open:false, item_menu_sel:0, item_menu_row:0, lock:0, registered_item_id:-1, registered_item_name:"", registered_item_real_name:"" }; }
 
 // Return a project placeholder sprite index if present, else fall back to PKICONS.missing_icon32 (or -1)
 function bag__get_item_placeholder(){ if (!is_undefined(__bag_impl__get_item_placeholder)) return __bag_impl__get_item_placeholder(); var ph = asset_get_index("spr_item_placeholder"); if (ph == -1 && variable_global_exists("PKICONS") && is_struct(PKICONS) && variable_struct_exists(PKICONS, "missing_icon32")) ph = variable_struct_get(PKICONS, "missing_icon32"); return ph; }
@@ -92,11 +92,19 @@ function bag__clean_item_text(_txt){
 function bag__resolve_item_desc(_iid){
     if (!is_real(_iid) || _iid < 0) return "—";
     var txt = "";
+    if (variable_global_exists("_item_text") && is_array(global._item_text) && _iid < array_length(global._item_text)){
+        var itxt_first = global._item_text[_iid];
+        if (is_struct(itxt_first)){
+            if (variable_struct_exists(itxt_first, "flavor_summary") && string_length(string_trim(string(itxt_first.flavor_summary))) > 0) txt = itxt_first.flavor_summary;
+            else if (variable_struct_exists(itxt_first, "flavor_text") && string_length(string_trim(string(itxt_first.flavor_text))) > 0) txt = itxt_first.flavor_text;
+            else if (variable_struct_exists(itxt_first, "short_desc") && string_length(string_trim(string(itxt_first.short_desc))) > 0) txt = itxt_first.short_desc;
+        }
+    }
     if (variable_global_exists("_item_prose") && is_array(global._item_prose) && _iid < array_length(global._item_prose)){
         var prose = global._item_prose[_iid];
         if (is_struct(prose)){
-            if (variable_struct_exists(prose, "short_effect") && string_length(string_trim(prose.short_effect)) > 0) txt = prose.short_effect;
-            else if (variable_struct_exists(prose, "effect") && string_length(string_trim(prose.effect)) > 0) txt = prose.effect;
+            if (string_length(string_trim(txt)) == 0 && variable_struct_exists(prose, "short_effect") && string_length(string_trim(prose.short_effect)) > 0) txt = prose.short_effect;
+            else if (string_length(string_trim(txt)) == 0 && variable_struct_exists(prose, "effect") && string_length(string_trim(prose.effect)) > 0) txt = prose.effect;
         }
     }
     if (string_length(string_trim(txt)) == 0 && variable_global_exists("_item_text") && is_array(global._item_text) && _iid < array_length(global._item_text)){
@@ -467,6 +475,21 @@ function bag__battle_item_target_block_reason(_pid, _target, _item_id){
     return _name + " can't receive items because of Embargo!";
 }
 
+function bag__dialog_with_item_messages(_prefix, _messages, _fallback){
+    var _out = string(_prefix);
+    var _added = false;
+    if (is_array(_messages)){
+        for (var _i = 0; _i < array_length(_messages); ++_i){
+            var _msg = string_trim(string(_messages[_i]));
+            if (string_length(_msg) <= 0) continue;
+            _out += "\n" + _msg;
+            _added = true;
+        }
+    }
+    if (!_added && is_string(_fallback) && string_length(_fallback) > 0) _out += "\n" + _fallback;
+    return _out;
+}
+
 // Default in-battle Use handler. Call this from the bag UI when the player
 // selects Use while the bag is open in battle mode. It implements a small set
 // of commonly expected behaviors (Poké Ball -> attempt catch, basic Potion
@@ -508,7 +531,7 @@ function bag__use_item_on_self(_pid, _row){
     } else if (variable_global_exists("PLAYER_NAME")) trainer = string(global.PLAYER_NAME);
 
     var disp = bag__item_display_name(iid, _row, it);
-    var prefix = string(trainer) + " used " + bag__item_article(disp) + " " + string(disp) + "!";
+    var prefix = string(trainer) + " used " + string(disp) + "!";
 
     // Determine whether we're in a battle. Some item behaviors (Poké Balls)
     // are battle-only; others (consumables like Potions) should work outside
@@ -531,7 +554,8 @@ function bag__use_item_on_self(_pid, _row){
     var _battle_action_actor_index = 0;
     if (inBattle && is_struct(_B)){
         try {
-            if (variable_struct_exists(_B, "versus_enabled") && variable_struct_get(_B, "versus_enabled") == true && !is_undefined(__battle_command_ui_state)){
+            var _bag_split_ui = (!is_undefined(__battle_uses_split_command_ui) && __battle_uses_split_command_ui(_B));
+            if (_bag_split_ui && !is_undefined(__battle_command_ui_state)){
                 var _bag_ui = __battle_command_ui_state(_B, _pid);
                 if (is_struct(_bag_ui) && variable_struct_exists(_bag_ui, "command_actor_index") && is_real(variable_struct_get(_bag_ui, "command_actor_index"))){
                     _battle_action_actor_index = floor(variable_struct_get(_bag_ui, "command_actor_index"));
@@ -565,7 +589,7 @@ function bag__use_item_on_self(_pid, _row){
             if (etype == "heal_flat" || etype == "heal_full" || etype == "full_restore" || etype == "revive" || etype == "revive_half" || etype == "revive_full" || etype == "revive_all" || etype == "cure_status" || etype == "cure_all" || etype == "restore_pp"){
                 recognized_party_consumable = true;
             }
-            if (etype == "ev_raise" || etype == "ev_drop" || etype == "level_up" || etype == "pp_up" || etype == "evolve_item"){
+            if (etype == "ev_raise" || etype == "ev_drop" || etype == "ev_reset" || etype == "level_up" || etype == "pp_up" || etype == "evolve_item" || etype == "exp_gain" || etype == "stat_candy" || etype == "species_candy" || etype == "nature_mint" || etype == "dynamax_level" || etype == "ability_change" || etype == "tera_type_change"){
                 recognized_party_consumable = true;
             }
             if (etype == "escape_battle" || etype == "repel" || etype == "encounter_rate" || etype == "battle_stage" || etype == "dire_hit" || etype == "guard_spec"){
@@ -644,7 +668,14 @@ function bag__use_item_on_self(_pid, _row){
             bag_inventory_remove_item(_pid, iid, 1);
             bags_seed_from_items(_pid);
             bag_close(_pid);
-            try { dialog2p_show(_pid, out_txt + "\nIt took effect."); } catch (e_field_dialog) {}
+            if (!is_undefined(sfx_play_safe)){
+                if (bag__effect_types_has(effect_types, "repel")) sfx_play_safe(snd_Use_Repel, 1);
+                else sfx_play_safe(snd_Use_Item, 1);
+            }
+            var _field_msg = "It took effect.";
+            if (bag__effect_types_has(effect_types, "repel")) _field_msg = "Wild Pokemon will be kept away.";
+            else if (bag__effect_types_has(effect_types, "encounter_rate")) _field_msg = "The wild Pokemon encounter rate changed.";
+            try { dialog2p_show(_pid, out_txt + "\n" + _field_msg); } catch (e_field_dialog) {}
             return true;
         }
 
@@ -666,6 +697,7 @@ function bag__use_item_on_self(_pid, _row){
             bag_inventory_remove_item(_pid, iid, 1);
             bags_seed_from_items(_pid);
             bag_close(_pid);
+            if (!is_undefined(sfx_play_safe)) sfx_play_safe(snd_Use_Item, 1);
             try { dialog2p_show(_pid, out_txt + "\nGot away safely!"); } catch (e_escape_dialog) {}
             return true;
         }
@@ -684,8 +716,9 @@ function bag__use_item_on_self(_pid, _row){
                 bag_inventory_remove_item(_pid, iid, 1);
                 bags_seed_from_items(_pid);
                 bag_close(_pid);
-                var _detail_direct = out_txt;
-                if (variable_struct_exists(_res_direct, "messages") && is_array(_res_direct.messages) && array_length(_res_direct.messages) > 0) _detail_direct += "\n" + string(_res_direct.messages[0]);
+                if (!is_undefined(sfx_play_safe)) sfx_play_safe(snd_Use_Item, 1);
+                var _direct_msgs = (variable_struct_exists(_res_direct, "messages") && is_array(_res_direct.messages)) ? _res_direct.messages : [];
+                var _detail_direct = bag__dialog_with_item_messages(out_txt, _direct_msgs, "It took effect.");
                 try { dialog2p_show(_pid, _detail_direct); } catch (e_x_dialog) {}
                 return true;
             }
@@ -808,20 +841,32 @@ function bag__use_item_on_self(_pid, _row){
             var actP = { item_use: true, item_id: iid, ball_mult: ball_mult, actor_index: action_actor_index, target_index: default_target, bag_return_state: _bag_return_state };
 
             bag_close(_pid);
+            if (!is_undefined(sfx_play_safe)) sfx_play_safe(snd_Use_Item, 1);
 
             if (array_length(target_candidates) > 1 && !is_undefined(__battle_commit_player_action)){
                 if (!is_undefined(__battle_sort_target_candidates)) target_candidates = __battle_sort_target_candidates(_pid, action_actor_index, target_candidates);
-                variable_struct_set(_B, "_command_pending_action", actP);
-                variable_struct_set(_B, "_target_pick_targets", target_candidates);
                 var target_sel = 0;
                 if (!is_undefined(__battle_target_candidate_select_index)) target_sel = __battle_target_candidate_select_index(target_candidates, default_target);
-                variable_struct_set(_B, "_target_pick_index", target_sel);
                 try { variable_struct_set(_B, "_input_grace_until", current_time + 180); } catch (e_ball_target_grace) {}
-                var _sys_ui = variable_struct_exists(_B, "sys_ui") ? variable_struct_get(_B, "sys_ui") : undefined;
-                if (is_struct(_sys_ui)){
-                    variable_struct_set(_sys_ui, "menu", "target");
-                    variable_struct_set(_sys_ui, "selX", target_sel mod 2);
-                    variable_struct_set(_sys_ui, "selY", target_sel div 2);
+                var _target_ui = (!is_undefined(__battle_command_ui_state) ? __battle_command_ui_state(_B, _pid) : undefined);
+                var _use_split_target = (!is_undefined(__battle_uses_split_command_ui) && __battle_uses_split_command_ui(_B));
+                if (_use_split_target && is_struct(_target_ui)){
+                    variable_struct_set(_target_ui, "command_pending_action", actP);
+                    variable_struct_set(_target_ui, "target_pick_targets", target_candidates);
+                    variable_struct_set(_target_ui, "target_pick_index", target_sel);
+                    variable_struct_set(_target_ui, "menu", "target");
+                    variable_struct_set(_target_ui, "selX", target_sel mod 2);
+                    variable_struct_set(_target_ui, "selY", target_sel div 2);
+                } else {
+                    variable_struct_set(_B, "_command_pending_action", actP);
+                    variable_struct_set(_B, "_target_pick_targets", target_candidates);
+                    variable_struct_set(_B, "_target_pick_index", target_sel);
+                    var _sys_ui = variable_struct_exists(_B, "sys_ui") ? variable_struct_get(_B, "sys_ui") : undefined;
+                    if (is_struct(_sys_ui)){
+                        variable_struct_set(_sys_ui, "menu", "target");
+                        variable_struct_set(_sys_ui, "selX", target_sel mod 2);
+                        variable_struct_set(_sys_ui, "selY", target_sel div 2);
+                    }
                 }
                 return true;
             }
@@ -904,6 +949,7 @@ function bag__use_item_on_self(_pid, _row){
         // may also occlude dialog boxes. Instead, party_input will close the
         // party and open the dialog after the player selects a target.
         bag_close(_pid);
+        if (!is_undefined(sfx_play_safe)) sfx_play_safe(snd_Use_Item, 1);
         party_open(_pid);
         var P = party_ensure(_pid);
         if (is_struct(P)){
@@ -980,6 +1026,38 @@ function bag_inventory_add_item(_pid, _itemId, _qtyAdd){
     var _cur  = bag_inventory_get_qty(_pid, _itemId);
     var _next = _cur + (is_real(_qtyAdd) ? max(0, floor(_qtyAdd)) : 0);
     return bag_inventory_set_qty(_pid, _itemId, _next);
+}
+
+function bag_debug_seed_all_items(_pid, _qty = 20){
+    bag_inventory_ensure(_pid);
+
+    var _amount = 20;
+    if (is_real(_qty)) _amount = max(0, floor(_qty));
+
+    if (!variable_global_exists("_items") || !is_array(global._items)) {
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) {
+            show_debug_message("[bag][seed_all] global._items is not loaded yet");
+        }
+        return 0;
+    }
+
+    var _seeded = 0;
+    var _item_count = array_length(global._items);
+    for (var _item_id = 1; _item_id < _item_count; _item_id++) {
+        var _item_data = global._items[_item_id];
+        if (!is_struct(_item_data)) continue;
+
+        bag_inventory_set_qty(_pid, _item_id, _amount);
+        _seeded++;
+    }
+
+    bags_seed_from_items(_pid);
+
+    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) {
+        show_debug_message("[bag][seed_all] pid=" + string(_pid) + " items=" + string(_seeded) + " qty=" + string(_amount));
+    }
+
+    return _seeded;
 }
 
 function bag_inventory_remove_item(_pid, _itemId, _qtyRem){

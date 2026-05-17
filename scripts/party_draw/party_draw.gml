@@ -119,7 +119,7 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     var _partyFontOld = __party_use_font();
     draw_set_color(c_white);
 
-    var _mons  = _P.mons;
+    var _mons  = __party_visible_mons(_pid);
     var _n     = array_length(_mons);
     var _ROWS  = 6;
     var _ROW_H = max(12, string_height("A") + 2);
@@ -359,7 +359,7 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
                 _shouldShowGive = true;
             } else {
                 var _selMon = undefined;
-                if (variable_struct_exists(_P, "mons") && is_array(_P.mons) && _P.sel >= 0 && _P.sel < array_length(_P.mons)) _selMon = _P.mons[_P.sel];
+                if (is_array(_mons) && _P.sel >= 0 && _P.sel < array_length(_mons)) _selMon = _mons[_P.sel];
                 if (!is_undefined(_selMon) && is_struct(_selMon) && variable_struct_exists(_selMon, "held_item_id")){
                     var _hid_tmp = variable_struct_get(_selMon, "held_item_id");
                     if (is_real(_hid_tmp) && _hid_tmp > 0){ _shouldShowGive = false; } else { _shouldShowGive = true; }

@@ -114,6 +114,8 @@ function battle_open_trainer(_pid, _trainer_data){
     if (is_struct(_trainer_data) && variable_struct_exists(_trainer_data, "battle_format")) opts.battle_format = string_lower(string(variable_struct_get(_trainer_data, "battle_format")));
     if (is_struct(_trainer_data) && variable_struct_exists(_trainer_data, "coop_enabled")) opts.coop_enabled = (variable_struct_get(_trainer_data, "coop_enabled") == true);
     if (is_struct(_trainer_data) && variable_struct_exists(_trainer_data, "player_pids") && is_array(variable_struct_get(_trainer_data, "player_pids"))) opts.player_pids = variable_struct_get(_trainer_data, "player_pids");
+    if (is_struct(_trainer_data) && variable_struct_exists(_trainer_data, "player_party_indexes") && is_array(variable_struct_get(_trainer_data, "player_party_indexes"))) opts.player_party_indexes = variable_struct_get(_trainer_data, "player_party_indexes");
+    if (is_struct(_trainer_data) && variable_struct_exists(_trainer_data, "player_party_limit") && is_real(variable_struct_get(_trainer_data, "player_party_limit"))) opts.player_party_limit = max(1, floor(variable_struct_get(_trainer_data, "player_party_limit")));
     var trainer_reward = undefined;
     if (is_struct(_trainer_data)){
         if (variable_struct_exists(_trainer_data, "trainer_reward") && is_real(variable_struct_get(_trainer_data, "trainer_reward"))){
@@ -533,8 +535,29 @@ function __battle_collect_switchable_party_indexes(_pid, _actorIndex){
     if (!is_array(_mons)) return [];
     var _active_idx = __battle_find_player_party_active_index(_pid, _actorIndex);
     var _out = [];
+    var _allowed = undefined;
+    try {
+        var _B_allowed = __battle_ensure_slot(_pid);
+        if (is_struct(_B_allowed) && variable_struct_exists(_B_allowed, "player_party_indexes") && is_array(variable_struct_get(_B_allowed, "player_party_indexes"))){
+            var _ppids_allowed = (variable_struct_exists(_B_allowed, "player_pids") && is_array(variable_struct_get(_B_allowed, "player_pids"))) ? variable_struct_get(_B_allowed, "player_pids") : [_pid, _pid];
+            var _allowed_sets = variable_struct_get(_B_allowed, "player_party_indexes");
+            for (var _asi = 0; _asi < array_length(_ppids_allowed) && _asi < array_length(_allowed_sets); ++_asi){
+                if (is_real(_ppids_allowed[_asi]) && floor(_ppids_allowed[_asi]) == floor(_pid) && is_array(_allowed_sets[_asi])){
+                    _allowed = _allowed_sets[_asi];
+                    break;
+                }
+            }
+        }
+    } catch (e_allowed_switch) { _allowed = undefined; }
     for (var _i = 0; _i < array_length(_mons); ++_i){
         if (_i == _active_idx) continue;
+        if (is_array(_allowed)){
+            var _ok_allowed = false;
+            for (var _ai = 0; _ai < array_length(_allowed); ++_ai){
+                if (_allowed[_ai] == _i){ _ok_allowed = true; break; }
+            }
+            if (!_ok_allowed) continue;
+        }
         if (!__battle_party_index_is_usable(_pid, _i)) continue;
         if (__battle_is_player_party_index_active(_pid, _i)) continue;
         array_push(_out, _i);
@@ -628,7 +651,7 @@ function __battle_trainer_open_switch_party(_pid){
     try { variable_struct_set(_P, "lock", 0); } catch (e_pick_lock) {}
     var _pick_idx = __battle_find_first_switchable_party_index(_pid);
     if (_pick_idx >= 0){
-        try { variable_struct_set(_P, "sel", _pick_idx); } catch (e_pick_sel) {}
+        try { variable_struct_set(_P, "sel", is_undefined(__party_real_to_visible_index) ? _pick_idx : __party_real_to_visible_index(_pid, _pick_idx)); } catch (e_pick_sel) {}
     }
     return true;
 }
@@ -653,7 +676,7 @@ function __battle_two_player_open_replacement_party(_pid, _owner_pid, _actor_ind
     try { variable_struct_set(_P, "mode", "list"); } catch (e_vs_party_list) {}
     try { variable_struct_set(_P, "lock", 0); } catch (e_vs_party_lock) {}
     try {
-        if (is_real(_party_idx) && _party_idx >= 0) variable_struct_set(_P, "sel", floor(_party_idx));
+        if (is_real(_party_idx) && _party_idx >= 0) variable_struct_set(_P, "sel", is_undefined(__party_real_to_visible_index) ? floor(_party_idx) : __party_real_to_visible_index(_owner, floor(_party_idx)));
     } catch (e_vs_party_sel) {}
     try { variable_struct_set(_B, "_pending_open_party", false); } catch (e_vs_clear_pending) {}
     try { variable_struct_set(_B, "_pending_open_party_pid", undefined); } catch (e_vs_clear_pending_pid) {}
@@ -717,7 +740,7 @@ function __battle_trainer_update_switch_prompt(_pid){
 
         var _pick_idx_vs = (variable_struct_exists(_prompt, "player_switch_idx") && is_real(variable_struct_get(_prompt, "player_switch_idx"))) ? floor(variable_struct_get(_prompt, "player_switch_idx")) : -1;
         if (_pick_idx_vs >= 0){
-            var _ok_switch_vs = battle_switch_to(_pid, _pick_idx_vs, { auto_apply:true, consume_turn:false, forced:true });
+            var _ok_switch_vs = battle_switch_to(_rep_owner2, _pick_idx_vs, { auto_apply:true, consume_turn:false, forced:true, actor_index:_rep_actor });
             if (_ok_switch_vs){
                 __battle_trainer_clear_switch_prompt(_pid);
                 return true;
@@ -862,6 +885,7 @@ function __battle_trainer_update_switch_anim(_pid){
                 _actors_live[actor_index] = new_actor;
                 variable_struct_set(_B, "actor", _actors_live);
                 try { variable_struct_set(new_actor, "actor_index", actor_index); } catch (e_ai_sw) {}
+                try { variable_struct_set(new_actor, "_switched_in_turn", (variable_struct_exists(_B, "turn_i") && is_real(variable_struct_get(_B, "turn_i"))) ? floor(variable_struct_get(_B, "turn_i")) : 0); } catch (e_stake_tr_anim) {}
                 __battle_apply_party_moves(new_actor);
                 try {
                     if (variable_struct_exists(_B, "battle_format") && string(variable_struct_get(_B, "battle_format")) == "double"){
@@ -970,6 +994,7 @@ function __battle_trainer_apply_pending_send(_pid){
         } catch (e_act_idx) {}
         if (is_struct(new_actor)){
             try { variable_struct_set(new_actor, "actor_index", actor_index); } catch (e_ai) {}
+            try { variable_struct_set(new_actor, "_switched_in_turn", (variable_struct_exists(_B, "turn_i") && is_real(variable_struct_get(_B, "turn_i"))) ? floor(variable_struct_get(_B, "turn_i")) : 0); } catch (e_stake_tr_send) {}
             __battle_apply_party_moves(new_actor);
         }
 
@@ -1053,6 +1078,12 @@ if (is_undefined(__battle_trainer_debug_force_switch)){
                 }
             } catch (e_trap_chk) {}
         }
+        try {
+            if (!is_undefined(__battle_ability_blocks_switch) && __battle_ability_blocks_switch(_pid, 1, false)){
+                __set_reason("ability_trap");
+                return false;
+            }
+        } catch (e_ability_trap_chk) {}
         try {
             if (variable_struct_exists(_B, "_trainer_party_active_idx")) active_idx = variable_struct_get(_B, "_trainer_party_active_idx");
         } catch (e_act) { active_idx = -1; }
@@ -1153,6 +1184,9 @@ if (is_undefined(__battle_trainer_perform_switch_action)){
         try {
             if (!is_undefined(__battle_trainer_start_switch_anim)) _anim_started = __battle_trainer_start_switch_anim(_pid, new_actor, idx, { recall: true });
         } catch (e_anim) { _anim_started = false; }
+        try {
+            if (!is_undefined(__battle_apply_switch_out_ability_actions) && is_struct(old_actor)) __battle_apply_switch_out_ability_actions(_pid, 1, old_actor);
+        } catch (e_switch_out_ability_trainer) {}
         if (!_anim_started){
             if (array_length(actors_arr) <= 1) actors_arr[1] = new_actor;
             else actors_arr[1] = new_actor;
@@ -1161,6 +1195,7 @@ if (is_undefined(__battle_trainer_perform_switch_action)){
 
             if (is_struct(new_actor)){
                 try { variable_struct_set(new_actor, "actor_index", 1); } catch (e_ai) {}
+                try { variable_struct_set(new_actor, "_switched_in_turn", (variable_struct_exists(_B, "turn_i") && is_real(variable_struct_get(_B, "turn_i"))) ? floor(variable_struct_get(_B, "turn_i")) : 0); } catch (e_stake_tr_direct) {}
                 if (!is_undefined(__battle_apply_party_moves)) __battle_apply_party_moves(new_actor);
                 try { __battle_apply_baton_pass_payload(_B, new_actor, 1); } catch (e_bp_apply_enemy) {}
             }

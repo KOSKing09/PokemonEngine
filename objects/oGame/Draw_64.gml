@@ -16,7 +16,28 @@ if (_shared_battle){
     if (!battle_is_open(0) && battle_is_open(1)) _battle_draw_pid = 1;
     if (!is_undefined(__battle_ensure_slot)){
         var _shared_slot = __battle_ensure_slot(_battle_draw_pid);
-        if (is_struct(_shared_slot) && variable_struct_exists(_shared_slot, "_command_actor_index") && is_real(variable_struct_get(_shared_slot, "_command_actor_index")) && !is_undefined(__battle_actor_owner_pid)){
+        if (is_struct(_shared_slot) && !is_undefined(__battle_uses_split_command_ui) && __battle_uses_split_command_ui(_shared_slot) && variable_struct_exists(_shared_slot, "phase") && string(variable_struct_get(_shared_slot, "phase")) == "command"){
+            var _ppids_draw = (variable_struct_exists(_shared_slot, "player_pids") && is_array(variable_struct_get(_shared_slot, "player_pids"))) ? variable_struct_get(_shared_slot, "player_pids") : [0, 1];
+            for (var _dpi = 0; _dpi < array_length(_ppids_draw); ++_dpi){
+                var _candidate_pid = _ppids_draw[_dpi];
+                if (!is_real(_candidate_pid) || !battle_is_open(floor(_candidate_pid))) continue;
+                var _actors_draw = (!is_undefined(__battle_command_actor_indexes)) ? __battle_command_actor_indexes(floor(_candidate_pid)) : [];
+                var _needs_command = false;
+                if (is_array(_actors_draw)){
+                    for (var _dai = 0; _dai < array_length(_actors_draw); ++_dai){
+                        var _queued_draw = (!is_undefined(__battle_find_player_turn_action)) ? __battle_find_player_turn_action(_shared_slot, _actors_draw[_dai]) : undefined;
+                        if (!is_struct(_queued_draw)){
+                            _needs_command = true;
+                            break;
+                        }
+                    }
+                }
+                if (_needs_command){
+                    _battle_draw_pid = floor(_candidate_pid);
+                    break;
+                }
+            }
+        } else if (is_struct(_shared_slot) && variable_struct_exists(_shared_slot, "_command_actor_index") && is_real(variable_struct_get(_shared_slot, "_command_actor_index")) && !is_undefined(__battle_actor_owner_pid)){
             var _cmd_owner = __battle_actor_owner_pid(_battle_draw_pid, variable_struct_get(_shared_slot, "_command_actor_index"));
             if (is_real(_cmd_owner) && _cmd_owner >= 0 && battle_is_open(floor(_cmd_owner))) _battle_draw_pid = floor(_cmd_owner);
         }
@@ -36,6 +57,10 @@ if (_shared_battle){
     if (_evo1) evolution_draw_gui_rect(1, 0, 0, _sw, _sh);
     if (_vk0) virtual_keyboard_draw_gui_rect(0, 0, 0, _sw, _sh);
     if (_vk1) virtual_keyboard_draw_gui_rect(1, 0, 0, _sw, _sh);
+    if (!is_undefined(multiplayer_draw_trainer_team_select_rect)){
+        multiplayer_draw_trainer_team_select_rect(0, 0, 0, _sw * 0.5, _sh);
+        multiplayer_draw_trainer_team_select_rect(1, _sw * 0.5, 0, _sw * 0.5, _sh);
+    }
 } else if (instance_number(oPlayer) > 1) {
     // --- Splitscreen ---
     var _r0 = (!is_undefined(splitscreen_get_gui_rect)) ? splitscreen_get_gui_rect(0) : [0, 0, _gw div 2, _gh];
@@ -57,6 +82,7 @@ if (_shared_battle){
         dialog2p_draw_gui_rect(1, _r1[0], _r1[1], _r1[2], _r1[3]);
     }
     if (!is_undefined(multiplayer_draw_wild_assist_choice_rect)) multiplayer_draw_wild_assist_choice_rect(1, _r1[0], _r1[1], _r1[2], _r1[3]);
+    if (!is_undefined(multiplayer_draw_trainer_team_select_rect)) multiplayer_draw_trainer_team_select_rect(1, _r1[0], _r1[1], _r1[2], _r1[3]);
     if (!is_undefined(pokemon_center_draw_yesno_rect)) pokemon_center_draw_yesno_rect(1, _r1[0], _r1[1], _r1[2], _r1[3]);
 
     // P1 draws last so its UI stays on top when battler/platform sprites spill over the split boundary.
@@ -75,6 +101,7 @@ if (_shared_battle){
         dialog2p_draw_gui_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
     }
     if (!is_undefined(multiplayer_draw_wild_assist_choice_rect)) multiplayer_draw_wild_assist_choice_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
+    if (!is_undefined(multiplayer_draw_trainer_team_select_rect)) multiplayer_draw_trainer_team_select_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
     if (!is_undefined(pokemon_center_draw_yesno_rect)) pokemon_center_draw_yesno_rect(0, _r0[0], _r0[1], _r0[2], _r0[3]);
 } else {
     // --- Single player ---
@@ -95,6 +122,7 @@ if (_shared_battle){
         dialog2p_draw_gui_rect(0, 0, 0, _gw, _gh);
     }
     if (!is_undefined(multiplayer_draw_wild_assist_choice_rect)) multiplayer_draw_wild_assist_choice_rect(0, 0, 0, _gw, _gh);
+    if (!is_undefined(multiplayer_draw_trainer_team_select_rect)) multiplayer_draw_trainer_team_select_rect(0, 0, 0, _gw, _gh);
     if (!is_undefined(pokemon_center_draw_yesno_rect)) pokemon_center_draw_yesno_rect(0, 0, 0, _gw, _gh);
 }
 

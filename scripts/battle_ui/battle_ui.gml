@@ -340,6 +340,168 @@ function __battle_actor_hp_summary(_A){
     };
 }
 
+function __battle_party_indicator_info(_pid, _A){
+    if (!is_struct(_A)) return undefined;
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B)) return undefined;
+
+    var _actor_index = (variable_struct_exists(_A, "actor_index") && is_real(variable_struct_get(_A, "actor_index"))) ? floor(variable_struct_get(_A, "actor_index")) : -1;
+    var _side = (_actor_index >= 0) ? __battle_actor_side(_actor_index) : -1;
+    var _battle_mode = "wild";
+    if (variable_struct_exists(_B, "_battle_mode")) _battle_mode = string_lower(string(variable_struct_get(_B, "_battle_mode")));
+    else if (variable_struct_exists(_B, "battle_type")) _battle_mode = string_lower(string(variable_struct_get(_B, "battle_type")));
+
+    var _party = undefined;
+
+    var _versus = (variable_struct_exists(_B, "versus_enabled") && variable_struct_get(_B, "versus_enabled") == true);
+    if (_side == 1 && !_versus && _battle_mode != "trainer") return undefined;
+    if (_side == 1 && !_versus && variable_struct_exists(_B, "_trainer_party")){
+        _party = variable_struct_get(_B, "_trainer_party");
+    } else {
+        var _owner_pid = undefined;
+        if (_actor_index >= 0 && !is_undefined(__battle_actor_owner_pid)){
+            try { _owner_pid = __battle_actor_owner_pid(_pid, _actor_index); } catch (e_owner_count) { _owner_pid = undefined; }
+        }
+        if (!is_real(_owner_pid) && variable_struct_exists(_A, "owner_pid") && is_real(variable_struct_get(_A, "owner_pid"))) _owner_pid = floor(variable_struct_get(_A, "owner_pid"));
+        if (is_real(_owner_pid) && _owner_pid >= 0 && !is_undefined(party_ensure)){
+            var _P = party_ensure(_owner_pid);
+            if (is_struct(_P) && variable_struct_exists(_P, "mons")) _party = variable_struct_get(_P, "mons");
+        }
+    }
+
+    if (!is_array(_party) || array_length(_party) <= 0) return undefined;
+    var _total = min(6, array_length(_party));
+    var _alive = [];
+    for (var _i = 0; _i < _total; ++_i){
+        var _mon = _party[_i];
+        var _ok = false;
+        if (is_struct(_mon)){
+            var _hp = __battle_hp_now(_mon);
+            var _fainted = false;
+            if (variable_struct_exists(_mon, "fainted")) _fainted = (variable_struct_get(_mon, "fainted") == true);
+            _ok = (is_real(_hp) && _hp > 0 && !_fainted);
+        }
+        array_push(_alive, _ok);
+    }
+    return { total:_total, alive:_alive, side:_side };
+}
+
+function __battle_draw_party_indicator(_pid, _A, _x, _y, _align_right){
+    var _info = __battle_party_indicator_info(_pid, _A);
+    if (!is_struct(_info)) return 0;
+    var _total = max(0, floor(variable_struct_get(_info, "total")));
+    if (_total <= 0) return 0;
+
+    var _r = max(1, floor(__bhu(_pid, 1.35)));
+    var _gap = max(1, floor(__bwu(_pid, 1.5)));
+    var _diam = _r * 2;
+    var _w = _total * _diam + max(0, _total - 1) * _gap;
+    var _start_x = (_align_right == true) ? (_x - _w) : _x;
+    var _alive = variable_struct_get(_info, "alive");
+
+    for (var _i = 0; _i < _total; ++_i){
+        var _cx = _start_x + _r + _i * (_diam + _gap);
+        var _cy = _y;
+        var _is_alive = (is_array(_alive) && _i < array_length(_alive) && _alive[_i] == true);
+        draw_set_color(c_black);
+        draw_circle(_cx, _cy, _r + 0.5, false);
+        draw_set_color(_is_alive ? make_color_rgb(238, 72, 68) : make_color_rgb(96, 100, 112));
+        draw_circle(_cx, _cy, _r, false);
+        draw_set_color(c_white);
+        draw_line(_cx - _r, _cy, _cx + _r, _cy);
+        draw_circle(_cx, _cy, max(1, floor(_r * 0.35)), false);
+    }
+    draw_set_color(c_white);
+    return _w;
+}
+
+function __battle_actor_species_id(_A){
+    if (!is_struct(_A)) return -1;
+    if (variable_struct_exists(_A, "species_id") && is_real(variable_struct_get(_A, "species_id"))) return floor(variable_struct_get(_A, "species_id"));
+    if (variable_struct_exists(_A, "species") && is_real(variable_struct_get(_A, "species"))) return floor(variable_struct_get(_A, "species"));
+
+    var _mon_ref = undefined;
+    if (variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon"))) _mon_ref = variable_struct_get(_A, "mon");
+    else if (variable_struct_exists(_A, "pokemon") && is_struct(variable_struct_get(_A, "pokemon"))) _mon_ref = variable_struct_get(_A, "pokemon");
+    else if (variable_struct_exists(_A, "original_mon") && is_struct(variable_struct_get(_A, "original_mon"))) _mon_ref = variable_struct_get(_A, "original_mon");
+    else if (variable_struct_exists(_A, "source_mon") && is_struct(variable_struct_get(_A, "source_mon"))) _mon_ref = variable_struct_get(_A, "source_mon");
+    else if (variable_struct_exists(_A, "wild_mon") && is_struct(variable_struct_get(_A, "wild_mon"))) _mon_ref = variable_struct_get(_A, "wild_mon");
+
+    if (is_struct(_mon_ref)){
+        if (variable_struct_exists(_mon_ref, "species_id") && is_real(variable_struct_get(_mon_ref, "species_id"))) return floor(variable_struct_get(_mon_ref, "species_id"));
+        if (variable_struct_exists(_mon_ref, "species") && is_real(variable_struct_get(_mon_ref, "species"))) return floor(variable_struct_get(_mon_ref, "species"));
+        if (variable_struct_exists(_mon_ref, "id") && is_real(variable_struct_get(_mon_ref, "id"))) return floor(variable_struct_get(_mon_ref, "id"));
+        if (variable_struct_exists(_mon_ref, "_id") && is_real(variable_struct_get(_mon_ref, "_id"))) return floor(variable_struct_get(_mon_ref, "_id"));
+    }
+
+    return -1;
+}
+
+function __battle_wild_caught_badge_info(_pid, _A){
+    if (!is_struct(_A)) return undefined;
+    var _B = __battle_ensure_slot(_pid);
+    if (!is_struct(_B)) return undefined;
+
+    var _actor_index = (variable_struct_exists(_A, "actor_index") && is_real(variable_struct_get(_A, "actor_index"))) ? floor(variable_struct_get(_A, "actor_index")) : -1;
+    if (_actor_index < 0 || __battle_actor_side(_actor_index) != 1) return undefined;
+
+    var _battle_mode = "wild";
+    if (variable_struct_exists(_B, "_battle_mode")) _battle_mode = string_lower(string(variable_struct_get(_B, "_battle_mode")));
+    else if (variable_struct_exists(_B, "battle_type")) _battle_mode = string_lower(string(variable_struct_get(_B, "battle_type")));
+    var _versus = (variable_struct_exists(_B, "versus_enabled") && variable_struct_get(_B, "versus_enabled") == true);
+    if (_versus || _battle_mode == "trainer") return undefined;
+
+    var _sid = __battle_actor_species_id(_A);
+    if (_sid <= 0) return undefined;
+
+    var _owner_pid = is_real(_pid) ? floor(_pid) : 0;
+
+    var _caught = false;
+    if (!is_undefined(poke_index_has_caught)){
+        try { _caught = poke_index_has_caught(_owner_pid, _sid); } catch (e_wild_badge_caught) { _caught = false; }
+    }
+    return { species_id:_sid, caught:_caught };
+}
+
+function __battle_actor_sex_label(_A){
+    if (!is_struct(_A)) return "";
+    var _sex = "";
+    var _mon = undefined;
+    if (variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon"))) _mon = variable_struct_get(_A, "mon");
+    if (variable_struct_exists(_A, "sex")) _sex = string_lower(string(variable_struct_get(_A, "sex")));
+    else if (variable_struct_exists(_A, "gender")) _sex = string_lower(string(variable_struct_get(_A, "gender")));
+    if (string_length(_sex) <= 0 && is_struct(_mon)){
+        if (variable_struct_exists(_mon, "sex")) _sex = string_lower(string(variable_struct_get(_mon, "sex")));
+        else if (variable_struct_exists(_mon, "gender")) _sex = string_lower(string(variable_struct_get(_mon, "gender")));
+    }
+    if (_sex == "m" || _sex == "male" || _sex == "boy") return " M";
+    if (_sex == "f" || _sex == "female" || _sex == "girl") return " F";
+    if (_sex == "genderless" || _sex == "none" || _sex == "unknown" || _sex == "n/a") return " -";
+    return "";
+}
+
+function __battle_draw_wild_caught_badge(_pid, _A, _x, _y, _align_right){
+    var _info = __battle_wild_caught_badge_info(_pid, _A);
+    if (!is_struct(_info)) return 0;
+
+    var _r = max(1, floor(__bhu(_pid, 2)));
+    var _w = _r * 2 + __bwu(_pid, 1);
+    var _cx = (_align_right == true) ? (_x - _r) : (_x + _r);
+    var _cy = _y;
+    var _caught = variable_struct_get(_info, "caught") == true;
+
+    draw_set_color(c_black);
+    draw_circle(_cx, _cy, _r + 0.5, false);
+    draw_set_color(_caught ? make_color_rgb(232, 64, 56) : make_color_rgb(160, 164, 176));
+    draw_circle(_cx, _cy, _r, false);
+    draw_set_color(c_black);
+    draw_line(_cx - _r, _cy, _cx + _r, _cy);
+    draw_set_color(_caught ? make_color_rgb(250, 244, 230) : make_color_rgb(112, 116, 128));
+    draw_circle(_cx, _cy, max(1, floor(_r * 0.38)), false);
+    draw_set_color(c_white);
+    return _w;
+}
+
 function __battle_enemy_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_A,_label,_compact){
     if (!is_struct(_A)) return;
 
@@ -363,13 +525,19 @@ function __battle_enemy_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_A,_label,_compact
     var nameMax = _bw - __bwu(_pid, _is_compact ? 34 : 48);
     var _name_raw = __battle_actor_display_name(_A);
     if (string_length(_label_txt) > 0) _name_raw = _label_txt + " " + _name_raw;
+    _name_raw += __battle_actor_sex_label(_A);
     var nameTxt = __battle_text_fit_ellipsis(_pid, _name_raw, nameMax);
     draw_set_color(_name_col);
     draw_text(_bx+__bwu(_pid,6), _by+__bhu(_pid, _name_y), nameTxt);
 
     var _lvl_disp = __battle_actor_level_value(_A);
+    var _level_txt = "Lv" + string(_lvl_disp);
+    var _level_gap = __bwu(_pid, 2);
+    var _badge_reserve = __bwu(_pid, 7);
+    var _level_x = _bx + _bw - __bwu(_pid, _is_compact ? 23 : 29);
+    _level_x = min(_level_x, _bx + _bw - string_width(_level_txt) - _level_gap - _badge_reserve);
     draw_set_color(_level_col);
-    draw_text(_bx+_bw-__bwu(_pid, _is_compact ? 23 : 29), _by+__bhu(_pid, _name_y), "Lv"+string(_lvl_disp));
+    draw_text(_level_x, _by+__bhu(_pid, _name_y), _level_txt);
 
     var _hp_info = __battle_actor_hp_summary(_A);
     var _vis_hp = _hp_info.cur;
@@ -379,6 +547,11 @@ function __battle_enemy_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_A,_label,_compact
     draw_set_color(c_black); draw_rectangle(_barX-1,_barY-1,_barX+_barW+1,_barY+_bh+1,false);
     var _hpcol = _t.col_hp_green; if (_pct<0.5) _hpcol=_t.col_hp_yell; if (_pct<0.2) _hpcol=_t.col_hp_red;
     draw_set_color(_hpcol); draw_rectangle(_barX,_barY,_barX+_barW*_pct,_barY+_bh,false);
+    var _name_text_h = max(__bhu(_pid, 7), string_height(_level_txt));
+    var _badge_x = _level_x + string_width(_level_txt) + _level_gap;
+    var _badge_y = _by + __bhu(_pid, _name_y) + floor(_name_text_h * 0.5) - 5;
+    var _wild_badge_w = __battle_draw_wild_caught_badge(_pid, _A, _badge_x, _badge_y, false);
+    if (_is_compact && _wild_badge_w <= 0) __battle_draw_party_indicator(_pid, _A, _barX + _barW, _barY + _bh + __bhu(_pid, 4), true);
     var _statusX = _barX;
     var _statusY = _by + __bhu(_pid, _status_y_off);
     var _statusW = 0;
@@ -417,6 +590,7 @@ function __battle_player_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_A,_label,_compac
     var _name_raw = __battle_actor_display_name(_A);
     if (_name_raw == "???") _name_raw = "Pokemon";
     if (string_length(_label_txt) > 0) _name_raw = _label_txt + " " + _name_raw;
+    _name_raw += __battle_actor_sex_label(_A);
     var nameMax = _bw - __bwu(_pid, _is_compact ? 34 : 72);
     var nameTxt = __battle_text_fit_ellipsis(_pid, _name_raw, nameMax);
     draw_set_color(_name_col2);
@@ -433,6 +607,7 @@ function __battle_player_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_A,_label,_compac
     draw_set_color(c_black); draw_rectangle(_barX-1,_barY-1,_barX+_barW+1,_barY+_bh+1,false);
     var _hpcol = _t.col_hp_green; if (_pct<0.5) _hpcol=_t.col_hp_yell; if (_pct<0.2) _hpcol=_t.col_hp_red;
     draw_set_color(_hpcol); draw_rectangle(_barX,_barY,_barX+_barW*_pct,_barY+_bh,false);
+    if (_is_compact) __battle_draw_party_indicator(_pid, _A, _barX + _barW, _barY + _bh + __bhu(_pid, 4), true);
 
     // Top row: status sprites and temporary stage counters.
     var _topRowX = _bx + __bwu(_pid,8);
@@ -514,8 +689,10 @@ function __battle_ui_state_for_pid(_B, _pid){
         variable_struct_set(_B, "sys_ui", { menu:"root", selX:0, selY:0, msg_list:undefined });
     }
 
-    var _versus = variable_struct_exists(_B, "versus_enabled") && variable_struct_get(_B, "versus_enabled") == true;
-    if (!_versus) return variable_struct_get(_B, "sys_ui");
+    var _split_command_ui = false;
+    if (!is_undefined(__battle_uses_split_command_ui)) _split_command_ui = __battle_uses_split_command_ui(_B);
+    else _split_command_ui = (variable_struct_exists(_B, "versus_enabled") && variable_struct_get(_B, "versus_enabled") == true);
+    if (!_split_command_ui) return variable_struct_get(_B, "sys_ui");
 
     if (!variable_struct_exists(_B, "_versus_ui") || !is_array(variable_struct_get(_B, "_versus_ui")) || array_length(variable_struct_get(_B, "_versus_ui")) < 2){
         variable_struct_set(_B, "_versus_ui", [
@@ -543,6 +720,7 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
     var _UI = __battle_ui_state_for_pid(_B, _pid);
     var _t  = _B.theme;
     var _versus = is_struct(_B) && variable_struct_exists(_B, "versus_enabled") && variable_struct_get(_B, "versus_enabled") == true;
+    var _split_command_ui = (!is_undefined(__battle_uses_split_command_ui) && __battle_uses_split_command_ui(_B));
     var _bx = __bxu(_pid,_rxIn), _by = __byu(_pid,_ryIn), _bw = __bwu(_pid,_rwIn), _bh = __bhu(_pid,_rhIn);
 
     // Dialog rendering (clamped)
@@ -746,7 +924,7 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
         if (is_struct(_lp_tmp) && variable_struct_exists(_lp_tmp, "active") && _lp_tmp.active) return;
     }
 
-    if (_versus && string(variable_struct_get(_B, "phase")) == "command"){
+    if (_split_command_ui && string(variable_struct_get(_B, "phase")) == "command"){
         var _vs_current_owner = -1;
         if (variable_struct_exists(_UI, "command_actor_index") && is_real(variable_struct_get(_UI, "command_actor_index")) && !is_undefined(__battle_actor_control_pid)){
             _vs_current_owner = __battle_actor_control_pid(_pid, floor(variable_struct_get(_UI, "command_actor_index")));
@@ -765,7 +943,7 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
         if (!_vs_has_pending_command || (is_real(_vs_current_owner) && _vs_current_owner >= 0 && _vs_current_owner != _pid)) return;
     }
 
-    if (!_versus && variable_struct_exists(_B, "battle_format") && string(variable_struct_get(_B, "battle_format")) == "double"){
+    if (!_split_command_ui && variable_struct_exists(_B, "battle_format") && string(variable_struct_get(_B, "battle_format")) == "double"){
         var _current_actor_owner = -1;
         if (variable_struct_exists(_B, "_command_actor_index") && is_real(variable_struct_get(_B, "_command_actor_index")) && !is_undefined(__battle_actor_control_pid)){
             _current_actor_owner = __battle_actor_control_pid(_pid, floor(variable_struct_get(_B, "_command_actor_index")));
@@ -862,6 +1040,16 @@ function __battle_cmd_box_rect(_pid,_rxIn,_ryIn,_rwIn,_rhIn,_selX,_selY){
             draw_set_color(_fight_col);
             draw_text(tx, ty, label);
         }
+        try {
+            var _burst_modes = __battle_transform_available_modes(_pid, _command_actor_idx);
+            if (is_array(_burst_modes) && array_length(_burst_modes) > 0){
+                var _sel_mode = __battle_transform_selected_mode(_B, _command_actor_idx);
+                var _burst_key = (_pid == 1) ? "R1/E" : "R1/S";
+                var _burst_label = (string_length(_sel_mode) > 0) ? (_burst_key + ": " + __battle_transform_mode_label(_sel_mode)) : (_burst_key + ": BURST");
+                draw_set_color((string_length(_sel_mode) > 0) ? make_color_rgb(255, 232, 96) : make_color_rgb(144, 224, 255));
+                draw_text(_bx + _bw - __bwu(_pid, 74), _by + __bhu(_pid, 1), __battle_text_fit_ellipsis(_pid, _burst_label, __bwu(_pid, 70)));
+            }
+        } catch (e_burst_hint_draw) {}
 
         if (restoreFont != -1) draw_set_font(restoreFont);
         return;

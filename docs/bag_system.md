@@ -2,6 +2,8 @@
 
 This guide covers how the bag is booted, which public helpers are safe to call, how the bag behaves in and out of battle, and where to edit layout versus logic versus text sourcing.
 
+For the current implemented/partial/pending item coverage list, see `docs/item_tracker.md`.
+
 ## Runtime contract
 
 - Boot once with `bags_init(playerCount)`.

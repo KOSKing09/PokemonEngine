@@ -34,9 +34,15 @@ function pc_is_open(_pid){
 function pc_open(_pid){
     var _p = pc__pid(_pid);
     var _pc = pc__ensure_state(_p);
+    if (_pc.sys_held_mon != undefined && !pc__return_held_to_origin(_p) && !pc__force_store_held_mon(_p)){
+        _pc.sys_open = true;
+        return false;
+    }
 
     _pc.sys_open = true;
+    _pc.sys_mode = "storage";
     _pc.sys_pid = _p;
+    _pc.sys_title_text = "PC Storage";
     _pc.sys_cursor_area = "box";
     _pc.sys_cursor_index = 0;
     _pc.sys_status_text = "Move Pokemon";
@@ -48,6 +54,61 @@ function pc_open(_pid){
 
     pc__ensure_party_capacity(_p);
     pc__dedupe_exact_mon_references(_p);
+    if (!is_undefined(sfx_play_safe)) sfx_play_safe(snd_LogOn, 1);
+    return true;
+}
+
+function pc_open_breeding(_pid){
+    var _p = pc__pid(_pid);
+    var _pc = pc__ensure_state(_p);
+    if (_pc.sys_held_mon != undefined && !pc__return_held_to_origin(_p) && !pc__force_store_held_mon(_p)){
+        _pc.sys_open = true;
+        return false;
+    }
+
+    _pc.sys_open = true;
+    _pc.sys_mode = "breeding";
+    _pc.sys_pid = _p;
+    _pc.sys_cursor_area = "box";
+    _pc.sys_cursor_index = 0;
+    _pc.sys_status_text = "Place two compatible parents.";
+    _pc.sys_input_cooldown = 6;
+    _pc.sys_held_mon = undefined;
+    _pc.sys_held_from_area = "";
+    _pc.sys_held_from_box = -1;
+    _pc.sys_held_from_index = -1;
+    _pc.sys_title_text = "Pokemon Nursery";
+
+    pc__ensure_breeding_state(_p);
+    pc__dedupe_exact_mon_references(_p);
+    pc__breeding_refresh_all_pairs(_p);
+    if (!is_undefined(sfx_play_safe)) sfx_play_safe(snd_LogOn, 1);
+    return true;
+}
+
+function pc_open_eggs(_pid){
+    var _p = pc__pid(_pid);
+    var _pc = pc__ensure_state(_p);
+    if (_pc.sys_held_mon != undefined && !pc__return_held_to_origin(_p) && !pc__force_store_held_mon(_p)){
+        _pc.sys_open = true;
+        return false;
+    }
+
+    _pc.sys_open = true;
+    _pc.sys_mode = "eggs";
+    _pc.sys_pid = _p;
+    _pc.sys_cursor_area = "box";
+    _pc.sys_cursor_index = 0;
+    _pc.sys_status_text = "Egg Box";
+    _pc.sys_input_cooldown = 6;
+    _pc.sys_held_mon = undefined;
+    _pc.sys_held_from_area = "";
+    _pc.sys_held_from_box = -1;
+    _pc.sys_held_from_index = -1;
+    _pc.sys_title_text = "Egg Storage";
+
+    pc__ensure_breeding_state(_p);
+    if (!is_undefined(sfx_play_safe)) sfx_play_safe(snd_LogOn, 1);
     return true;
 }
 
@@ -57,20 +118,28 @@ function pc_close(_pid){
     if (argument_count > 0){
         var _p = pc__pid(_pid);
         var _pc = pc__ensure_state(_p);
-        if (_pc.sys_held_mon != undefined) pc__return_held_to_origin(_p);
+        if (_pc.sys_held_mon != undefined && !pc__return_held_to_origin(_p) && !pc__force_store_held_mon(_p)){
+            _pc.sys_open = true;
+            return false;
+        }
         _pc.sys_open = false;
         _pc.sys_status_text = "Closed";
+        if (!is_undefined(sfx_play_safe)) sfx_play_safe(snd_TurnOff, 1);
         return true;
     }
 
     for (var _i = 0; _i < array_length(global.SYS_PC); ++_i){
         var _state = global.SYS_PC[_i];
         if (is_struct(_state)){
-            if (_state.sys_held_mon != undefined) pc__return_held_to_origin(_i);
+            if (_state.sys_held_mon != undefined && !pc__return_held_to_origin(_i) && !pc__force_store_held_mon(_i)){
+                _state.sys_open = true;
+                continue;
+            }
             _state.sys_open = false;
             _state.sys_status_text = "Closed";
         }
     }
+    if (!is_undefined(sfx_play_safe)) sfx_play_safe(snd_TurnOff, 1);
     return true;
 }
 
@@ -95,14 +164,19 @@ function pc_update(){
 
         pc__ensure_party_capacity(_pid);
 
+        if (pc__is_breeding_mode(_pid) && pc__ctrl_pressed(_pid, "Inventory")){
+            pc__breeding_toggle_source(_pid);
+            continue;
+        }
+
         var _theme_mod = pc__ctrl_down(_pid, "Inventory");
 
-        if (pc__ctrl_pressed(_pid, "PageUp")){
+        if (pc__ctrl_pressed(_pid, "PageUp") && !pc__is_egg_mode(_pid)){
             if (_theme_mod) pc__cycle_theme(_pid, -1);
             else pc__cycle_box(_pid, -1);
         }
 
-        if (pc__ctrl_pressed(_pid, "PageDown")){
+        if (pc__ctrl_pressed(_pid, "PageDown") && !pc__is_egg_mode(_pid)){
             if (_theme_mod) pc__cycle_theme(_pid, 1);
             else pc__cycle_box(_pid, 1);
         }
@@ -164,7 +238,9 @@ function pc_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     draw_text(_OX + 230 * _S, _OY + 12 * _S, _box.sys_name);
     draw_set_halign(fa_left);
 
-    pc__draw_party_panel_scaled(_p, _OX, _OY, _S, _party_x, _party_y, _party_w, _party_h, _theme);
+    if (pc__is_breeding_mode(_p)) pc__draw_breeding_panel_scaled(_p, _OX, _OY, _S, _party_x, _party_y, _party_w, _party_h, _theme);
+    else if (pc__is_egg_mode(_p)) pc__draw_egg_summary_panel_scaled(_p, _OX, _OY, _S, _party_x, _party_y, _party_w, _party_h, _theme);
+    else pc__draw_party_panel_scaled(_p, _OX, _OY, _S, _party_x, _party_y, _party_w, _party_h, _theme);
     pc__draw_box_panel_scaled(_p, _OX, _OY, _S, _box_x, _box_y, _box_w, _box_h, _theme);
 
     pc__draw_round_panel_scaled(_OX, _OY, _S, 4, 144, 232, _footer_h, _theme.sys_panel_dark, _theme.sys_panel_light);
@@ -229,6 +305,17 @@ function pc__ensure_state(_pid){
     if (!variable_struct_exists(_pc, "sys_open")) _pc.sys_open = false;
     if (!variable_struct_exists(_pc, "sys_pid")) _pc.sys_pid = _p;
     if (!variable_struct_exists(_pc, "sys_input_cooldown")) _pc.sys_input_cooldown = 0;
+    if (!variable_struct_exists(_pc, "sys_mode")) _pc.sys_mode = "storage";
+    if (!variable_struct_exists(_pc, "sys_breed_slots") || !is_array(_pc.sys_breed_slots)) _pc.sys_breed_slots = [];
+    if (array_length(_pc.sys_breed_slots) < 12) array_resize(_pc.sys_breed_slots, 12);
+    if (!variable_struct_exists(_pc, "sys_breed_wait_battles") || !is_array(_pc.sys_breed_wait_battles)) _pc.sys_breed_wait_battles = [];
+    if (array_length(_pc.sys_breed_wait_battles) < 6) array_resize(_pc.sys_breed_wait_battles, 6);
+    if (!variable_struct_exists(_pc, "sys_breed_heart") || !is_array(_pc.sys_breed_heart)) _pc.sys_breed_heart = [];
+    if (array_length(_pc.sys_breed_heart) < 6) array_resize(_pc.sys_breed_heart, 6);
+    if (!variable_struct_exists(_pc, "sys_breed_pair_key") || !is_array(_pc.sys_breed_pair_key)) _pc.sys_breed_pair_key = [];
+    if (array_length(_pc.sys_breed_pair_key) < 6) array_resize(_pc.sys_breed_pair_key, 6);
+    if (!variable_struct_exists(_pc, "sys_breed_source")) _pc.sys_breed_source = "box";
+    if (!variable_struct_exists(_pc, "sys_egg_box") || !is_array(_pc.sys_egg_box)) _pc.sys_egg_box = [];
     if (!variable_struct_exists(_pc, "sys_imported_legacy")){
         _pc.sys_imported_legacy = true;
         if (!is_undefined(pc_import_legacy_storage)) pc_import_legacy_storage(_p);
@@ -254,7 +341,14 @@ function pc__make_state(_pid){
         sys_theme_defs: pc__build_theme_defs(),
         sys_status_text: "Move Pokemon",
         sys_input_cooldown: 0,
-        sys_title_text: "PC Storage"
+        sys_title_text: "PC Storage",
+        sys_mode: "storage",
+        sys_breed_slots: [undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined],
+        sys_breed_wait_battles: [-1, -1, -1, -1, -1, -1],
+        sys_breed_heart: [false, false, false, false, false, false],
+        sys_breed_pair_key: ["", "", "", "", "", ""],
+        sys_breed_source: "box",
+        sys_egg_box: []
     };
 }
 
@@ -362,16 +456,132 @@ function pc__draw_party_panel_scaled(_pid, _OX, _OY, _S, _x, _y, _w, _h, _theme)
     }
 }
 
-function pc__draw_box_panel_scaled(_pid, _OX, _OY, _S, _x, _y, _w, _h, _theme){
+function pc__draw_breeding_panel_scaled(_pid, _OX, _OY, _S, _x, _y, _w, _h, _theme){
     var _pc = pc__ensure_state(_pid);
-    var _box = pc__get_active_box(_pid);
+    pc__ensure_breeding_state(_pid);
+    pc__breeding_refresh_all_pairs(_pid);
 
     pc__draw_round_panel_scaled(_OX, _OY, _S, _x, _y, _w, _h, _theme.sys_panel_dark, _theme.sys_panel_light);
 
     draw_set_colour(_theme.sys_accent);
     draw_roundrect(_OX + (_x + 3) * _S, _OY + (_y + 3) * _S, _OX + (_x + _w - 3) * _S, _OY + (_y + 14) * _S, false);
     draw_set_colour(c_white);
-    draw_text(_OX + (_x + 8) * _S, _OY + (_y + 6) * _S, pc__fit_text_to_width(_box.sys_name, (_w - 16) * _S));
+    draw_text(_OX + (_x + 8) * _S, _OY + (_y + 6) * _S, "BREED");
+
+    for (var _pair = 0; _pair < 6; ++_pair){
+        var _sy = _y + 18 + (_pair * 17);
+        var _slot_a = _pair * 2;
+        var _slot_b = _slot_a + 1;
+        var _mon_a = _pc.sys_breed_slots[_slot_a];
+        var _mon_b = _pc.sys_breed_slots[_slot_b];
+        var _heart = (_pair < array_length(_pc.sys_breed_heart) && _pc.sys_breed_heart[_pair] == true);
+        var _mf_pair = pc__breeding_is_male_female_pair(_mon_a, _mon_b);
+        var _show_pair_heart = (_heart || _mf_pair);
+
+        draw_set_colour(_theme.sys_slot_bg);
+        draw_roundrect(_OX + (_x + 4) * _S, _OY + _sy * _S, _OX + (_x + _w - 4) * _S, _OY + (_sy + 15) * _S, false);
+        draw_set_colour(_theme.sys_panel_dark);
+        draw_roundrect(_OX + (_x + 4) * _S, _OY + _sy * _S, _OX + (_x + _w - 4) * _S, _OY + (_sy + 15) * _S, true);
+
+        draw_set_colour(_theme.sys_text_dark);
+        draw_text(_OX + (_x + 6) * _S, _OY + (_sy + 4) * _S, string(_pair + 1));
+
+        for (var _side = 0; _side < 2; ++_side){
+            var _slot = _slot_a + _side;
+            var _mon = (_side == 0) ? _mon_a : _mon_b;
+            var _sx = _x + 17 + (_side * 15);
+            var _is_cursor = (_pc.sys_cursor_area == "party" && _pc.sys_cursor_index == _slot);
+            draw_set_colour(_is_cursor ? _theme.sys_slot_hi : _theme.sys_panel_mid);
+            draw_roundrect(_OX + _sx * _S, _OY + (_sy + 2) * _S, _OX + (_sx + 13) * _S, _OY + (_sy + 14) * _S, false);
+            draw_set_colour(_is_cursor ? _theme.sys_accent_dark : _theme.sys_slot_line);
+            draw_roundrect(_OX + _sx * _S, _OY + (_sy + 2) * _S, _OX + (_sx + 13) * _S, _OY + (_sy + 14) * _S, true);
+            pc__draw_mon_icon(_mon, _OX + (_sx + 6.5) * _S, _OY + (_sy + 8) * _S, 11 * _S, _is_cursor);
+            if (_mon != undefined){
+                draw_set_colour(_theme.sys_text_dark);
+                draw_text(_OX + (_sx + 10) * _S, _OY + (_sy + 8) * _S, pc__breeding_sex_symbol(_mon));
+            }
+            if (_is_cursor) pc__draw_selector_corner(_OX + _sx * _S, _OY + (_sy + 2) * _S, _OX + (_sx + 13) * _S, _OY + (_sy + 14) * _S, _theme.sys_accent_dark);
+        }
+
+        if (_show_pair_heart){
+            var _heart_x = _OX + (_x + 31) * _S;
+            var _heart_y = _OY + (_sy + 8) * _S;
+            var _heart_col = _heart ? make_color_rgb(224, 54, 96) : make_color_rgb(164, 128, 154);
+            pc__draw_breeding_heart(_heart_x, _heart_y, _S, 1, _heart_col);
+            if (!_heart){
+                draw_set_colour(_theme.sys_panel_dark);
+                draw_text(_OX + (_x + 47) * _S, _OY + (_sy + 4) * _S, "M/F");
+            }
+        } else {
+            draw_set_colour(_theme.sys_panel_dark);
+            draw_text(_OX + (_x + 47) * _S, _OY + (_sy + 4) * _S, "--");
+        }
+    }
+
+    draw_set_colour(_theme.sys_text_dark);
+    var _egg_count = pc__egg_count(_pid);
+    draw_text(_OX + (_x + 8) * _S, _OY + (_y + 123) * _S, "Eggs " + string(_egg_count));
+    var _sel_pair = pc__breeding_pair_index_from_slot(_pc.sys_cursor_index);
+    if (_pc.sys_cursor_area == "party" && _sel_pair >= 0 && _sel_pair < 6){
+        var _wait = (_sel_pair < array_length(_pc.sys_breed_wait_battles) && is_real(_pc.sys_breed_wait_battles[_sel_pair])) ? max(0, floor(_pc.sys_breed_wait_battles[_sel_pair])) : 0;
+        draw_text(_OX + (_x + 8) * _S, _OY + (_y + 132) * _S, "P" + string(_sel_pair + 1) + " Wait " + string(_wait));
+    }
+}
+
+function pc__draw_breeding_heart(_heart_x, _heart_y, _S, _scale = 1, _colour = undefined){
+    var _s = max(0.25, _S * _scale);
+    var _fill = is_undefined(_colour) ? make_color_rgb(224, 54, 96) : _colour;
+    draw_set_colour(make_color_rgb(82, 38, 62));
+    draw_circle(_heart_x - 2 * _s, _heart_y - 1 * _s, 2.75 * _s, false);
+    draw_circle(_heart_x + 2 * _s, _heart_y - 1 * _s, 2.75 * _s, false);
+    draw_triangle(_heart_x - 5 * _s, _heart_y, _heart_x + 5 * _s, _heart_y, _heart_x, _heart_y + 6.5 * _s, false);
+
+    draw_set_colour(_fill);
+    draw_circle(_heart_x - 2 * _s, _heart_y - 1 * _s, 2 * _s, false);
+    draw_circle(_heart_x + 2 * _s, _heart_y - 1 * _s, 2 * _s, false);
+    draw_triangle(_heart_x - 4 * _s, _heart_y, _heart_x + 4 * _s, _heart_y, _heart_x, _heart_y + 5 * _s, false);
+}
+
+function pc__draw_egg_summary_panel_scaled(_pid, _OX, _OY, _S, _x, _y, _w, _h, _theme){
+    var _pc = pc__ensure_breeding_state(_pid);
+    pc__draw_round_panel_scaled(_OX, _OY, _S, _x, _y, _w, _h, _theme.sys_panel_dark, _theme.sys_panel_light);
+
+    draw_set_colour(_theme.sys_accent);
+    draw_roundrect(_OX + (_x + 3) * _S, _OY + (_y + 3) * _S, _OX + (_x + _w - 3) * _S, _OY + (_y + 14) * _S, false);
+    draw_set_colour(c_white);
+    draw_text(_OX + (_x + 8) * _S, _OY + (_y + 6) * _S, "EGGS");
+
+    var _egg_count = pc__egg_count(_pid);
+    draw_set_colour(_theme.sys_text_dark);
+    draw_text(_OX + (_x + 8) * _S, _OY + (_y + 25) * _S, "Stored");
+    draw_text(_OX + (_x + 8) * _S, _OY + (_y + 36) * _S, string(_egg_count) + "/30");
+
+    var _egg = pc__get_cursor_mon(_pid);
+    if (is_struct(_egg)){
+        var _remain = (variable_struct_exists(_egg, "hatch_battles_remaining") && is_real(_egg.hatch_battles_remaining)) ? max(0, floor(_egg.hatch_battles_remaining)) : 0;
+        var _sid = pc__breeding_species_id(_egg);
+        var _species_name = (_sid > 0 && !is_undefined(scr_poke_name_by_id)) ? scr_poke_name_by_id(_sid) : "Pokemon";
+        draw_text(_OX + (_x + 8) * _S, _OY + (_y + 58) * _S, "Selected");
+        pc__draw_fit_text_scaled(_species_name, _OX + (_x + 8) * _S, _OY + (_y + 70) * _S, max(8, (_w - 16) * _S), 0.45, _theme.sys_text_dark, fa_left);
+        draw_text(_OX + (_x + 8) * _S, _OY + (_y + 88) * _S, "Hatch");
+        draw_text(_OX + (_x + 8) * _S, _OY + (_y + 100) * _S, string(_remain) + " battles");
+    } else {
+        draw_text(_OX + (_x + 8) * _S, _OY + (_y + 58) * _S, "No Egg");
+    }
+}
+
+function pc__draw_box_panel_scaled(_pid, _OX, _OY, _S, _x, _y, _w, _h, _theme){
+    var _pc = pc__ensure_state(_pid);
+    var _box = pc__get_active_box(_pid);
+    var _breed_party_source = (pc__is_breeding_mode(_pid) && variable_struct_exists(_pc, "sys_breed_source") && string(_pc.sys_breed_source) == "party");
+    var _egg_mode = pc__is_egg_mode(_pid);
+
+    pc__draw_round_panel_scaled(_OX, _OY, _S, _x, _y, _w, _h, _theme.sys_panel_dark, _theme.sys_panel_light);
+
+    draw_set_colour(_theme.sys_accent);
+    draw_roundrect(_OX + (_x + 3) * _S, _OY + (_y + 3) * _S, _OX + (_x + _w - 3) * _S, _OY + (_y + 14) * _S, false);
+    draw_set_colour(c_white);
+    draw_text(_OX + (_x + 8) * _S, _OY + (_y + 6) * _S, _egg_mode ? "EGG BOX" : (_breed_party_source ? "PARTY" : pc__fit_text_to_width(_box.sys_name, (_w - 16) * _S)));
 
     var _grid_x = _x + 5;
     var _grid_y = _y + 19;
@@ -390,8 +600,19 @@ function pc__draw_box_panel_scaled(_pid, _OX, _OY, _S, _x, _y, _w, _h, _theme){
             var _slot_index = (_row * _cols) + _col;
             var _sx = _grid_x + (_col * _slot);
             var _sy = _grid_y + (_row * _slot);
-            var _mon = _box.sys_mons[_slot_index];
+            var _mon = undefined;
+            if (_breed_party_source){
+                var _party_pick = pc__get_party_array(_pid);
+                if (_slot_index < 6 && _slot_index < array_length(_party_pick)) _mon = _party_pick[_slot_index];
+            } else if (_egg_mode){
+                if (_slot_index < array_length(_pc.sys_egg_box)) _mon = _pc.sys_egg_box[_slot_index];
+            } else {
+                _mon = _box.sys_mons[_slot_index];
+            }
             var _is_cursor = (_pc.sys_cursor_area == "box" && _pc.sys_cursor_index == _slot_index);
+            if (_breed_party_source && _slot_index >= 6){
+                draw_set_alpha(0.32);
+            }
 
             draw_set_colour((_is_cursor ? _theme.sys_slot_hi : _theme.sys_slot_bg));
             draw_roundrect(_OX + _sx * _S, _OY + _sy * _S, _OX + (_sx + 15) * _S, _OY + (_sy + 15) * _S, false);
@@ -399,7 +620,21 @@ function pc__draw_box_panel_scaled(_pid, _OX, _OY, _S, _x, _y, _w, _h, _theme){
             draw_roundrect(_OX + _sx * _S, _OY + _sy * _S, _OX + (_sx + 15) * _S, _OY + (_sy + 15) * _S, true);
 
             pc__draw_mon_icon(_mon, _OX + (_sx + 7.5) * _S, _OY + (_sy + 7.5) * _S, 14 * _S, _is_cursor);
+            if (_mon != undefined && pc__is_breeding_mode(_pid)){
+                draw_set_colour(_theme.sys_text_dark);
+                draw_set_halign(fa_right);
+                draw_text(_OX + (_sx + 14) * _S, _OY + (_sy + 9) * _S, pc__breeding_sex_symbol(_mon));
+                draw_set_halign(fa_left);
+            }
+            if (_egg_mode && _mon != undefined){
+                var _remain_slot = (is_struct(_mon) && variable_struct_exists(_mon, "hatch_battles_remaining") && is_real(_mon.hatch_battles_remaining)) ? max(0, floor(_mon.hatch_battles_remaining)) : 0;
+                draw_set_colour(_theme.sys_text_dark);
+                draw_set_halign(fa_right);
+                draw_text(_OX + (_sx + 14) * _S, _OY + (_sy + 9) * _S, string(_remain_slot));
+                draw_set_halign(fa_left);
+            }
             if (_is_cursor) pc__draw_selector_corner(_OX + _sx * _S, _OY + _sy * _S, _OX + (_sx + 15) * _S, _OY + (_sy + 15) * _S, _theme.sys_accent_dark);
+            if (_breed_party_source && _slot_index >= 6) draw_set_alpha(1);
         }
     }
 
@@ -417,12 +652,18 @@ function pc__draw_box_panel_scaled(_pid, _OX, _OY, _S, _x, _y, _w, _h, _theme){
     var _info_text_w = max(8, (_info_w - 2) * _S);
     draw_set_colour(_theme.sys_text_dark);
     draw_text(_OX + (_info_x + 3) * _S, _OY + (_info_y + 4) * _S, "INFO");
-    draw_text(_OX + (_info_x + 3) * _S, _OY + (_info_y + 16) * _S, pc__fit_text_to_width(_theme.sys_name, _info_text_w));
-    draw_text(_OX + (_info_x + 3) * _S, _OY + (_info_y + 30) * _S, string(pc__count_box_mons(_box)) + "/" + string(array_length(_box.sys_mons)));
+    draw_text(_OX + (_info_x + 3) * _S, _OY + (_info_y + 16) * _S, _egg_mode ? "Egg storage" : (_breed_party_source ? "Party source" : pc__fit_text_to_width(_theme.sys_name, _info_text_w)));
+    draw_text(_OX + (_info_x + 3) * _S, _OY + (_info_y + 30) * _S, _egg_mode ? string(pc__egg_count(_pid)) + "/30" : (_breed_party_source ? "Inv: Box" : string(pc__count_box_mons(_box)) + "/" + string(array_length(_box.sys_mons))));
 
     if (_cursor_mon != undefined){
         pc__draw_fit_text_scaled(pc__mon_display_name(_cursor_mon), _OX + (_info_x + 3) * _S, _OY + (_info_y + 46) * _S, _info_text_w, 0.50, _theme.sys_text_dark, fa_left);
-        draw_text(_OX + (_info_x + 3) * _S, _OY + (_info_y + 55) * _S, "Lv" + string(pc__mon_level(_cursor_mon)));
+        if (_egg_mode){
+            var _remain_info = (variable_struct_exists(_cursor_mon, "hatch_battles_remaining") && is_real(_cursor_mon.hatch_battles_remaining)) ? max(0, floor(_cursor_mon.hatch_battles_remaining)) : 0;
+            draw_text(_OX + (_info_x + 3) * _S, _OY + (_info_y + 55) * _S, "Hatch " + string(_remain_info));
+        } else {
+            draw_text(_OX + (_info_x + 3) * _S, _OY + (_info_y + 55) * _S, "Lv" + string(pc__mon_level(_cursor_mon)));
+            if (pc__is_breeding_mode(_pid)) draw_text(_OX + (_info_x + 24) * _S, _OY + (_info_y + 55) * _S, "Sex " + pc__breeding_sex_symbol(_cursor_mon));
+        }
         var _portrait_w = min(38, _info_w - 6);
         var _portrait_h = 28;
         var _portrait_x = _info_x + ((_info_w - _portrait_w) * 0.5);
@@ -549,17 +790,46 @@ function pc__draw_mon_icon(_mon, _cx, _cy, _target_h){
 
 function pc__move_cursor(_pid, _dx, _dy){
     var _pc = pc__ensure_state(_pid);
+    var _old_area = string(_pc.sys_cursor_area);
+    var _old_index = _pc.sys_cursor_index;
+    var _breed_mode = pc__is_breeding_mode(_pid);
+    var _egg_mode = pc__is_egg_mode(_pid);
 
     if (_pc.sys_cursor_area == "party"){
-        var _party_index = clamp(_pc.sys_cursor_index + _dy, 0, 5);
+        if (_egg_mode){
+            _pc.sys_cursor_area = "box";
+            _pc.sys_cursor_index = clamp(_pc.sys_cursor_index, 0, (_pc.sys_box_cols * _pc.sys_box_rows) - 1);
+            _pc.sys_status_text = pc__cursor_status_text(_pid);
+            if (!is_undefined(ui_play_select_sound)) ui_play_select_sound();
+            return;
+        }
+        var _party_max = _breed_mode ? 11 : 5;
+        var _old_party_index = _pc.sys_cursor_index;
+        var _party_index = _old_party_index;
+        if (_breed_mode){
+            if (_dx > 0 && (_old_party_index mod 2) == 1){
+                _pc.sys_cursor_area = "box";
+                if (variable_struct_exists(_pc, "sys_breed_source") && string(_pc.sys_breed_source) == "party") _pc.sys_cursor_index = clamp(pc__breeding_pair_index_from_slot(_old_party_index), 0, 5);
+                else _pc.sys_cursor_index = clamp(pc__breeding_pair_index_from_slot(_old_party_index) * _pc.sys_box_cols, 0, (_pc.sys_box_cols * _pc.sys_box_rows) - 1);
+                _pc.sys_status_text = pc__cursor_status_text(_pid);
+                if (!is_undefined(ui_play_select_sound)) ui_play_select_sound();
+                return;
+            }
+            if (_dy != 0) _party_index += _dy * 2;
+            else if (_dx != 0) _party_index += _dx;
+            _party_index = clamp(_party_index, 0, _party_max);
+        } else {
+            _party_index = clamp(_pc.sys_cursor_index + _dy, 0, _party_max);
+        }
         _pc.sys_cursor_index = _party_index;
-        if (_dx > 0){
+        if (!_breed_mode && _dx > 0){
             _pc.sys_cursor_area = "box";
             _pc.sys_cursor_index = clamp(_party_index * _pc.sys_box_cols, 0, (_pc.sys_box_cols * _pc.sys_box_rows) - 1);
         }
     } else {
-        var _cols = _pc.sys_box_cols;
-        var _rows = _pc.sys_box_rows;
+        var _source_party = (_breed_mode && variable_struct_exists(_pc, "sys_breed_source") && string(_pc.sys_breed_source) == "party");
+        var _cols = _source_party ? 6 : _pc.sys_box_cols;
+        var _rows = _source_party ? 1 : _pc.sys_box_rows;
         var _index = _pc.sys_cursor_index;
         var _col = _index mod _cols;
         var _row = floor(_index / _cols);
@@ -568,9 +838,18 @@ function pc__move_cursor(_pid, _dx, _dy){
         _row += _dy;
 
         if (_col < 0){
+            if (_egg_mode){
+                _col = 0;
+                _row = clamp(_row, 0, _rows - 1);
+                _pc.sys_cursor_index = (_row * _cols) + _col;
+                _pc.sys_status_text = pc__cursor_status_text(_pid);
+                if (!is_undefined(ui_play_select_sound)) ui_play_select_sound();
+                return;
+            }
             _pc.sys_cursor_area = "party";
-            _pc.sys_cursor_index = clamp(_row, 0, 5);
-            _pc.sys_status_text = "Party selected";
+            _pc.sys_cursor_index = _breed_mode ? clamp(_row * 2, 0, 11) : clamp(_row, 0, 5);
+            _pc.sys_status_text = _breed_mode ? "Nursery slot selected" : "Party selected";
+            if (!is_undefined(ui_play_select_sound)) ui_play_select_sound();
             return;
         }
 
@@ -580,17 +859,29 @@ function pc__move_cursor(_pid, _dx, _dy){
     }
 
     _pc.sys_status_text = pc__cursor_status_text(_pid);
+    if ((_old_area != string(_pc.sys_cursor_area) || _old_index != _pc.sys_cursor_index) && !is_undefined(ui_play_select_sound)) ui_play_select_sound();
 }
 
 function pc__pickup_or_place(_pid){
     var _pc = pc__ensure_state(_pid);
 
+    if (pc__is_egg_mode(_pid)){
+        _pc.sys_status_text = "Eggs hatch after battles.";
+        return false;
+    }
+
     var _cursor_area = _pc.sys_cursor_area;
     var _cursor_index = floor(_pc.sys_cursor_index);
     var _cursor_box = -1;
+    var _cursor_origin_area = _cursor_area;
+    if (_cursor_area == "party" && pc__is_breeding_mode(_pid)) _cursor_origin_area = "breed_slot";
     if (_cursor_area == "box"){
         _cursor_box = 0;
         if (variable_struct_exists(_pc, "sys_active_box") && is_real(_pc.sys_active_box)) _cursor_box = floor(_pc.sys_active_box);
+        if (pc__is_breeding_mode(_pid) && variable_struct_exists(_pc, "sys_breed_source") && string(_pc.sys_breed_source) == "party"){
+            _cursor_origin_area = "breed_party";
+            _cursor_box = -1;
+        }
     }
 
     var _cursor_mon = pc__get_cursor_mon(_pid);
@@ -604,7 +895,7 @@ function pc__pickup_or_place(_pid){
 
         // Hold the exact Pokemon from this slot, then clear that exact slot.
         _pc.sys_held_mon = _cursor_mon;
-        _pc.sys_held_from_area = _cursor_area;
+        _pc.sys_held_from_area = _cursor_origin_area;
         _pc.sys_held_from_box = _cursor_box;
         _pc.sys_held_from_index = _cursor_index;
 
@@ -623,6 +914,7 @@ function pc__pickup_or_place(_pid){
         }
 
         _pc.sys_status_text = "Holding " + pc__mon_display_name(_pc.sys_held_mon);
+        if (!is_undefined(sfx_play_safe)) sfx_play_safe(snd_pickup, 1);
         return true;
     }
 
@@ -636,11 +928,11 @@ function pc__pickup_or_place(_pid){
         _pc.sys_status_text = "Could not place Pokemon.";
         return false;
     }
-    pc__remove_exact_mon_reference_except(_pid, _held, _cursor_area, _cursor_box, _cursor_index);
+    pc__remove_exact_mon_reference_except(_pid, _held, _cursor_origin_area, _cursor_box, _cursor_index);
 
     if (_target != undefined){
         _pc.sys_held_mon = _target;
-        _pc.sys_held_from_area = _cursor_area;
+        _pc.sys_held_from_area = _cursor_origin_area;
         _pc.sys_held_from_box = _cursor_box;
         _pc.sys_held_from_index = _cursor_index;
 
@@ -649,6 +941,7 @@ function pc__pickup_or_place(_pid){
         _pc.sys_held_origin_index = -1;
 
         _pc.sys_status_text = "Swapped. Holding " + pc__mon_display_name(_pc.sys_held_mon);
+        if (!is_undefined(sfx_play_safe)) sfx_play_safe(snd_pickup, 1);
         return true;
     }
 
@@ -660,6 +953,7 @@ function pc__pickup_or_place(_pid){
     _pc.sys_held_origin_area = "";
     _pc.sys_held_origin_box = -1;
     _pc.sys_held_origin_index = -1;
+    if (!is_undefined(sfx_play_safe)) sfx_play_safe(snd_pickup, 1);
     return true;
 }
 
@@ -674,7 +968,19 @@ function pc__return_held_to_origin(_pid){
 
     var _returned = false;
 
-    if (_restore_area == "party" && _restore_index >= 0){
+    if ((_restore_area == "breed_slot" || (_restore_area == "party" && pc__is_breeding_mode(_pid))) && _restore_index >= 0){
+        pc__ensure_breeding_state(_pid);
+        if (_restore_index < 12 && _pc.sys_breed_slots[_restore_index] == undefined){
+            _pc.sys_breed_slots[_restore_index] = _restore_mon;
+            pc__breeding_refresh_pair(_pid, pc__breeding_pair_index_from_slot(_restore_index));
+            _returned = true;
+        }
+    } else if (_restore_area == "breed_party" && _restore_index >= 0){
+        var _party_return = pc__get_party_array(_pid);
+        if (_restore_index < 6 && (_restore_index >= array_length(_party_return) || _party_return[_restore_index] == undefined)){
+            _returned = pc__write_party_slot(_pid, _restore_index, _restore_mon);
+        }
+    } else if (_restore_area == "party" && _restore_index >= 0){
         var _party = pc__get_party_array(_pid);
         if (_restore_index < array_length(_party) && _party[_restore_index] == undefined){
             _returned = pc__write_party_slot(_pid, _restore_index, _restore_mon);
@@ -732,12 +1038,28 @@ function pc__set_first_available(_pid, _mon){
     return pc_store_mon_to_box(_pid, _mon);
 }
 
+function pc__force_store_held_mon(_pid){
+    var _pc = pc__ensure_state(_pid);
+    if (_pc.sys_held_mon == undefined) return true;
+
+    var _mon = _pc.sys_held_mon;
+    var _info = pc_store_mon_to_box_info(_pid, _mon);
+    if (is_struct(_info) && variable_struct_exists(_info, "ok") && _info.ok == true){
+        pc__clear_held_state(_pc);
+        return true;
+    }
+
+    _pc.sys_status_text = "No room to return Pokemon";
+    return false;
+}
+
 function pc__cycle_box(_pid, _dir){
     var _pc = pc__ensure_state(_pid);
     var _count = array_length(_pc.sys_boxes);
     if (_count <= 0) return;
     _pc.sys_active_box = (_pc.sys_active_box + _dir + _count) mod _count;
     _pc.sys_status_text = pc__get_active_box(_pid).sys_name;
+    if (!is_undefined(ui_play_select_sound)) ui_play_select_sound();
 }
 
 function pc__cycle_theme(_pid, _dir){
@@ -747,6 +1069,7 @@ function pc__cycle_theme(_pid, _dir){
     if (_theme_count <= 0) return;
     _box.sys_theme_index = (_box.sys_theme_index + _dir + _theme_count) mod _theme_count;
     _pc.sys_status_text = "Theme: " + pc__get_active_theme(_pid).sys_name;
+    if (!is_undefined(ui_play_select_sound)) ui_play_select_sound();
 }
 
 function pc__get_active_box(_pid){
@@ -764,16 +1087,37 @@ function pc__cursor_status_text(_pid){
     var _pc = pc__ensure_state(_pid);
     var _mon = pc__get_cursor_mon(_pid);
     if (_pc.sys_held_mon != undefined) return "Place " + pc__mon_display_name(_pc.sys_held_mon);
-    if (_mon != undefined) return pc__mon_display_name(_mon) + " Lv" + string(pc__mon_level(_mon));
+    if (_mon != undefined){
+        if (pc__is_egg_mode(_pid)){
+            var _remain = (is_struct(_mon) && variable_struct_exists(_mon, "hatch_battles_remaining") && is_real(_mon.hatch_battles_remaining)) ? max(0, floor(_mon.hatch_battles_remaining)) : 0;
+            return "Egg hatches in " + string(_remain) + " battles";
+        }
+        if (pc__is_breeding_mode(_pid) && _pc.sys_cursor_area == "party") return pc__mon_display_name(_mon) + " in nursery";
+        return pc__mon_display_name(_mon) + " Lv" + string(pc__mon_level(_mon));
+    }
+    if (pc__is_breeding_mode(_pid) && _pc.sys_cursor_area == "party") return "Empty nursery slot";
     return "Empty slot";
 }
 
 function pc__get_cursor_mon(_pid){
     var _pc = pc__ensure_state(_pid);
 
+    if (pc__is_egg_mode(_pid)){
+        pc__ensure_breeding_state(_pid);
+        var _egg_slot = floor(_pc.sys_cursor_index);
+        if (_egg_slot >= 0 && _egg_slot < array_length(_pc.sys_egg_box)) return _pc.sys_egg_box[_egg_slot];
+        return undefined;
+    }
+
     if (_pc.sys_cursor_area == "party"){
         var _slot = floor(_pc.sys_cursor_index);
         if (_slot < 0) return undefined;
+
+        if (pc__is_breeding_mode(_pid)){
+            pc__ensure_breeding_state(_pid);
+            if (_slot >= 0 && _slot < 12) return _pc.sys_breed_slots[_slot];
+            return undefined;
+        }
 
         // Canonical read path for party slots.
         if (!is_undefined(party_model_get_mon)){
@@ -786,6 +1130,12 @@ function pc__get_cursor_mon(_pid){
         return undefined;
     }
 
+    if (pc__is_breeding_mode(_pid) && variable_struct_exists(_pc, "sys_breed_source") && string(_pc.sys_breed_source) == "party"){
+        var _party_src = pc__get_party_array(_pid);
+        if (_pc.sys_cursor_index >= 0 && _pc.sys_cursor_index < 6 && _pc.sys_cursor_index < array_length(_party_src)) return _party_src[_pc.sys_cursor_index];
+        return undefined;
+    }
+
     var _box = pc__get_active_box(_pid);
     if (_pc.sys_cursor_index >= 0 && _pc.sys_cursor_index < array_length(_box.sys_mons)) return _box.sys_mons[_pc.sys_cursor_index];
     return undefined;
@@ -795,8 +1145,24 @@ function pc__set_cursor_mon(_pid, _mon){
     var _pc = pc__ensure_state(_pid);
     if (_mon != undefined) _mon = pc__normalize_mon(_mon);
 
+    if (pc__is_egg_mode(_pid)) return false;
+
     if (_pc.sys_cursor_area == "party"){
+        if (pc__is_breeding_mode(_pid)){
+            pc__ensure_breeding_state(_pid);
+            var _breed_slot = floor(_pc.sys_cursor_index);
+            if (_breed_slot < 0 || _breed_slot >= 12) return false;
+            _pc.sys_breed_slots[_breed_slot] = _mon;
+            pc__breeding_refresh_pair(_pid, pc__breeding_pair_index_from_slot(_breed_slot));
+            return true;
+        }
         return pc__write_party_slot(_pid, _pc.sys_cursor_index, _mon);
+    }
+
+    if (pc__is_breeding_mode(_pid) && variable_struct_exists(_pc, "sys_breed_source") && string(_pc.sys_breed_source) == "party"){
+        var _party_slot = floor(_pc.sys_cursor_index);
+        if (_party_slot < 0 || _party_slot >= 6) return false;
+        return pc__write_party_slot(_pid, _party_slot, _mon);
     }
 
     var _box = pc__get_active_box(_pid);
@@ -1265,7 +1631,7 @@ function pc__remove_exact_mon_reference_except(_pid, _mon, _keep_area, _keep_box
     // Party exact-reference cleanup.
     var _party = pc__get_party_array(_pid);
     for (var _pi = 0; _pi < array_length(_party); ++_pi){
-        var _is_keep_party = (_keep_area == "party" && _pi == _keep_index);
+        var _is_keep_party = ((_keep_area == "party" || _keep_area == "breed_party") && _pi == _keep_index);
         if (!_is_keep_party && _party[_pi] == _mon){
             pc__write_party_slot(_pid, _pi, undefined);
             _removed += 1;
@@ -1287,6 +1653,16 @@ function pc__remove_exact_mon_reference_except(_pid, _mon, _keep_area, _keep_box
 
         _pc.sys_boxes[_b] = _box;
     }
+
+    pc__ensure_breeding_state(_pid);
+    for (var _bs = 0; _bs < 12; ++_bs){
+        var _is_keep_breed = ((_keep_area == "breed_slot" || (_keep_area == "party" && pc__is_breeding_mode(_pid))) && _bs == _keep_index);
+        if (!_is_keep_breed && _pc.sys_breed_slots[_bs] == _mon){
+            _pc.sys_breed_slots[_bs] = undefined;
+            _removed += 1;
+        }
+    }
+    pc__breeding_refresh_all_pairs(_pid);
 
     return _removed;
 }
@@ -1338,8 +1714,471 @@ function pc__dedupe_exact_mon_references(_pid){
         _pc.sys_boxes[_b] = _box;
     }
 
+    pc__ensure_breeding_state(_pid);
+    for (var _bsi = 0; _bsi < 12; ++_bsi){
+        var _breed_mon = _pc.sys_breed_slots[_bsi];
+        if (!is_struct(_breed_mon)) continue;
+        var _seen_breed = false;
+        for (var _sbr = 0; _sbr < array_length(_seen); ++_sbr){
+            if (_seen[_sbr] == _breed_mon){ _seen_breed = true; break; }
+        }
+        if (_seen_breed){
+            _pc.sys_breed_slots[_bsi] = undefined;
+            _removed += 1;
+        } else {
+            array_push(_seen, _breed_mon);
+        }
+    }
+    pc__breeding_refresh_all_pairs(_pid);
+
     if (_removed > 0) _pc.sys_status_text = "Cleaned duplicate Pokemon";
     return _removed;
+}
+
+function pc__is_breeding_mode(_pid){
+    var _pc = pc__ensure_state(_pid);
+    return (variable_struct_exists(_pc, "sys_mode") && string(_pc.sys_mode) == "breeding");
+}
+
+function pc__is_egg_mode(_pid){
+    var _pc = pc__ensure_state(_pid);
+    return (variable_struct_exists(_pc, "sys_mode") && string(_pc.sys_mode) == "eggs");
+}
+
+function pc__ensure_breeding_state(_pid){
+    var _pc = pc__ensure_state(_pid);
+    if (!variable_struct_exists(_pc, "sys_breed_slots") || !is_array(_pc.sys_breed_slots)) _pc.sys_breed_slots = [];
+    if (array_length(_pc.sys_breed_slots) < 12) array_resize(_pc.sys_breed_slots, 12);
+    if (!variable_struct_exists(_pc, "sys_breed_wait_battles") || !is_array(_pc.sys_breed_wait_battles)) _pc.sys_breed_wait_battles = [];
+    if (array_length(_pc.sys_breed_wait_battles) < 6) array_resize(_pc.sys_breed_wait_battles, 6);
+    for (var _wi = 0; _wi < 6; ++_wi) if (!is_real(_pc.sys_breed_wait_battles[_wi])) _pc.sys_breed_wait_battles[_wi] = -1;
+    if (!variable_struct_exists(_pc, "sys_breed_heart") || !is_array(_pc.sys_breed_heart)) _pc.sys_breed_heart = [];
+    if (array_length(_pc.sys_breed_heart) < 6) array_resize(_pc.sys_breed_heart, 6);
+    for (var _hi = 0; _hi < 6; ++_hi) if (!is_bool(_pc.sys_breed_heart[_hi])) _pc.sys_breed_heart[_hi] = false;
+    if (!variable_struct_exists(_pc, "sys_breed_pair_key") || !is_array(_pc.sys_breed_pair_key)) _pc.sys_breed_pair_key = [];
+    if (array_length(_pc.sys_breed_pair_key) < 6) array_resize(_pc.sys_breed_pair_key, 6);
+    for (var _ki = 0; _ki < 6; ++_ki) if (!is_string(_pc.sys_breed_pair_key[_ki])) _pc.sys_breed_pair_key[_ki] = "";
+    if (!variable_struct_exists(_pc, "sys_breed_source")) _pc.sys_breed_source = "box";
+    if (!variable_struct_exists(_pc, "sys_egg_box") || !is_array(_pc.sys_egg_box)) _pc.sys_egg_box = [];
+    return _pc;
+}
+
+function pc__breeding_pair_index_from_slot(_slot){
+    if (!is_real(_slot)) return 0;
+    return clamp(floor(floor(_slot) / 2), 0, 5);
+}
+
+function pc__breeding_toggle_source(_pid){
+    var _pc = pc__ensure_breeding_state(_pid);
+    var _cur = variable_struct_exists(_pc, "sys_breed_source") ? string(_pc.sys_breed_source) : "box";
+    _pc.sys_breed_source = (_cur == "party") ? "box" : "party";
+    _pc.sys_cursor_area = "box";
+    _pc.sys_cursor_index = 0;
+    _pc.sys_status_text = (_pc.sys_breed_source == "party") ? "Picking from party." : "Picking from PC box.";
+    return true;
+}
+
+function pc__breeding_species_id(_mon){
+    if (!is_struct(_mon)) return -1;
+    if (variable_struct_exists(_mon, "species_id") && is_real(_mon.species_id)) return floor(_mon.species_id);
+    if (variable_struct_exists(_mon, "id") && is_real(_mon.id)) return floor(_mon.id);
+    if (variable_struct_exists(_mon, "_id") && is_real(_mon._id)) return floor(_mon._id);
+    return -1;
+}
+
+function pc__breeding_sex(_mon){
+    if (!is_struct(_mon)) return "";
+    if (!is_undefined(pokemon_factory_normalize_sex)){
+        if (variable_struct_exists(_mon, "sex")){
+            var _sx = pokemon_factory_normalize_sex(_mon.sex);
+            if (string_length(_sx) > 0) return _sx;
+        }
+        if (variable_struct_exists(_mon, "gender")){
+            var _gx = pokemon_factory_normalize_sex(_mon.gender);
+            if (string_length(_gx) > 0) return _gx;
+        }
+    }
+    if (variable_struct_exists(_mon, "sex_id") && is_real(_mon.sex_id)){
+        if (floor(_mon.sex_id) == 1) return "female";
+        if (floor(_mon.sex_id) == 2) return "male";
+    }
+    if (variable_struct_exists(_mon, "gender_id") && is_real(_mon.gender_id)){
+        if (floor(_mon.gender_id) == 1) return "female";
+        if (floor(_mon.gender_id) == 2) return "male";
+    }
+    return "";
+}
+
+function pc__breeding_sex_symbol(_mon){
+    var _sex = pc__breeding_sex(_mon);
+    if (_sex == "male") return "M";
+    if (_sex == "female") return "F";
+    return "?";
+}
+
+function pc__breeding_load_tables(){
+    if (variable_global_exists("_breeding_egg_groups") && is_array(global._breeding_egg_groups)) return true;
+
+    global._breeding_egg_groups = [];
+    global._breeding_base_species = [];
+    global._breeding_hatch_counter = [];
+
+    var _path_groups = working_directory + "/data/csv/pokemon_egg_groups.csv";
+    var _g = load_csv(_path_groups);
+    if (_g != -1){
+        var _h = ds_grid_height(_g);
+        var _max_sid = 0;
+        for (var _r = 1; _r < _h; ++_r){
+            var _sid = __to_int_safe(__grid(_g, 0, _r, 0), 0);
+            if (_sid > _max_sid) _max_sid = _sid;
+        }
+        array_resize(global._breeding_egg_groups, _max_sid + 1);
+        for (var _r2 = 1; _r2 < _h; ++_r2){
+            var _sid2 = __to_int_safe(__grid(_g, 0, _r2, 0), 0);
+            var _eg = __to_int_safe(__grid(_g, 1, _r2, 0), 0);
+            if (_sid2 <= 0 || _eg <= 0) continue;
+            var _arr = global._breeding_egg_groups[_sid2];
+            if (!is_array(_arr)) _arr = [];
+            array_push(_arr, _eg);
+            global._breeding_egg_groups[_sid2] = _arr;
+        }
+        ds_grid_destroy(_g);
+    }
+
+    var _path_species = working_directory + "/data/csv/pokemon_species.csv";
+    var _sgrid = load_csv(_path_species);
+    if (_sgrid != -1){
+        var _sh = ds_grid_height(_sgrid);
+        var _ci_id = __col_find_ci(_sgrid, "id");
+        var _ci_evolves = __col_find_ci(_sgrid, "evolves_from_species_id");
+        var _ci_hatch = __col_find_ci(_sgrid, "hatch_counter");
+        var _max_species = 0;
+        for (var _sr = 1; _sr < _sh; ++_sr){
+            var _ssid = __to_int_safe(__grid(_sgrid, _ci_id, _sr, 0), 0);
+            if (_ssid > _max_species) _max_species = _ssid;
+        }
+        array_resize(global._breeding_base_species, _max_species + 1);
+        array_resize(global._breeding_hatch_counter, _max_species + 1);
+        for (var _init = 0; _init < array_length(global._breeding_base_species); ++_init) global._breeding_base_species[_init] = _init;
+
+        for (var _sr2 = 1; _sr2 < _sh; ++_sr2){
+            var _sid3 = __to_int_safe(__grid(_sgrid, _ci_id, _sr2, 0), 0);
+            if (_sid3 <= 0) continue;
+            var _parent = (_ci_evolves >= 0) ? __to_int_safe(__grid(_sgrid, _ci_evolves, _sr2, 0), 0) : 0;
+            if (_parent > 0) global._breeding_base_species[_sid3] = _parent;
+            if (_ci_hatch >= 0) global._breeding_hatch_counter[_sid3] = __to_int_safe(__grid(_sgrid, _ci_hatch, _sr2, 20), 20);
+        }
+        var _changed = true;
+        var _guard = 0;
+        while (_changed && _guard < 16){
+            _changed = false;
+            _guard += 1;
+            for (var _bi = 1; _bi < array_length(global._breeding_base_species); ++_bi){
+                var _p = global._breeding_base_species[_bi];
+                if (is_real(_p) && _p > 0 && _p < array_length(global._breeding_base_species) && global._breeding_base_species[_p] != _p){
+                    global._breeding_base_species[_bi] = global._breeding_base_species[_p];
+                    _changed = true;
+                }
+            }
+        }
+        ds_grid_destroy(_sgrid);
+    }
+
+    return true;
+}
+
+function pc__breeding_groups_for_species(_sid){
+    pc__breeding_load_tables();
+    var _s = is_real(_sid) ? floor(_sid) : -1;
+    if (_s >= 0 && variable_global_exists("_breeding_egg_groups") && is_array(global._breeding_egg_groups) && _s < array_length(global._breeding_egg_groups)){
+        var _arr = global._breeding_egg_groups[_s];
+        if (is_array(_arr)) return _arr;
+    }
+    return [];
+}
+
+function pc__breeding_share_egg_group(_sid_a, _sid_b){
+    var _a = pc__breeding_groups_for_species(_sid_a);
+    var _b = pc__breeding_groups_for_species(_sid_b);
+    for (var _i = 0; _i < array_length(_a); ++_i){
+        var _ga = _a[_i];
+        if (_ga == 15) continue;
+        for (var _j = 0; _j < array_length(_b); ++_j){
+            if (_ga == _b[_j] && _b[_j] != 15) return true;
+        }
+    }
+    return false;
+}
+
+function pc__breeding_is_male_female_pair(_a, _b){
+    if (!is_struct(_a) || !is_struct(_b)) return false;
+    var _sexa = pc__breeding_sex(_a);
+    var _sexb = pc__breeding_sex(_b);
+    return ((_sexa == "male" && _sexb == "female") || (_sexa == "female" && _sexb == "male"));
+}
+
+function pc__breeding_compatibility(_a, _b){
+    if (!is_struct(_a) || !is_struct(_b)) return { ok:false, reason:"Need two Pokemon." };
+    if (variable_struct_exists(_a, "is_egg") && _a.is_egg == true) return { ok:false, reason:"Eggs cannot breed." };
+    if (variable_struct_exists(_b, "is_egg") && _b.is_egg == true) return { ok:false, reason:"Eggs cannot breed." };
+
+    var _sa = pc__breeding_species_id(_a);
+    var _sb = pc__breeding_species_id(_b);
+    if (_sa <= 0 || _sb <= 0) return { ok:false, reason:"Missing species." };
+
+    var _sexa = pc__breeding_sex(_a);
+    var _sexb = pc__breeding_sex(_b);
+    if (!((_sexa == "male" && _sexb == "female") || (_sexa == "female" && _sexb == "male"))) return { ok:false, reason:"Need one male and one female." };
+    if (!pc__breeding_share_egg_group(_sa, _sb)) return { ok:false, reason:"Egg groups do not match." };
+
+    var _female = (_sexa == "female") ? _a : _b;
+    var _child = pc__breeding_base_child_species(pc__breeding_species_id(_female));
+    var _wait = (_sa == _sb) ? 2 : 4;
+    var _child_nature = pc__breeding_choose_child_nature(_a, _b);
+    return { ok:true, reason:"The pair gets along.", child_species:_child, child_nature:_child_nature, wait_battles:_wait };
+}
+
+function pc__breeding_base_child_species(_sid){
+    pc__breeding_load_tables();
+    var _s = is_real(_sid) ? floor(_sid) : -1;
+    if (_s > 0 && variable_global_exists("_breeding_base_species") && is_array(global._breeding_base_species) && _s < array_length(global._breeding_base_species)){
+        var _base = global._breeding_base_species[_s];
+        if (is_real(_base) && _base > 0) return floor(_base);
+    }
+    return _s;
+}
+
+function pc__breeding_mon_nature(_mon){
+    if (!is_struct(_mon)) return "";
+    if (variable_struct_exists(_mon, "nature") && is_string(_mon.nature) && string_length(string(_mon.nature)) > 0) return string(_mon.nature);
+    return "";
+}
+
+function pc__breeding_mon_holds_everstone(_mon){
+    if (!is_struct(_mon)) return false;
+    if (variable_struct_exists(_mon, "held_item_id") && is_real(_mon.held_item_id) && floor(_mon.held_item_id) == 206) return true;
+    var _held_name = "";
+    if (variable_struct_exists(_mon, "held_item_real_name")) _held_name = string_lower(string(_mon.held_item_real_name));
+    else if (variable_struct_exists(_mon, "held_item_name")) _held_name = string_lower(string(_mon.held_item_name));
+    return (_held_name == "everstone");
+}
+
+function pc__breeding_choose_child_nature(_a, _b){
+    var _choices = [];
+    if (pc__breeding_mon_holds_everstone(_a)){
+        var _na = pc__breeding_mon_nature(_a);
+        if (string_length(_na) > 0) array_push(_choices, _na);
+    }
+    if (pc__breeding_mon_holds_everstone(_b)){
+        var _nb = pc__breeding_mon_nature(_b);
+        if (string_length(_nb) > 0) array_push(_choices, _nb);
+    }
+    if (array_length(_choices) > 0) return _choices[irandom(array_length(_choices) - 1)];
+    if (!is_undefined(scr_nature_random_name)) return scr_nature_random_name();
+    return "Hardy";
+}
+
+function pc__breeding_pair_key(_a, _b){
+    if (!is_struct(_a) || !is_struct(_b)) return "";
+    var _ida = variable_struct_exists(_a, "idno") ? string(_a.idno) : string(pc__breeding_species_id(_a)) + ":" + pc__breeding_sex(_a);
+    var _idb = variable_struct_exists(_b, "idno") ? string(_b.idno) : string(pc__breeding_species_id(_b)) + ":" + pc__breeding_sex(_b);
+    return _ida + "|" + _idb;
+}
+
+function pc__breeding_refresh_pair(_pid, _pair_index = 0){
+    var _pc = pc__ensure_breeding_state(_pid);
+    var _pair = clamp(floor(_pair_index), 0, 5);
+    var _slot_a = _pair * 2;
+    var _a = _pc.sys_breed_slots[_slot_a];
+    var _b = _pc.sys_breed_slots[_slot_a + 1];
+    var _compat = pc__breeding_compatibility(_a, _b);
+    _pc.sys_breed_heart[_pair] = _compat.ok == true;
+
+    if (_compat.ok == true){
+        var _key = pc__breeding_pair_key(_a, _b);
+        variable_struct_set(_compat, "pair_index", _pair);
+        variable_struct_set(_compat, "pair_key", _key);
+        if (_pc.sys_breed_pair_key[_pair] != _key || _pc.sys_breed_wait_battles[_pair] < 0){
+            _pc.sys_breed_pair_key[_pair] = _key;
+            _pc.sys_breed_wait_battles[_pair] = _compat.wait_battles;
+        }
+        if (pc__is_breeding_mode(_pid) && pc__breeding_pair_index_from_slot(_pc.sys_cursor_index) == _pair) _pc.sys_status_text = "Pair " + string(_pair + 1) + ": " + _compat.reason;
+    } else {
+        _pc.sys_breed_pair_key[_pair] = "";
+        _pc.sys_breed_wait_battles[_pair] = -1;
+        if (pc__is_breeding_mode(_pid) && pc__breeding_pair_index_from_slot(_pc.sys_cursor_index) == _pair) _pc.sys_status_text = "Pair " + string(_pair + 1) + ": " + _compat.reason;
+    }
+    return _compat;
+}
+
+function pc__breeding_refresh_all_pairs(_pid){
+    var _last = undefined;
+    for (var _pair = 0; _pair < 6; ++_pair){
+        _last = pc__breeding_refresh_pair(_pid, _pair);
+    }
+    return _last;
+}
+
+function pc__egg_count(_pid){
+    var _pc = pc__ensure_breeding_state(_pid);
+    var _count = 0;
+    for (var _i = 0; _i < array_length(_pc.sys_egg_box); ++_i){
+        if (is_struct(_pc.sys_egg_box[_i])) _count += 1;
+    }
+    return _count;
+}
+
+function pc__egg_first_empty_slot(_pid){
+    var _pc = pc__ensure_breeding_state(_pid);
+    for (var _i = 0; _i < array_length(_pc.sys_egg_box); ++_i){
+        if (!is_struct(_pc.sys_egg_box[_i])) return _i;
+    }
+    if (array_length(_pc.sys_egg_box) < 30){
+        array_push(_pc.sys_egg_box, undefined);
+        return array_length(_pc.sys_egg_box) - 1;
+    }
+    return -1;
+}
+
+function pc__breeding_hatch_battles_for_species(_sid){
+    pc__breeding_load_tables();
+    var _counter = 20;
+    if (variable_global_exists("_breeding_hatch_counter") && is_array(global._breeding_hatch_counter) && _sid >= 0 && _sid < array_length(global._breeding_hatch_counter)){
+        if (is_real(global._breeding_hatch_counter[_sid])) _counter = max(1, floor(global._breeding_hatch_counter[_sid]));
+    }
+    return clamp(ceil(_counter / 5), 3, 10);
+}
+
+function pc__breeding_make_egg(_pid, _compat){
+    var _slot = pc__egg_first_empty_slot(_pid);
+    if (_slot < 0) return false;
+
+    var _child = (is_struct(_compat) && variable_struct_exists(_compat, "child_species") && is_real(_compat.child_species)) ? floor(_compat.child_species) : 1;
+    var _nature = (is_struct(_compat) && variable_struct_exists(_compat, "child_nature") && is_string(_compat.child_nature) && string_length(_compat.child_nature) > 0) ? string(_compat.child_nature) : (is_undefined(scr_nature_random_name) ? "Hardy" : scr_nature_random_name());
+    var _egg = {
+        is_egg: true,
+        species_id: _child,
+        id: _child,
+        species: "Egg",
+        name: "Egg",
+        level: 1,
+        nature: _nature,
+        hatch_battles_remaining: pc__breeding_hatch_battles_for_species(_child),
+        player_born: true,
+        bred_in_pc: true,
+        parent_key: (is_struct(_compat) && variable_struct_exists(_compat, "pair_key")) ? _compat.pair_key : ""
+    };
+
+    var _pc = pc__ensure_breeding_state(_pid);
+    _pc.sys_egg_box[_slot] = _egg;
+    _pc.sys_status_text = "An Egg was found in the Egg Box.";
+    if (!is_undefined(sfx_play_safe)) sfx_play_safe(snd_Receive_Egg, 1);
+    return true;
+}
+
+function pc__breeding_recalculate_stats(_mon){
+    if (!is_struct(_mon)) return _mon;
+    var _sid = pc__breeding_species_id(_mon);
+    var _stats = (!is_undefined(scr_poke_stats) && _sid > 0) ? scr_poke_stats(_sid) : undefined;
+    if (is_undefined(_stats)) return _mon;
+    if (!is_undefined(scr_init_mon_iv_ev)) scr_init_mon_iv_ev(_mon);
+
+    var _iv = (variable_struct_exists(_mon, "iv") && is_struct(_mon.iv)) ? _mon.iv : { hp:0, atk:0, def:0, spa:0, spd:0, spe:0 };
+    var _ev = (variable_struct_exists(_mon, "ev") && is_struct(_mon.ev)) ? _mon.ev : { hp:0, atk:0, def:0, spa:0, spd:0, spe:0 };
+    var _lvl = (variable_struct_exists(_mon, "level") && is_real(_mon.level)) ? max(1, floor(_mon.level)) : 1;
+    var _nature = pc__breeding_mon_nature(_mon);
+    if (string_length(_nature) <= 0 && !is_undefined(scr_nature_random_name)){
+        _nature = scr_nature_random_name();
+        _mon.nature = _nature;
+    }
+
+    var _keys = ["hp","atk","def","spa","spd","spe"];
+    for (var _i = 0; _i < array_length(_keys); ++_i){
+        var _k = _keys[_i];
+        var _base = (variable_struct_exists(_stats, _k) && is_real(variable_struct_get(_stats, _k))) ? floor(variable_struct_get(_stats, _k)) : 10;
+        var _ivv = (variable_struct_exists(_iv, _k) && is_real(variable_struct_get(_iv, _k))) ? floor(variable_struct_get(_iv, _k)) : 0;
+        var _evv = (variable_struct_exists(_ev, _k) && is_real(variable_struct_get(_ev, _k))) ? floor(variable_struct_get(_ev, _k)) : 0;
+        var _is_hp = (_k == "hp");
+        var _value = (!is_undefined(scr_compute_stat)) ? scr_compute_stat(_base, _ivv, _evv, _lvl, _is_hp) : max(1, floor((_base * 2 + _ivv + floor(_evv / 4)) * _lvl / 100) + (_is_hp ? _lvl + 10 : 5));
+        if (!_is_hp && !is_undefined(scr_nature_multiplier)) _value = max(1, floor(_value * scr_nature_multiplier(_nature, _k)));
+        if (_is_hp){
+            _mon.hp_max = _value;
+            _mon.maxhp = _value;
+            _mon.hp = _value;
+            _mon.hp_now = _value;
+        } else {
+            variable_struct_set(_mon, _k, _value);
+        }
+    }
+    return _mon;
+}
+
+function pc__breeding_apply_player_born_boost(_mon){
+    if (!is_struct(_mon)) return _mon;
+    if (!is_undefined(scr_init_mon_iv_ev)) scr_init_mon_iv_ev(_mon);
+
+    var _iv = (variable_struct_exists(_mon, "iv") && is_struct(_mon.iv)) ? _mon.iv : { hp:0, atk:0, def:0, spa:0, spd:0, spe:0 };
+    var _ev = (variable_struct_exists(_mon, "ev") && is_struct(_mon.ev)) ? _mon.ev : { hp:0, atk:0, def:0, spa:0, spd:0, spe:0 };
+    var _keys = ["hp","atk","def","spa","spd","spe"];
+    for (var _i = 0; _i < array_length(_keys); ++_i){
+        var _k = _keys[_i];
+        var _ivv = (variable_struct_exists(_iv, _k) && is_real(variable_struct_get(_iv, _k))) ? floor(variable_struct_get(_iv, _k)) : 0;
+        variable_struct_set(_iv, _k, max(_ivv, 20));
+        variable_struct_set(_ev, _k, 32);
+    }
+    _mon.iv = _iv;
+    _mon.ev = _ev;
+    _mon.ev_total = 192;
+    _mon.player_born = true;
+    _mon.player_born_bonus = true;
+    _mon.bred_in_pc = true;
+    return pc__breeding_recalculate_stats(_mon);
+}
+
+function pc__breeding_hatch_egg(_pid, _egg){
+    if (!is_struct(_egg)) return false;
+    var _sid = (variable_struct_exists(_egg, "species_id") && is_real(_egg.species_id)) ? floor(_egg.species_id) : 1;
+    var _mon = undefined;
+    if (!is_undefined(pokemon_factory_create)) _mon = pokemon_factory_create(_sid, 1, { pid:_pid, pokeball_item_id:4 });
+    if (!is_struct(_mon)) return false;
+    if (variable_struct_exists(_egg, "nature") && is_string(_egg.nature) && string_length(_egg.nature) > 0) _mon.nature = string(_egg.nature);
+    _mon = pc__breeding_apply_player_born_boost(_mon);
+    var _info = pc_store_mon_to_box_info(_pid, _mon);
+    return (is_struct(_info) && variable_struct_exists(_info, "ok") && _info.ok == true);
+}
+
+function pc_breeding_on_battle_complete(_pid){
+    var _pc = pc__ensure_breeding_state(_pid);
+
+    for (var _i = 0; _i < array_length(_pc.sys_egg_box); ++_i){
+        var _egg = _pc.sys_egg_box[_i];
+        if (!is_struct(_egg)) continue;
+        if (!variable_struct_exists(_egg, "hatch_battles_remaining") || !is_real(_egg.hatch_battles_remaining)) _egg.hatch_battles_remaining = 5;
+        _egg.hatch_battles_remaining -= 1;
+        if (_egg.hatch_battles_remaining <= 0){
+            if (pc__breeding_hatch_egg(_pid, _egg)){
+                _pc.sys_egg_box[_i] = undefined;
+                _pc.sys_status_text = "An Egg hatched and moved to a Box.";
+            } else {
+                _egg.hatch_battles_remaining = 1;
+                _pc.sys_egg_box[_i] = _egg;
+            }
+        } else {
+            _pc.sys_egg_box[_i] = _egg;
+        }
+    }
+
+    for (var _pair = 0; _pair < 6; ++_pair){
+        var _compat = pc__breeding_refresh_pair(_pid, _pair);
+        if (is_struct(_compat) && _compat.ok == true){
+            _pc.sys_breed_wait_battles[_pair] -= 1;
+            if (_pc.sys_breed_wait_battles[_pair] <= 0){
+                if (pc__breeding_make_egg(_pid, _compat)) _pc.sys_breed_wait_battles[_pair] = _compat.wait_battles;
+                else _pc.sys_breed_wait_battles[_pair] = 1;
+            }
+        }
+    }
+    return true;
 }
 
 function pc__clear_held_state(_pc){

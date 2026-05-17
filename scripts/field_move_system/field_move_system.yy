@@ -1,0 +1,13 @@
+{
+  "$GMScript":"v1",
+  "%Name":"field_move_system",
+  "isCompatibility":false,
+  "isDnD":false,
+  "name":"field_move_system",
+  "parent":{
+    "name":"World",
+    "path":"folders/Scripts/World.yy",
+  },
+  "resourceType":"GMScript",
+  "resourceVersion":"2.0",
+}

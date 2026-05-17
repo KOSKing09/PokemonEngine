@@ -1,4 +1,12 @@
 controls_update();
+if (variable_global_exists("STARTUP_MUSIC_DELAY_FRAMES") && global.STARTUP_MUSIC_DELAY_FRAMES >= 0){
+	if (global.STARTUP_MUSIC_DELAY_FRAMES > 0) {
+		global.STARTUP_MUSIC_DELAY_FRAMES--;
+	} else {
+		global.STARTUP_MUSIC_DELAY_FRAMES = -1;
+		if (!is_undefined(world_play_music) && variable_global_exists("_REGIONMUSIC")) world_play_music(global._REGIONMUSIC);
+	}
+}
 if (!is_undefined(transition_update)) transition_update();
 var _transition_block = (!is_undefined(transition_is_blocking) && transition_is_blocking());
 

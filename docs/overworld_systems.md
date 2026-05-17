@@ -9,6 +9,29 @@ It focuses on four related pieces:
 - visible wild Pokemon that wander inside encounter patches
 - overworld item and prop objects added alongside those systems
 
+## Field Move Props
+
+Reusable overworld field-move props are available as placeable objects:
+
+- `oFieldRockSmash`: a breakable rock. Interacting requires a party Pokemon that knows `Rock Smash`, then destroys the rock.
+- `oFieldFlySpot`: a Fly marker. Interacting requires a party Pokemon that knows `Fly`; set `field_move_target_room` on the instance to make it room-goto after use.
+- `oFieldMoveProp`: generic parent-style prop for custom field moves. Set `field_move_required` and `field_move_kind` in instance creation code.
+
+Example:
+
+```gml
+var _rock = instance_create_layer(160, 128, "Instances", oFieldRockSmash);
+
+var _fly = instance_create_layer(208, 128, "Instances", oFieldFlySpot);
+_fly.field_move_target_room = rm_pokecenter1;
+```
+
+For dev testing without checking the party's moves:
+
+```gml
+global.FIELD_MOVES_IGNORE_REQUIREMENTS = true;
+```
+
 Use this guide when a change is controlled by an overworld object event rather than by the battle or party UIs.
 
 ## Ownership
@@ -248,20 +271,38 @@ Depth is still managed in Step through per-object `depth` writes.
 
 ## World Item Object
 
-`oitem` is now a dedicated overworld object with the `sitem` sprite.
+`oitem` is the dedicated overworld item pickup object with the `sitem` sprite.
 
 Current state:
 
-- it has a Create event only
-- that Create event scales the sprite down with `image_xscale = image_yscale = 0.67`
-- there is no Step or pickup helper wired yet
+- its Create event scales the sprite down with `image_xscale = image_yscale = 0.67`
+- it is included in world collision solids through `wc_set_solids(...)`
+- it is found through the normal face-and-Interact overworld interaction helper
+- it grants the configured item through the bag inventory system, plays pickup audio, shows a pickup dialog, and destroys itself by default
 
-Treat it as a presentation seam right now, not a full pickup system. Item rewards still come from NPC interaction via `give_item_id` and `give_item_qty`.
+Set item contents on the placed `oitem` instance:
 
-If you later build field pickups, either:
+```gml
+item_id = 4;
+item_qty = 1;
+item_message = ""; // optional custom pickup text
+```
 
-- extend `oitem` with its own interact or overlap logic, or
-- reuse `overworld_npc_finalize_interaction(...)` semantics so reward flags stay consistent
+Supported instance fields:
+
+- `item_id`: CSV item id to add.
+- `item_qty`: quantity to add, clamped to at least `1`.
+- `item_message`: optional custom dialog. If blank, the game shows `PLAYER found one ITEM!` or `PLAYER found N ITEM!`.
+- `item_pickup_once`: default `true`; if true, the instance is destroyed after pickup.
+- `interact_radius`: default `18`.
+- `world_solid`: default `true`.
+
+Pickup sounds:
+
+- HMs play `snd_Receive_HM`.
+- Other items play `snd_Receive_Item`.
+
+NPC item rewards still work through `give_item_id` and `give_item_qty`; use those when a talking NPC gives the item, and use `oitem` when the item is found directly on the map.
 
 ## Concrete Asset Additions
 
@@ -300,5 +341,7 @@ For visible wild encounters:
 
 For world items:
 
-1. Use `oitem` only for display today.
-2. Use NPC reward fields for actual item grants until pickup logic exists.
+1. Place `oitem`.
+2. Set `item_id` and optional `item_qty` in the instance creation code.
+3. Optionally set `item_message` if the default pickup text is not enough.
+4. Press Interact while facing the pickup in game.

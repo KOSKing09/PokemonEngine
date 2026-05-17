@@ -28,9 +28,10 @@ function __bag_impl_bag_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     var head_x=8, head_y=4, head_w=224, head_h=20;
     var left_x=8, left_y=28, left_w=112, left_h=120;
     var list_x=109, list_y=5, list_w=104, list_h=144;
-    var ibx=8, iby=70, ibw=32, ibh=28;
-    var art_h = (left_h - 46 - 4), art_y = left_y;
-    var desc_x = left_x, desc_y = left_y + art_h + 4, desc_w = max(40, (list_x - 3) - desc_x), desc_h = 46;
+    var ibx=8, iby=62, ibw=32, ibh=28;
+    var desc_h = 56;
+    var art_h = (left_h - desc_h - 4), art_y = left_y;
+    var desc_x = left_x, desc_y = left_y + art_h + 4, desc_w = max(40, (list_x - 3) - desc_x);
 
     // Title bar
     if (sprite_exists(sbagbarTopUI)) draw_sprite(sbagbarTopUI, 0, ox + head_x*s, oy + head_y*s);
@@ -70,7 +71,7 @@ function __bag_impl_bag_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     // item icon box and description and right list are handled by helper functions to keep this function tidy
     __bag_impl_draw_item_icon_box(_pid, b, ox, oy, s, ibx, iby, ibw, ibh, desc_x, desc_y, desc_w, desc_h, list_x, list_y, list_w, list_h, C_PAPER, C_PAPER_E, _pulse);
     // Draw the item submenu if open
-    if (is_struct(b)) __bag_impl_draw_item_submenu(b, ox, oy, s, list_x, list_y, list_w);
+    if (is_struct(b)) __bag_impl_draw_item_submenu(b, ox, oy, s, list_x, list_y, list_w, list_h);
 }
 
 function __bag_impl_draw_item_icon_box(_pid, _b, _ox, _oy, _s, _ibx, _iby, _ibw, _ibh, _desc_x, _desc_y, _desc_w, _desc_h, _list_x, _list_y, _list_w, _list_h, _C_PAPER, _C_PAPER_E, _pulse){
@@ -112,16 +113,80 @@ function __bag_impl_draw_description(_b, _ox, _oy, _s, _desc_x, _desc_y, _desc_w
     draw_set_color(_C_PAPER_E); draw_rectangle(x1 - _s, y1 - _s, x2 + _s, y2 + _s, true);
 
     var _lc2 = _b.items[_b.page], _count2 = array_length_1d(_lc2), _sel2 = clamp(_b.sel, 0, max(0, _count2 - 1));
+    var _item_id = (_count2 > 0 && variable_struct_exists(_lc2[_sel2], "item_id")) ? _lc2[_sel2].item_id : -1;
     var _txt = (_count2 > 0 && !is_undefined(_lc2[_sel2].desc)) ? string(_lc2[_sel2].desc) : "—";
 
-    if (variable_global_exists("FNT_POKEMON")) draw_set_font(global.FNT_POKEMON); else draw_set_font(-1);
-    draw_set_color(c_white);
+    var _desc_key = string(_b.page) + ":" + string(_sel2) + ":" + string(_item_id) + ":" + _txt;
+    if (!variable_struct_exists(_b, "desc_scroll")) _b.desc_scroll = 0;
+    if (!variable_struct_exists(_b, "desc_key")) _b.desc_key = "";
+    if (_b.desc_key != _desc_key){
+        _b.desc_key = _desc_key;
+        _b.desc_scroll = 0;
+    }
 
-    var pad_ui = 4, wrap_w = (_desc_w - pad_ui*2) * _s, line_h = max(12, string_height("A") + 2), max_lines = floor((_desc_h*_s - pad_ui*2*_s) / line_h), tx = x1 + pad_ui*_s, ty = y1 + pad_ui*_s;
+    if (variable_global_exists("FNT_POKEMON_SMALL")) draw_set_font(global.FNT_POKEMON_SMALL);
+    else if (variable_global_exists("FNT_POKEMON")) draw_set_font(global.FNT_POKEMON);
+    else draw_set_font(-1);
+    draw_set_color(make_color_rgb(48, 56, 72));
+
+    var pad_ui = 3;
+    var scroll_w = 4 * _s;
+    var wrap_w = (_desc_w - pad_ui*2) * _s - scroll_w - _s;
+    var line_h = max(8, string_height("A"));
+    var box_h = _desc_h*_s - pad_ui*2*_s;
+    var tx = x1 + pad_ui*_s;
+    var ty = y1 + pad_ui*_s;
 
     var lines = __bag_wrap_lines(_txt, wrap_w);
-    var drawn = 0; for (var li = 0; li < array_length_1d(lines) && drawn < max_lines; ++li){ draw_text(tx, ty + drawn*line_h, lines[li]); drawn++; }
-    if (drawn < array_length_1d(lines) && max_lines > 0){ var last = lines[drawn-1]; while (string_width(last + "…") > wrap_w && string_length(last) > 0) last = string_delete(last, string_length(last), 1); draw_text(tx, ty + (drawn-1)*line_h, last + "…"); }
+    var total_h = array_length_1d(lines) * line_h;
+    var max_scroll = max(0, total_h - box_h);
+    _b.desc_scroll = clamp(_b.desc_scroll, 0, max_scroll);
+
+    var start_line = floor(_b.desc_scroll / line_h);
+    var yline = ty;
+    for (var li = start_line; li < array_length_1d(lines); ++li){
+        if (yline > ty + box_h - line_h + 1) break;
+        draw_text(tx, yline, lines[li]);
+        yline += line_h;
+    }
+
+    __bag_impl_draw_desc_scrollbar(x2 - scroll_w - _s, ty, scroll_w, box_h, _b.desc_scroll, box_h, total_h, _C_PAPER_E);
+}
+
+function __bag_impl_draw_desc_scrollbar(_rx, _ry, _rw, _rh, _scroll, _pageSize, _totalSize, _accent){
+    var _old_col = draw_get_color();
+    var _old_alpha = draw_get_alpha();
+    var _visible = max(1, _pageSize);
+    var _total = max(_visible, _totalSize);
+
+    if (_total <= _visible){
+        draw_set_color(make_color_rgb(184, 156, 96));
+        draw_set_alpha(0.45);
+        draw_rectangle(_rx, _ry, _rx + _rw, _ry + _rh, false);
+        draw_set_alpha(_old_alpha);
+        draw_set_color(_old_col);
+        return;
+    }
+
+    draw_set_color(make_color_rgb(96, 72, 36));
+    draw_rectangle(_rx, _ry, _rx + _rw, _ry + _rh, false);
+    draw_set_color(c_white);
+    draw_rectangle(_rx, _ry, _rx + _rw, _ry + _rh, true);
+
+    var _inset = 1;
+    var _max_scroll = max(1, _total - _visible);
+    var _t = clamp(_scroll / _max_scroll, 0, 1);
+    var _thumb_h = max(8, floor((_rh - _inset * 2) * (_visible / _total)));
+    var _usable = max(0, _rh - _inset * 2 - _thumb_h);
+    var _thumb_y = _ry + _inset + floor(_usable * _t);
+
+    draw_set_color(_accent);
+    draw_rectangle(_rx + _inset, _thumb_y, _rx + _rw - _inset, _thumb_y + _thumb_h, false);
+    draw_set_color(c_black);
+    draw_rectangle(_rx + _inset, _thumb_y, _rx + _rw - _inset, _thumb_y + _thumb_h, true);
+
+    draw_set_alpha(_old_alpha);
+    draw_set_color(_old_col);
 }
 
 // Text wrap helper (draw-only implementation)
@@ -144,20 +209,68 @@ function __bag_impl_wrap_lines(_text, _max_w){
     return _out;
 }
 
+function __bag_impl_fit_text_clip(_txt, _max_w){
+    var _s = string(_txt);
+    if (string_width(_s) <= _max_w) return _s;
+    while (string_length(_s) > 0 && string_width(_s) > _max_w){
+        _s = string_delete(_s, string_length(_s), 1);
+    }
+    return string_trim(_s);
+}
+
+function __bag_impl_text_marquee(_txt, _max_w, _key){
+    var _s = string(_txt);
+    if (string_width(_s) <= _max_w) return _s;
+
+    static _last_key = "";
+    static _started_at = 0;
+
+    var _marquee_key = string(_key);
+    if (_marquee_key != _last_key){
+        _last_key = _marquee_key;
+        _started_at = current_time;
+    }
+
+    var _wait_ms = 700;
+    var _elapsed = current_time - _started_at;
+    if (_elapsed < _wait_ms) return __bag_impl_fit_text_clip(_s, _max_w);
+
+    var _loop = _s + "      ";
+    var _loop_len = max(1, string_length(_loop));
+    var _step = (floor((_elapsed - _wait_ms) / 250)) mod _loop_len;
+    var _out = "";
+
+    for (var _i = 0; _i < _loop_len * 2; ++_i){
+        var _char_index = ((_step + _i) mod _loop_len) + 1;
+        var _next = _out + string_copy(_loop, _char_index, 1);
+        if (string_width(_next) > _max_w) break;
+        _out = _next;
+    }
+
+    return string_trim(_out);
+}
+
 function __bag_impl_draw_right_list(_pid, _b, _ox, _oy, _s, _list_x, _list_y, _list_w, _list_h, _C_PAPER, _C_PAPER_E, _pulse){
     var lx1 = _ox + _list_x*_s, ly1 = _oy + _list_y*_s, lx2 = _ox + (_list_x+_list_w)*_s, ly2 = _oy + (_list_y+_list_h)*_s;
     draw_set_color(_C_PAPER); draw_rectangle(lx1, ly1, lx2, ly2, false);
     draw_set_color(_C_PAPER_E); draw_rectangle(lx1 - _s, ly1 - _s, lx2 + _s, ly2 + _s, true);
 
-    var rows = 8, row_h = max(12, string_height("A") + 2), _lc3 = _b.items[_b.page], _count3 = array_length_1d(_lc3), sel = clamp(_b.sel, 0, max(0, _count3 - 1));
-
-    if (variable_global_exists("FNT_POKEMON")) draw_set_font(global.FNT_POKEMON); else draw_set_font(-1);
-    draw_set_color(c_white);
+    if (variable_global_exists("FNT_POKEMON_SMALL")) draw_set_font(global.FNT_POKEMON_SMALL);
+    else if (variable_global_exists("FNT_POKEMON")) draw_set_font(global.FNT_POKEMON);
+    else draw_set_font(-1);
+    var row_h = 10;
+    var rows = 13;
+    var _lc3 = _b.items[_b.page], _count3 = array_length_1d(_lc3), sel = clamp(_b.sel, 0, max(0, _count3 - 1));
+    var _C_TEXT = make_color_rgb(42, 48, 64);
+    var _C_TEXT_SEL = make_color_rgb(20, 56, 112);
+    var _C_QTY = make_color_rgb(32, 120, 112);
+    var _C_REG = make_color_rgb(220, 64, 64);
+    draw_set_color(_C_TEXT);
 
     for (var r = 0; r < rows; r++){
         var idx = _b.scroll + r; if (idx >= _count3) break;
         var nm  = string(_lc3[idx].name);
-        var qty = "× " + string(_lc3[idx].qty);
+        var qty = "x " + string(_lc3[idx].qty);
         var row_top = _oy + (_list_y + 8 + r*row_h) * _s;
         var fh = string_height("A");
         var yline = row_top + (row_h * _s - fh) * 0.5;
@@ -178,20 +291,24 @@ function __bag_impl_draw_right_list(_pid, _b, _ox, _oy, _s, _list_x, _list_y, _l
             draw_rectangle(sel_x1 - _s, sel_y1 - _s, sel_x2 + _s, sel_y2 + _s, true);
         }
 
-        draw_set_color(c_white);
-        if (_is_registered) draw_text(_ox + (_list_x + 8) * _s, yline, "R");
-        draw_text(_ox + (_list_x + 16) * _s, yline, nm);
-            draw_set_color(c_white);
+        draw_set_color(idx == sel ? _C_TEXT_SEL : _C_TEXT);
+        if (_is_registered){ draw_set_color(_C_REG); draw_text(_ox + (_list_x + 8) * _s, yline, "R"); draw_set_color(idx == sel ? _C_TEXT_SEL : _C_TEXT); }
+        var name_x = _ox + (_list_x + 16) * _s;
         var qty_anchor = _ox + (_list_x + _list_w - 8) * _s;
-        var qty_x = qty_anchor - string_width(qty) + 6 * _s;
-            draw_text(qty_x, yline, qty);
+        var qty_x = qty_anchor - string_width(qty);
+        var name_max_w = max(12 * _s, qty_x - name_x - 5 * _s);
+        var marquee_key = string(_b.page) + ":" + string(idx) + ":" + nm;
+        var nm_fit = (idx == sel) ? __bag_impl_text_marquee(nm, name_max_w, marquee_key) : __bag_impl_fit_text_clip(nm, name_max_w);
+        draw_text(name_x, yline, nm_fit);
+        draw_set_color(_C_QTY);
+        draw_text(qty_x, yline, qty);
 
-        if (idx == sel){ draw_set_color(c_white); draw_set_alpha(_pulse); draw_text(_ox + (_list_x + 2) * _s, yline, "►"); draw_set_alpha(1); }
+        if (idx == sel){ draw_set_color(_C_REG); draw_set_alpha(_pulse); draw_text(_ox + (_list_x + 2) * _s, yline, ">"); draw_set_alpha(1); }
     }
 }
 
 // Draw the small item submenu when open
-function __bag_impl_draw_item_submenu(_b, _ox, _oy, _s, _list_x, _list_y, _list_w){
+function __bag_impl_draw_item_submenu(_b, _ox, _oy, _s, _list_x, _list_y, _list_w, _list_h){
     if (!variable_struct_exists(_b, "item_menu_open") || !_b.item_menu_open) return;
     // Build labels dynamically so we can hide 'Give' for non-holdable items
     var labels = ["Use","Register","Discard","Cancel"];
@@ -211,12 +328,18 @@ function __bag_impl_draw_item_submenu(_b, _ox, _oy, _s, _list_x, _list_y, _list_
     var box_w = 72, box_h = 14 * array_length(labels);
     // Anchor the submenu to the selected row inside the right-list box
     var row_selected = clamp(_b.item_menu_row, 0, max(0, array_length(_b.items[_b.page]) - 1));
-    var row_h = max(12, string_height("A") + 2);
+    var row_h = 10;
     // number of visible rows in the list area (approx)
-    var rows_visible = 8;
+    var rows_visible = 13;
     var row_index = clamp(row_selected - (variable_struct_exists(_b, "scroll") ? _b.scroll : 0), 0, rows_visible - 1);
-    var px = _ox + (_list_x + _list_w - box_w - 6) * _s;
+    var list_left = _ox + _list_x * _s;
+    var list_top = _oy + _list_y * _s;
+    var list_right = _ox + (_list_x + _list_w) * _s;
+    var list_bottom = _oy + (_list_y + _list_h) * _s;
+    var px = list_right - (box_w + 6) * _s;
     var py = _oy + (_list_y + 8 + row_index * row_h) * _s;
+    px = clamp(px, list_left + 2 * _s, list_right - box_w * _s - 2 * _s);
+    py = clamp(py, list_top + 2 * _s, list_bottom - box_h * _s - 2 * _s);
 
     draw_set_color(make_color_rgb(250,250,240)); draw_rectangle(px, py, px + box_w * _s, py + box_h * _s, false);
     draw_set_color(make_color_rgb(120,90,60)); draw_rectangle(px - _s, py - _s, px + box_w * _s + _s, py + box_h * _s + _s, true);

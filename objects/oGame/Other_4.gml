@@ -3,7 +3,7 @@
 wc_bind_layers(["WALL", "BLOCKS"]);
 
 // Add any blocking objects; you can include noone as a placeholder
-wc_set_solids([oNpc]);
+wc_set_solids([oNpc, oFieldMoveProp, oitem]);
 
 if (!is_undefined(world_room_apply)) world_room_apply();
 

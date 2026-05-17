@@ -86,7 +86,8 @@ party_ensure(_pid);
 var _mon = pokemon_factory_create(25, 12, {
     ot: "YOU",
     idno: 25012,
-    shiny: false
+    shiny: false,
+    sex: "female"
 });
 
 party_model_add_mon(_pid, party_model_copy_mon(_mon));
@@ -114,6 +115,39 @@ multiplayer_seed_party_if_missing(1, 6);
 ```
 
 That helper is intended for multiplayer drop-in and dev smoke paths. For production content, prefer explicit `pokemon_factory_create(...)` plus `party_model_add_mon(...)`.
+
+## Pokemon Sex / Gender
+
+Every newly created Pokemon now gets both `sex` and `gender` fields. They contain the same string so older battle logic and future breeding logic can both read the value.
+
+Values:
+
+- `"male"`
+- `"female"`
+- `"genderless"`
+
+Numeric aliases are also stored:
+
+- `sex_id`
+- `gender_id`
+
+The ids use `0 = genderless`, `1 = female`, and `2 = male`. This matches the evolution data checks that use `gender_id`.
+
+Default assignment comes from `data/csv/pokemon_species.csv` using the official `gender_rate` column:
+
+- `-1`: genderless
+- `0`: always male
+- `8`: always female
+- `1..7`: female chance out of 8
+
+You can force sex when creating a Pokemon:
+
+```gml
+var _female = pokemon_factory_create(25, 12, { sex: "female" });
+var _male = pokemon_factory_create(25, 12, { gender: "male" });
+```
+
+Captured Pokemon are normalized through `party_model_store_caught_mon(...)`, and existing mons passed through `party_model_add_mon(...)` get missing sex fields filled in automatically.
 
 ## Ownership map
 

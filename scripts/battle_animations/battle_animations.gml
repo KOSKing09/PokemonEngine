@@ -459,6 +459,20 @@ function __battle_anim_duration_for_family(_family, _fallback){
     }
 }
 
+function __battle_anim_queue_clamp_actor_index(_slot, _idx){
+    var _max_idx = 1;
+    try {
+        if (is_struct(_slot) && variable_struct_exists(_slot, "actor") && is_array(variable_struct_get(_slot, "actor"))){
+            _max_idx = max(0, array_length(variable_struct_get(_slot, "actor")) - 1);
+        }
+    } catch (e_anim_clamp_actor) {
+        _max_idx = 1;
+    }
+
+    if (!is_real(_idx)) return 0;
+    return clamp(floor(_idx), 0, _max_idx);
+}
+
 function __battle_anim_focus_index_for_family(_family, _actor_index, _target_index){
     var _fam = string_lower(string(_family));
     switch (_fam){
@@ -470,11 +484,11 @@ function __battle_anim_focus_index_for_family(_family, _actor_index, _target_ind
         case "guard":
         case "switch":
         case "self_destruct":
-            if (is_real(_actor_index)) return clamp(floor(_actor_index), 0, 1);
+            if (is_real(_actor_index)) return floor(_actor_index);
             break;
     }
-    if (is_real(_target_index)) return clamp(floor(_target_index), 0, 1);
-    if (is_real(_actor_index)) return clamp(floor(_actor_index), 0, 1);
+    if (is_real(_target_index)) return floor(_target_index);
+    if (is_real(_actor_index)) return floor(_actor_index);
     return 0;
 }
 
@@ -520,7 +534,19 @@ function __battle_anim_queue_resolve_target_index(_slot, _spec){
 function __battle_anim_queue_resolve_side(_slot, _spec){
     var _idx = __battle_anim_queue_resolve_target_index(_slot, _spec);
 
-    if (is_real(_idx)) return (_idx == 0 ? "player" : "enemy");
+    if (is_real(_idx)){
+        var _side_val = 1;
+        try {
+            if (!is_undefined(__battle_actor_side)){
+                _side_val = __battle_actor_side(floor(_idx));
+            } else {
+                _side_val = (floor(_idx) <= 1) ? 0 : 1;
+            }
+        } catch (e_anim_resolve_side) {
+            _side_val = (floor(_idx) <= 1) ? 0 : 1;
+        }
+        return (_side_val == 0 ? "player" : "enemy");
+    }
     if (is_struct(_spec) && variable_struct_exists(_spec, "side")) return string(_spec.side);
     return "full";
 
@@ -874,6 +900,7 @@ function __battle_anim_effect_visual_profile(_effect_id, _move_id, _family){
         _profile.duration = 820;
         _profile.scale = 1;
         _profile.offset_y = -28;
+        _profile.anchor = "head";
         return __battle_anim_profile_distinctify(_profile, _move_id, _effect_index, _type_id, _ident, _family);
     }
 
@@ -884,6 +911,7 @@ function __battle_anim_effect_visual_profile(_effect_id, _move_id, _family){
         if (is_undefined(_profile.sprite)) _profile.sprite = _type_sprite;
         _profile.duration = 720;
         _profile.scale = 1;
+        _profile.anchor = "head";
         return __battle_anim_profile_distinctify(_profile, _move_id, _effect_index, _type_id, _ident, _family);
     }
     if (_effect_index == 5){
@@ -892,6 +920,7 @@ function __battle_anim_effect_visual_profile(_effect_id, _move_id, _family){
         if (is_undefined(_profile.sprite)) _profile.sprite = _type_sprite;
         _profile.duration = 720;
         _profile.scale = 1;
+        _profile.anchor = "head";
         return __battle_anim_profile_distinctify(_profile, _move_id, _effect_index, _type_id, _ident, _family);
     }
     if (_effect_index == 6){
@@ -900,6 +929,7 @@ function __battle_anim_effect_visual_profile(_effect_id, _move_id, _family){
         if (is_undefined(_profile.sprite)) _profile.sprite = _type_sprite;
         _profile.duration = 760;
         _profile.scale = 1;
+        _profile.anchor = "head";
         return __battle_anim_profile_distinctify(_profile, _move_id, _effect_index, _type_id, _ident, _family);
     }
     if (_effect_index == 7){
@@ -908,6 +938,7 @@ function __battle_anim_effect_visual_profile(_effect_id, _move_id, _family){
         if (is_undefined(_profile.sprite)) _profile.sprite = _type_sprite;
         _profile.duration = 700;
         _profile.scale = 1;
+        _profile.anchor = "head";
         return __battle_anim_profile_distinctify(_profile, _move_id, _effect_index, _type_id, _ident, _family);
     }
 
@@ -974,6 +1005,7 @@ function __battle_anim_queue_normalize(_slot, _spec){
                 _out.speed_y = _effect_visual_profile.speed_y;
                 _out.gravity = _effect_visual_profile.gravity;
                 _out.from_user = _effect_visual_profile.from_user;
+                if (variable_struct_exists(_effect_visual_profile, "anchor")) _out.anchor = string(variable_struct_get(_effect_visual_profile, "anchor"));
                 _out.duration = __battle_anim_duration_for_family(_out.family, _effect_visual_profile.duration);
                 if (is_real(_effect_visual_profile.duration)) _out.duration = max(_out.duration, floor(_effect_visual_profile.duration));
             }
@@ -997,12 +1029,13 @@ function __battle_anim_queue_normalize(_slot, _spec){
             if (variable_struct_exists(_spec, "speed_y") && is_real(variable_struct_get(_spec, "speed_y"))) _out.speed_y = real(variable_struct_get(_spec, "speed_y"));
             if (variable_struct_exists(_spec, "gravity") && is_real(variable_struct_get(_spec, "gravity"))) _out.gravity = real(variable_struct_get(_spec, "gravity"));
             if (variable_struct_exists(_spec, "from_user")) _out.from_user = (variable_struct_get(_spec, "from_user") == true);
+            if (variable_struct_exists(_spec, "anchor")) _out.anchor = string(variable_struct_get(_spec, "anchor"));
             if (variable_struct_exists(_spec, "duration") && is_real(variable_struct_get(_spec, "duration"))) _out.duration = max(1, floor(variable_struct_get(_spec, "duration")));
             var _actor_index_move = undefined;
             if (variable_struct_exists(_spec, "actor") && is_struct(variable_struct_get(_spec, "actor")) && variable_struct_exists(variable_struct_get(_spec, "actor"), "actor_index") && is_real(variable_struct_get(variable_struct_get(_spec, "actor"), "actor_index"))){
                 _actor_index_move = variable_struct_get(variable_struct_get(_spec, "actor"), "actor_index");
             }
-            _out.focus_index = __battle_anim_focus_index_for_family(_out.family, _actor_index_move, _out.target_index);
+            _out.focus_index = __battle_anim_queue_clamp_actor_index(_slot, __battle_anim_focus_index_for_family(_out.family, _actor_index_move, _out.target_index));
             _out.duration = __battle_anim_duration_for_family(_out.family, _out.duration);
             break;
         case "stat_change":
@@ -1207,6 +1240,7 @@ function battle_anim_queue_enqueue(_pid_or_slot, _spec){
         if (variable_struct_exists(_norm, "speed_y")) _entry.speed_y = _norm.speed_y;
         if (variable_struct_exists(_norm, "gravity")) _entry.gravity = _norm.gravity;
         if (variable_struct_exists(_norm, "from_user")) _entry.from_user = _norm.from_user;
+        if (variable_struct_exists(_norm, "anchor")) _entry.anchor = _norm.anchor;
         if (variable_struct_exists(_norm, "move_id")) _entry.move_id = _norm.move_id;
         if (variable_struct_exists(_norm, "effect_id")) _entry.effect_id = _norm.effect_id;
         if (variable_struct_exists(_norm, "family")) _entry.family = _norm.family;
@@ -1638,7 +1672,7 @@ function __battle_anim_queue_build_draw_state(_pid, _slot, _entry){
     }
     if (_type == "move"){
         var _family_mv = string_lower(string(variable_struct_exists(_entry, "family") ? variable_struct_get(_entry, "family") : "damage"));
-        var _focus_mv = (variable_struct_exists(_entry, "focus_index") && is_real(variable_struct_get(_entry, "focus_index"))) ? clamp(variable_struct_get(_entry, "focus_index"), 0, 1) : ((variable_struct_exists(_entry, "target_index") && is_real(variable_struct_get(_entry, "target_index"))) ? clamp(variable_struct_get(_entry, "target_index"), 0, 1) : 0);
+        var _focus_mv = (variable_struct_exists(_entry, "focus_index") && is_real(variable_struct_get(_entry, "focus_index"))) ? __battle_anim_queue_clamp_actor_index(_slot, variable_struct_get(_entry, "focus_index")) : ((variable_struct_exists(_entry, "target_index") && is_real(variable_struct_get(_entry, "target_index"))) ? __battle_anim_queue_clamp_actor_index(_slot, variable_struct_get(_entry, "target_index")) : 0);
         var _color_mv = (variable_struct_exists(_entry, "color") ? variable_struct_get(_entry, "color") : __battle_anim_color_for_family(_family_mv));
         switch (_family_mv){
             case "field":
@@ -1676,6 +1710,7 @@ function __battle_anim_queue_build_draw_state(_pid, _slot, _entry){
     }
     if (_type == "stat_overlay"){
         var _idx_so = (variable_struct_exists(_entry, "target_index") && is_real(_entry.target_index)) ? floor(_entry.target_index) : 0;
+        var _target_indexes_so = (variable_struct_exists(_entry, "target_indexes") && is_array(_entry.target_indexes)) ? _entry.target_indexes : undefined;
         var _frame_so = (variable_struct_exists(_entry, "frame") && is_real(_entry.frame)) ? clamp(floor(_entry.frame), 0, 7) : 0;
         var _darken_so = (variable_struct_exists(_entry, "darken") && _entry.darken);
         // Include optional fields so draw code can access bg mode, direction and loop count
@@ -1684,7 +1719,7 @@ function __battle_anim_queue_build_draw_state(_pid, _slot, _entry){
         var _stat_keys_so = (variable_struct_exists(_entry, "stat_keys") ? _entry.stat_keys : undefined);
         var _stat_deltas_so = (variable_struct_exists(_entry, "stat_deltas") ? _entry.stat_deltas : undefined);
         var _bg_loops_so = (variable_struct_exists(_entry, "bg_loops") && is_real(_entry.bg_loops)) ? max(0, floor(_entry.bg_loops)) : undefined;
-        return { kind: "stat_overlay", target_index: _idx_so, frame: _frame_so, darken: _darken_so, progress: _prog, bg: _bg_so, direction: _dir_so, stat_keys: _stat_keys_so, stat_deltas: _stat_deltas_so, bg_loops: _bg_loops_so };
+        return { kind: "stat_overlay", target_index: _idx_so, target_indexes: _target_indexes_so, frame: _frame_so, darken: _darken_so, progress: _prog, bg: _bg_so, direction: _dir_so, stat_keys: _stat_keys_so, stat_deltas: _stat_deltas_so, bg_loops: _bg_loops_so };
     }
         if (_type == "hit_effect"){
         var _idx_he = (variable_struct_exists(_entry, "target_index") && is_real(_entry.target_index)) ? floor(_entry.target_index) : 0;
@@ -1746,7 +1781,8 @@ function __battle_anim_queue_build_draw_state(_pid, _slot, _entry){
     } catch (e_offn) {}
         var _sdir_he = (variable_struct_exists(_entry, "slide_dir") && is_real(_entry.slide_dir)) ? clamp(_entry.slide_dir, -1, 1) : 0;
         var _smag_he = (variable_struct_exists(_entry, "slide_mag") && is_real(_entry.slide_mag)) ? _entry.slide_mag : 8;
-        return { kind: "sprite_overlay", target_index: _idx_he, sprite: _sprite_he, frame: _frame_he, scale: _scale_he, alpha: _alpha_he, progress: _prog, offset_x: _offx_he, offset_y: _offy_he, slide_dir: _sdir_he, slide_mag: _smag_he };
+        var _anchor_he = (variable_struct_exists(_entry, "anchor")) ? string(variable_struct_get(_entry, "anchor")) : "";
+        return { kind: "sprite_overlay", target_index: _idx_he, sprite: _sprite_he, frame: _frame_he, scale: _scale_he, alpha: _alpha_he, progress: _prog, offset_x: _offx_he, offset_y: _offy_he, slide_dir: _sdir_he, slide_mag: _smag_he, anchor: _anchor_he };
     }
     if (_type == "sleep_effect"){
         var _idx_s = (variable_struct_exists(_entry, "target_index") && is_real(_entry.target_index)) ? floor(_entry.target_index) : 0;
@@ -1771,7 +1807,7 @@ function __battle_anim_queue_build_draw_state(_pid, _slot, _entry){
         var _offy_apply = _offy_s - floor(_rise_s * _prog);
         var _sdir_s = (variable_struct_exists(_entry, "slide_dir") && is_real(_entry.slide_dir)) ? clamp(_entry.slide_dir, -1, 1) : 0;
         var _smag_s = (variable_struct_exists(_entry, "slide_mag") && is_real(_entry.slide_mag)) ? _entry.slide_mag : 6;
-        return { kind: "sprite_overlay", target_index: _idx_s, sprite: _sprite_s, frame: _frame_s, scale: _scale_s, alpha: _alpha_s, progress: _prog, offset_x: _offx_s, offset_y: _offy_apply, slide_dir: _sdir_s, slide_mag: _smag_s };
+        return { kind: "sprite_overlay", target_index: _idx_s, sprite: _sprite_s, frame: _frame_s, scale: _scale_s, alpha: _alpha_s, progress: _prog, offset_x: _offx_s, offset_y: _offy_apply, slide_dir: _sdir_s, slide_mag: _smag_s, anchor: "head" };
     }
     if ((_type == "status_apply" || _type == "status_inflict") && variable_struct_exists(_entry, "status")){
         var _status_apply = string_lower(string(variable_struct_get(_entry, "status")));
@@ -1800,7 +1836,8 @@ function __battle_anim_queue_build_draw_state(_pid, _slot, _entry){
                     offset_x: _offset_x_pz,
                     offset_y: _offset_y_pz,
                     slide_dir: 0,
-                    slide_mag: 0
+                    slide_mag: 0,
+                    anchor: "head"
                 };
             }
             return {
@@ -1814,7 +1851,8 @@ function __battle_anim_queue_build_draw_state(_pid, _slot, _entry){
                 offset_x: 0,
                 offset_y: _offset_y_pz,
                 slide_dir: 0,
-                slide_mag: 0
+                slide_mag: 0,
+                anchor: "head"
             };
         }
     }
@@ -1949,8 +1987,14 @@ function __battle_anim_queue_draw_states(_pid, _states){
             // If requested, draw a full-field tiled background using the same sprite frame.
             var _bg_flag = (variable_struct_exists(_st, "bg") && _st.bg);
             if (_bg_flag){
-                var _stencil_spec = __battle_anim_queue_actor_sprite_spec(_pid, _idx_so);
-                var _used_stencil = __battle_anim_queue_draw_stat_overlay_stencil(_pid, _st, _stencil_spec);
+                var _target_indexes_so = (variable_struct_exists(_st, "target_indexes") && is_array(variable_struct_get(_st, "target_indexes"))) ? variable_struct_get(_st, "target_indexes") : [_idx_so];
+                var _used_stencil = false;
+                for (var _sti = 0; _sti < array_length(_target_indexes_so); ++_sti){
+                    var _st_idx = _target_indexes_so[_sti];
+                    if (!is_real(_st_idx)) continue;
+                    var _stencil_spec = __battle_anim_queue_actor_sprite_spec(_pid, floor(_st_idx));
+                    if (__battle_anim_queue_draw_stat_overlay_stencil(_pid, _st, _stencil_spec)) _used_stencil = true;
+                }
                 if (!_used_stencil){
                     var _tile_w = __battle_anim_queue_wu(_pid, 32, 32);
                     var _tile_h = __battle_anim_queue_hu(_pid, 32, 32);
@@ -1983,7 +2027,12 @@ function __battle_anim_queue_draw_states(_pid, _states){
                 }
                 draw_set_alpha(1);
                 draw_set_color(c_white);
-                _draw_stat_overlay_icons(_cx_so, _cy_so);
+                for (var _ico_i = 0; _ico_i < array_length(_target_indexes_so); ++_ico_i){
+                    var _ico_idx = _target_indexes_so[_ico_i];
+                    if (!is_real(_ico_idx)) continue;
+                    var _ico_center = __battle_anim_queue_actor_center(_pid, floor(_ico_idx));
+                    if (is_array(_ico_center) && array_length(_ico_center) >= 2) _draw_stat_overlay_icons(_ico_center[0], _ico_center[1]);
+                }
             } else {
                 gpu_set_blendmode(bm_normal);
                 _draw_stat_overlay_icons(_cx_so, _cy_so);
@@ -2317,6 +2366,17 @@ function __battle_anim_queue_draw_states(_pid, _states){
             var _center_s = __battle_anim_queue_actor_center(_pid, _idxs);
             var _cxs = (is_array(_center_s) && array_length(_center_s) >= 2) ? _center_s[0] + _offx : _player_cx;
             var _cys = (is_array(_center_s) && array_length(_center_s) >= 2) ? _center_s[1] + _offy : _player_cy;
+            var _anchor_s = (variable_struct_exists(_st, "anchor")) ? string_lower(string(variable_struct_get(_st, "anchor"))) : "";
+            if (_anchor_s == "head" || _anchor_s == "top"){
+                var _actor_spec_s = __battle_anim_queue_actor_sprite_spec(_pid, _idxs);
+                if (is_struct(_actor_spec_s)){
+                    var _spec_draw_x_s = (variable_struct_exists(_actor_spec_s, "draw_x") && is_real(variable_struct_get(_actor_spec_s, "draw_x"))) ? real(variable_struct_get(_actor_spec_s, "draw_x")) : _cxs;
+                    var _spec_draw_y_s = (variable_struct_exists(_actor_spec_s, "draw_y") && is_real(variable_struct_get(_actor_spec_s, "draw_y"))) ? real(variable_struct_get(_actor_spec_s, "draw_y")) : _cys;
+                    var _spec_w_s = (variable_struct_exists(_actor_spec_s, "width_px") && is_real(variable_struct_get(_actor_spec_s, "width_px"))) ? real(variable_struct_get(_actor_spec_s, "width_px")) : 0;
+                    _cxs = _spec_draw_x_s + (_spec_w_s * 0.5) + _offx;
+                    _cys = _spec_draw_y_s + _offy;
+                }
+            }
             var _sprs = (variable_struct_exists(_st, "sprite") ? _st.sprite : undefined);
             var _frs = (variable_struct_exists(_st, "frame") && is_real(_st.frame)) ? floor(_st.frame) : 0;
             var _scale_base_s = (variable_struct_exists(_st, "scale") && is_real(_st.scale)) ? _st.scale : 1;
@@ -2459,6 +2519,13 @@ function __battle_anim_create_catch(_B, _item_id, _caught_struct, _opts){
 // Provides: __battle_anim_update(_B) -> progresses animations
 //           __battle_anim_draw(_pid) -> draws current animation state
 
+function __battle_anim_legacy_spec_is_idle(_spec){
+    if (!is_struct(_spec)) return true;
+    if (variable_struct_exists(_spec, "type")) return false;
+    var _anim_id = variable_struct_exists(_spec, "anim_id") ? string_lower(string(variable_struct_get(_spec, "anim_id"))) : "";
+    return (_anim_id == "" || _anim_id == "idle");
+}
+
 function __battle_anim_update(_B){
     // Accept pid or slot
     var _slot = _B;
@@ -2468,15 +2535,24 @@ function __battle_anim_update(_B){
     var sa = variable_struct_get(_slot, "sys_anim");
     var active = (variable_struct_exists(sa, "active") ? variable_struct_get(sa, "active") : []);
     var current = (variable_struct_exists(sa, "current") ? variable_struct_get(sa, "current") : undefined);
+    if (is_struct(current) && variable_struct_exists(current, "spec") && __battle_anim_legacy_spec_is_idle(current.spec)){
+        variable_struct_set(sa, "current", undefined);
+        variable_struct_set(_slot, "sys_anim", sa);
+        current = undefined;
+    }
 
-    // If no current and there's an active, pop one
-    if (!is_struct(current) && is_array(active) && array_length(active) > 0){
+    // If no current and there's an active, pop the next real effect. Idle
+    // placeholders are battler-state markers, not particles.
+    while (!is_struct(current) && is_array(active) && array_length(active) > 0){
         var next = active[0];
-        // remove from active
         var newarr = [];
         for (var ii=1; ii<array_length(active); ++ii) newarr[array_length(newarr)] = active[ii];
-        variable_struct_set(sa, "active", newarr);
-        // current spec
+        active = newarr;
+        variable_struct_set(sa, "active", active);
+        if (__battle_anim_legacy_spec_is_idle(next)){
+            variable_struct_set(_slot, "sys_anim", sa);
+            continue;
+        }
         var now = current_time;
         var dur = (is_struct(next) && variable_struct_exists(next, "duration") ? variable_struct_get(next, "duration") : 700);
         variable_struct_set(sa, "current", { spec: next, start: now, dur: dur, active: true });
@@ -2514,8 +2590,113 @@ function __battle_anim_get_draw_state(_B){
     }
         return out;
     }
-	
 
+
+
+function __battle_anim_legacy_status_visual(_status){
+    var _s = string_lower(string(_status));
+    if (_s == "psn" || _s == "poison" || _s == "toxic") return "poison";
+    if (_s == "brn" || _s == "burn") return "burn";
+    if (_s == "frz" || _s == "freeze" || _s == "frozen") return "freeze";
+    if (_s == "par" || _s == "para" || _s == "paralyze" || _s == "paralysis") return "paralysis";
+    if (_s == "slp" || _s == "sleep" || _s == "asleep") return "sleep";
+    if (_s == "confusion" || _s == "confuse" || _s == "confused") return "confusion";
+    if (_s == "impact" || _s == "damage" || _s == "hurt") return "impact";
+    return "spark";
+}
+
+function __battle_anim_legacy_visual_color(_visual){
+    switch (string_lower(string(_visual))){
+        case "poison": return make_color_rgb(178, 82, 206);
+        case "burn": return make_color_rgb(248, 104, 42);
+        case "freeze": return make_color_rgb(164, 232, 255);
+        case "paralysis": return make_color_rgb(252, 224, 62);
+        case "sleep": return make_color_rgb(132, 178, 244);
+        case "confusion": return make_color_rgb(210, 118, 236);
+        case "heal": return make_color_rgb(116, 228, 144);
+        case "stat_up": return make_color_rgb(122, 232, 150);
+        case "stat_down": return make_color_rgb(255, 166, 78);
+        case "shield": return make_color_rgb(166, 226, 250);
+        case "impact": return make_color_rgb(244, 180, 122);
+    }
+    return c_white;
+}
+
+function __battle_anim_legacy_burst(_pid, _tx, _ty, _visual, _frac, _count, _radius){
+    var _p = clamp(_frac, 0, 1);
+    var _kind = string_lower(string(_visual));
+    var _col = __battle_anim_legacy_visual_color(_kind);
+    var _burst = sin(_p * pi);
+    var _rad = __battle_anim_queue_wu(_pid, _radius, _radius);
+    var _rise = __battle_anim_queue_hu(_pid, 14, 14) * _p;
+    var _base_alpha = 1 - power(_p, 1.4);
+
+    for (var _i = 0; _i < _count; ++_i){
+        var _seed_a = sin((_i + 1) * 12.9898 + _tx * 0.17 + _ty * 0.23);
+        var _seed_b = sin((_i + 7) * 39.3467 + _tx * 0.11 + _ty * 0.19);
+        var _ra = abs(_seed_a - floor(_seed_a));
+        var _rb = abs(_seed_b - floor(_seed_b));
+        var _ang = (_ra * 2 * pi) + (_p * pi * ((_kind == "confusion") ? 1.5 : 0.35));
+        var _dist = _rad * (0.22 + _burst * (0.58 + _rb * 0.42));
+        var _x = _tx + cos(_ang) * _dist;
+        var _y = _ty + sin(_ang) * _dist * 0.72 - _rise;
+        var _a = _base_alpha * (0.62 + _rb * 0.38);
+        if (_a <= 0) continue;
+
+        draw_set_alpha(_a);
+        draw_set_color(_col);
+        var _size = max(1, floor(__battle_anim_queue_wu(_pid, 2 + floor(_ra * 3), 2)));
+        if (_kind == "paralysis"){
+            draw_line_width(_x - _size * 2, _y, _x + _size * 2, _y, 1);
+            draw_line_width(_x, _y - _size * 2, _x, _y + _size * 2, 1);
+        } else if (_kind == "burn"){
+            draw_triangle(_x, _y - _size * 2, _x - _size, _y + _size, _x + _size, _y + _size, false);
+        } else if (_kind == "freeze"){
+            draw_line_width(_x - _size, _y + _size, _x + _size, _y - _size, 1);
+            draw_line_width(_x - _size, _y - _size, _x + _size, _y + _size, 1);
+        } else if (_kind == "poison"){
+            draw_circle(_x, _y, _size, false);
+            draw_set_alpha(_a * 0.45);
+            draw_circle(_x + _size, _y - _size, max(1, floor(_size * 0.65)), false);
+        } else if (_kind == "sleep"){
+            draw_text(_x, _y - _size, "Z");
+        } else if (_kind == "confusion"){
+            draw_circle(_x, _y, max(1, floor(_size * 0.85)), true);
+            draw_line_width(_x - _size, _y, _x + _size, _y, 1);
+        } else if (_kind == "heal" || _kind == "stat_up"){
+            draw_line_width(_x - _size, _y, _x + _size, _y, 1);
+            draw_line_width(_x, _y - _size, _x, _y + _size, 1);
+        } else if (_kind == "stat_down"){
+            draw_triangle(_x, _y + _size * 2, _x - _size, _y - _size, _x + _size, _y - _size, false);
+        } else if (_kind == "shield"){
+            var _rw = _size * (2.8 + _ra);
+            var _rh = _size * (1.45 + _rb * 0.5);
+            draw_ellipse(_x - _rw, _y - _rh, _x + _rw, _y + _rh, true);
+        } else {
+            draw_line_width(_x - _size * 2, _y - _size, _x + _size * 2, _y + _size, 1);
+            draw_line_width(_x - _size * 2, _y + _size, _x + _size * 2, _y - _size, 1);
+        }
+    }
+    draw_set_alpha(1);
+    draw_set_color(c_white);
+}
+
+function __battle_anim_legacy_target_center(_pid, _spec){
+    var _tx = __battle_anim_queue_xu(_pid, 165);
+    var _ty = __battle_anim_queue_yu(_pid, 40);
+    if (variable_struct_exists(_spec, "target_index")){
+        var _idx = variable_struct_get(_spec, "target_index");
+        if (is_real(_idx)){
+            var _center = __battle_anim_queue_actor_center(_pid, floor(_idx));
+            if (is_array(_center) && array_length(_center) >= 2) return [_center[0], _center[1]];
+            if (_idx == 0){
+                _tx = __battle_anim_queue_xu(_pid, 64);
+                _ty = __battle_anim_queue_yu(_pid, 112);
+            }
+        }
+    }
+    return [_tx, _ty];
+}
 
 function __battle_anim_draw(_pid){
     var _B = __battle_ensure_slot(_pid);
@@ -2525,57 +2706,64 @@ function __battle_anim_draw(_pid){
     var sa = variable_struct_get(_B, "sys_anim");
     var cur = (variable_struct_exists(sa, "current") ? variable_struct_get(sa, "current") : undefined);
     if (!is_struct(cur) || !variable_struct_exists(cur, "spec")) return;
+    if (!variable_struct_exists(cur, "active") || variable_struct_get(cur, "active") != true) return;
     var spec = cur.spec;
+    if (__battle_anim_legacy_spec_is_idle(spec)) return;
     var now = current_time;
     var elapsed = now - (variable_struct_exists(cur, "start") ? cur.start : now);
+    if (!variable_struct_exists(cur, "dur") || !is_real(cur.dur) || cur.dur <= 0) return;
+    if (elapsed < 0 || elapsed > cur.dur) return;
     var frac_v = 0;
-    if (variable_struct_exists(cur, "dur") && cur.dur > 0) frac_v = clamp(elapsed / cur.dur, 0, 1);
+    frac_v = clamp(elapsed / cur.dur, 0, 1);
 
     // Draw different visuals by spec.type
-    var t = (variable_struct_exists(spec, "type") ? string(variable_struct_get(spec, "type")) : "unknown");
+    var t = string_lower(string(variable_struct_exists(spec, "type") ? variable_struct_get(spec, "type") : "unknown"));
     draw_set_color(c_white);
     draw_set_alpha(1);
-    // choose target coords: default to player or enemy centers
-    var tx = 120; var ty = 80;
-    if (variable_struct_exists(spec, "target_index")){
-        var idx = variable_struct_get(spec, "target_index");
-    if (idx == 0){ tx = __battle_anim_queue_xu(_pid, 64); ty = __battle_anim_queue_yu(_pid, 112); }
-    else { tx = __battle_anim_queue_xu(_pid, 165); ty = __battle_anim_queue_yu(_pid, 40); }
-    }
+    var _target_center = __battle_anim_legacy_target_center(_pid, spec);
+    var tx = _target_center[0];
+    var ty = _target_center[1];
 
     if (t == "status_inflict" || t == "status_apply"){
         var st = (variable_struct_exists(spec, "status") ? string(variable_struct_get(spec, "status")) : "");
-        // draw small status name above target, fade out
-    var alpha = 1 - frac_v;
-        draw_set_alpha(alpha);
-        draw_set_color(c_black);
-        draw_rectangle(tx-30, ty-38, tx+30, ty-18, false);
-        draw_set_color(c_white);
-        draw_text(tx-24, ty-36, string_upper(st));
+        var _visual = __battle_anim_legacy_status_visual(st);
+        __battle_anim_legacy_burst(_pid, tx, ty - __battle_anim_queue_hu(_pid, 10, 10), _visual, frac_v, 14, 24);
+        draw_set_alpha(max(0, 1 - frac_v * 1.25));
+        draw_set_color(__battle_anim_legacy_visual_color(_visual));
+        if (_visual == "sleep") draw_text(tx - __battle_anim_queue_wu(_pid, 8, 8), ty - __battle_anim_queue_hu(_pid, 34, 34), "Z");
         draw_set_alpha(1);
     } else if (t == "status_tick_damage" || t == "confusion_hit"){
         var amt = (variable_struct_exists(spec, "amount") ? string(variable_struct_get(spec, "amount")) : "");
-        // pop-up damage text
-    var y_off = - (frac_v * 20);
+        var _tick_status = (t == "confusion_hit") ? "confusion" : (variable_struct_exists(spec, "status") ? variable_struct_get(spec, "status") : "impact");
+        __battle_anim_legacy_burst(_pid, tx, ty - __battle_anim_queue_hu(_pid, 8, 8), __battle_anim_legacy_status_visual(_tick_status), frac_v, 10, 20);
+        var y_off = - (frac_v * __battle_anim_queue_hu(_pid, 20, 20));
+        draw_set_alpha(max(0, 1 - frac_v * 0.9));
         draw_set_color(c_red);
-        draw_text(tx, ty + y_off, "-" + string(amt));
+        if (amt != "") draw_text(tx, ty + y_off, "-" + string(amt));
+        draw_set_alpha(1);
         draw_set_color(c_white);
     } else if (t == "status_blocked"){
         var st2 = (variable_struct_exists(spec, "status") ? string(variable_struct_get(spec, "status")) : "");
-    draw_set_color(c_yellow);
-    draw_text(tx-24, ty-36, string_upper(st2) + "!");
+        __battle_anim_legacy_burst(_pid, tx, ty - __battle_anim_queue_hu(_pid, 10, 10), "shield", frac_v, 8, 26);
+        draw_set_alpha(max(0, 1 - frac_v));
+        draw_set_color(c_yellow);
+        draw_text(tx - __battle_anim_queue_wu(_pid, 24, 24), ty - __battle_anim_queue_hu(_pid, 36, 36), string_upper(st2) + "!");
+        draw_set_alpha(1);
         draw_set_color(c_white);
     } else {
-        // generic: small translucent filled dot; if DATA_DEBUG is enabled, log the unexpected spec
+        var _fallback_visual = "impact";
+        if (t == "heal" || t == "recover" || t == "revive") _fallback_visual = "heal";
+        else if (t == "stat_change" || t == "stat_up" || t == "boost"){
+            var _dir = (variable_struct_exists(spec, "direction") && is_real(spec.direction)) ? spec.direction : 1;
+            _fallback_visual = (_dir < 0) ? "stat_down" : "stat_up";
+        } else if (t == "stat_down" || t == "debuff") _fallback_visual = "stat_down";
+        else if (t == "protected" || t == "protect" || t == "block" || t == "failed") _fallback_visual = "shield";
+        else if (t == "flinch" || t == "recoil" || t == "charge" || t == "focus_energy") _fallback_visual = "impact";
+        else if (t == "transform") _fallback_visual = "confusion";
+
         if (variable_global_exists("DATA_DEBUG_VERBOSE") && global.DATA_DEBUG_VERBOSE){
-            try { show_debug_message("[battle][anim] generic spec=" + string(spec)); } catch (e) {}
+            try { show_debug_message("[battle][anim] fallback spec=" + string(spec)); } catch (e) {}
         }
-    var alpha2 = 0.6 * (1 - frac_v);
-    draw_set_alpha(alpha2);
-    draw_set_color(c_white);
-    var _rx = __battle_anim_queue_wu(_pid, 3);
-    var _ry = __battle_anim_queue_hu(_pid, 3);
-    draw_ellipse(tx - _rx, ty - _ry, tx + _rx, ty + _ry, true);
-    draw_set_alpha(1);
+        __battle_anim_legacy_burst(_pid, tx, ty - __battle_anim_queue_hu(_pid, 8, 8), _fallback_visual, frac_v, 12, 22);
     }
 }

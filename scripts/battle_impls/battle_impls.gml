@@ -298,6 +298,8 @@ function __battle_entity_field_matches_target(_ent, _target, _field){
 function __battle_actor_has_ability_named(_ent, _name_lc){
     if (!is_struct(_ent) || !is_string(_name_lc) || string_length(_name_lc) <= 0) return false;
     var _needle = string_lower(string(_name_lc));
+    _needle = string_replace_all(_needle, "_", "-");
+    _needle = string_replace_all(_needle, " ", "-");
 
     var _ability = undefined;
     if (variable_struct_exists(_ent, "ability")) _ability = variable_struct_get(_ent, "ability");
@@ -308,16 +310,24 @@ function __battle_actor_has_ability_named(_ent, _name_lc){
     }
 
     if (is_string(_ability)){
-        if (string_lower(string(_ability)) == _needle) return true;
+        var _ability_key = string_lower(string(_ability));
+        _ability_key = string_replace_all(_ability_key, "_", "-");
+        _ability_key = string_replace_all(_ability_key, " ", "-");
+        if (_ability_key == _needle) return true;
     } else if (is_real(_ability)){
         try {
             if (!is_undefined(scr_ability_name_by_id)){
                 var _ab_name = scr_ability_name_by_id(_ability);
-                if (is_string(_ab_name) && string_lower(string(_ab_name)) == _needle) return true;
+                if (is_string(_ab_name)){
+                    var _ab_key = string_lower(string(_ab_name));
+                    _ab_key = string_replace_all(_ab_key, "_", "-");
+                    _ab_key = string_replace_all(_ab_key, " ", "-");
+                    if (_ab_key == _needle) return true;
+                }
             }
         } catch (e_lookup) {}
 
-        var _const_key = "ABILITY_" + string_upper(string_replace_all(_needle, " ", "_"));
+        var _const_key = "ABILITY_" + string_upper(string_replace_all(_needle, "-", "_"));
         try {
             if (variable_global_exists(_const_key)){
                 var _const_val = variable_global_get(_const_key);
@@ -365,6 +375,474 @@ function __battle_actor_has_any_ability(_ent, _names){
     return false;
 }
 
+function __battle_actor_ability_id(_ent){
+    if (!is_struct(_ent)) return undefined;
+    var _ability = undefined;
+    try {
+        if (variable_struct_exists(_ent, "ability_id")) _ability = variable_struct_get(_ent, "ability_id");
+        else if (variable_struct_exists(_ent, "ability")) _ability = variable_struct_get(_ent, "ability");
+        if (is_undefined(_ability) && variable_struct_exists(_ent, "mon") && is_struct(variable_struct_get(_ent, "mon"))){
+            var _mon = variable_struct_get(_ent, "mon");
+            if (variable_struct_exists(_mon, "ability_id")) _ability = variable_struct_get(_mon, "ability_id");
+            else if (variable_struct_exists(_mon, "ability")) _ability = variable_struct_get(_mon, "ability");
+        }
+        if (is_real(_ability)) return floor(_ability);
+        if (is_string(_ability) && variable_global_exists("_abilities") && is_array(global._abilities)){
+            var _key = string_lower(string(_ability));
+            _key = string_replace_all(_key, "_", "-");
+            _key = string_replace_all(_key, " ", "-");
+            for (var _ai = 1; _ai < array_length(global._abilities); ++_ai){
+                var _ab = global._abilities[_ai];
+                if (!is_struct(_ab)) continue;
+                if (variable_struct_exists(_ab, "identifier")){
+                    var _ident_key = string_lower(string(variable_struct_get(_ab, "identifier")));
+                    _ident_key = string_replace_all(_ident_key, "_", "-");
+                    _ident_key = string_replace_all(_ident_key, " ", "-");
+                    if (_ident_key == _key) return _ai;
+                }
+                if (variable_global_exists("_ability_effects") && is_array(global._ability_effects) && _ai < array_length(global._ability_effects)){
+                    var _eff_name = global._ability_effects[_ai];
+                    if (is_struct(_eff_name) && variable_struct_exists(_eff_name, "name")){
+                        var _name_key = string_lower(string(variable_struct_get(_eff_name, "name")));
+                        _name_key = string_replace_all(_name_key, "_", "-");
+                        _name_key = string_replace_all(_name_key, " ", "-");
+                        if (_name_key == _key) return _ai;
+                    }
+                }
+            }
+        }
+    } catch (e_ability_id) {}
+    return undefined;
+}
+
+function __battle_actor_ability_effect(_ent){
+    var _aid = __battle_actor_ability_id(_ent);
+    if (!is_real(_aid)) return undefined;
+    try {
+        if (variable_global_exists("_ability_effects") && is_array(global._ability_effects) && _aid >= 0 && _aid < array_length(global._ability_effects)){
+            var _eff = global._ability_effects[_aid];
+            if (is_struct(_eff)) return _eff;
+        }
+    } catch (e_eff) {}
+    return undefined;
+}
+
+function __battle_ability_effect_has_type(_eff, _field, _type_name){
+    if (!is_struct(_eff) || !is_string(_field) || !variable_struct_exists(_eff, _field)) return false;
+    var _arr = variable_struct_get(_eff, _field);
+    if (!is_array(_arr)) return false;
+    var _key = string_lower(string(_type_name));
+    for (var _i = 0; _i < array_length(_arr); ++_i){
+        var _item = _arr[_i];
+        if (is_string(_item) && string_lower(string(_item)) == _key) return true;
+        if (is_struct(_item) && variable_struct_exists(_item, "type") && string_lower(string(variable_struct_get(_item, "type"))) == _key) return true;
+    }
+    return false;
+}
+
+function __battle_ability_effect_status_immune(_ent, _status_name){
+    var _eff = __battle_actor_ability_effect(_ent);
+    var _key = string_lower(string(_status_name));
+    var _actions = __battle_actor_ability_actions(_ent, "status_apply");
+    for (var _ai = 0; _ai < array_length(_actions); ++_ai){
+        var _act = _actions[_ai];
+        var _kind = (is_struct(_act) && variable_struct_exists(_act, "kind")) ? string_lower(string(variable_struct_get(_act, "kind"))) : "";
+        if (_kind != "block_status") continue;
+        var _data = __battle_ability_action_data(_act);
+        if (variable_struct_exists(_data, "status") && string_lower(string(variable_struct_get(_data, "status"))) == _key){
+            try { __battle_queue_ability_action_dialog(_ent, _act, undefined, { status:_key }); } catch (e_status_ability_dialog) {}
+            return true;
+        }
+    }
+    if (!is_struct(_eff) || !variable_struct_exists(_eff, "status_immunities")) return false;
+    var _arr = variable_struct_get(_eff, "status_immunities");
+    if (!is_array(_arr)) return false;
+    for (var _i = 0; _i < array_length(_arr); ++_i){
+        if (string_lower(string(_arr[_i])) == _key) return true;
+    }
+    return false;
+}
+
+function __battle_actor_ability_has_group(_ent, _group_id){
+    var _eff = __battle_actor_ability_effect(_ent);
+    if (!is_struct(_eff) || !variable_struct_exists(_eff, "groups")) return false;
+    var _groups = variable_struct_get(_eff, "groups");
+    if (!is_array(_groups)) return false;
+    var _needle = string_lower(string(_group_id));
+    for (var _i = 0; _i < array_length(_groups); ++_i){
+        if (string_lower(string(_groups[_i])) == _needle) return true;
+    }
+    return false;
+}
+
+function __battle_actor_ability_actions(_ent, _hook){
+    var _out = [];
+    var _eff = __battle_actor_ability_effect(_ent);
+    if (!is_struct(_eff) || !variable_struct_exists(_eff, "actions")) return _out;
+    var _actions = variable_struct_get(_eff, "actions");
+    if (!is_array(_actions)) return _out;
+    var _hook_key = string_lower(string(_hook));
+    for (var _i = 0; _i < array_length(_actions); ++_i){
+        var _action = _actions[_i];
+        if (!is_struct(_action) || !variable_struct_exists(_action, "hook")) continue;
+        if (string_lower(string(variable_struct_get(_action, "hook"))) == _hook_key) array_push(_out, _action);
+    }
+    return _out;
+}
+
+function __battle_ability_action_data(_action){
+    if (is_struct(_action) && variable_struct_exists(_action, "data") && is_struct(variable_struct_get(_action, "data"))) return variable_struct_get(_action, "data");
+    return {};
+}
+
+function __battle_item_action_data(_action){
+    if (is_struct(_action) && variable_struct_exists(_action, "data") && is_struct(variable_struct_get(_action, "data"))) return variable_struct_get(_action, "data");
+    return {};
+}
+
+function __battle_held_item_label(_actor){
+    var _iid = -1;
+    try {
+        if (!is_undefined(item_runtime_actor_held_item_id)) _iid = item_runtime_actor_held_item_id(_actor);
+        else if (is_struct(_actor) && variable_struct_exists(_actor, "held_item_id") && is_real(variable_struct_get(_actor, "held_item_id"))) _iid = floor(variable_struct_get(_actor, "held_item_id"));
+    } catch (e_item_label_id) { _iid = -1; }
+    if (_iid > 0 && variable_global_exists("_items") && is_array(global._items) && _iid < array_length(global._items)){
+        var _it = global._items[_iid];
+        if (is_struct(_it)){
+            var _nm = "";
+            if (variable_struct_exists(_it, "name")) _nm = string(variable_struct_get(_it, "name"));
+            else if (variable_struct_exists(_it, "identifier")) _nm = string(variable_struct_get(_it, "identifier"));
+            if (string_length(_nm) > 0) return __battle_ability_battle_label(string_replace_all(_nm, "-", " "));
+        }
+    }
+    return "held item";
+}
+
+function __battle_actor_has_type_name_runtime(_actor, _type_name){
+    var _tid = __battle_type_id_by_name_safe(_type_name);
+    if (!is_real(_tid) || _tid <= 0) return false;
+    var _types = __battle_actor_type_ids(_actor);
+    for (var _i = 0; _i < array_length(_types); ++_i){
+        if (is_real(_types[_i]) && floor(_types[_i]) == floor(_tid)) return true;
+    }
+    return false;
+}
+
+function __battle_ability_actor_name(_actor, _fallback){
+    if (is_struct(_actor)){
+        try {
+            if (variable_struct_exists(_actor, "name") && string_length(string(variable_struct_get(_actor, "name"))) > 0) return string(variable_struct_get(_actor, "name"));
+            if (variable_struct_exists(_actor, "nickname") && string_length(string(variable_struct_get(_actor, "nickname"))) > 0) return string(variable_struct_get(_actor, "nickname"));
+            if (variable_struct_exists(_actor, "mon") && is_struct(variable_struct_get(_actor, "mon"))){
+                var _mon = variable_struct_get(_actor, "mon");
+                if (variable_struct_exists(_mon, "name") && string_length(string(variable_struct_get(_mon, "name"))) > 0) return string(variable_struct_get(_mon, "name"));
+                if (variable_struct_exists(_mon, "nickname") && string_length(string(variable_struct_get(_mon, "nickname"))) > 0) return string(variable_struct_get(_mon, "nickname"));
+            }
+        } catch (e_ability_actor_name) {}
+    }
+    return string(_fallback);
+}
+
+function __battle_ability_label(_actor){
+    var _eff = __battle_actor_ability_effect(_actor);
+    if (is_struct(_eff) && variable_struct_exists(_eff, "name") && string_length(string(variable_struct_get(_eff, "name"))) > 0) return string(variable_struct_get(_eff, "name"));
+    var _ab = __battle_actor_ability_name_lc(_actor);
+    _ab = string_replace_all(_ab, "-", " ");
+    if (string_length(_ab) <= 0) _ab = "ability";
+    return _ab;
+}
+
+function __battle_ability_pretty_stat(_stat){
+    var _s = string_lower(string(_stat));
+    switch (_s){
+        case "atk": return "Attack";
+        case "def": return "Defense";
+        case "spa": return "Sp. Atk";
+        case "spd": return "Sp. Def";
+        case "spe": return "Speed";
+        case "accuracy": return "accuracy";
+        case "evasion": return "evasiveness";
+    }
+    return string(_stat);
+}
+
+function __battle_ability_battle_label(_text){
+    return string_upper(string(_text));
+}
+
+function __battle_ability_pretty_weather(_weather){
+    var _w = string_lower(string(_weather));
+    switch (_w){
+        case "rain": return "It started to rain";
+        case "sun": return "The sunlight got bright";
+        case "sandstorm": return "A sandstorm brewed";
+        case "hail": return "It started to hail";
+        case "snow": return "It started to snow";
+    }
+    return "The weather changed";
+}
+
+function __battle_ability_pretty_status(_status){
+    var _s = string_lower(string(_status));
+    switch (_s){
+        case "poison": return "poison";
+        case "toxic": return "bad poison";
+        case "burn": return "a burn";
+        case "paralysis": case "paralyze": return "paralysis";
+        case "sleep": return "sleep";
+        case "freeze": return "freezing";
+        case "confusion": return "confusion";
+    }
+    return string(_status);
+}
+
+function __battle_queue_ability_dialog(_actor, _text){
+    if (!is_string(_text) || string_length(_text) <= 0) return false;
+    try { dialog_queue(_text); return true; } catch (e_ability_dialog) {}
+    return false;
+}
+
+function __battle_queue_ability_header(_actor){
+    return __battle_queue_ability_dialog(_actor, __battle_ability_actor_name(_actor, "The Pokemon") + "'s " + __battle_ability_battle_label(__battle_ability_label(_actor)) + "!");
+}
+
+function __battle_queue_ability_action_dialog(_actor, _action, _target, _context){
+    if (!is_struct(_action)) return false;
+    var _kind = variable_struct_exists(_action, "kind") ? string_lower(string(variable_struct_get(_action, "kind"))) : "";
+    var _data = __battle_ability_action_data(_action);
+    var _actor_name = __battle_ability_actor_name(_actor, "The Pokemon");
+    var _target_name = __battle_ability_actor_name(_target, "the target");
+    var _ability = __battle_ability_battle_label(__battle_ability_label(_actor));
+    var _msg = "";
+
+    if (variable_struct_exists(_data, "dialog") && string_length(string(variable_struct_get(_data, "dialog"))) > 0){
+        _msg = string(variable_struct_get(_data, "dialog"));
+        _msg = string_replace_all(_msg, "{actor}", _actor_name);
+        _msg = string_replace_all(_msg, "{target}", _target_name);
+        _msg = string_replace_all(_msg, "{ability}", _ability);
+    } else {
+        switch (_kind){
+            case "set_weather":
+                var _weather = variable_struct_exists(_data, "weather") ? variable_struct_get(_data, "weather") : "";
+                __battle_queue_ability_header(_actor);
+                _msg = __battle_ability_pretty_weather(_weather) + "!";
+                break;
+            case "stage_opponents":
+                var _stat = variable_struct_exists(_data, "stat") ? variable_struct_get(_data, "stat") : "stat";
+                var _delta = variable_struct_exists(_data, "delta") ? variable_struct_get(_data, "delta") : -1;
+                _msg = _actor_name + "'s " + _ability + " ";
+                _msg += (_delta < 0) ? "cut " : "raised ";
+                _msg += _target_name + "'s " + __battle_ability_battle_label(__battle_ability_pretty_stat(_stat)) + "!";
+                break;
+            case "absorb_heal":
+                __battle_queue_ability_header(_actor);
+                _msg = _actor_name + " regained health!";
+                break;
+            case "block_stage_boost":
+                var _bst = variable_struct_exists(_data, "stat") ? variable_struct_get(_data, "stat") : "";
+                __battle_queue_ability_header(_actor);
+                _msg = "The attack was drawn in";
+                if (string_length(string(_bst)) > 0) _msg += "! " + _actor_name + "'s " + __battle_ability_battle_label(__battle_ability_pretty_stat(_bst)) + " rose";
+                _msg += "!";
+                break;
+            case "flash_fire":
+                __battle_queue_ability_header(_actor);
+                _msg = "Fire's power was raised!";
+                break;
+            case "block_type":
+                __battle_queue_ability_header(_actor);
+                _msg = "It avoided the attack!";
+                break;
+            case "low_hp_type_multiplier":
+                __battle_queue_ability_header(_actor);
+                _msg = "The move's power was raised!";
+                break;
+            case "type_multiplier":
+                __battle_queue_ability_header(_actor);
+                _msg = "The damage was reduced!";
+                break;
+            case "super_effective_multiplier":
+                __battle_queue_ability_header(_actor);
+                _msg = "It weakened the attack!";
+                break;
+            case "not_very_effective_multiplier":
+                __battle_queue_ability_header(_actor);
+                _msg = "The move's power was raised!";
+                break;
+            case "block_non_super_effective":
+                __battle_queue_ability_header(_actor);
+                _msg = "It protected " + _actor_name + "!";
+                break;
+            case "stab_multiplier":
+                __battle_queue_ability_header(_actor);
+                _msg = "The move's power was raised!";
+                break;
+            case "attack_multiplier":
+            case "attack_when_status_multiplier":
+                __battle_queue_ability_header(_actor);
+                _msg = _actor_name + "'s ATTACK was boosted!";
+                break;
+            case "defense_multiplier":
+            case "defense_when_status_multiplier":
+                __battle_queue_ability_header(_actor);
+                _msg = _actor_name + "'s DEFENSE was boosted!";
+                break;
+            case "weather_speed_multiplier":
+            case "speed_when_status_multiplier":
+                __battle_queue_ability_header(_actor);
+                _msg = _actor_name + "'s SPEED rose!";
+                break;
+            case "status_priority_bonus":
+            case "type_priority_bonus":
+            case "healing_priority_bonus":
+                __battle_queue_ability_header(_actor);
+                _msg = _actor_name + " moved quicker!";
+                break;
+            case "self_stage_change":
+                var _boost_stat = variable_struct_exists(_data, "stat") ? variable_struct_get(_data, "stat") : "stat";
+                __battle_queue_ability_header(_actor);
+                _msg = _actor_name + "'s " + __battle_ability_battle_label(__battle_ability_pretty_stat(_boost_stat)) + " rose!";
+                break;
+            case "set_stage":
+                var _set_stat = variable_struct_exists(_data, "stat") ? variable_struct_get(_data, "stat") : "stat";
+                __battle_queue_ability_header(_actor);
+                _msg = _actor_name + "'s " + __battle_ability_battle_label(__battle_ability_pretty_stat(_set_stat)) + " maxed out!";
+                break;
+            case "damage_attacker_fraction":
+                __battle_queue_ability_header(_actor);
+                _msg = _target_name + " was hurt!";
+                break;
+            case "status_attacker_chance":
+                var _contact_status = variable_struct_exists(_data, "status") ? variable_struct_get(_data, "status") : "status";
+                __battle_queue_ability_header(_actor);
+                _msg = _target_name + " was afflicted with " + __battle_ability_pretty_status(_contact_status) + "!";
+                break;
+            case "volatile_attacker_chance":
+                __battle_queue_ability_header(_actor);
+                _msg = _target_name + " was affected!";
+                break;
+            case "replace_attacker_ability":
+                __battle_queue_ability_header(_actor);
+                _msg = _target_name + "'s Ability became " + _ability + "!";
+                break;
+            case "block_crit":
+                __battle_queue_ability_header(_actor);
+                _msg = "A critical hit was prevented!";
+                break;
+            case "survive_full_hp_ko":
+                _msg = _actor_name + " hung on using its " + _ability + "!";
+                break;
+            case "block_sound":
+                __battle_queue_ability_header(_actor);
+                _msg = "The sound-based move was blocked!";
+                break;
+            case "no_guard":
+                __battle_queue_ability_header(_actor);
+                _msg = "The attack can't miss!";
+                break;
+            case "block_status":
+                var _status = variable_struct_exists(_data, "status") ? variable_struct_get(_data, "status") : "";
+                __battle_queue_ability_header(_actor);
+                _msg = __battle_ability_pretty_status(_status) + " was prevented!";
+                break;
+            case "block_stat_lowering":
+                __battle_queue_ability_header(_actor);
+                _msg = _actor_name + "'s stats weren't lowered!";
+                break;
+            case "berry_effect_multiplier":
+                __battle_queue_ability_header(_actor);
+                _msg = "The Berry's effect was boosted!";
+                break;
+            case "block_opponent_berries":
+                __battle_queue_ability_header(_actor);
+                _msg = _target_name + " is too nervous to eat Berries!";
+                break;
+            case "heal_fraction_if_berry":
+                __battle_queue_ability_header(_actor);
+                _msg = _actor_name + " restored HP!";
+                break;
+            case "restore_consumed_berry_chance":
+                __battle_queue_ability_header(_actor);
+                _msg = _actor_name + " harvested one Berry!";
+                break;
+            case "reuse_berry_next_turn":
+                __battle_queue_ability_header(_actor);
+                _msg = _actor_name + " ate the Berry again!";
+                break;
+            case "block_item_removal":
+                __battle_queue_ability_header(_actor);
+                _msg = _actor_name + " held on to its item!";
+                break;
+            case "moving_last_multiplier":
+            case "target_switched_in_multiplier":
+                __battle_queue_ability_header(_actor);
+                _msg = "The move's power was raised!";
+                break;
+            case "conditional_reaction":
+                __battle_queue_ability_header(_actor);
+                _msg = _actor_name + "'s Ability activated!";
+                break;
+            case "force_switch_below_hp_fraction":
+                __battle_queue_ability_header(_actor);
+                _msg = _actor_name + " went back!";
+                break;
+            case "boost_by_opponent_defenses":
+            case "conditional_stage_event":
+                __battle_queue_ability_header(_actor);
+                _msg = _actor_name + "'s stats rose!";
+                break;
+            case "crit_stage_bonus":
+                __battle_queue_ability_header(_actor);
+                _msg = _actor_name + " is getting pumped!";
+                break;
+            case "always_crit_on_poisoned_target":
+                __battle_queue_ability_header(_actor);
+                _msg = "It aimed for a weak spot!";
+                break;
+            case "second_parental_hit":
+                __battle_queue_ability_header(_actor);
+                _msg = _actor_name + " attacked again!";
+                break;
+            case "bypass_target_barriers":
+                __battle_queue_ability_header(_actor);
+                _msg = "It slipped through the barrier!";
+                break;
+            case "copy_status_to_source":
+                __battle_queue_ability_header(_actor);
+                _msg = _target_name + " received the same status!";
+                break;
+            case "skip_every_other_turn":
+                __battle_queue_ability_header(_actor);
+                _msg = _actor_name + " is loafing around!";
+                break;
+            case "force_max_hits":
+                __battle_queue_ability_header(_actor);
+                _msg = "It will hit the maximum number of times!";
+                break;
+            case "block_first_hit":
+                __battle_queue_ability_header(_actor);
+                _msg = _actor_name + " protected itself!";
+                break;
+            case "damage_attacker_equal_last_damage":
+                __battle_queue_ability_header(_actor);
+                _msg = _target_name + " was hurt!";
+                break;
+            case "explode_on_faint":
+                __battle_queue_ability_header(_actor);
+                _msg = _actor_name + " exploded!";
+                break;
+            case "convert_move_type":
+                __battle_queue_ability_header(_actor);
+                _msg = "The move's type changed!";
+                break;
+            default:
+                _msg = _actor_name + "'s " + _ability + "!";
+                break;
+        }
+    }
+    return __battle_queue_ability_dialog(_actor, _msg);
+}
+
 function __battle_type_id_by_name_safe(_name){
     var _key = string_lower(string(_name));
     try {
@@ -403,6 +881,30 @@ function __battle_move_type_safe(_move_id, _A){
     return -1;
 }
 
+function __battle_type_name_by_id_safe(_type_id){
+    switch (floor(_type_id)){
+        case 1: return "normal";
+        case 2: return "fighting";
+        case 3: return "flying";
+        case 4: return "poison";
+        case 5: return "ground";
+        case 6: return "rock";
+        case 7: return "bug";
+        case 8: return "ghost";
+        case 9: return "steel";
+        case 10: return "fire";
+        case 11: return "water";
+        case 12: return "grass";
+        case 13: return "electric";
+        case 14: return "psychic";
+        case 15: return "ice";
+        case 16: return "dragon";
+        case 17: return "dark";
+        case 18: return "fairy";
+    }
+    return "";
+}
+
 function __battle_move_damage_class_safe(_move_id){
     try {
         if (!is_undefined(scr_move_damage_class_by_id) && is_real(_move_id)) return scr_move_damage_class_by_id(_move_id);
@@ -414,6 +916,170 @@ function __battle_move_damage_class_safe(_move_id){
         }
     } catch (e_dc_meta) {}
     return undefined;
+}
+
+function __battle_actor_type_ids(_actor){
+    var _out = [];
+    function __push_type_once(_arr, _tid){
+        if (!is_real(_tid) || _tid <= 0) return _arr;
+        var _id = floor(_tid);
+        for (var _i = 0; _i < array_length(_arr); ++_i){
+            if (is_real(_arr[_i]) && floor(_arr[_i]) == _id) return _arr;
+        }
+        array_push(_arr, _id);
+        return _arr;
+    }
+    if (!is_struct(_actor)) return _out;
+    try {
+        if (variable_struct_exists(_actor, "types") && is_array(variable_struct_get(_actor, "types"))){
+            var _types = variable_struct_get(_actor, "types");
+            for (var _ti = 0; _ti < array_length(_types); ++_ti) _out = __push_type_once(_out, _types[_ti]);
+        }
+        if (variable_struct_exists(_actor, "type1")) _out = __push_type_once(_out, variable_struct_get(_actor, "type1"));
+        if (variable_struct_exists(_actor, "type2")) _out = __push_type_once(_out, variable_struct_get(_actor, "type2"));
+        if (variable_struct_exists(_actor, "mon") && is_struct(variable_struct_get(_actor, "mon"))){
+            var _mon = variable_struct_get(_actor, "mon");
+            if (variable_struct_exists(_mon, "types") && is_array(variable_struct_get(_mon, "types"))){
+                var _mtypes = variable_struct_get(_mon, "types");
+                for (var _mi = 0; _mi < array_length(_mtypes); ++_mi) _out = __push_type_once(_out, _mtypes[_mi]);
+            }
+            if (variable_struct_exists(_mon, "type1")) _out = __push_type_once(_out, variable_struct_get(_mon, "type1"));
+            if (variable_struct_exists(_mon, "type2")) _out = __push_type_once(_out, variable_struct_get(_mon, "type2"));
+            var _sid = -1;
+            if (variable_struct_exists(_mon, "species_id") && is_real(variable_struct_get(_mon, "species_id"))) _sid = variable_struct_get(_mon, "species_id");
+            else if (variable_struct_exists(_mon, "id") && is_real(variable_struct_get(_mon, "id"))) _sid = variable_struct_get(_mon, "id");
+            if (_sid >= 0 && variable_global_exists("_species_types") && is_array(global._species_types) && _sid < array_length(global._species_types)){
+                var _stypes = global._species_types[_sid];
+                if (is_array(_stypes)) for (var _si = 0; _si < array_length(_stypes); ++_si) _out = __push_type_once(_out, _stypes[_si]);
+            }
+        }
+    } catch (e_actor_types) {}
+    return _out;
+}
+
+function __battle_type_matchup_multiplier(_attack_type, _defense_type){
+    if (!is_real(_attack_type) || !is_real(_defense_type)) return 1.0;
+    var _atk = floor(_attack_type);
+    var _def = floor(_defense_type);
+    try {
+        if (variable_global_exists("BATTLE_TYPE_EFFICACY")){
+            var _map = variable_global_get("BATTLE_TYPE_EFFICACY");
+            if (ds_exists(_map, ds_type_map)){
+                var _key = string(_atk) + ":" + string(_def);
+                if (ds_map_exists(_map, _key)){
+                    var _mv = ds_map_find_value(_map, _key);
+                    if (is_real(_mv)) return _mv;
+                }
+            }
+        }
+    } catch (e_type_map_lookup) {}
+    try {
+        if (variable_global_exists("_type_efficacy") && is_array(global._type_efficacy)){
+            for (var _i = 0; _i < array_length(global._type_efficacy); ++_i){
+                var _row = global._type_efficacy[_i];
+                if (!is_struct(_row)) continue;
+                if (variable_struct_exists(_row, "attack_type") && variable_struct_exists(_row, "target_type")){
+                    if (floor(variable_struct_get(_row, "attack_type")) == _atk && floor(variable_struct_get(_row, "target_type")) == _def){
+                        if (variable_struct_exists(_row, "mult") && is_real(variable_struct_get(_row, "mult"))) return variable_struct_get(_row, "mult");
+                        if (variable_struct_exists(_row, "factor") && is_real(variable_struct_get(_row, "factor"))) return variable_struct_get(_row, "factor") / 100.0;
+                    }
+                }
+            }
+        }
+    } catch (e_type_array_lookup) {}
+    return 1.0;
+}
+
+function __battle_move_type_effectiveness_multiplier(_A, _D, _move_id){
+    var _mv_type = __battle_move_type_safe(_move_id, _A);
+    if (!is_real(_mv_type) || _mv_type <= 0) return 1.0;
+    var _def_types = __battle_actor_type_ids(_D);
+    var _mult = 1.0;
+    var _miracle_eye_psychic = false;
+    try {
+        _miracle_eye_psychic = (_mv_type == __battle_type_id_by_name_safe("psychic")) && is_struct(_D) && variable_struct_exists(_D, "_miracle_eye_active") && variable_struct_get(_D, "_miracle_eye_active") == true;
+    } catch (e_miracle_eff) { _miracle_eye_psychic = false; }
+    var _attacker_type_bypass_actions = [];
+    try { _attacker_type_bypass_actions = __battle_actor_ability_actions(_A, "type_effectiveness"); } catch (e_bypass_actions) { _attacker_type_bypass_actions = []; }
+    for (var _i = 0; _i < array_length(_def_types); ++_i){
+        var _def_type = _def_types[_i];
+        var _m = __battle_type_matchup_multiplier(_mv_type, _def_type);
+        if (_miracle_eye_psychic && _def_type == __battle_type_id_by_name_safe("dark") && _m <= 0) _m = 1.0;
+        if (_m <= 0){
+            for (var _bai = 0; _bai < array_length(_attacker_type_bypass_actions); ++_bai){
+                var _bact = _attacker_type_bypass_actions[_bai];
+                if (!is_struct(_bact)) continue;
+                var _bkind = variable_struct_exists(_bact, "kind") ? string_lower(string(variable_struct_get(_bact, "kind"))) : "";
+                if (_bkind != "bypass_ghost_immunity") continue;
+                var _bdata = __battle_ability_action_data(_bact);
+                var _target_type_name = variable_struct_exists(_bdata, "target_type") ? string_lower(string(variable_struct_get(_bdata, "target_type"))) : "";
+                if (_target_type_name != "ghost" || _def_type != __battle_type_id_by_name_safe("ghost")) continue;
+                var _attack_types = variable_struct_exists(_bdata, "attacking_types") ? variable_struct_get(_bdata, "attacking_types") : [];
+                if (!is_array(_attack_types)) _attack_types = [string(_attack_types)];
+                for (var _ati = 0; _ati < array_length(_attack_types); ++_ati){
+                    if (_mv_type == __battle_type_id_by_name_safe(_attack_types[_ati])){
+                        _m = 1.0;
+                        break;
+                    }
+                }
+            }
+        }
+        _mult *= _m;
+    }
+    return _mult;
+}
+
+function __battle_move_stab_multiplier(_A, _move_id){
+    var _mv_type = __battle_move_type_safe(_move_id, _A);
+    if (!is_real(_mv_type) || _mv_type <= 0) return 1.0;
+    var _types = __battle_actor_type_ids(_A);
+    var _has_stab = false;
+    for (var _i = 0; _i < array_length(_types); ++_i){
+        if (is_real(_types[_i]) && floor(_types[_i]) == floor(_mv_type)){ _has_stab = true; break; }
+    }
+    if (!_has_stab) return 1.0;
+    var _stab = 1.5;
+    var _actions = __battle_actor_ability_actions(_A, "stab");
+    for (var _ai = 0; _ai < array_length(_actions); ++_ai){
+        var _act = _actions[_ai];
+        var _kind = (is_struct(_act) && variable_struct_exists(_act, "kind")) ? string_lower(string(variable_struct_get(_act, "kind"))) : "";
+        if (_kind != "stab_multiplier") continue;
+        var _data = __battle_ability_action_data(_act);
+        if (variable_struct_exists(_data, "mult") && is_real(variable_struct_get(_data, "mult"))) _stab = variable_struct_get(_data, "mult");
+    }
+    return _stab;
+}
+
+function __battle_ability_type_effectiveness_multiplier(_A, _D, _move_id, _type_mult){
+    var _out = is_real(_type_mult) ? _type_mult : 1.0;
+    try {
+        var _def_actions = __battle_actor_ability_actions(_D, "type_effectiveness");
+        for (var _di = 0; _di < array_length(_def_actions); ++_di){
+            var _dact = _def_actions[_di];
+            var _dkind = (is_struct(_dact) && variable_struct_exists(_dact, "kind")) ? string_lower(string(variable_struct_get(_dact, "kind"))) : "";
+            var _ddata = __battle_ability_action_data(_dact);
+            if (_dkind == "super_effective_multiplier" && _out > 1.0){
+                var _dm = variable_struct_exists(_ddata, "mult") ? variable_struct_get(_ddata, "mult") : 0.75;
+                _out *= _dm;
+                try { __battle_queue_ability_action_dialog(_D, _dact, _A, { move_id:_move_id, type_mult:_type_mult }); } catch (e_filter_dialog) {}
+            } else if (_dkind == "block_non_super_effective" && _out <= 1.0){
+                _out = 0;
+                try { __battle_queue_ability_action_dialog(_D, _dact, _A, { move_id:_move_id, type_mult:_type_mult }); } catch (e_wg_dialog) {}
+            }
+        }
+        var _atk_actions = __battle_actor_ability_actions(_A, "type_effectiveness");
+        for (var _ai = 0; _ai < array_length(_atk_actions); ++_ai){
+            var _aact = _atk_actions[_ai];
+            var _akind = (is_struct(_aact) && variable_struct_exists(_aact, "kind")) ? string_lower(string(variable_struct_get(_aact, "kind"))) : "";
+            var _adata = __battle_ability_action_data(_aact);
+            if (_akind == "not_very_effective_multiplier" && _out > 0 && _out < 1.0){
+                var _am = variable_struct_exists(_adata, "mult") ? variable_struct_get(_adata, "mult") : 2;
+                _out *= _am;
+                try { __battle_queue_ability_action_dialog(_A, _aact, _D, { move_id:_move_id, type_mult:_type_mult }); } catch (e_tinted_dialog) {}
+            }
+        }
+    } catch (e_ability_type_effectiveness) {}
+    return _out;
 }
 
 function __battle_actor_has_major_status(_actor){
@@ -431,27 +1097,94 @@ function __battle_actor_has_major_status(_actor){
 function __battle_apply_ability_heal_or_block(_pid, _target_index, _A, _D, _move_id){
     if (!is_struct(_D) || !is_real(_move_id)) return false;
     var _mv_type = __battle_move_type_safe(_move_id, _A);
+    var _type_name = __battle_type_name_by_id_safe(_mv_type);
     var _block = false;
     var _heal = 0;
     var _boost_flash = false;
-    if (_mv_type == __battle_type_id_by_name_safe("water") && __battle_actor_has_any_ability(_D, ["water-absorb", "storm-drain", "dry-skin"])){
-        _block = true;
-        _heal = max(1, floor(__battle_hp_max(_D) / 4));
-    } else if (_mv_type == __battle_type_id_by_name_safe("electric") && __battle_actor_has_any_ability(_D, ["volt-absorb", "lightning-rod", "motor-drive"])){
-        _block = true;
-        if (__battle_actor_has_any_ability(_D, ["volt-absorb"])) _heal = max(1, floor(__battle_hp_max(_D) / 4));
-    } else if (_mv_type == __battle_type_id_by_name_safe("fire") && __battle_actor_has_any_ability(_D, ["flash-fire"])){
-        _block = true;
-        _boost_flash = true;
-    } else if (_mv_type == __battle_type_id_by_name_safe("grass") && __battle_actor_has_any_ability(_D, ["sap-sipper"])){
-        _block = true;
-    } else if (_mv_type == __battle_type_id_by_name_safe("ground") && __battle_actor_has_any_ability(_D, ["levitate"])){
-        var _gravity_active = false;
-        try {
-            var _gravity_turns = __battle_field_get_status_or(_pid, "gravity", 0);
-            _gravity_active = (is_real(_gravity_turns) && _gravity_turns > 0);
-        } catch (e_gravity_levitate) { _gravity_active = false; }
-        if (!_gravity_active) _block = true;
+    var _eff = __battle_actor_ability_effect(_D);
+    var _ability_dialog_action = undefined;
+    if (string_length(_type_name) > 0 && is_struct(_eff)){
+        var _def_type_actions = __battle_actor_ability_actions(_D, "on_defend_type");
+        for (var _dai = 0; _dai < array_length(_def_type_actions); ++_dai){
+            var _act = _def_type_actions[_dai];
+            var _act_kind = (is_struct(_act) && variable_struct_exists(_act, "kind")) ? string_lower(string(variable_struct_get(_act, "kind"))) : "";
+            var _data = __battle_ability_action_data(_act);
+            var _act_type = (variable_struct_exists(_data, "type")) ? string_lower(string(variable_struct_get(_data, "type"))) : "";
+            if (_act_type != _type_name) continue;
+            switch (_act_kind){
+                case "absorb_heal":
+                    _block = true;
+                    _ability_dialog_action = _act;
+                    var _afrac = variable_struct_exists(_data, "fraction") ? variable_struct_get(_data, "fraction") : 0.25;
+                    _heal = max(_heal, max(1, floor(__battle_hp_max(_D) * _afrac)));
+                    break;
+                case "block_stage_boost":
+                    _block = true;
+                    _ability_dialog_action = _act;
+                    break;
+                case "flash_fire":
+                    _block = true;
+                    _boost_flash = true;
+                    _ability_dialog_action = _act;
+                    break;
+                case "block_type":
+                    _block = true;
+                    _ability_dialog_action = _act;
+                    break;
+            }
+        }
+        if (!_block && __battle_ability_effect_has_type(_eff, "blocked_types", _type_name)){
+            _block = true;
+        }
+        if (_block && _type_name == "ground" && __battle_actor_has_any_ability(_D, ["levitate"])){
+            var _gravity_active_csv = false;
+            try {
+                var _gravity_turns_csv = __battle_field_get_status_or(_pid, "gravity", 0);
+                _gravity_active_csv = (is_real(_gravity_turns_csv) && _gravity_turns_csv > 0);
+            } catch (e_gravity_levitate_csv) { _gravity_active_csv = false; }
+            if (_gravity_active_csv) _block = false;
+        }
+        if (_block && _heal <= 0 && variable_struct_exists(_eff, "absorb_heal_types") && is_array(variable_struct_get(_eff, "absorb_heal_types"))){
+            var _heals = variable_struct_get(_eff, "absorb_heal_types");
+            for (var _hi = 0; _hi < array_length(_heals); ++_hi){
+                var _h = _heals[_hi];
+                if (is_struct(_h) && variable_struct_exists(_h, "type") && string_lower(string(variable_struct_get(_h, "type"))) == _type_name){
+                    var _frac = variable_struct_exists(_h, "fraction") ? variable_struct_get(_h, "fraction") : 0.25;
+                    _heal = max(1, floor(__battle_hp_max(_D) * _frac));
+                    break;
+                }
+            }
+        }
+        if (_block && variable_struct_exists(_eff, "flash_fire") && variable_struct_get(_eff, "flash_fire") == true) _boost_flash = true;
+    }
+
+    if (!_block){
+        if (_mv_type == __battle_type_id_by_name_safe("water") && __battle_actor_has_any_ability(_D, ["water-absorb", "storm-drain", "dry-skin"])){
+            _block = true;
+            _heal = max(1, floor(__battle_hp_max(_D) / 4));
+        } else if (_mv_type == __battle_type_id_by_name_safe("electric") && __battle_actor_has_any_ability(_D, ["volt-absorb", "lightning-rod", "motor-drive"])){
+            _block = true;
+            if (__battle_actor_has_any_ability(_D, ["volt-absorb"])) _heal = max(1, floor(__battle_hp_max(_D) / 4));
+        } else if (_mv_type == __battle_type_id_by_name_safe("fire") && __battle_actor_has_any_ability(_D, ["flash-fire"])){
+            _block = true;
+            _boost_flash = true;
+        } else if (_mv_type == __battle_type_id_by_name_safe("grass") && __battle_actor_has_any_ability(_D, ["sap-sipper"])){
+            _block = true;
+        } else if (_mv_type == __battle_type_id_by_name_safe("ground") && __battle_actor_has_any_ability(_D, ["earth-eater"])){
+            _block = true;
+            _heal = max(1, floor(__battle_hp_max(_D) / 4));
+        } else if (_mv_type == __battle_type_id_by_name_safe("fire") && __battle_actor_has_any_ability(_D, ["well-baked-body"])){
+            _block = true;
+        } else if (_mv_type == __battle_type_id_by_name_safe("flying") && __battle_actor_has_any_ability(_D, ["wind-rider"])){
+            _block = true;
+        } else if (_mv_type == __battle_type_id_by_name_safe("ground") && __battle_actor_has_any_ability(_D, ["levitate"])){
+            var _gravity_active = false;
+            try {
+                var _gravity_turns = __battle_field_get_status_or(_pid, "gravity", 0);
+                _gravity_active = (is_real(_gravity_turns) && _gravity_turns > 0);
+            } catch (e_gravity_levitate) { _gravity_active = false; }
+            if (!_gravity_active) _block = true;
+        }
     }
 
     if (!_block) return false;
@@ -464,18 +1197,49 @@ function __battle_apply_ability_heal_or_block(_pid, _target_index, _A, _D, _move
     }
     if (_boost_flash) variable_struct_set(_D, "_flash_fire_active", true);
     try {
-        if (_mv_type == __battle_type_id_by_name_safe("electric") && __battle_actor_has_any_ability(_D, ["motor-drive"])) __battle_ability_change_stage(_D, "spe", 1);
-        if (_mv_type == __battle_type_id_by_name_safe("electric") && __battle_actor_has_any_ability(_D, ["lightning-rod"])) __battle_ability_change_stage(_D, "spa", 1);
-        if (_mv_type == __battle_type_id_by_name_safe("water") && __battle_actor_has_any_ability(_D, ["storm-drain"])) __battle_ability_change_stage(_D, "spa", 1);
-        if (_mv_type == __battle_type_id_by_name_safe("grass") && __battle_actor_has_any_ability(_D, ["sap-sipper"])) __battle_ability_change_stage(_D, "atk", 1);
+        var _did_generic_stage = false;
+        var _def_type_actions_stage = __battle_actor_ability_actions(_D, "on_defend_type");
+        for (var _sai = 0; _sai < array_length(_def_type_actions_stage); ++_sai){
+            var _sact = _def_type_actions_stage[_sai];
+            var _skind = (is_struct(_sact) && variable_struct_exists(_sact, "kind")) ? string_lower(string(variable_struct_get(_sact, "kind"))) : "";
+            if (_skind != "block_stage_boost") continue;
+            var _sdata = __battle_ability_action_data(_sact);
+            var _stype = variable_struct_exists(_sdata, "type") ? string_lower(string(variable_struct_get(_sdata, "type"))) : "";
+            if (_stype != _type_name) continue;
+            var _sstat = variable_struct_exists(_sdata, "stat") ? variable_struct_get(_sdata, "stat") : "spa";
+            var _sdelta = variable_struct_exists(_sdata, "delta") ? variable_struct_get(_sdata, "delta") : 1;
+            __battle_ability_change_stage(_D, _sstat, _sdelta);
+            _did_generic_stage = true;
+        }
+        if (!_did_generic_stage && is_struct(_eff) && variable_struct_exists(_eff, "block_stage_boosts") && is_array(variable_struct_get(_eff, "block_stage_boosts"))){
+            var _boosts = variable_struct_get(_eff, "block_stage_boosts");
+            for (var _bi = 0; _bi < array_length(_boosts); ++_bi){
+                var _b = _boosts[_bi];
+                if (is_struct(_b) && variable_struct_exists(_b, "type") && string_lower(string(variable_struct_get(_b, "type"))) == _type_name){
+                    __battle_ability_change_stage(_D, variable_struct_get(_b, "stat"), variable_struct_get(_b, "delta"));
+                }
+            }
+        } else {
+            if (_mv_type == __battle_type_id_by_name_safe("electric") && __battle_actor_has_any_ability(_D, ["motor-drive"])) __battle_ability_change_stage(_D, "spe", 1);
+            if (_mv_type == __battle_type_id_by_name_safe("electric") && __battle_actor_has_any_ability(_D, ["lightning-rod"])) __battle_ability_change_stage(_D, "spa", 1);
+            if (_mv_type == __battle_type_id_by_name_safe("water") && __battle_actor_has_any_ability(_D, ["storm-drain"])) __battle_ability_change_stage(_D, "spa", 1);
+            if (_mv_type == __battle_type_id_by_name_safe("grass") && __battle_actor_has_any_ability(_D, ["sap-sipper"])) __battle_ability_change_stage(_D, "atk", 1);
+            if (_mv_type == __battle_type_id_by_name_safe("fire") && __battle_actor_has_any_ability(_D, ["well-baked-body"])) __battle_ability_change_stage(_D, "def", 2);
+            if (_mv_type == __battle_type_id_by_name_safe("fire") && __battle_actor_has_any_ability(_D, ["thermal-exchange"])) __battle_ability_change_stage(_D, "atk", 1);
+            if (_mv_type == __battle_type_id_by_name_safe("flying") && __battle_actor_has_any_ability(_D, ["wind-rider"])) __battle_ability_change_stage(_D, "atk", 1);
+            if (_mv_type == __battle_type_id_by_name_safe("electric") && __battle_actor_has_any_ability(_D, ["electromorphosis", "wind-power"])) variable_struct_set(_D, "_ability_charge_next_electric", true);
+        }
     } catch (e_absorb_stage) {}
 
     try {
-        var _name = variable_struct_exists(_D, "name") ? string(variable_struct_get(_D, "name")) : "The target";
-        var _ab = __battle_actor_ability_name_lc(_D);
-        _ab = string_replace_all(_ab, "-", " ");
-        if (string_length(_ab) <= 0) _ab = "ability";
-        dialog_queue(_name + "'s " + _ab + " activated!");
+        if (is_struct(_ability_dialog_action)) __battle_queue_ability_action_dialog(_D, _ability_dialog_action, _A, { move_id:_move_id, type:_type_name });
+        else {
+            var _name = variable_struct_exists(_D, "name") ? string(variable_struct_get(_D, "name")) : "The target";
+            var _ab = __battle_actor_ability_name_lc(_D);
+            _ab = string_replace_all(_ab, "-", " ");
+            if (string_length(_ab) <= 0) _ab = "ability";
+            dialog_queue(_name + "'s " + _ab + " activated!");
+        }
     } catch (e_msg) {}
     return true;
 }
@@ -483,32 +1247,681 @@ function __battle_apply_ability_heal_or_block(_pid, _target_index, _A, _D, _move
 function __battle_ability_damage_multiplier(_A, _D, _move_id){
     var _mult = 1.0;
     var _type = __battle_move_type_safe(_move_id, _A);
+    var _type_name = __battle_type_name_by_id_safe(_type);
     try {
         if (__battle_hp_now(_A) * 3 <= __battle_hp_max(_A)){
-            if (_type == __battle_type_id_by_name_safe("grass") && __battle_actor_has_any_ability(_A, ["overgrow"])) _mult *= 1.5;
-            if (_type == __battle_type_id_by_name_safe("fire") && __battle_actor_has_any_ability(_A, ["blaze"])) _mult *= 1.5;
-            if (_type == __battle_type_id_by_name_safe("water") && __battle_actor_has_any_ability(_A, ["torrent"])) _mult *= 1.5;
-            if (_type == __battle_type_id_by_name_safe("bug") && __battle_actor_has_any_ability(_A, ["swarm"])) _mult *= 1.5;
+            var _atk_eff = __battle_actor_ability_effect(_A);
+            var _did_low_hp_action = false;
+            var _deal_actions = __battle_actor_ability_actions(_A, "damage_dealt");
+            for (var _dmi = 0; _dmi < array_length(_deal_actions); ++_dmi){
+                var _dmact = _deal_actions[_dmi];
+                var _dmkind = (is_struct(_dmact) && variable_struct_exists(_dmact, "kind")) ? string_lower(string(variable_struct_get(_dmact, "kind"))) : "";
+                if (_dmkind != "low_hp_type_multiplier") continue;
+                var _dmdata = __battle_ability_action_data(_dmact);
+                if (!variable_struct_exists(_dmdata, "type") || string_lower(string(variable_struct_get(_dmdata, "type"))) != _type_name) continue;
+                var _dmmult = variable_struct_exists(_dmdata, "mult") ? variable_struct_get(_dmdata, "mult") : 1.5;
+                _mult *= _dmmult;
+                _did_low_hp_action = true;
+                try { __battle_queue_ability_action_dialog(_A, _dmact, _D, { move_id:_move_id, type:_type_name }); } catch (e_low_hp_dialog) {}
+            }
+            if (!_did_low_hp_action){
+                if (is_struct(_atk_eff) && variable_struct_exists(_atk_eff, "low_hp_type") && string_length(string(variable_struct_get(_atk_eff, "low_hp_type"))) > 0 && string_lower(string(variable_struct_get(_atk_eff, "low_hp_type"))) == _type_name){
+                    var _lh_mult = variable_struct_exists(_atk_eff, "low_hp_multiplier") ? variable_struct_get(_atk_eff, "low_hp_multiplier") : 1.5;
+                    _mult *= _lh_mult;
+                    try { __battle_queue_ability_dialog(_A, __battle_ability_actor_name(_A, "The Pokemon") + "'s " + __battle_ability_battle_label(__battle_ability_label(_A)) + "!"); } catch (e_low_hp_legacy_dialog) {}
+                } else {
+                    if (_type == __battle_type_id_by_name_safe("grass") && __battle_actor_has_any_ability(_A, ["overgrow"])) _mult *= 1.5;
+                    if (_type == __battle_type_id_by_name_safe("fire") && __battle_actor_has_any_ability(_A, ["blaze"])) _mult *= 1.5;
+                    if (_type == __battle_type_id_by_name_safe("water") && __battle_actor_has_any_ability(_A, ["torrent"])) _mult *= 1.5;
+                    if (_type == __battle_type_id_by_name_safe("bug") && __battle_actor_has_any_ability(_A, ["swarm"])) _mult *= 1.5;
+                }
+            }
         }
         if (_type == __battle_type_id_by_name_safe("fire") && is_struct(_A) && variable_struct_exists(_A, "_flash_fire_active") && variable_struct_get(_A, "_flash_fire_active") == true) _mult *= 1.5;
-        if ((_type == __battle_type_id_by_name_safe("fire") || _type == __battle_type_id_by_name_safe("ice")) && __battle_actor_has_any_ability(_D, ["thick-fat"])) _mult *= 0.5;
+        if (_type == __battle_type_id_by_name_safe("electric") && is_struct(_A) && variable_struct_exists(_A, "_ability_charge_next_electric") && variable_struct_get(_A, "_ability_charge_next_electric") == true){
+            _mult *= 2;
+            try { variable_struct_set(_A, "_ability_charge_next_electric", false); } catch (e_charge_clear) {}
+        }
+        try {
+            var _pid_aura = (!is_undefined(__status_find_battle_pid)) ? __status_find_battle_pid(_A) : undefined;
+            if (is_real(_pid_aura)){
+                var _Baura = __battle_ensure_slot(_pid_aura);
+                if (is_struct(_Baura) && variable_struct_exists(_Baura, "actor") && is_array(variable_struct_get(_Baura, "actor"))){
+                    var _aura_actors = variable_struct_get(_Baura, "actor");
+                    var _aidx_aura = -1;
+                    var _didx_aura = -1;
+                    for (var _axi = 0; _axi < array_length(_aura_actors); ++_axi){
+                        if (_aura_actors[_axi] == _A) _aidx_aura = _axi;
+                        if (_aura_actors[_axi] == _D) _didx_aura = _axi;
+                    }
+                    var _aside_aura = (_aidx_aura >= 0 && !is_undefined(__battle_actor_side)) ? __battle_actor_side(_aidx_aura) : -1;
+                    var _dside_aura = (_didx_aura >= 0 && !is_undefined(__battle_actor_side)) ? __battle_actor_side(_didx_aura) : -2;
+                    var _dc_aura = __battle_move_damage_class_safe(_move_id);
+                    var _has_aura_break = false;
+                    var _has_dark_aura = false;
+                    var _has_fairy_aura = false;
+                    for (var _aui = 0; _aui < array_length(_aura_actors); ++_aui){
+                        var _support = _aura_actors[_aui];
+                        if (!is_struct(_support) || __battle_hp_now(_support) <= 0) continue;
+                        var _sside = (!is_undefined(__battle_actor_side)) ? __battle_actor_side(_aui) : -99;
+                        if (__battle_actor_has_any_ability(_support, ["aura-break"])) _has_aura_break = true;
+                        if (__battle_actor_has_any_ability(_support, ["dark-aura"])) _has_dark_aura = true;
+                        if (__battle_actor_has_any_ability(_support, ["fairy-aura"])) _has_fairy_aura = true;
+                        if (_sside == _aside_aura && _support != _A){
+                            if (_dc_aura == 3 && __battle_actor_has_any_ability(_support, ["battery"])) _mult *= 1.3;
+                            if (__battle_actor_has_any_ability(_support, ["power-spot"])) _mult *= 1.3;
+                        }
+                        if (_sside == _dside_aura && _support != _D){
+                            if (__battle_actor_has_any_ability(_support, ["friend-guard"])) _mult *= 0.75;
+                        }
+                        if (_support != _A && _support != _D){
+                            if (_dc_aura == 2 && _sside == _aside_aura && __battle_actor_has_any_ability(_support, ["sword-of-ruin"])) _mult *= 1.3333;
+                            if (_dc_aura == 3 && _sside == _aside_aura && __battle_actor_has_any_ability(_support, ["beads-of-ruin"])) _mult *= 1.3333;
+                            if (_dc_aura == 2 && _sside == _dside_aura && __battle_actor_has_any_ability(_support, ["tablets-of-ruin"])) _mult *= 0.75;
+                            if (_dc_aura == 3 && _sside == _dside_aura && __battle_actor_has_any_ability(_support, ["vessel-of-ruin"])) _mult *= 0.75;
+                        }
+                    }
+                    if ((_type_name == "dark" && _has_dark_aura) || (_type_name == "fairy" && _has_fairy_aura)){
+                        _mult *= _has_aura_break ? 0.75 : 1.3333;
+                    }
+                }
+            }
+        } catch (e_ally_aura_mult) {}
+        try {
+            var _all_deal_actions = __battle_actor_ability_actions(_A, "damage_dealt");
+            var _move_type_actions = __battle_actor_ability_actions(_A, "move_type_check");
+            var _move_ident_boost = __battle_ability_move_identifier_safe(_move_id);
+            var _move_power_boost = __battle_ability_move_power_safe(_move_id);
+            var _weather_id_boost = __battle_ability_current_weather_id(_A);
+            try {
+                if (array_length(_move_type_actions) > 0){
+                    var _ab_convert = __battle_actor_ability_name_lc(_A);
+                    var _normal_id_convert = __battle_type_id_by_name_safe("normal");
+                    var _base_type_convert = -1;
+                    if (variable_global_exists("_moves") && is_array(global._moves) && is_real(_move_id) && _move_id >= 0 && _move_id < array_length(global._moves)){
+                        var _base_move_convert = global._moves[_move_id];
+                        if (is_struct(_base_move_convert) && variable_struct_exists(_base_move_convert, "type_id") && is_real(variable_struct_get(_base_move_convert, "type_id"))) _base_type_convert = variable_struct_get(_base_move_convert, "type_id");
+                    }
+                    var _converted_boost = false;
+                    if (_ab_convert == "normalize") _converted_boost = true;
+                    else if ((_ab_convert == "refrigerate" || _ab_convert == "pixilate" || _ab_convert == "aerilate" || _ab_convert == "galvanize") && _base_type_convert == _normal_id_convert) _converted_boost = true;
+                    else if (_ab_convert == "liquid-voice" && __battle_ability_move_is_sound(_move_id)) _converted_boost = true;
+                    if (_converted_boost){
+                        _mult *= 1.2;
+                        try { __battle_queue_ability_action_dialog(_A, _move_type_actions[0], _D, { move_id:_move_id }); } catch (e_convert_dialog) {}
+                    }
+                }
+            } catch (e_type_convert_boost) {}
+            for (var _gdi = 0; _gdi < array_length(_all_deal_actions); ++_gdi){
+                var _gact = _all_deal_actions[_gdi];
+                if (!is_struct(_gact)) continue;
+                var _gkind = variable_struct_exists(_gact, "kind") ? string_lower(string(variable_struct_get(_gact, "kind"))) : "";
+                var _gdata = __battle_ability_action_data(_gact);
+                var _gm = (variable_struct_exists(_gdata, "mult") && is_real(variable_struct_get(_gdata, "mult"))) ? variable_struct_get(_gdata, "mult") : 1;
+                var _apply_gm = false;
+                switch (_gkind){
+                    case "contact_multiplier":
+                        _apply_gm = (!is_undefined(__battle_move_is_contactish) && __battle_move_is_contactish(_move_id));
+                        break;
+                    case "low_power_multiplier":
+                        var _maxp = (variable_struct_exists(_gdata, "max_power") && is_real(variable_struct_get(_gdata, "max_power"))) ? variable_struct_get(_gdata, "max_power") : 60;
+                        _apply_gm = (_move_power_boost > 0 && _move_power_boost <= _maxp);
+                        break;
+                    case "flag_multiplier":
+                        _apply_gm = __battle_ability_move_has_keyword(_move_id, variable_struct_exists(_gdata, "flag") ? variable_struct_get(_gdata, "flag") : "");
+                        break;
+                    case "recoil_move_multiplier":
+                        _apply_gm = (string_pos("recoil", _move_ident_boost) > 0 || _move_ident_boost == "take-down" || _move_ident_boost == "double-edge" || _move_ident_boost == "submission" || _move_ident_boost == "brave-bird" || _move_ident_boost == "flare-blitz" || _move_ident_boost == "wild-charge" || _move_ident_boost == "head-smash" || _move_ident_boost == "wood-hammer");
+                        break;
+                    case "secondary_effect_multiplier":
+                        _apply_gm = __battle_ability_move_has_secondary_effect(_move_id);
+                        if (_apply_gm) try { variable_struct_set(_A, "_suppress_secondary_effects_once", true); } catch (e_sheer_tag) {}
+                        break;
+                    case "sound_move_multiplier":
+                        _apply_gm = __battle_ability_move_is_sound(_move_id);
+                        break;
+                    case "type_multiplier":
+                    case "aura_type_modifier":
+                        var _want_type = variable_struct_exists(_gdata, "type") ? string_lower(string(variable_struct_get(_gdata, "type"))) : "";
+                        var _ab_type_boost = __battle_actor_ability_name_lc(_A);
+                        if (_gkind == "aura_type_modifier" && (_ab_type_boost == "dark-aura" || _ab_type_boost == "fairy-aura" || _ab_type_boost == "aura-break")){
+                            _apply_gm = false;
+                            break;
+                        }
+                        if (string_length(_want_type) <= 0){
+                            if (_ab_type_boost == "steelworker" || _ab_type_boost == "steely-spirit") _want_type = "steel";
+                            else if (_ab_type_boost == "rocky-payload") _want_type = "rock";
+                            else if (_ab_type_boost == "transistor") _want_type = "electric";
+                            else if (_ab_type_boost == "dragons-maw") _want_type = "dragon";
+                        }
+                        if (string_length(_want_type) > 0 && (!is_real(_gm) || _gm == 1)) _gm = 1.5;
+                        _apply_gm = (string_length(_want_type) > 0 && _want_type == _type_name);
+                        break;
+                    case "weather_type_multiplier":
+                        var _wtypes = variable_struct_exists(_gdata, "types") ? variable_struct_get(_gdata, "types") : (variable_struct_exists(_gdata, "type") ? variable_struct_get(_gdata, "type") : []);
+                        var _wweathers = variable_struct_exists(_gdata, "weather") ? variable_struct_get(_gdata, "weather") : [];
+                        _apply_gm = (string_length(_weather_id_boost) > 0 && __battle_ability_list_contains(_wweathers, _weather_id_boost) && __battle_ability_list_contains(_wtypes, _type_name));
+                        break;
+                    case "critical_multiplier_bonus":
+                        var _crit_now = false;
+                        try { var _Bcrit_now = __battle_ensure_slot(0); _crit_now = is_struct(_Bcrit_now) && variable_struct_exists(_Bcrit_now, "_last_crit") && variable_struct_get(_Bcrit_now, "_last_crit") == true; } catch (e_crit_bonus_read) {}
+                        _apply_gm = _crit_now;
+                        break;
+                    case "gender_match_multiplier":
+                        var _asex = __battle_ability_actor_sex(_A);
+                        var _dsex = __battle_ability_actor_sex(_D);
+                        if (string_length(_asex) > 0 && string_length(_dsex) > 0 && _asex != "unknown" && _dsex != "unknown"){
+                            if (_asex == _dsex) _gm = (variable_struct_exists(_gdata, "same_sex_mult") && is_real(variable_struct_get(_gdata, "same_sex_mult"))) ? variable_struct_get(_gdata, "same_sex_mult") : 1.25;
+                            else _gm = (variable_struct_exists(_gdata, "different_sex_mult") && is_real(variable_struct_get(_gdata, "different_sex_mult"))) ? variable_struct_get(_gdata, "different_sex_mult") : 0.75;
+                            _apply_gm = true;
+                        }
+                        break;
+                    case "moving_last_multiplier":
+                        try { _apply_gm = variable_struct_exists(_A, "_will_move_last_this_turn") && variable_struct_get(_A, "_will_move_last_this_turn") == true; } catch (e_last_mult) { _apply_gm = false; }
+                        break;
+                    case "target_switched_in_multiplier":
+                        try {
+                            var _pid_stake = (!is_undefined(__status_find_battle_pid)) ? __status_find_battle_pid(_D) : undefined;
+                            var _turn_stake = -9999;
+                            if (is_real(_pid_stake)){
+                                var _Bstake = __battle_ensure_slot(_pid_stake);
+                                if (is_struct(_Bstake) && variable_struct_exists(_Bstake, "turn_i") && is_real(variable_struct_get(_Bstake, "turn_i"))) _turn_stake = floor(variable_struct_get(_Bstake, "turn_i"));
+                            }
+                            var _switched_turn = (variable_struct_exists(_D, "_switched_in_turn") && is_real(variable_struct_get(_D, "_switched_in_turn"))) ? floor(variable_struct_get(_D, "_switched_in_turn")) : -9998;
+                            _apply_gm = (_switched_turn == _turn_stake);
+                        } catch (e_stake_mult) { _apply_gm = false; }
+                        break;
+                }
+                if (_apply_gm && is_real(_gm) && _gm != 1){
+                    _mult *= _gm;
+                    try { __battle_queue_ability_action_dialog(_A, _gact, _D, { move_id:_move_id, type:_type_name }); } catch (e_gdeal_dialog) {}
+                }
+            }
+        } catch (e_generic_dealt_mult) {}
+        var _def_eff = __battle_actor_ability_effect(_D);
+        var _used_table_mult = false;
+        var _taken_actions = __battle_actor_ability_actions(_D, "damage_taken");
+        for (var _tai = 0; _tai < array_length(_taken_actions); ++_tai){
+            var _tact = _taken_actions[_tai];
+            var _tkind = (is_struct(_tact) && variable_struct_exists(_tact, "kind")) ? string_lower(string(variable_struct_get(_tact, "kind"))) : "";
+            var _tdata = __battle_ability_action_data(_tact);
+            var _tmult = variable_struct_exists(_tdata, "mult") ? variable_struct_get(_tdata, "mult") : 1;
+            var _apply_tm = false;
+            if (_tkind == "type_multiplier"){
+                _apply_tm = (variable_struct_exists(_tdata, "type") && string_lower(string(variable_struct_get(_tdata, "type"))) == _type_name);
+            } else if (_tkind == "sound_move_multiplier"){
+                _apply_tm = __battle_ability_move_is_sound(_move_id);
+            } else if (_tkind == "conditional_damage_or_boost"){
+                var _abid = __battle_actor_ability_name_lc(_D);
+                if ((_abid == "multiscale" || _abid == "shadow-shield") && __battle_hp_now(_D) >= __battle_hp_max(_D)){ _tmult = 0.5; _apply_tm = true; }
+                if (_abid == "fluffy"){
+                    if (!is_undefined(__battle_move_is_contactish) && __battle_move_is_contactish(_move_id)){ _tmult = 0.5; _apply_tm = true; }
+                    if (_type_name == "fire"){ _tmult = 2; _apply_tm = true; }
+                }
+                if (_abid == "ice-scales"){
+                    var _dc_taken = __battle_move_damage_class_safe(_move_id);
+                    if (is_real(_dc_taken) && floor(_dc_taken) == 3){ _tmult = 0.5; _apply_tm = true; }
+                }
+            }
+            if (_apply_tm){
+                _mult *= _tmult;
+                _used_table_mult = true;
+                try { __battle_queue_ability_action_dialog(_D, _tact, _A, { move_id:_move_id, type:_type_name }); } catch (e_taken_dialog) {}
+            }
+        }
+        if (!_used_table_mult && is_struct(_def_eff) && variable_struct_exists(_def_eff, "damage_taken_multipliers") && is_array(variable_struct_get(_def_eff, "damage_taken_multipliers"))){
+            var _taken = variable_struct_get(_def_eff, "damage_taken_multipliers");
+            for (var _ti = 0; _ti < array_length(_taken); ++_ti){
+                var _rec = _taken[_ti];
+                if (is_struct(_rec) && variable_struct_exists(_rec, "type") && string_lower(string(variable_struct_get(_rec, "type"))) == _type_name){
+                    var _tm = variable_struct_exists(_rec, "mult") ? variable_struct_get(_rec, "mult") : 1;
+                    _mult *= _tm;
+                    _used_table_mult = true;
+                }
+            }
+        }
+        if (!_used_table_mult && (_type == __battle_type_id_by_name_safe("fire") || _type == __battle_type_id_by_name_safe("ice")) && __battle_actor_has_any_ability(_D, ["thick-fat"])) _mult *= 0.5;
     } catch (e_ability_mult) {}
+    try {
+        if (!is_undefined(item_runtime_actor_held_actions)){
+            var _item_taken_actions = item_runtime_actor_held_actions(_D, "damage_taken");
+            for (var _itai = 0; _itai < array_length(_item_taken_actions); ++_itai){
+                var _itact = _item_taken_actions[_itai];
+                if (!is_struct(_itact)) continue;
+                var _itkind = variable_struct_exists(_itact, "kind") ? string_lower(string(variable_struct_get(_itact, "kind"))) : "";
+                var _itdata = __battle_item_action_data(_itact);
+                var _want_taken_type = variable_struct_exists(_itdata, "type") ? string_lower(string(variable_struct_get(_itdata, "type"))) : "";
+                if (string_length(_want_taken_type) <= 0 || _want_taken_type != _type_name) continue;
+                var _needs_super = (_itkind == "resist_super_effective_type");
+                if (_needs_super && _mult <= 1) continue;
+                if (!is_undefined(__battle_ability_item_blocked_by_opponent) && __battle_ability_item_blocked_by_opponent(_D, item_runtime_actor_held_item_id(_D))) continue;
+                var _taken_mult = (variable_struct_exists(_itdata, "multiplier") && is_real(variable_struct_get(_itdata, "multiplier"))) ? real(variable_struct_get(_itdata, "multiplier")) : 0.5;
+                _mult *= _taken_mult;
+                try { dialog_queue(__battle_ability_actor_name(_D, "The Pokemon") + "'s " + __battle_held_item_label(_D) + " weakened the attack!"); } catch (e_resist_berry_dialog) {}
+                try {
+                    var _consumed_taken_item = __battle_item_consume_held(_D);
+                    if (_consumed_taken_item > 0 && !is_undefined(__battle_apply_after_item_consumed_ability)) __battle_apply_after_item_consumed_ability(_D, _consumed_taken_item);
+                } catch (e_resist_berry_consume) {}
+                break;
+            }
+        }
+    } catch (e_item_taken_mult) {}
+    try {
+        if (!is_undefined(item_runtime_actor_held_actions)){
+            var _item_deal_actions = item_runtime_actor_held_actions(_A, "damage_dealt");
+            var _dc_item = __battle_move_damage_class_safe(_move_id);
+            for (var _idi = 0; _idi < array_length(_item_deal_actions); ++_idi){
+                var _iact = _item_deal_actions[_idi];
+                if (!is_struct(_iact)) continue;
+                var _ikind = variable_struct_exists(_iact, "kind") ? string_lower(string(variable_struct_get(_iact, "kind"))) : "";
+                var _idata = __battle_item_action_data(_iact);
+                var _im = 1;
+                if (variable_struct_exists(_idata, "multiplier") && is_real(variable_struct_get(_idata, "multiplier"))) _im = variable_struct_get(_idata, "multiplier");
+                else if (variable_struct_exists(_idata, "mult") && is_real(variable_struct_get(_idata, "mult"))) _im = variable_struct_get(_idata, "mult");
+                var _apply_item_mult = false;
+                switch (_ikind){
+                    case "multiplier":
+                        _apply_item_mult = true;
+                        break;
+                    case "type_multiplier":
+                    case "type_or_category_multiplier":
+                        var _want_item_type = variable_struct_exists(_idata, "type") ? string_lower(string(variable_struct_get(_idata, "type"))) : "";
+                        if (_want_item_type == "physical") _apply_item_mult = (is_real(_dc_item) && floor(_dc_item) == 2);
+                        else if (_want_item_type == "special") _apply_item_mult = (is_real(_dc_item) && floor(_dc_item) == 3);
+                        else _apply_item_mult = (string_length(_want_item_type) > 0 && _want_item_type == _type_name);
+                        break;
+                    case "prose_multiplier_pending":
+                        _apply_item_mult = false;
+                        break;
+                }
+                if (_apply_item_mult && is_real(_im) && _im != 1){
+                    _mult *= _im;
+                    try {
+                        var _iname = __battle_held_item_label(_A);
+                        var _aname = __battle_ability_actor_name(_A, "The Pokemon");
+                        dialog_queue(_aname + "'s " + _iname + " boosted the move!");
+                    } catch (e_item_boost_dialog) {}
+                }
+            }
+        }
+    } catch (e_item_dealt_mult) {}
     return _mult;
 }
 
 function __battle_ability_change_stage(_actor, _stat, _delta){
     if (!is_struct(_actor) || !is_string(_stat) || !is_real(_delta)) return false;
+    var _final_delta = _delta;
+    try {
+        var _stage_actions = __battle_actor_ability_actions(_actor, "stage_change");
+        for (var _sai = 0; _sai < array_length(_stage_actions); ++_sai){
+            var _sact = _stage_actions[_sai];
+            if (!is_struct(_sact)) continue;
+            var _skind = variable_struct_exists(_sact, "kind") ? string_lower(string(variable_struct_get(_sact, "kind"))) : "";
+            var _sdata = __battle_ability_action_data(_sact);
+            if (_skind == "block_stat_lowering" && _final_delta < 0){
+                var _stats = variable_struct_exists(_sdata, "stats") ? variable_struct_get(_sdata, "stats") : "all";
+                var _blocked = false;
+                if (is_array(_stats)){
+                    for (var _bi = 0; _bi < array_length(_stats); ++_bi){
+                        if (string_lower(string(_stats[_bi])) == string_lower(_stat)){ _blocked = true; break; }
+                    }
+                } else {
+                    var _stat_key = string_lower(string(_stats));
+                    _blocked = (_stat_key == "all" || _stat_key == string_lower(_stat));
+                }
+                if (_blocked){
+                    try { __battle_queue_ability_action_dialog(_actor, _sact, _actor, { stat:_stat, delta:_delta }); } catch (e_block_stage_dialog) {}
+                    return false;
+                }
+            } else if (_skind == "invert_stage_delta"){
+                _final_delta = -_final_delta;
+            } else if (_skind == "stage_delta_multiplier"){
+                var _stage_mult = (variable_struct_exists(_sdata, "mult") && is_real(variable_struct_get(_sdata, "mult"))) ? variable_struct_get(_sdata, "mult") : 1;
+                _final_delta *= _stage_mult;
+            }
+        }
+    } catch (e_stage_ability_mod) {}
     var _stages = {};
     try {
         if (variable_struct_exists(_actor, "_stages") && is_struct(variable_struct_get(_actor, "_stages"))) _stages = variable_struct_get(_actor, "_stages");
     } catch (e_stage_read) { _stages = {}; }
     var _cur = 0;
     try { if (variable_struct_exists(_stages, _stat) && is_real(variable_struct_get(_stages, _stat))) _cur = variable_struct_get(_stages, _stat); } catch (e_cur) {}
-    var _next = clamp(floor(_cur + _delta), -6, 6);
+    var _next = clamp(floor(_cur + _final_delta), -6, 6);
     if (_next == _cur) return false;
     variable_struct_set(_stages, _stat, _next);
     variable_struct_set(_actor, "_stages", _stages);
+    try {
+        if (_final_delta < 0){
+            var _react_actions = __battle_actor_ability_actions(_actor, "after_stat_lowered");
+            for (var _rai = 0; _rai < array_length(_react_actions); ++_rai){
+                var _ract = _react_actions[_rai];
+                if (!is_struct(_ract)) continue;
+                var _rkind = variable_struct_exists(_ract, "kind") ? string_lower(string(variable_struct_get(_ract, "kind"))) : "";
+                if (_rkind != "self_stage_change") continue;
+                var _rdata = __battle_ability_action_data(_ract);
+                var _rstat = variable_struct_exists(_rdata, "stat") ? string(variable_struct_get(_rdata, "stat")) : "atk";
+                var _rdelta = variable_struct_exists(_rdata, "delta") ? variable_struct_get(_rdata, "delta") : 1;
+                __battle_ability_change_stage(_actor, _rstat, _rdelta);
+                try { __battle_queue_ability_action_dialog(_actor, _ract, _actor, { stat:_rstat, delta:_rdelta }); } catch (e_stat_lowered_dialog) {}
+            }
+        }
+    } catch (e_after_stat_lowered) {}
     return true;
+}
+
+function __battle_ability_move_identifier_safe(_move_id){
+    try {
+        if (variable_global_exists("_moves") && is_array(global._moves) && is_real(_move_id) && _move_id >= 0 && _move_id < array_length(global._moves)){
+            var _mv = global._moves[_move_id];
+            if (is_struct(_mv) && variable_struct_exists(_mv, "identifier")) return string_lower(string(variable_struct_get(_mv, "identifier")));
+        }
+    } catch (e_ident) {}
+    return "";
+}
+
+function __battle_ability_move_power_safe(_move_id){
+    try {
+        if (variable_global_exists("_moves") && is_array(global._moves) && is_real(_move_id) && _move_id >= 0 && _move_id < array_length(global._moves)){
+            var _mv = global._moves[_move_id];
+            if (is_struct(_mv)){
+                if (variable_struct_exists(_mv, "power") && is_real(variable_struct_get(_mv, "power"))) return variable_struct_get(_mv, "power");
+                if (variable_struct_exists(_mv, "base_power") && is_real(variable_struct_get(_mv, "base_power"))) return variable_struct_get(_mv, "base_power");
+            }
+        }
+    } catch (e_power) {}
+    try {
+        if (!is_undefined(__battle_move_behavior_full)){
+            var _beh = __battle_move_behavior_full(_move_id);
+            if (is_struct(_beh) && variable_struct_exists(_beh, "power") && is_real(variable_struct_get(_beh, "power"))) return variable_struct_get(_beh, "power");
+        }
+    } catch (e_beh_power) {}
+    return 0;
+}
+
+function __battle_ability_move_has_keyword(_move_id, _keyword){
+    var _ident = __battle_ability_move_identifier_safe(_move_id);
+    var _key = string_lower(string(_keyword));
+    if (string_length(_ident) <= 0 || string_length(_key) <= 0) return false;
+    if (string_pos(_key, _ident) > 0 || string_pos(_ident, _key) > 0) return true;
+    if (_key == "punch" && (string_pos("punch", _ident) > 0 || _ident == "comet-punch" || _ident == "dizzy-punch")) return true;
+    if (_key == "bite" && (string_pos("bite", _ident) > 0 || string_pos("fang", _ident) > 0 || _ident == "jaw-lock")) return true;
+    if (_key == "pulse" && string_pos("pulse", _ident) > 0) return true;
+    if (_key == "slicing" && (string_pos("slash", _ident) > 0 || string_pos("cut", _ident) > 0 || _ident == "leaf-blade" || _ident == "x-scissor")) return true;
+    return false;
+}
+
+function __battle_ability_move_is_sound(_move_id){
+    var _ident = __battle_ability_move_identifier_safe(_move_id);
+    if (string_length(_ident) <= 0) return false;
+    return (string_pos("sound", _ident) > 0 || string_pos("voice", _ident) > 0 || string_pos("song", _ident) > 0 || string_pos("echo", _ident) > 0 || string_pos("noise", _ident) > 0 || string_pos("snore", _ident) > 0 || _ident == "boomburst" || _ident == "hyper-voice" || _ident == "bug-buzz" || _ident == "uproar" || _ident == "growl" || _ident == "roar" || _ident == "sing");
+}
+
+function __battle_ability_move_has_secondary_effect(_move_id){
+    try {
+        if (!is_undefined(__battle_get_move_meta)){
+            var _mm = __battle_get_move_meta(_move_id);
+            if (is_struct(_mm)){
+                if (variable_struct_exists(_mm, "ailment_chance") && real(variable_struct_get(_mm, "ailment_chance")) > 0) return true;
+                if (variable_struct_exists(_mm, "stat_chance") && real(variable_struct_get(_mm, "stat_chance")) > 0) return true;
+                if (variable_struct_exists(_mm, "flinch_chance") && real(variable_struct_get(_mm, "flinch_chance")) > 0) return true;
+                if (variable_struct_exists(_mm, "effect_chance") && real(variable_struct_get(_mm, "effect_chance")) > 0) return true;
+            }
+        }
+    } catch (e_secondary_meta) {}
+    return false;
+}
+
+function __battle_ability_current_weather_id(_actor){
+    try {
+        var _pid = (!is_undefined(__status_find_battle_pid)) ? __status_find_battle_pid(_actor) : undefined;
+        if (!is_real(_pid)) return "";
+        var _w = __battle_get_weather(_pid);
+        if (!__battle_weather_is_active(_w)) return "";
+        if (!is_undefined(__battle_weather_suppressed_by_ability) && __battle_weather_suppressed_by_ability(_pid)) return "";
+        return __battle_weather_get_normalized_id(_w);
+    } catch (e_weather_id) {}
+    return "";
+}
+
+function __battle_ability_list_contains(_list, _value){
+    var _want = string_lower(string(_value));
+    if (!is_array(_list)) _list = [string(_list)];
+    for (var _i = 0; _i < array_length(_list); ++_i){
+        if (string_lower(string(_list[_i])) == _want) return true;
+    }
+    return false;
+}
+
+function __battle_ability_actor_sex(_actor){
+    if (!is_struct(_actor)) return "";
+    var _fields = ["sex", "gender"];
+    for (var _i = 0; _i < array_length(_fields); ++_i){
+        var _f = _fields[_i];
+        try {
+            if (variable_struct_exists(_actor, _f)){
+                var _v = string_lower(string(variable_struct_get(_actor, _f)));
+                if (string_length(_v) > 0) return _v;
+            }
+            if (variable_struct_exists(_actor, "mon") && is_struct(variable_struct_get(_actor, "mon"))){
+                var _m = variable_struct_get(_actor, "mon");
+                if (variable_struct_exists(_m, _f)){
+                    var _mv = string_lower(string(variable_struct_get(_m, _f)));
+                    if (string_length(_mv) > 0) return _mv;
+                }
+            }
+        } catch (e_sex) {}
+    }
+    return "";
+}
+
+function __battle_ability_secondary_effect_chance(_A, _D, _chance){
+    var _out = clamp(floor(is_real(_chance) ? _chance : 0), 0, 100);
+    try {
+        if (is_struct(_A) && variable_struct_exists(_A, "_suppress_secondary_effects_once") && variable_struct_get(_A, "_suppress_secondary_effects_once") == true) return 0;
+    } catch (e_suppress_once) {}
+    try {
+        var _def_actions = __battle_actor_ability_actions(_D, "secondary_effect_check");
+        for (var _di = 0; _di < array_length(_def_actions); ++_di){
+            var _dact = _def_actions[_di];
+            if (!is_struct(_dact)) continue;
+            var _dkind = variable_struct_exists(_dact, "kind") ? string_lower(string(variable_struct_get(_dact, "kind"))) : "";
+            if (_dkind == "block_secondary_effects"){
+                try { __battle_queue_ability_action_dialog(_D, _dact, _A, {}); } catch (e_block_secondary_dialog) {}
+                return 0;
+            }
+        }
+        var _atk_actions = __battle_actor_ability_actions(_A, "secondary_effect_check");
+        for (var _ai = 0; _ai < array_length(_atk_actions); ++_ai){
+            var _act = _atk_actions[_ai];
+            if (!is_struct(_act)) continue;
+            var _kind = variable_struct_exists(_act, "kind") ? string_lower(string(variable_struct_get(_act, "kind"))) : "";
+            if (_kind != "secondary_chance_multiplier") continue;
+            var _data = __battle_ability_action_data(_act);
+            var _mult = (variable_struct_exists(_data, "mult") && is_real(variable_struct_get(_data, "mult"))) ? variable_struct_get(_data, "mult") : 1;
+            _out = clamp(floor(_out * _mult), 0, 100);
+        }
+    } catch (e_secondary_chance) {}
+    return _out;
+}
+
+function __battle_ability_item_name_by_id(_item_id){
+    if (!is_real(_item_id) || _item_id <= 0) return "";
+    try {
+        if (variable_global_exists("_items") && is_array(global._items) && _item_id < array_length(global._items)){
+            var _it = global._items[floor(_item_id)];
+            if (is_struct(_it)){
+                if (variable_struct_exists(_it, "identifier")) return string_lower(string(variable_struct_get(_it, "identifier")));
+                if (variable_struct_exists(_it, "name")) return string_lower(string(variable_struct_get(_it, "name")));
+            }
+        }
+    } catch (e_item_name) {}
+    return "";
+}
+
+function __battle_ability_item_is_berry(_item_id){
+    var _nm = __battle_ability_item_name_by_id(_item_id);
+    return (string_length(_nm) > 0 && string_pos("berry", _nm) > 0);
+}
+
+function __battle_ability_item_effect_multiplier(_actor, _item_id){
+    var _mult = 1.0;
+    if (!is_struct(_actor) || !__battle_ability_item_is_berry(_item_id)) return _mult;
+    try {
+        var _actions = __battle_actor_ability_actions(_actor, "item_check");
+        for (var _ai = 0; _ai < array_length(_actions); ++_ai){
+            var _act = _actions[_ai];
+            if (!is_struct(_act)) continue;
+            var _kind = variable_struct_exists(_act, "kind") ? string_lower(string(variable_struct_get(_act, "kind"))) : "";
+            if (_kind != "berry_effect_multiplier") continue;
+            var _data = __battle_ability_action_data(_act);
+            var _m = (variable_struct_exists(_data, "mult") && is_real(variable_struct_get(_data, "mult"))) ? variable_struct_get(_data, "mult") : 1;
+            _mult *= _m;
+            try { __battle_queue_ability_action_dialog(_actor, _act, _actor, {}); } catch (e_ripen_dialog) {}
+        }
+    } catch (e_item_mult) {}
+    return _mult;
+}
+
+function __battle_ability_item_blocked_by_opponent(_actor, _item_id){
+    if (!is_struct(_actor) || !__battle_ability_item_is_berry(_item_id)) return false;
+    try {
+        var _pid = (!is_undefined(__status_find_battle_pid)) ? __status_find_battle_pid(_actor) : undefined;
+        if (!is_real(_pid)) return false;
+        var _B = __battle_ensure_slot(_pid);
+        if (!is_struct(_B) || !variable_struct_exists(_B, "actor") || !is_array(variable_struct_get(_B, "actor"))) return false;
+        var _actors = variable_struct_get(_B, "actor");
+        var _actor_idx = -1;
+        for (var _i = 0; _i < array_length(_actors); ++_i){
+            if (is_struct(_actors[_i]) && (_actors[_i] == _actor || (variable_struct_exists(_actors[_i], "mon") && variable_struct_get(_actors[_i], "mon") == _actor))){ _actor_idx = _i; break; }
+        }
+        var _actor_side = (is_real(_actor_idx) && _actor_idx >= 0 && !is_undefined(__battle_actor_side)) ? __battle_actor_side(_actor_idx) : 0;
+        for (var _oi = 0; _oi < array_length(_actors); ++_oi){
+            var _opp = _actors[_oi];
+            if (!is_struct(_opp) || __battle_hp_now(_opp) <= 0) continue;
+            if (!is_undefined(__battle_actor_side) && __battle_actor_side(_oi) == _actor_side) continue;
+            var _actions = __battle_actor_ability_actions(_opp, "item_check");
+            for (var _ai = 0; _ai < array_length(_actions); ++_ai){
+                var _act = _actions[_ai];
+                if (!is_struct(_act)) continue;
+                var _kind = variable_struct_exists(_act, "kind") ? string_lower(string(variable_struct_get(_act, "kind"))) : "";
+                if (_kind == "block_opponent_berries"){
+                    try { __battle_queue_ability_action_dialog(_opp, _act, _actor, {}); } catch (e_unnerve_dialog) {}
+                    return true;
+                }
+            }
+        }
+    } catch (e_item_block) {}
+    return false;
+}
+
+function __battle_apply_after_item_consumed_ability(_actor, _item_id){
+    if (!is_struct(_actor) || !__battle_ability_item_is_berry(_item_id)) return false;
+    var _did = false;
+    try {
+        variable_struct_set(_actor, "_last_consumed_berry_id", floor(_item_id));
+        variable_struct_set(_actor, "_consumed_item", floor(_item_id));
+        if (variable_struct_exists(_actor, "mon") && is_struct(variable_struct_get(_actor, "mon"))){
+            var _mon = variable_struct_get(_actor, "mon");
+            variable_struct_set(_mon, "_last_consumed_berry_id", floor(_item_id));
+            variable_struct_set(_mon, "_consumed_item", floor(_item_id));
+        }
+    } catch (e_consumed_mark) {}
+    try {
+        var _actions = __battle_actor_ability_actions(_actor, "after_item_consumed");
+        for (var _ai = 0; _ai < array_length(_actions); ++_ai){
+            var _act = _actions[_ai];
+            if (!is_struct(_act)) continue;
+            var _kind = variable_struct_exists(_act, "kind") ? string_lower(string(variable_struct_get(_act, "kind"))) : "";
+            var _data = __battle_ability_action_data(_act);
+            if (_kind == "heal_fraction_if_berry"){
+                var _frac = (variable_struct_exists(_data, "fraction") && is_real(variable_struct_get(_data, "fraction"))) ? variable_struct_get(_data, "fraction") : 0.333333;
+                var _before = __battle_hp_now(_actor);
+                var _maxhp = max(1, __battle_hp_max(_actor));
+                if (_before > 0 && _before < _maxhp){
+                    var _after = min(_maxhp, _before + max(1, floor(_maxhp * _frac)));
+                    __battle_set_hp_now(_actor, _after);
+                    try { __battle_request_animation_safe(0, { type:"heal", actor:_actor, amount:(_after - _before) }); } catch (e_cp_anim) {}
+                    try { __battle_queue_ability_action_dialog(_actor, _act, _actor, {}); } catch (e_cp_dialog) {}
+                    _did = true;
+                }
+            } else if (_kind == "reuse_berry_next_turn"){
+                var _is_ability_reuse = false;
+                try { _is_ability_reuse = variable_struct_exists(_actor, "_reusing_berry_from_ability") && variable_struct_get(_actor, "_reusing_berry_from_ability") == true; } catch (e_reuse_guard) { _is_ability_reuse = false; }
+                if (!_is_ability_reuse){
+                    variable_struct_set(_actor, "_reuse_berry_next_turn_id", floor(_item_id));
+                    _did = true;
+                }
+            }
+        }
+    } catch (e_after_item) {}
+    return _did;
+}
+
+function __battle_ability_blocks_item_removal(_holder, _source){
+    if (!is_struct(_holder)) return false;
+    try {
+        var _actions = __battle_actor_ability_actions(_holder, "item_check");
+        for (var _ai = 0; _ai < array_length(_actions); ++_ai){
+            var _act = _actions[_ai];
+            if (!is_struct(_act)) continue;
+            var _kind = variable_struct_exists(_act, "kind") ? string_lower(string(variable_struct_get(_act, "kind"))) : "";
+            if (_kind == "block_item_removal"){
+                try { __battle_queue_ability_action_dialog(_holder, _act, _source, {}); } catch (e_sticky_dialog) {}
+                return true;
+            }
+        }
+    } catch (e_item_remove_block) {}
+    return false;
+}
+
+function __battle_ability_move_target_blocked(_A, _D, _move_id){
+    if (!is_struct(_D)) return false;
+    var _ident = __battle_ability_move_identifier_safe(_move_id);
+    try {
+        var _actions = __battle_actor_ability_actions(_D, "move_target_filter");
+        for (var _ai = 0; _ai < array_length(_actions); ++_ai){
+            var _act = _actions[_ai];
+            if (!is_struct(_act)) continue;
+            var _kind = variable_struct_exists(_act, "kind") ? string_lower(string(variable_struct_get(_act, "kind"))) : "";
+            var _blocked = false;
+            switch (_kind){
+                case "block_sound":
+                    _blocked = __battle_ability_move_is_sound(_move_id);
+                    break;
+                case "block_ball_bomb":
+                    _blocked = (string_pos("ball", _ident) > 0 || string_pos("bomb", _ident) > 0 || string_pos("bullet", _ident) > 0 || _ident == "aura-sphere" || _ident == "focus-blast" || _ident == "seed-bomb");
+                    break;
+                case "block_powder":
+                    _blocked = (string_pos("powder", _ident) > 0 || _ident == "spore" || _ident == "cotton-spore" || _ident == "stun-spore" || _ident == "sleep-powder" || _ident == "poison-powder" || _ident == "rage-powder");
+                    break;
+                case "block_explosion_moves":
+                    _blocked = (_ident == "explosion" || _ident == "self-destruct" || _ident == "mind-blown" || _ident == "misty-explosion");
+                    break;
+                case "reflect_or_block_status_move":
+                    var _dc = 0;
+                    try { if (!is_undefined(scr_move_damage_class_by_id)) _dc = scr_move_damage_class_by_id(_move_id); } catch (e_filter_dc) { _dc = 0; }
+                    _blocked = (is_real(_dc) && floor(_dc) == 1);
+                    break;
+            }
+            if (_blocked){
+                try { __battle_queue_ability_action_dialog(_D, _act, _A, { move_id:_move_id }); } catch (e_target_block_dialog) {}
+                return true;
+            }
+        }
+        var _field_actions = [];
+        try { _field_actions = __battle_actor_ability_actions(_A, "move_target_filter"); } catch (e_attack_filter) { _field_actions = []; }
+        for (var _fi = 0; _fi < array_length(_field_actions); ++_fi){
+            var _fact = _field_actions[_fi];
+            if (!is_struct(_fact)) continue;
+            var _fkind = variable_struct_exists(_fact, "kind") ? string_lower(string(variable_struct_get(_fact, "kind"))) : "";
+            if (_fkind == "block_explosion_moves" && (_ident == "explosion" || _ident == "self-destruct" || _ident == "mind-blown" || _ident == "misty-explosion")){
+                try { __battle_queue_ability_action_dialog(_A, _fact, _D, { move_id:_move_id }); } catch (e_damp_user_dialog) {}
+                return true;
+            }
+        }
+    } catch (e_target_filter) {}
+    return false;
 }
 
 function __battle_apply_entry_abilities(_pid, _actor_index){
@@ -520,17 +1933,69 @@ function __battle_apply_entry_abilities(_pid, _actor_index){
     if (!is_struct(_actor)) return false;
     var _ability = __battle_actor_ability_name_lc(_actor);
     if (string_length(_ability) <= 0) return false;
+    var _eff = __battle_actor_ability_effect(_actor);
 
     var _actor_name = variable_struct_exists(_actor, "name") ? string(variable_struct_get(_actor, "name")) : "The Pokemon";
 
     try {
-        if (_ability == "drizzle") __battle_set_weather(_pid, "rain", { source: _actor, duration: 5 });
-        else if (_ability == "drought") __battle_set_weather(_pid, "sun", { source: _actor, duration: 5 });
-        else if (_ability == "sand-stream") __battle_set_weather(_pid, "sandstorm", { source: _actor, duration: 5 });
-        else if (_ability == "snow-warning") __battle_set_weather(_pid, "hail", { source: _actor, duration: 5 });
+        var _entry_actions_weather = __battle_actor_ability_actions(_actor, "on_entry");
+        var _did_weather_action = false;
+        for (var _wai = 0; _wai < array_length(_entry_actions_weather); ++_wai){
+            var _wact = _entry_actions_weather[_wai];
+            var _wkind = (is_struct(_wact) && variable_struct_exists(_wact, "kind")) ? string_lower(string(variable_struct_get(_wact, "kind"))) : "";
+            if (_wkind != "set_weather" && _wkind != "set_special_weather" && _wkind != "set_terrain") continue;
+            var _wdata = __battle_ability_action_data(_wact);
+            if (_wkind == "set_terrain"){
+                var _terrain = variable_struct_exists(_wdata, "terrain") ? string_lower(string(variable_struct_get(_wdata, "terrain"))) : "";
+                if (string_length(_terrain) <= 0){
+                    if (_ability == "electric-surge" || _ability == "hadron-engine") _terrain = "electric";
+                    else if (_ability == "psychic-surge") _terrain = "psychic";
+                    else if (_ability == "misty-surge") _terrain = "misty";
+                    else if (_ability == "grassy-surge" || _ability == "seed-sower") _terrain = "grassy";
+                }
+                if (string_length(_terrain) > 0 && !is_undefined(__battle_field_set_terrain)){
+                    var _tdur = variable_struct_exists(_wdata, "duration") ? variable_struct_get(_wdata, "duration") : 5;
+                    __battle_field_set_terrain(_pid, _terrain, { source:_actor, turns:_tdur });
+                    __battle_queue_ability_action_dialog(_actor, _wact, undefined, { terrain:_terrain });
+                    _did_weather_action = true;
+                }
+                continue;
+            }
+            var _weather_to_set = variable_struct_exists(_wdata, "weather") ? string(variable_struct_get(_wdata, "weather")) : "";
+            if (string_length(_weather_to_set) <= 0 && _wkind == "set_special_weather"){
+                if (_ability == "primordial-sea") _weather_to_set = "rain";
+                else if (_ability == "desolate-land" || _ability == "orichalcum-pulse") _weather_to_set = "harsh-sun";
+                else if (_ability == "delta-stream") _weather_to_set = "strong-winds";
+            }
+            if (string_length(_weather_to_set) <= 0) continue;
+            var _wdur = variable_struct_exists(_wdata, "duration") ? variable_struct_get(_wdata, "duration") : 5;
+            var _winf = (_wkind == "set_special_weather");
+            __battle_set_weather(_pid, _weather_to_set, { source: _actor, duration: _wdur, infinite:_winf });
+            __battle_queue_ability_action_dialog(_actor, _wact, undefined, { weather:_weather_to_set });
+            _did_weather_action = true;
+        }
+        if (!_did_weather_action){
+            if (is_struct(_eff) && variable_struct_exists(_eff, "entry_weather") && string_length(string(variable_struct_get(_eff, "entry_weather"))) > 0){
+                __battle_set_weather(_pid, string(variable_struct_get(_eff, "entry_weather")), { source: _actor, duration: 5 });
+                __battle_queue_ability_dialog(_actor, _actor_name + "'s " + __battle_ability_battle_label(__battle_ability_label(_actor)) + "!");
+                __battle_queue_ability_dialog(_actor, __battle_ability_pretty_weather(variable_struct_get(_eff, "entry_weather")) + "!");
+            } else if (_ability == "drizzle") __battle_set_weather(_pid, "rain", { source: _actor, duration: 5 });
+            else if (_ability == "drought") __battle_set_weather(_pid, "sun", { source: _actor, duration: 5 });
+            else if (_ability == "sand-stream") __battle_set_weather(_pid, "sandstorm", { source: _actor, duration: 5 });
+            else if (_ability == "snow-warning") __battle_set_weather(_pid, "hail", { source: _actor, duration: 5 });
+        }
     } catch (e_weather_entry) {}
 
-    if (_ability == "intimidate"){
+    var _entry_stage = [];
+    if (is_struct(_eff) && variable_struct_exists(_eff, "entry_stage_opponents") && is_array(variable_struct_get(_eff, "entry_stage_opponents"))) _entry_stage = variable_struct_get(_eff, "entry_stage_opponents");
+    var _entry_actions_stage = __battle_actor_ability_actions(_actor, "on_entry");
+    for (var _eai = 0; _eai < array_length(_entry_actions_stage); ++_eai){
+        var _eact = _entry_actions_stage[_eai];
+        var _ekind = (is_struct(_eact) && variable_struct_exists(_eact, "kind")) ? string_lower(string(variable_struct_get(_eact, "kind"))) : "";
+        if (_ekind == "stage_opponents") array_push(_entry_stage, __battle_ability_action_data(_eact));
+    }
+    if (_ability == "intimidate" || array_length(_entry_stage) > 0){
+        if (array_length(_entry_stage) <= 0) _entry_stage = [{ stat:"atk", delta:-1, blockers:["clear-body", "white-smoke", "hyper-cutter", "full-metal-body"] }];
         var _side = (!is_undefined(__battle_actor_side) ? __battle_actor_side(_actor_index) : ((_actor_index <= 1) ? 0 : 1));
         for (var _i = 0; _i < array_length(_actors); ++_i){
             if (_i == _actor_index) continue;
@@ -538,20 +2003,95 @@ function __battle_apply_entry_abilities(_pid, _actor_index){
             if (!is_struct(_target) || __battle_hp_now(_target) <= 0) continue;
             var _target_side = (!is_undefined(__battle_actor_side) ? __battle_actor_side(_i) : ((_i <= 1) ? 0 : 1));
             if (_target_side == _side) continue;
-            if (__battle_actor_has_any_ability(_target, ["clear-body", "white-smoke", "hyper-cutter", "full-metal-body"])) continue;
-            if (__battle_ability_change_stage(_target, "atk", -1)){
-                try {
-                    var _target_name = variable_struct_exists(_target, "name") ? string(variable_struct_get(_target, "name")) : "The target";
-                    dialog_queue(_actor_name + "'s Intimidate lowered " + _target_name + "'s Attack!");
-                } catch (e_intim_msg) {}
+            for (var _si = 0; _si < array_length(_entry_stage); ++_si){
+                var _stage_rec = _entry_stage[_si];
+                if (!is_struct(_stage_rec)) continue;
+                var _stat = variable_struct_exists(_stage_rec, "stat") ? variable_struct_get(_stage_rec, "stat") : "atk";
+                var _delta = variable_struct_exists(_stage_rec, "delta") ? variable_struct_get(_stage_rec, "delta") : -1;
+                var _blockers = variable_struct_exists(_stage_rec, "blockers") ? variable_struct_get(_stage_rec, "blockers") : ["clear-body", "white-smoke", "hyper-cutter", "full-metal-body"];
+                var _blocked_stage = false;
+                if (is_array(_blockers) && __battle_actor_has_any_ability(_target, _blockers)) _blocked_stage = true;
+                try { if (!_blocked_stage && __battle_actor_ability_has_group(_target, "intimidate_immunity")) _blocked_stage = true; } catch (e_intimidate_group_block) {}
+                if (_blocked_stage){
+                    try { __battle_queue_ability_action_dialog(_target, { hook:"stage_change", kind:"block_stat_lowering", data:{ stats:"all" } }, _actor, {}); } catch (e_stage_block_dialog) {}
+                    continue;
+                }
+                if (__battle_ability_change_stage(_target, _stat, _delta)){
+                    try {
+                        var _stage_action = { hook:"on_entry", kind:"stage_opponents", data:_stage_rec };
+                        __battle_queue_ability_action_dialog(_actor, _stage_action, _target, { stat:_stat, delta:_delta });
+                    } catch (e_intim_msg) {}
+                }
             }
         }
     }
+
+    try {
+        var _entry_info_actions = __battle_actor_ability_actions(_actor, "on_entry");
+        for (var _iai = 0; _iai < array_length(_entry_info_actions); ++_iai){
+            var _iact = _entry_info_actions[_iai];
+            if (!is_struct(_iact)) continue;
+            var _ikind = variable_struct_exists(_iact, "kind") ? string_lower(string(variable_struct_get(_iact, "kind"))) : "";
+            if (_ikind == "reveal_target_item" || _ikind == "reveal_highest_power_move" || _ikind == "warn_super_effective_or_ohko_move"){
+                __battle_queue_ability_action_dialog(_actor, _iact, undefined, {});
+            } else if (_ikind == "clear_screens"){
+                for (var _side_clear = 0; _side_clear < 2; ++_side_clear){
+                    try { __battle_field_clear_barrier(_pid, _side_clear, "reflect"); } catch (e_clear_reflect) {}
+                    try { __battle_field_clear_barrier(_pid, _side_clear, "light_screen"); } catch (e_clear_ls) {}
+                    try { __battle_field_clear_barrier(_pid, _side_clear, "aurora_veil"); } catch (e_clear_av) {}
+                }
+                __battle_queue_ability_action_dialog(_actor, _iact, undefined, {});
+            } else if (_ikind == "boost_by_opponent_defenses"){
+                var _entry_side = (!is_undefined(__battle_actor_side) ? __battle_actor_side(_actor_index) : ((_actor_index <= 1) ? 0 : 1));
+                var _def_total = 0;
+                var _spdef_total = 0;
+                var _def_count = 0;
+                for (var _di = 0; _di < array_length(_actors); ++_di){
+                    if (_di == _actor_index) continue;
+                    var _opp_def = _actors[_di];
+                    if (!is_struct(_opp_def) || __battle_hp_now(_opp_def) <= 0) continue;
+                    var _opp_side = (!is_undefined(__battle_actor_side) ? __battle_actor_side(_di) : ((_di <= 1) ? 0 : 1));
+                    if (_opp_side == _entry_side) continue;
+                    _def_total += __battle_stat_get(_opp_def, "def");
+                    _spdef_total += __battle_stat_get(_opp_def, "spdef");
+                    _def_count += 1;
+                }
+                if (_def_count > 0){
+                    var _boost_stat = (_def_total < _spdef_total) ? "atk" : "spa";
+                    var _boost_delta = 1;
+                    var _idata = __battle_ability_action_data(_iact);
+                    if (_boost_stat == "atk" && variable_struct_exists(_idata, "physical_stat")) _boost_stat = string(variable_struct_get(_idata, "physical_stat"));
+                    if (_boost_stat == "spa" && variable_struct_exists(_idata, "special_stat")) _boost_stat = string(variable_struct_get(_idata, "special_stat"));
+                    if (variable_struct_exists(_idata, "delta") && is_real(variable_struct_get(_idata, "delta"))) _boost_delta = variable_struct_get(_idata, "delta");
+                    if (__battle_ability_change_stage(_actor, _boost_stat, _boost_delta)){
+                        __battle_queue_ability_action_dialog(_actor, _iact, undefined, {});
+                    }
+                }
+            }
+        }
+    } catch (e_entry_info_actions) {}
+
+    try {
+        var _stage_event_actions = __battle_actor_ability_actions(_actor, "stage_event_check");
+        for (var _sei = 0; _sei < array_length(_stage_event_actions); ++_sei){
+            var _seact = _stage_event_actions[_sei];
+            if (!is_struct(_seact)) continue;
+            var _sekind = variable_struct_exists(_seact, "kind") ? string_lower(string(variable_struct_get(_seact, "kind"))) : "";
+            if (_sekind != "conditional_stage_event") continue;
+            var _stage_event_did = false;
+            if (_ability == "intrepid-sword") _stage_event_did = __battle_ability_change_stage(_actor, "atk", 1);
+            else if (_ability == "dauntless-shield") _stage_event_did = __battle_ability_change_stage(_actor, "def", 1);
+            if (_stage_event_did) __battle_queue_ability_action_dialog(_actor, _seact, undefined, {});
+        }
+    } catch (e_entry_stage_event) {}
 
     return true;
 }
 
 function __battle_has_no_guard_effect(_ent){
+    var _eff = __battle_actor_ability_effect(_ent);
+    if (is_struct(_eff) && variable_struct_exists(_eff, "no_guard") && variable_struct_get(_eff, "no_guard") == true) return true;
+    if (__battle_actor_ability_has_group(_ent, "accuracy_override")) return true;
     return __battle_actor_has_ability_named(_ent, "no guard");
 }
 
@@ -641,9 +2181,168 @@ function __battle_calc_damage_impl(_A, _D, _move_id, _power){
     var Def = __battle_stat_get(_D, _is_special ? "spdef" : "def");
 
     try {
-        if (!_is_special && __battle_actor_has_any_ability(_A, ["huge-power", "pure-power"])) Atk *= 2;
-        if (!_is_special && __battle_actor_has_any_ability(_A, ["guts"]) && __battle_actor_has_major_status(_A)) Atk = floor(Atk * 1.5);
-        if (!_is_special && __battle_actor_has_any_ability(_D, ["marvel-scale"]) && __battle_actor_has_major_status(_D)) Def = floor(Def * 1.5);
+        var _atk_eff_calc = __battle_actor_ability_effect(_A);
+        var _def_eff_calc = __battle_actor_ability_effect(_D);
+        var _did_attack_stat_action = false;
+        var _did_attack_status_action = false;
+        var _atk_stat_actions = __battle_actor_ability_actions(_A, "stat_calc");
+        for (var _asai = 0; _asai < array_length(_atk_stat_actions); ++_asai){
+            var _asact = _atk_stat_actions[_asai];
+            var _askind = (is_struct(_asact) && variable_struct_exists(_asact, "kind")) ? string_lower(string(variable_struct_get(_asact, "kind"))) : "";
+            var _asdata = __battle_ability_action_data(_asact);
+            if (_askind == "attack_multiplier" && !_is_special){
+                var _asmult = variable_struct_exists(_asdata, "mult") ? variable_struct_get(_asdata, "mult") : 1;
+                Atk = floor(Atk * _asmult);
+                _did_attack_stat_action = true;
+            }
+            if (_askind == "attack_multiplier_and_choice_lock" && !_is_special){
+                var _choice_mult = variable_struct_exists(_asdata, "mult") ? variable_struct_get(_asdata, "mult") : 1.5;
+                Atk = floor(Atk * _choice_mult);
+                _did_attack_stat_action = true;
+            }
+            if (_askind == "early_turn_attack_speed_multiplier" && !_is_special){
+                var _limit_turns = (variable_struct_exists(_asdata, "turns") && is_real(variable_struct_get(_asdata, "turns"))) ? variable_struct_get(_asdata, "turns") : 5;
+                var _active_turns = (variable_struct_exists(_A, "active_turns") && is_real(variable_struct_get(_A, "active_turns"))) ? variable_struct_get(_A, "active_turns") : 0;
+                if (_active_turns < _limit_turns){
+                    var _early_atk_mult = variable_struct_exists(_asdata, "attack_mult") ? variable_struct_get(_asdata, "attack_mult") : 0.5;
+                    Atk = floor(Atk * _early_atk_mult);
+                }
+            }
+            if (_askind == "attack_when_status_multiplier" && !_is_special && __battle_actor_has_major_status(_A)){
+                var _assmult = variable_struct_exists(_asdata, "mult") ? variable_struct_get(_asdata, "mult") : 1;
+                Atk = floor(Atk * _assmult);
+                _did_attack_status_action = true;
+            }
+            if (_askind == "special_attack_when_status_multiplier" && _is_special && __battle_actor_has_major_status(_A)){
+                var _spasmult = variable_struct_exists(_asdata, "mult") ? variable_struct_get(_asdata, "mult") : 1;
+                Atk = floor(Atk * _spasmult);
+                _did_attack_status_action = true;
+            }
+            if (_askind == "ally_special_attack_support" && _is_special){
+                var _plusminus_active = false;
+                try {
+                    if (__battle_actor_has_any_ability(_A, ["plus", "minus"])){
+                        var _pid_pm = (!is_undefined(__status_find_battle_pid)) ? __status_find_battle_pid(_A) : undefined;
+                        if (is_real(_pid_pm)){
+                            var _Bpm = __battle_ensure_slot(_pid_pm);
+                            if (is_struct(_Bpm) && variable_struct_exists(_Bpm, "actor") && is_array(variable_struct_get(_Bpm, "actor"))){
+                                var _actors_pm = variable_struct_get(_Bpm, "actor");
+                                var _aidx_pm = -1;
+                                for (var _pmi = 0; _pmi < array_length(_actors_pm); ++_pmi){
+                                    if (_actors_pm[_pmi] == _A){ _aidx_pm = _pmi; break; }
+                                }
+                                var _aside_pm = (_aidx_pm >= 0 && !is_undefined(__battle_actor_side)) ? __battle_actor_side(_aidx_pm) : -1;
+                                for (var _pmj = 0; _pmj < array_length(_actors_pm); ++_pmj){
+                                    var _ally_pm = _actors_pm[_pmj];
+                                    if (!is_struct(_ally_pm) || _ally_pm == _A || __battle_hp_now(_ally_pm) <= 0) continue;
+                                    var _alside_pm = (!is_undefined(__battle_actor_side)) ? __battle_actor_side(_pmj) : -2;
+                                    if (_alside_pm == _aside_pm && __battle_actor_has_any_ability(_ally_pm, ["plus", "minus"])){
+                                        _plusminus_active = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (e_plusminus_stat) { _plusminus_active = false; }
+                if (_plusminus_active){
+                    var _pm_mult = variable_struct_exists(_asdata, "mult") ? variable_struct_get(_asdata, "mult") : 1.5;
+                    Atk = floor(Atk * _pm_mult);
+                }
+            }
+            if (_askind == "attack_spa_when_hp_below_multiplier"){
+                var _hp_frac = (variable_struct_exists(_asdata, "hp_fraction") && is_real(variable_struct_get(_asdata, "hp_fraction"))) ? variable_struct_get(_asdata, "hp_fraction") : 0.5;
+                var _hp_now_frac = __battle_hp_now(_A) / max(1, __battle_hp_max(_A));
+                if (_hp_now_frac <= _hp_frac){
+                    var _thresh_mult = variable_struct_exists(_asdata, "mult") ? variable_struct_get(_asdata, "mult") : 1;
+                    Atk = floor(Atk * _thresh_mult);
+                }
+            }
+            if (_askind == "weather_spa_multiplier" && _is_special){
+                var _wspa_id = __battle_ability_current_weather_id(_A);
+                var _wspa_list = variable_struct_exists(_asdata, "weather") ? variable_struct_get(_asdata, "weather") : [];
+                if (string_length(_wspa_id) > 0 && __battle_ability_list_contains(_wspa_list, _wspa_id)){
+                    var _wspa_mult = variable_struct_exists(_asdata, "mult") ? variable_struct_get(_asdata, "mult") : 1;
+                    Atk = floor(Atk * _wspa_mult);
+                }
+            }
+            if (_askind == "sun_party_attack_spdef_multiplier"){
+                var _fg_weather = __battle_ability_current_weather_id(_A);
+                var _fg_list = variable_struct_exists(_asdata, "weather") ? variable_struct_get(_asdata, "weather") : ["sun","harsh-sun"];
+                if (string_length(_fg_weather) > 0 && __battle_ability_list_contains(_fg_list, _fg_weather)){
+                    var _fg_mult = (!_is_special && variable_struct_exists(_asdata, "attack_mult")) ? variable_struct_get(_asdata, "attack_mult") : 1;
+                    Atk = floor(Atk * _fg_mult);
+                }
+            }
+        }
+        if (!_did_attack_stat_action && !_is_special && is_struct(_atk_eff_calc) && variable_struct_exists(_atk_eff_calc, "attack_stat_multiplier")) Atk = floor(Atk * variable_struct_get(_atk_eff_calc, "attack_stat_multiplier"));
+        else if (!_did_attack_stat_action && !_is_special && __battle_actor_has_any_ability(_A, ["huge-power", "pure-power"])) Atk *= 2;
+        if (!_did_attack_status_action && !_is_special && is_struct(_atk_eff_calc) && variable_struct_exists(_atk_eff_calc, "attack_status_multiplier") && __battle_actor_has_major_status(_A)) Atk = floor(Atk * variable_struct_get(_atk_eff_calc, "attack_status_multiplier"));
+        else if (!_did_attack_status_action && !_is_special && __battle_actor_has_any_ability(_A, ["guts"]) && __battle_actor_has_major_status(_A)) Atk = floor(Atk * 1.5);
+
+        try {
+            if (!is_undefined(item_runtime_actor_held_actions)){
+                var _item_stat_actions = item_runtime_actor_held_actions(_A, "stat_calc");
+                for (var _isai = 0; _isai < array_length(_item_stat_actions); ++_isai){
+                    var _isact = _item_stat_actions[_isai];
+                    if (!is_struct(_isact)) continue;
+                    var _iskind = variable_struct_exists(_isact, "kind") ? string_lower(string(variable_struct_get(_isact, "kind"))) : "";
+                    if (_iskind != "stat_multiplier") continue;
+                    var _isdata = __battle_item_action_data(_isact);
+                    var _istat = variable_struct_exists(_isdata, "stat") ? string_lower(string(variable_struct_get(_isdata, "stat"))) : "";
+                    var _imult = (variable_struct_exists(_isdata, "multiplier") && is_real(variable_struct_get(_isdata, "multiplier"))) ? variable_struct_get(_isdata, "multiplier") : 1.5;
+                    if ((!_is_special && _istat == "atk") || (_is_special && _istat == "spa")){
+                        Atk = floor(Atk * _imult);
+                    }
+                }
+            }
+        } catch (e_item_stat_calc) {}
+
+        var _did_defense_status_action = false;
+        var _did_defense_stat_action = false;
+        var _def_stat_actions = __battle_actor_ability_actions(_D, "stat_calc");
+        for (var _dsai = 0; _dsai < array_length(_def_stat_actions); ++_dsai){
+            var _dsact = _def_stat_actions[_dsai];
+            var _dskind = (is_struct(_dsact) && variable_struct_exists(_dsact, "kind")) ? string_lower(string(variable_struct_get(_dsact, "kind"))) : "";
+            var _dsdata = __battle_ability_action_data(_dsact);
+            if (_dskind == "defense_multiplier" && !_is_special){
+                var _dstatmult = variable_struct_exists(_dsdata, "mult") ? variable_struct_get(_dsdata, "mult") : 1;
+                Def = floor(Def * _dstatmult);
+                _did_defense_stat_action = true;
+            }
+            if (_dskind == "terrain_defense_multiplier" && !_is_special){
+                var _terrain_id_def = "";
+                try {
+                    var _pid_def_terrain = (!is_undefined(__status_find_battle_pid)) ? __status_find_battle_pid(_D) : undefined;
+                    if (is_real(_pid_def_terrain) && !is_undefined(__battle_field_get_terrain)){
+                        var _terr_def = __battle_field_get_terrain(_pid_def_terrain);
+                        if (is_struct(_terr_def) && variable_struct_exists(_terr_def, "id")) _terrain_id_def = string_lower(string(variable_struct_get(_terr_def, "id")));
+                    }
+                } catch (e_terrain_def_read) { _terrain_id_def = ""; }
+                var _terrain_list_def = variable_struct_exists(_dsdata, "terrain") ? variable_struct_get(_dsdata, "terrain") : [];
+                if (string_length(_terrain_id_def) > 0 && __battle_ability_list_contains(_terrain_list_def, _terrain_id_def)){
+                    var _terrain_def_mult = variable_struct_exists(_dsdata, "mult") ? variable_struct_get(_dsdata, "mult") : 1.5;
+                    Def = floor(Def * _terrain_def_mult);
+                    _did_defense_stat_action = true;
+                }
+            }
+            if (_dskind == "defense_when_status_multiplier" && !_is_special && __battle_actor_has_major_status(_D)){
+                var _dsmult = variable_struct_exists(_dsdata, "mult") ? variable_struct_get(_dsdata, "mult") : 1;
+                Def = floor(Def * _dsmult);
+                _did_defense_status_action = true;
+            }
+            if (_dskind == "sun_party_attack_spdef_multiplier" && _is_special){
+                var _fgd_weather = __battle_ability_current_weather_id(_D);
+                var _fgd_list = variable_struct_exists(_dsdata, "weather") ? variable_struct_get(_dsdata, "weather") : ["sun","harsh-sun"];
+                if (string_length(_fgd_weather) > 0 && __battle_ability_list_contains(_fgd_list, _fgd_weather)){
+                    var _fgd_mult = variable_struct_exists(_dsdata, "spdef_mult") ? variable_struct_get(_dsdata, "spdef_mult") : 1;
+                    Def = floor(Def * _fgd_mult);
+                }
+            }
+        }
+        if (!_did_defense_stat_action && !_is_special && is_struct(_def_eff_calc) && variable_struct_exists(_def_eff_calc, "defense_stat_multiplier")) Def = floor(Def * variable_struct_get(_def_eff_calc, "defense_stat_multiplier"));
+        if (!_did_defense_status_action && !_is_special && is_struct(_def_eff_calc) && variable_struct_exists(_def_eff_calc, "defense_status_multiplier") && __battle_actor_has_major_status(_D)) Def = floor(Def * variable_struct_get(_def_eff_calc, "defense_status_multiplier"));
+        else if (!_did_defense_status_action && !_is_special && __battle_actor_has_any_ability(_D, ["marvel-scale"]) && __battle_actor_has_major_status(_D)) Def = floor(Def * 1.5);
     } catch (e_stat_ability) {}
 
     // If this is a physical move and the attacker is burned, halve its attack
@@ -684,6 +2383,27 @@ function __battle_calc_damage_impl(_A, _D, _move_id, _power){
             if (is_real(_crit_eid_impl) && _crit_eid_impl == 44) crit_rate_level += 1;
         } catch (e_high_crit_impl) {}
         try {
+            var _crit_actions = __battle_actor_ability_actions(_A, "crit_calc");
+            for (var _cai = 0; _cai < array_length(_crit_actions); ++_cai){
+                var _cact = _crit_actions[_cai];
+                if (!is_struct(_cact)) continue;
+                var _ckind = variable_struct_exists(_cact, "kind") ? string_lower(string(variable_struct_get(_cact, "kind"))) : "";
+                var _cdata = __battle_ability_action_data(_cact);
+                if (_ckind == "crit_stage_bonus"){
+                    var _cdelta = (variable_struct_exists(_cdata, "delta") && is_real(variable_struct_get(_cdata, "delta"))) ? variable_struct_get(_cdata, "delta") : 1;
+                    crit_rate_level += _cdelta;
+                } else if (_ckind == "always_crit_on_poisoned_target"){
+                    var _poisoned_target = false;
+                    try {
+                        if (!is_undefined(status_system_has_status)){
+                            _poisoned_target = status_system_has_status(_D, "poison") || status_system_has_status(_D, "toxic");
+                        }
+                    } catch (e_merciless_status) { _poisoned_target = false; }
+                    if (_poisoned_target) crit_rate_level = max(crit_rate_level, 3);
+                }
+            }
+        } catch (e_crit_ability_calc) {}
+        try {
             var _focus_bonus = 0;
             if (is_struct(_A) && variable_struct_exists(_A, "_focus_energy_level") && is_real(variable_struct_get(_A, "_focus_energy_level"))) _focus_bonus = max(0, floor(variable_struct_get(_A, "_focus_energy_level")));
             else if (is_struct(_A) && variable_struct_exists(_A, "mon") && is_struct(variable_struct_get(_A, "mon"))){
@@ -704,7 +2424,13 @@ function __battle_calc_damage_impl(_A, _D, _move_id, _power){
             if (is_real(_crit_eid_impl) && _crit_eid_impl == 149) _no_crit_move = true;
             if (is_real(_move_id) && (_move_id == 248 || _move_id == 353)) _no_crit_move = true;
         } catch (e_no_crit_impl) { _no_crit_move = false; }
-        if (__battle_actor_has_any_ability(_D, ["battle-armor", "shell-armor"])){
+        var _crit_blocked_by_ability = false;
+        try {
+            var _crit_eff = __battle_actor_ability_effect(_D);
+            _crit_blocked_by_ability = (is_struct(_crit_eff) && variable_struct_exists(_crit_eff, "crit_immunity") && variable_struct_get(_crit_eff, "crit_immunity") == true);
+            if (!_crit_blocked_by_ability) _crit_blocked_by_ability = __battle_actor_ability_has_group(_D, "crit_immunity");
+        } catch (e_crit_eff) { _crit_blocked_by_ability = false; }
+        if (_crit_blocked_by_ability || __battle_actor_has_any_ability(_D, ["battle-armor", "shell-armor"])){
             crit = false;
         } else if (_no_crit_move){
             crit = false;
@@ -717,6 +2443,20 @@ function __battle_calc_damage_impl(_A, _D, _move_id, _power){
     } catch (e_crit) { crit = (irandom(23) == 0); }
     var critMul = crit ? 1.5 : 1.0;
     dmg = floor(dmg * critMul);
+
+    try {
+        var _stab_mult = __battle_move_stab_multiplier(_A, _move_id);
+        if (is_real(_stab_mult) && _stab_mult != 1.0) dmg = floor(dmg * _stab_mult);
+        var _type_mult_calc = __battle_move_type_effectiveness_multiplier(_A, _D, _move_id);
+        _type_mult_calc = __battle_ability_type_effectiveness_multiplier(_A, _D, _move_id, _type_mult_calc);
+        if (is_real(_type_mult_calc)) dmg = floor(dmg * _type_mult_calc);
+        try {
+            var _B_type_dbg = __battle_ensure_slot(0);
+            if (is_struct(_B_type_dbg)) variable_struct_set(_B_type_dbg, "_last_type_effectiveness", _type_mult_calc);
+        } catch (e_type_dbg_slot) {}
+    } catch (e_type_damage_calc) {
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle][type] damage multiplier failed: " + string(e_type_damage_calc));
+    }
 
     // Weather-based damage adjustments
     try {
@@ -788,7 +2528,9 @@ function __battle_calc_damage_impl(_A, _D, _move_id, _power){
             }
             return true;
         };
-        if (_weather_active(_wrec)){
+        var _weather_suppressed = false;
+        try { if (!is_undefined(__battle_weather_suppressed_by_ability)) _weather_suppressed = __battle_weather_suppressed_by_ability(0); } catch (e_weather_suppress_calc) { _weather_suppressed = false; }
+        if (!_weather_suppressed && _weather_active(_wrec)){
             var _wid_norm = _normalize_weather_id(variable_struct_exists(_wrec, "id") ? variable_struct_get(_wrec, "id") : "");
             var _mv_type = -1;
             if (!is_undefined(scr_move_type_id_by_id) && is_real(_move_id)) _mv_type = scr_move_type_id_by_id(_move_id, _A);
@@ -803,6 +2545,11 @@ function __battle_calc_damage_impl(_A, _D, _move_id, _power){
             }
         }
     } catch (e_weather_dmg) {}
+
+    try {
+        var _Bcrit_pre_ability = __battle_ensure_slot(0);
+        if (is_struct(_Bcrit_pre_ability)) variable_struct_set(_Bcrit_pre_ability, "_last_crit", crit);
+    } catch (e_pre_ability_crit) {}
 
     try {
         dmg = floor(dmg * __battle_ability_damage_multiplier(_A, _D, _move_id));
@@ -1127,6 +2874,9 @@ function __battle_finalize_catch_impl(_B, _caught){
     var _caught_target_idx = -1;
     if (variable_struct_exists(_B, "_catch_anim") && is_struct(variable_struct_get(_B, "_catch_anim"))){
         var _catch_state = variable_struct_get(_B, "_catch_anim");
+        if (variable_struct_exists(_catch_state, "_finalized") && variable_struct_get(_catch_state, "_finalized") == true) return { ok:true, location:"already_finalized" };
+        variable_struct_set(_catch_state, "_finalized", true);
+        variable_struct_set(_B, "_catch_anim", _catch_state);
         if (variable_struct_exists(_catch_state, "target_actor_index") && is_real(variable_struct_get(_catch_state, "target_actor_index"))) _caught_target_idx = floor(variable_struct_get(_catch_state, "target_actor_index"));
         if (variable_struct_exists(_catch_state, "owner_pid") && is_real(variable_struct_get(_catch_state, "owner_pid"))) _store_pid = max(0, floor(variable_struct_get(_catch_state, "owner_pid")));
     }
@@ -1161,18 +2911,39 @@ function __battle_finalize_catch_impl(_B, _caught){
     }
 
     try {
-        if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, _msg);
-        else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, _msg, _msg, "any");
+        if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_store_pid, _msg);
+        else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_store_pid, _msg, _msg, "any");
     } catch (e_msg) {}
     try {
-        if (is_struct(_store) && variable_struct_exists(_store, "ok") && _store.ok && !is_undefined(virtual_keyboard_request_caught_nickname)){
-            virtual_keyboard_request_caught_nickname(_store_pid, _store, _caught_name);
+        if (is_struct(_store) && variable_struct_exists(_store, "ok") && _store.ok){
+            var _nick_queue = (variable_struct_exists(_B, "_pending_caught_nicknames") && is_array(variable_struct_get(_B, "_pending_caught_nicknames"))) ? variable_struct_get(_B, "_pending_caught_nicknames") : [];
+            array_push(_nick_queue, { pid:_store_pid, store:_store, species_name:_caught_name });
+            variable_struct_set(_B, "_pending_caught_nicknames", _nick_queue);
         }
     } catch (e_vk_req) {}
 
     if (is_array(_B.actor) && _caught_target_idx >= 0 && _caught_target_idx < array_length(_B.actor)){
         _B.actor[_caught_target_idx] = undefined;
     }
+
+    var _continue_same_turn_after_catch = false;
+    var _moved_enemy_from_idx = -1;
+    var _moved_enemy_to_idx = -1;
+    try {
+        if (is_array(_B.turn_queue) && is_real(_B.turn_i)){
+            for (var _cq_i = max(0, floor(_B.turn_i)); _cq_i < array_length(_B.turn_queue); ++_cq_i){
+                var _cq_step = _B.turn_queue[_cq_i];
+                if (!is_struct(_cq_step)) continue;
+                var _cq_actor_idx = (variable_struct_exists(_cq_step, "actor_index") && is_real(variable_struct_get(_cq_step, "actor_index"))) ? floor(variable_struct_get(_cq_step, "actor_index")) : -1;
+                if (_cq_actor_idx == _caught_target_idx) continue;
+                _continue_same_turn_after_catch = true;
+                if (variable_struct_exists(_cq_step, "item_use") && variable_struct_get(_cq_step, "item_use") == true) break;
+                if (_cq_actor_idx >= 0 && is_array(_B.actor) && _cq_actor_idx < array_length(_B.actor) && is_struct(_B.actor[_cq_actor_idx])){
+                    break;
+                }
+            }
+        }
+    } catch (e_continue_catch_scan) { _continue_same_turn_after_catch = false; }
 
     // Keep the remaining wild in the primary enemy slot so existing single-target
     // battle flows continue to address the surviving opponent after a double catch.
@@ -1183,9 +2954,27 @@ function __battle_finalize_catch_impl(_B, _caught){
             if (!is_struct(_B.actor[_enemy_lead_idx]) && is_struct(_B.actor[_enemy_tail_idx])){
                 _B.actor[_enemy_lead_idx] = _B.actor[_enemy_tail_idx];
                 _B.actor[_enemy_tail_idx] = undefined;
+                _moved_enemy_from_idx = _enemy_tail_idx;
+                _moved_enemy_to_idx = _enemy_lead_idx;
                 try { __battle_set_actor_runtime_fields(_B.actor[_enemy_lead_idx], _enemy_lead_idx, -1, -1, -1); } catch (e_reindex_enemy) {}
             }
         }
+    }
+
+    if (_continue_same_turn_after_catch && _moved_enemy_from_idx >= 0 && _moved_enemy_to_idx >= 0){
+        try {
+            for (var _rq_i = max(0, floor(_B.turn_i)); _rq_i < array_length(_B.turn_queue); ++_rq_i){
+                var _rq_step = _B.turn_queue[_rq_i];
+                if (!is_struct(_rq_step)) continue;
+                if (variable_struct_exists(_rq_step, "actor_index") && is_real(variable_struct_get(_rq_step, "actor_index")) && floor(variable_struct_get(_rq_step, "actor_index")) == _moved_enemy_from_idx){
+                    variable_struct_set(_rq_step, "actor_index", _moved_enemy_to_idx);
+                }
+                if (variable_struct_exists(_rq_step, "target_index") && is_real(variable_struct_get(_rq_step, "target_index")) && floor(variable_struct_get(_rq_step, "target_index")) == _moved_enemy_from_idx){
+                    variable_struct_set(_rq_step, "target_index", _moved_enemy_to_idx);
+                }
+                _B.turn_queue[_rq_i] = _rq_step;
+            }
+        } catch (e_retarget_remaining_catch) {}
     }
 
     var _enemy_side_alive = false;
@@ -1208,6 +2997,12 @@ function __battle_finalize_catch_impl(_B, _caught){
         _B.result = "ongoing";
         _B._pending_close = false;
         try { variable_struct_set(_B, "_pending_open_party", false); } catch (e_po_continue) {}
+        if (_continue_same_turn_after_catch){
+            try { variable_struct_set(_B, "_action_active", true); } catch (e_act_continue_turn) {}
+            _B.phase = "turn";
+            if (variable_struct_exists(_B, "_catch_anim")) _B._catch_anim = undefined;
+            return _store;
+        }
         try { variable_struct_set(_B, "_action_active", false); } catch (e_act_continue) {}
         try { variable_struct_set(_B, "turn_action_player", undefined); } catch (e_tap_continue) {}
         try { variable_struct_set(_B, "turn_action_enemy", undefined); } catch (e_tae_continue) {}
@@ -1222,6 +3017,27 @@ function __battle_finalize_catch_impl(_B, _caught){
             try { variable_struct_set(_B.sys_ui, "selX", 0); } catch (e_selx_continue) {}
             try { variable_struct_set(_B.sys_ui, "selY", 0); } catch (e_sely_continue) {}
         }
+        try {
+            if (!is_undefined(__battle_uses_split_command_ui) && __battle_uses_split_command_ui(_B) && variable_struct_exists(_B, "_versus_ui") && is_array(variable_struct_get(_B, "_versus_ui"))){
+                var _ui_list_continue = variable_struct_get(_B, "_versus_ui");
+                var _ppids_continue = (variable_struct_exists(_B, "player_pids") && is_array(variable_struct_get(_B, "player_pids"))) ? variable_struct_get(_B, "player_pids") : [0, 1];
+                for (var _ui_i_continue = 0; _ui_i_continue < array_length(_ui_list_continue); ++_ui_i_continue){
+                    var _ui_continue = _ui_list_continue[_ui_i_continue];
+                    if (!is_struct(_ui_continue)) _ui_continue = { menu:"root", selX:0, selY:0, command_actor_index:0, command_pending_action:undefined, target_pick_targets:undefined, target_pick_index:0 };
+                    var _ui_pid_continue = (_ui_i_continue < array_length(_ppids_continue) && is_real(_ppids_continue[_ui_i_continue])) ? floor(_ppids_continue[_ui_i_continue]) : _ui_i_continue;
+                    var _next_actor_continue = (!is_undefined(__battle_next_command_actor_index)) ? __battle_next_command_actor_index(_ui_pid_continue, -1) : -1;
+                    variable_struct_set(_ui_continue, "menu", "root");
+                    variable_struct_set(_ui_continue, "selX", 0);
+                    variable_struct_set(_ui_continue, "selY", 0);
+                    variable_struct_set(_ui_continue, "command_pending_action", undefined);
+                    variable_struct_set(_ui_continue, "target_pick_targets", undefined);
+                    variable_struct_set(_ui_continue, "target_pick_index", 0);
+                    variable_struct_set(_ui_continue, "command_actor_index", (_next_actor_continue >= 0) ? _next_actor_continue : 0);
+                    _ui_list_continue[_ui_i_continue] = _ui_continue;
+                }
+                variable_struct_set(_B, "_versus_ui", _ui_list_continue);
+            }
+        } catch (e_split_ui_continue) {}
         _B.phase = "command";
         if (variable_struct_exists(_B, "_catch_anim")) _B._catch_anim = undefined;
         return _store;
@@ -1863,6 +3679,7 @@ function __battle_apply_move(_pid, _user, _target, _move){
                     if (!is_undefined(__status_override_name) && !is_undefined(__status_dev_override_chance)){
                         ach = __status_dev_override_chance(__status_override_name, ach);
                     }
+                    try { ach = __battle_ability_secondary_effect_chance(_user, _target, ach); } catch (e_ability_ail_chance) {}
                     if (ach > 0){
                         // If Water Pledge double-effect is active for user's side, double the chance
                         try {

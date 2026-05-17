@@ -226,7 +226,7 @@ function __evolution_apply_to_mon(_mon, _target_species_id){
     var _new_mon = pokemon_factory_create(_target, _level, _opts);
     if (!is_struct(_new_mon)) return false;
 
-    var _preserve_keys = ["nickname","iv","ev","ev_total","pps","seen_moves","status","status_id","status_turns","happiness","friendship","friendliness","affection","gender","nature","nature_name","held_item_real_name","battleAnim"];
+    var _preserve_keys = ["nickname","iv","ev","ev_total","pps","seen_moves","status","status_id","status_turns","happiness","friendship","friendliness","affection","sex","gender","sex_id","gender_id","nature","nature_name","held_item_real_name","battleAnim"];
     for (var _i = 0; _i < array_length(_preserve_keys); ++_i){
         var _pk = _preserve_keys[_i];
         if (variable_struct_exists(_mon, _pk)) variable_struct_set(_new_mon, _pk, variable_struct_get(_mon, _pk));

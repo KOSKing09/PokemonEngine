@@ -96,6 +96,72 @@ function party_is_open(_pid){
     if (!variable_struct_exists(_P,"open")) return false;
     return _P.open;
 }
+
+function __party_battle_visible_indexes(_pid){
+    var _out = [];
+    try {
+        if (is_undefined(battle_is_open) || !battle_is_open(_pid) || is_undefined(__battle_ensure_slot)) return _out;
+        var _B = __battle_ensure_slot(_pid);
+        if (!is_struct(_B) || !variable_struct_exists(_B, "player_party_indexes") || !is_array(variable_struct_get(_B, "player_party_indexes"))) return _out;
+        var _sets = variable_struct_get(_B, "player_party_indexes");
+        var _set_index = 0;
+        if (variable_struct_exists(_B, "player_pids") && is_array(variable_struct_get(_B, "player_pids"))){
+            var _pids = variable_struct_get(_B, "player_pids");
+            for (var _pi = 0; _pi < array_length(_pids); ++_pi){
+                if (is_real(_pids[_pi]) && floor(_pids[_pi]) == floor(_pid)){ _set_index = _pi; break; }
+            }
+        } else {
+            _set_index = clamp(floor(_pid), 0, max(0, array_length(_sets) - 1));
+        }
+        var _src = [];
+        if (array_length(_sets) > 0 && is_array(_sets[0])){
+            if (_set_index >= 0 && _set_index < array_length(_sets) && is_array(_sets[_set_index])) _src = _sets[_set_index];
+        } else {
+            _src = _sets;
+        }
+        var _mons_all = party_model_get_mons(_pid);
+        for (var _i = 0; _i < array_length(_src); ++_i){
+            if (!is_real(_src[_i])) continue;
+            var _idx = floor(_src[_i]);
+            if (_idx >= 0 && is_array(_mons_all) && _idx < array_length(_mons_all) && is_struct(_mons_all[_idx])) array_push(_out, _idx);
+        }
+    } catch (e_party_visible_indexes) {
+        _out = [];
+    }
+    return _out;
+}
+
+function __party_visible_mons(_pid){
+    var _map = __party_battle_visible_indexes(_pid);
+    if (array_length(_map) <= 0) return party_model_get_mons(_pid);
+    var _all = party_model_get_mons(_pid);
+    var _out = [];
+    if (!is_array(_all)) return _out;
+    for (var _i = 0; _i < array_length(_map); ++_i){
+        var _idx = _map[_i];
+        if (is_real(_idx) && _idx >= 0 && _idx < array_length(_all)) array_push(_out, _all[_idx]);
+    }
+    return _out;
+}
+
+function __party_visible_to_real_index(_pid, _visible_index){
+    var _map = __party_battle_visible_indexes(_pid);
+    var _v = max(0, floor(_visible_index));
+    if (array_length(_map) <= 0) return _v;
+    if (_v >= 0 && _v < array_length(_map) && is_real(_map[_v])) return floor(_map[_v]);
+    return -1;
+}
+
+function __party_real_to_visible_index(_pid, _real_index){
+    var _map = __party_battle_visible_indexes(_pid);
+    var _r = floor(_real_index);
+    if (array_length(_map) <= 0) return _r;
+    for (var _i = 0; _i < array_length(_map); ++_i){
+        if (is_real(_map[_i]) && floor(_map[_i]) == _r) return _i;
+    }
+    return 0;
+}
+
 // Open the party UI for `_pid` and initialize UI state (mode, sel, locks).
 // Also reorders fainted mons to the bottom and clears transient swap flags.
 function party_open(_pid){
@@ -115,6 +181,16 @@ function party_open(_pid){
     if (!is_undefined(party_model_reorder_fainted_to_bottom)){
         try { party_model_reorder_fainted_to_bottom(_pid); } catch (e_re) {}
     }
+    try {
+        var _battle_visible = __party_battle_visible_indexes(_pid);
+        if (array_length(_battle_visible) > 0){
+            variable_struct_set(_P, "_battle_visible_party_indexes", _battle_visible);
+            _P.sel = clamp(__party_real_to_visible_index(_pid, _P.sel), 0, max(0, array_length(_battle_visible) - 1));
+            _P.scroll = 0;
+        } else if (variable_struct_exists(_P, "_battle_visible_party_indexes")) {
+            variable_struct_set(_P, "_battle_visible_party_indexes", []);
+        }
+    } catch (e_party_visible_open) {}
     // Ensure the battle-swap marker is false by default; callers (battle) may set it.
     try { party_set_swap_mode_impl(_pid, false, false); } catch (e_psi) {}
     try { if (variable_struct_exists(_P, "_battle_baton_pass_mode")) variable_struct_set(_P, "_battle_baton_pass_mode", false); } catch (e_bpm_open) {}
@@ -296,7 +372,7 @@ function party_ensure(_pid){
 
 // ---------- Helpers ----------
 function __party_mons(_pid){
-    return party_model_get_mons(_pid);
+    return __party_visible_mons(_pid);
 }
 
 // Basic string wrap fallback used by the learn UI if higher-level helper missing
@@ -330,7 +406,7 @@ if (is_undefined(scr_move_learn_try)){
     }
 }
 function __party_mon_get(_P, _pid){
-    return party_model_get_mon(_pid, _P.sel);
+    return party_model_get_mon(_pid, __party_visible_to_real_index(_pid, _P.sel));
 }
 function __party_move_name(_id){
     // Treat non-positive IDs as empty slots

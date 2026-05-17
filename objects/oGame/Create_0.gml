@@ -30,9 +30,9 @@ global.DEBUG = true;
 
 // Data loaders debug gate (opt-in). Default OFF for normal play; set true for troubleshooting.
 globalvar DATA_DEBUG;
-global.DATA_DEBUG = true;
+global.DATA_DEBUG = false;
 
-global.CUTSCENE_DEBUG = true;
+global.CUTSCENE_DEBUG = false;
 global.DATA_DEBUG_TRAINER = false;
 
 // Very verbose data debug (opt-in). Default OFF.
@@ -40,10 +40,10 @@ globalvar DATA_DEBUG_VERBOSE;
 global.DATA_DEBUG_VERBOSE = false;
 
 // MOVES_DEBUG is noisy; default to false. Set to true when actively debugging moves.
-global.MOVES_DEBUG = true;
+global.MOVES_DEBUG = false;
 // Developer-only move-report runner (disabled by default). Enable to run
 // `dev_moves_impl_report()` at boot for a one-time diagnostics print.
-global.DEV_REPORT_MOVES = true;
+global.DEV_REPORT_MOVES = false;
 
 try {
     var _battle_impl_asset = asset_get_index("battle_impls");
@@ -61,10 +61,10 @@ try {
 }
 
 // run once (debug boot or in a quick test script)
-if (variable_global_exists("_battle_impls") && is_struct(global._battle_impls)){
+if (global.DATA_DEBUG && variable_global_exists("_battle_impls") && is_struct(global._battle_impls)){
     show_debug_message("[reg] __battle_perform_action_impl present? " + string(variable_struct_exists(global._battle_impls, "__battle_perform_action_impl")));
     show_debug_message("[reg] __battle_perform_action_impl_real present? " + string(variable_struct_exists(global._battle_impls, "__battle_perform_action_impl_real")));
-} else show_debug_message("[reg] _battle_impls missing");
+} else if (global.DATA_DEBUG) show_debug_message("[reg] _battle_impls missing");
 
 
 
@@ -80,12 +80,7 @@ if (!(variable_global_exists("_pokemon") && is_real(global._pokemon))) {
 }
 
 // --- CSV LOAD / PROFILE --------------------------------------------------
-//data_load_all_structs(); // fills global._pokemon + global._poke_stats
-var _metrics = data_load_profile_run();
-if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) {
-    show_debug_message("=== DATA LOAD PROFILE COMPLETE ===");
-    show_debug_message("Total ms: " + string(_metrics.sys_total_ms));
-}
+data_load_all_structs(); // fills global._pokemon + global._poke_stats and extended CSV tables
 
 // Startup data sanity checks (helpful when types/species arrays appear empty)
 if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) {
@@ -120,7 +115,7 @@ global.OVERWORLD_SHINY_CHANCE = 1 / 4096;
 global.OVERWORLD_VISIBLE_MAX_ACTIVE = 16;
 global.OVERWORLD_VISIBLE_PATCH_DENSITY = 4;
 global.OVERWORLD_VISIBLE_PATCH_MAX = 8;
-global.OVERWORLD_ENCOUNTER_GRACE_MS = 1500;
+global.OVERWORLD_ENCOUNTER_GRACE_MS = 5000;
 global.OVERWORLD_ENCOUNTER_BLOCK_UNTIL_MS = 0;
 
 // Selectable Emerald-inspired transition styles.
@@ -173,12 +168,13 @@ global.PARTY_ASSETS = {
 global._REGIONMUSIC = snd_Littleroot_Town;
 if (!is_undefined(world_room_register)) world_room_register(room, room_get_name(room), global._REGIONMUSIC, false);
 else if (!is_undefined(world_set_room_music)) world_set_room_music(room, global._REGIONMUSIC);
-if (!is_undefined(world_play_music)) world_play_music(global._REGIONMUSIC);
+global.STARTUP_MUSIC_DELAY_FRAMES = 12;
 
 // --- PARTY / BAGS / PLAYERS -----------------------------------------------
 if (!variable_global_exists("PAUSE_PLAYERS_ACTIVE")) global.PAUSE_PLAYERS_ACTIVE = 1;
 else global.PAUSE_PLAYERS_ACTIVE = clamp(floor(global.PAUSE_PLAYERS_ACTIVE), 1, 2);
 party_init(); // must be before demo seed (party_ensure uses it)
+
 // global.DEMO_FORCE_SPECIES = [250, 249]; // optional override
 global.DEMO_FORCE_SPECIES = [188, 268, 471, 559, 17];
 scr_poke_runtime_demo_init_random(6); // seeds PARTY[0] (and [1] if present)
@@ -234,29 +230,11 @@ global.DEV_FORCE_CRIT_ROLL_100 = -1;
 global.DEV_FORCE_ACCURACY_HIT = false;
 global.DEV_SMOKE_EXIT_GAME = false;
 
-// Initialize bags (seed with some items for demo/dev)
+// Initialize bags. Dev/test seed gives every loaded item a fixed quantity.
 bags_init(2);
 poke_index_init(2);
-bag_inventory_add_item(0, 4, 10);
-bag_inventory_add_item(0, 1, 10);
-bag_inventory_add_item(0, 17, 25);
-bag_inventory_add_item(0, 26, 25);
-bag_inventory_add_item(0, 25, 25);
-bag_inventory_add_item(0, 24, 25);
-bag_inventory_add_item(0, 23, 25);
-bag_inventory_add_item(0, 18, 25);
-bag_inventory_add_item(0, 182, 10);
-bags_seed_from_items(0); // refresh once
-bag_inventory_add_item(1, 4, 10);
-bag_inventory_add_item(1, 1, 10);
-bag_inventory_add_item(1, 17, 25);
-bag_inventory_add_item(1, 26, 25);
-bag_inventory_add_item(1, 25, 25);
-bag_inventory_add_item(1, 24, 25);
-bag_inventory_add_item(1, 23, 25);
-bag_inventory_add_item(1, 18, 25);
-bag_inventory_add_item(1, 182, 10);
-bags_seed_from_items(1); // refresh once
+bag_debug_seed_all_items(0, 20);
+bag_debug_seed_all_items(1, 20);
 
 // NOTE: startup debug simulation for move-learn/leveling removed.
 // To re-enable for debugging, reintroduce the DEBUG_SIMULATE_LEARN_ON_START guard and block here.
@@ -286,6 +264,6 @@ CTRL.pad_index = [0,1];
 // --- WORLD COLLISION SETUP ------------------------------------------------
 wc_reset();
 wc_bind_layers(["WALL", "BLOCKS"]);
-wc_set_solids([noone]); // add object ids here if you have solid instances
+wc_set_solids([oNpc, oFieldMoveProp, oitem]);
 
-show_debug_message(global._move_meta[79]);
+if (global.DATA_DEBUG) show_debug_message(global._move_meta[79]);

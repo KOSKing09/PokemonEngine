@@ -6,6 +6,14 @@
 globalvar PAUSE;
 
 function pause_init(){
+    if (!variable_global_exists("BATTLE_DIFFICULTY")) global.BATTLE_DIFFICULTY = "normal";
+    try {
+        ini_open("settings.ini");
+        var _saved_diff = ini_read_string("Battle", "difficulty", global.BATTLE_DIFFICULTY);
+        ini_close();
+        _saved_diff = string_lower(string(_saved_diff));
+        if (_saved_diff == "easy" || _saved_diff == "normal" || _saved_diff == "hard" || _saved_diff == "very_hard") global.BATTLE_DIFFICULTY = _saved_diff;
+    } catch (e_pause_diff_load) {}
     global.PAUSE = [
         { open:false, sel:0, t:0, mode:"main", options_sel:0, input_sel:0, battle_settings_sel:0, multiplayer_sel:0, misc_sel:0 },
         { open:false, sel:0, t:0, mode:"main", options_sel:0, input_sel:0, battle_settings_sel:0, multiplayer_sel:0, misc_sel:0 }
@@ -55,13 +63,15 @@ function pause_update(){
         var p = PAUSE[pid];
         var _main_labels = __pause_main_labels(pid);
         var _entry_count = array_length(_main_labels);
-        var _options_count = 6;
+        var _options_count = 7;
         var _input_count = 2;
         var _battle_settings_count = 3;
         var _multiplayer_count = 5;
-        var _misc_count = 1;
+        var _misc_count = 3;
 
         if (!is_undefined(pc_is_open) && pc_is_open(pid)) continue;
+        if (!is_undefined(multiplayer_wild_assist_request_active) && multiplayer_wild_assist_request_active()) continue;
+        if (!is_undefined(multiplayer_trainer_team_select_active) && multiplayer_trainer_team_select_active()) continue;
 
         // toggle
         if (controls_pressed(pid,"Pause")){
@@ -80,10 +90,11 @@ function pause_update(){
         if (!variable_global_exists("DIALOG_SPEED")) global.DIALOG_SPEED = 2;
 
         if (string(p.mode) == "input"){
-            if (controls_pressed(pid,"MoveDown")) p.input_sel = (p.input_sel + 1) mod _input_count;
+            if (controls_pressed(pid,"MoveDown")) { p.input_sel = (p.input_sel + 1) mod _input_count; if (!is_undefined(ui_play_select_sound)) ui_play_select_sound(); }
             if (controls_pressed(pid,"MoveUp")){
                 p.input_sel -= 1;
                 if (p.input_sel < 0) p.input_sel = _input_count - 1;
+                if (!is_undefined(ui_play_select_sound)) ui_play_select_sound();
             }
 
             if (p.input_sel == 0){
@@ -111,10 +122,11 @@ function pause_update(){
         }
 
         if (string(p.mode) == "battle_settings"){
-            if (controls_pressed(pid,"MoveDown") || controls_pressed(pid,"MoveRight")) p.battle_settings_sel = (p.battle_settings_sel + 1) mod _battle_settings_count;
+            if (controls_pressed(pid,"MoveDown") || controls_pressed(pid,"MoveRight")) { p.battle_settings_sel = (p.battle_settings_sel + 1) mod _battle_settings_count; if (!is_undefined(ui_play_select_sound)) ui_play_select_sound(); }
             if (controls_pressed(pid,"MoveUp") || controls_pressed(pid,"MoveLeft")){
                 p.battle_settings_sel -= 1;
                 if (p.battle_settings_sel < 0) p.battle_settings_sel = _battle_settings_count - 1;
+                if (!is_undefined(ui_play_select_sound)) ui_play_select_sound();
             }
 
             if (p.battle_settings_sel == 0){
@@ -148,10 +160,11 @@ function pause_update(){
         }
 
         if (string(p.mode) == "options"){
-            if (controls_pressed(pid,"MoveDown") || controls_pressed(pid,"MoveRight")) p.options_sel = (p.options_sel + 1) mod _options_count;
+            if (controls_pressed(pid,"MoveDown") || controls_pressed(pid,"MoveRight")) { p.options_sel = (p.options_sel + 1) mod _options_count; if (!is_undefined(ui_play_select_sound)) ui_play_select_sound(); }
             if (controls_pressed(pid,"MoveUp") || controls_pressed(pid,"MoveLeft")){
                 p.options_sel -= 1;
                 if (p.options_sel < 0) p.options_sel = _options_count - 1;
+                if (!is_undefined(ui_play_select_sound)) ui_play_select_sound();
             }
 
             if (p.options_sel == 1){
@@ -160,6 +173,10 @@ function pause_update(){
             }
             if (p.options_sel == 2){
                 if (controls_pressed(pid,"MoveLeft") || controls_pressed(pid,"MoveRight")) __pause_toggle_splitscreen_layout();
+            }
+            if (p.options_sel == 3){
+                if (controls_pressed(pid,"MoveLeft")) battle_difficulty_cycle(-1);
+                if (controls_pressed(pid,"MoveRight")) battle_difficulty_cycle(1);
             }
 
             if (controls_pressed(pid,"Interact")){
@@ -175,14 +192,17 @@ function pause_update(){
                         __pause_toggle_splitscreen_layout();
                         break;
                     case 3:
+                        battle_difficulty_cycle(1);
+                        break;
+                    case 4:
                         p.mode = "battle_settings";
                         p.battle_settings_sel = 0;
                         break;
-                    case 4:
+                    case 5:
                         p.mode = "multiplayer";
                         p.multiplayer_sel = 0;
                         break;
-                    case 5:
+                    case 6:
                         p.mode = "main";
                         p.options_sel = 0;
                         break;
@@ -197,10 +217,11 @@ function pause_update(){
         }
 
         if (string(p.mode) == "multiplayer"){
-            if (controls_pressed(pid,"MoveDown") || controls_pressed(pid,"MoveRight")) p.multiplayer_sel = (p.multiplayer_sel + 1) mod _multiplayer_count;
+            if (controls_pressed(pid,"MoveDown") || controls_pressed(pid,"MoveRight")) { p.multiplayer_sel = (p.multiplayer_sel + 1) mod _multiplayer_count; if (!is_undefined(ui_play_select_sound)) ui_play_select_sound(); }
             if (controls_pressed(pid,"MoveUp") || controls_pressed(pid,"MoveLeft")){
                 p.multiplayer_sel -= 1;
                 if (p.multiplayer_sel < 0) p.multiplayer_sel = _multiplayer_count - 1;
+                if (!is_undefined(ui_play_select_sound)) ui_play_select_sound();
             }
 
             if (p.multiplayer_sel == 0 && (controls_pressed(pid,"MoveLeft") || controls_pressed(pid,"MoveRight"))) multiplayer_toggle_queue_mode();
@@ -236,10 +257,11 @@ function pause_update(){
         }
 
         if (string(p.mode) == "misc"){
-            if (controls_pressed(pid,"MoveDown") || controls_pressed(pid,"MoveRight")) p.misc_sel = (p.misc_sel + 1) mod _misc_count;
+            if (controls_pressed(pid,"MoveDown") || controls_pressed(pid,"MoveRight")) { p.misc_sel = (p.misc_sel + 1) mod _misc_count; if (!is_undefined(ui_play_select_sound)) ui_play_select_sound(); }
             if (controls_pressed(pid,"MoveUp") || controls_pressed(pid,"MoveLeft")){
                 p.misc_sel -= 1;
                 if (p.misc_sel < 0) p.misc_sel = _misc_count - 1;
+                if (!is_undefined(ui_play_select_sound)) ui_play_select_sound();
             }
 
             if (controls_pressed(pid,"Interact")){
@@ -247,6 +269,14 @@ function pause_update(){
                     case 0:
                         pause_toggle(pid);
                         if (!is_undefined(pc_open)) pc_open(pid);
+                        break;
+                    case 1:
+                        pause_toggle(pid);
+                        if (!is_undefined(pc_open_breeding)) pc_open_breeding(pid);
+                        break;
+                    case 2:
+                        pause_toggle(pid);
+                        if (!is_undefined(pc_open_eggs)) pc_open_eggs(pid);
                         break;
                 }
             }
@@ -259,10 +289,11 @@ function pause_update(){
         }
 
         // Emerald-style vertical list navigation.
-        if (controls_pressed(pid,"MoveDown") || controls_pressed(pid,"MoveRight")) p.sel = (p.sel + 1) mod _entry_count;
+        if (controls_pressed(pid,"MoveDown") || controls_pressed(pid,"MoveRight")) { p.sel = (p.sel + 1) mod _entry_count; if (!is_undefined(ui_play_select_sound)) ui_play_select_sound(); }
         if (controls_pressed(pid,"MoveUp") || controls_pressed(pid,"MoveLeft")){
             p.sel -= 1;
             if (p.sel < 0) p.sel = _entry_count - 1;
+            if (!is_undefined(ui_play_select_sound)) ui_play_select_sound();
         }
 
 		// choose
@@ -311,11 +342,11 @@ function pause_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     draw_set_alpha(1);
 
     var labels = __pause_main_labels(_pid);
-    var options_labels = ["INPUT","TEXT SPEED","SPLIT","BATTLE SETTINGS","MULTIPLAYER","BACK"];
+    var options_labels = ["INPUT","TEXT SPEED","SPLIT","DIFFICULTY","BATTLE SETTINGS","MULTIPLAYER","BACK"];
     var battle_settings_labels = ["XP MODE","FOLLOWER","BACK"];
     var multiplayer_labels = ["CO-OP","REQUEST SIDE","VERSUS FORMAT","START VERSUS","BACK"];
     var input_labels = ["DEADZONE","BACK"];
-    var misc_labels = ["PC"];
+    var misc_labels = ["PC","BREEDING","EGGS"];
     var p = global.PAUSE[_pid];
     var line_h = max(12, string_height("A") + 2);
 
@@ -358,6 +389,7 @@ function pause_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     if (string(p.mode) == "options") {
         longest_label = max(longest_label, string_width(__pause_dialog_speed_label()));
         longest_label = max(longest_label, string_width(__pause_splitscreen_label()));
+        longest_label = max(longest_label, string_width(__pause_difficulty_label()));
     }
     if (string(p.mode) == "battle_settings") {
         longest_label = max(longest_label, string_width(__pause_battle_xp_label()));
@@ -403,12 +435,18 @@ function pause_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         var _label_text = _active_labels[i];
         if (string(p.mode) == "options" && i == 1) _label_text = __pause_dialog_speed_label();
         if (string(p.mode) == "options" && i == 2) _label_text = __pause_splitscreen_label();
+        if (string(p.mode) == "options" && i == 3) _label_text = __pause_difficulty_label();
         if (string(p.mode) == "battle_settings" && i == 0) _label_text = __pause_battle_xp_label();
         if (string(p.mode) == "battle_settings" && i == 1) _label_text = __pause_follower_label();
         if (string(p.mode) == "multiplayer" && i == 0) _label_text = __pause_multiplayer_queue_label();
         if (string(p.mode) == "multiplayer" && i == 1) _label_text = __pause_multiplayer_request_label();
         if (string(p.mode) == "multiplayer" && i == 2) _label_text = __pause_multiplayer_versus_label();
         if (string(p.mode) == "input" && i == 0) _label_text = __pause_deadzone_label();
+        if (string(p.mode) == "options" && i == 3 && __pause_difficulty_is_very_hard()){
+            draw_set_color(make_color_rgb(232, 48, 48));
+        } else {
+            draw_set_color(c_white);
+        }
         draw_text(tx, ty, _label_text);
     }
 }
@@ -470,6 +508,7 @@ function __pause_do_save(pid){
     ini_write_real("Meta","version", 1);
     ini_write_real("Dialog","speed", global.DIALOG_SPEED);
     ini_close();
+    if (!is_undefined(sfx_play_safe)) sfx_play_safe(snd_Save, 1);
     pause_toggle(pid);
 }
 
@@ -536,6 +575,23 @@ function __pause_battle_xp_label(){
 function __pause_follower_label(){
     var _on = (!is_undefined(battle_followers_enabled) && battle_followers_enabled());
     return "FOLLOWER " + (_on ? "ON" : "OFF");
+}
+
+function __pause_difficulty_label(){
+    var _diff = "normal";
+    if (!is_undefined(battle_difficulty)) _diff = battle_difficulty();
+    else if (variable_global_exists("BATTLE_DIFFICULTY")) _diff = string_lower(string(global.BATTLE_DIFFICULTY));
+    switch (_diff){
+        case "easy": return "DIFFICULTY EASY";
+        case "hard": return "DIFFICULTY HARD";
+        case "very_hard": return "DIFFICULTY VERY HARD";
+    }
+    return "DIFFICULTY NORMAL";
+}
+
+function __pause_difficulty_is_very_hard(){
+    if (!is_undefined(battle_difficulty)) return (battle_difficulty() == "very_hard");
+    return (variable_global_exists("BATTLE_DIFFICULTY") && string_lower(string(global.BATTLE_DIFFICULTY)) == "very_hard");
 }
 
 function __pause_multiplayer_versus_label(){

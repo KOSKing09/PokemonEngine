@@ -218,8 +218,9 @@ function __battle_commit_player_action(_pid, _action){
     var _B = __battle_ensure_slot(_pid);
     if (!is_struct(_B) || !is_struct(_action)) return false;
     var _versus = (variable_struct_exists(_B, "versus_enabled") && variable_struct_get(_B, "versus_enabled") == true);
+    var _split_command_ui = (!is_undefined(__battle_uses_split_command_ui) && __battle_uses_split_command_ui(_B));
     var _UI = undefined;
-    if (_versus){
+    if (_split_command_ui){
         if (!variable_struct_exists(_B, "_versus_ui") || !is_array(variable_struct_get(_B, "_versus_ui")) || array_length(variable_struct_get(_B, "_versus_ui")) < 2){
             variable_struct_set(_B, "_versus_ui", [
                 { menu:"root", selX:0, selY:0, command_actor_index:0, command_pending_action:undefined, target_pick_targets:undefined, target_pick_index:0 },
@@ -241,7 +242,7 @@ function __battle_commit_player_action(_pid, _action){
     __battle_store_player_turn_action(_B, _action);
     if (variable_struct_exists(_action, "actor_index") && variable_struct_get(_action, "actor_index") == 0) variable_struct_set(_B, "turn_action_player", _action);
 
-    if (_versus && is_struct(_UI)){
+    if (_split_command_ui && is_struct(_UI)){
         variable_struct_set(_UI, "command_pending_action", undefined);
         variable_struct_set(_UI, "target_pick_targets", undefined);
         variable_struct_set(_UI, "target_pick_index", 0);
@@ -264,7 +265,7 @@ function __battle_commit_player_action(_pid, _action){
     var _actor_index = (variable_struct_exists(_action, "actor_index") && is_real(variable_struct_get(_action, "actor_index"))) ? floor(variable_struct_get(_action, "actor_index")) : -1;
     var _next_actor = __battle_next_command_actor_index(_pid, _actor_index);
     if (_next_actor >= 0){
-        if (_versus && is_struct(_UI)) variable_struct_set(_UI, "command_actor_index", _next_actor);
+        if (_split_command_ui && is_struct(_UI)) variable_struct_set(_UI, "command_actor_index", _next_actor);
         else variable_struct_set(_B, "_command_actor_index", _next_actor);
     }
     if (is_struct(_UI)){

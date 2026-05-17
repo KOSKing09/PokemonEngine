@@ -38,6 +38,38 @@ function party_model_ensure_species_id(_mon){
     return _mon;
 }
 
+function party_model_normalize_sex_fields(_mon){
+    if (!is_struct(_mon)) return _mon;
+
+    var _sex = "";
+    if (variable_struct_exists(_mon, "sex")) _sex = string_lower(string(variable_struct_get(_mon, "sex")));
+    if (string_length(_sex) <= 0 && variable_struct_exists(_mon, "gender")) _sex = string_lower(string(variable_struct_get(_mon, "gender")));
+    if (_sex == "m" || _sex == "male" || _sex == "boy") _sex = "male";
+    else if (_sex == "f" || _sex == "female" || _sex == "girl") _sex = "female";
+    else if (_sex == "genderless" || _sex == "none" || _sex == "unknown" || _sex == "n/a") _sex = "genderless";
+    else _sex = "";
+
+    if (string_length(_sex) <= 0 && !is_undefined(pokemon_factory_roll_sex)){
+        var _sid = party_model_resolve_species_id(_mon);
+        var _seed = 0;
+        if (variable_struct_exists(_mon, "idno") && is_real(variable_struct_get(_mon, "idno"))) _seed = variable_struct_get(_mon, "idno");
+        else _seed = _sid * 1000;
+        _sex = pokemon_factory_roll_sex(_sid, _seed);
+    }
+    if (string_length(_sex) <= 0) _sex = "genderless";
+
+    variable_struct_set(_mon, "sex", _sex);
+    variable_struct_set(_mon, "gender", _sex);
+    var _sex_id = 0;
+    if (!is_undefined(pokemon_factory_sex_id)) _sex_id = pokemon_factory_sex_id(_sex);
+    else if (_sex == "female") _sex_id = 1;
+    else if (_sex == "male") _sex_id = 2;
+    variable_struct_set(_mon, "sex_id", _sex_id);
+    variable_struct_set(_mon, "gender_id", _sex_id);
+
+    return _mon;
+}
+
 function party_model_normalize_hp_fields(_mon){
     if (!is_struct(_mon)) return _mon;
 
@@ -116,6 +148,7 @@ function party_model_add_mon(_pid, _mon){
     // Normalize HP fields to avoid hp_max < current HP issues
     if (is_struct(_mon)){
         _mon = party_model_ensure_species_id(_mon);
+        _mon = party_model_normalize_sex_fields(_mon);
         _mon = party_model_normalize_hp_fields(_mon);
     }
     array_push(_mons, _mon);
@@ -242,6 +275,7 @@ function party_model_store_caught_mon(_pid, _mon){
 
     _stored = party_model__copy_capture_move_fields(_stored, party_model__find_capture_mon_source(_mon), true);
     _stored = party_model__copy_capture_move_fields(_stored, _mon, false);
+    _stored = party_model_normalize_sex_fields(_stored);
     _stored = party_model_normalize_hp_fields(_stored);
 
     if (!variable_struct_exists(_stored, "pokeball_item_id") || !is_real(variable_struct_get(_stored, "pokeball_item_id")) || variable_struct_get(_stored, "pokeball_item_id") <= 0){
@@ -258,6 +292,7 @@ function party_model_store_caught_mon(_pid, _mon){
         // Preserve moves after OT/ID assignment too.
         _stored = party_model__copy_capture_move_fields(_stored, party_model__find_capture_mon_source(_mon), true);
         _stored = party_model__copy_capture_move_fields(_stored, _mon, false);
+        _stored = party_model_normalize_sex_fields(_stored);
         _stored = party_model_normalize_hp_fields(_stored);
 
         var _slot = party_model_add_mon(_pid, _stored);
@@ -542,7 +577,7 @@ function party_model_copy_caught_mon(_source){
 function party_model__copy_known_capture_fields(_dst, _src){
     if (!is_struct(_dst) || !is_struct(_src)) return _dst;
 
-    var _keys = ["moves","move_ids","move_slots","current_moves","pp","pp_now","pp_max","nickname","name","species_id","species","id","level","lvl","hp","hp_now","hp_max","maxhp","ability","ability_id","nature","gender","shiny","exp","held_item","item"];
+    var _keys = ["moves","move_ids","move_slots","current_moves","pp","pp_now","pp_max","nickname","name","species_id","species","id","level","lvl","hp","hp_now","hp_max","maxhp","ability","ability_id","nature","sex","gender","sex_id","gender_id","shiny","exp","held_item","item"];
     for (var _i = 0; _i < array_length(_keys); ++_i){
         var _k = _keys[_i];
         if (variable_struct_exists(_src, _k)){
@@ -616,7 +651,10 @@ function party_model__copy_capture_identity_fields(_dst, _src, _force){
         "ability",
         "ability_id",
         "nature",
+        "sex",
         "gender",
+        "sex_id",
+        "gender_id",
         "shiny",
         "exp",
         "held_item",

@@ -303,6 +303,7 @@ function __party_impl_desc_draw_scrollable_colored(_x, _y, _w, _h, _text) {
 
     draw_set_halign(fa_left);
     draw_set_valign(fa_top);
+    var _textW = max(12, _w - 8);
 
     var _words = string_split(string(_text), " ");
     var _lines = [];
@@ -311,7 +312,7 @@ function __party_impl_desc_draw_scrollable_colored(_x, _y, _w, _h, _text) {
 
     for (_i = 0; _i < _n; _i++) {
         var _test = (_cur == "") ? _words[_i] : (_cur + " " + _words[_i]);
-        if (string_width(_test) <= _w) {
+        if (string_width(_test) <= _textW) {
             _cur = _test;
         } else {
             if (string_length(_cur) == 0) {
@@ -319,7 +320,7 @@ function __party_impl_desc_draw_scrollable_colored(_x, _y, _w, _h, _text) {
                 var _k, _seg = "";
                 for (_k = 1; _k <= string_length(_word); _k++) {
                     var _segTest = _seg + string_copy(_word, _k, 1);
-                    if (string_width(_segTest) > _w) {
+                    if (string_width(_segTest) > _textW) {
                         array_push(_lines, _seg);
                         _seg = string_copy(_word, _k, 1);
                     } else {
@@ -335,7 +336,7 @@ function __party_impl_desc_draw_scrollable_colored(_x, _y, _w, _h, _text) {
     }
     if (string_length(_cur) > 0) array_push(_lines, _cur);
 
-    var _lineH = max(12, string_height("A") + 2);
+    var _lineH = max(9, string_height("A") + 1);
     var _totalH = array_length(_lines) * _lineH;
 
     if (variable_global_exists("sys_party_desc_scroll_req")){

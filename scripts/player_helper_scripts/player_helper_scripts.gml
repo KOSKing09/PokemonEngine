@@ -551,6 +551,15 @@ function multiplayer_find_nearby_assist_pid(_trigger_pid, _radius = undefined){
     return _assist_pid;
 }
 
+function multiplayer_find_joined_assist_pid(_trigger_pid){
+    if (multiplayer_queue_mode() != "coop") return -1;
+    var _leader_pid = max(0, floor(_trigger_pid));
+    var _assist_pid = (_leader_pid == 0) ? 1 : 0;
+    if (!multiplayer_player_joined(_assist_pid)) return -1;
+    if (!overworld_encounter_can_start(_assist_pid)) return -1;
+    return _assist_pid;
+}
+
 function multiplayer_clear_wild_assist_request(){
     var _M = multiplayer_ensure_state();
     var _WR = variable_struct_get(_M, "wild_assist_request");
@@ -578,6 +587,240 @@ function multiplayer_clear_wild_assist_request(){
     });
     global.MULTIPLAYER = _M;
     return false;
+}
+
+function multiplayer_trainer_team_select_active(){
+    var _M = multiplayer_ensure_state();
+    return (variable_struct_exists(_M, "trainer_team_select") && is_struct(variable_struct_get(_M, "trainer_team_select")) && variable_struct_get(variable_struct_get(_M, "trainer_team_select"), "active") == true);
+}
+
+function __multiplayer_party_usable_indexes(_pid){
+    var _out = [];
+    var _P = party_ensure(_pid);
+    if (!is_struct(_P) || !variable_struct_exists(_P, "mons") || !is_array(variable_struct_get(_P, "mons"))) return _out;
+    var _mons = variable_struct_get(_P, "mons");
+    for (var _i = 0; _i < array_length(_mons); ++_i){
+        var _mon = _mons[_i];
+        if (!is_struct(_mon)) continue;
+        if (__battle_hp_now(_mon) <= 0) continue;
+        array_push(_out, _i);
+    }
+    return _out;
+}
+
+function __multiplayer_default_team_indexes(_pid, _count){
+    var _usable = __multiplayer_party_usable_indexes(_pid);
+    var _out = [];
+    var _P = party_ensure(_pid);
+    var _selected = -1;
+    if (is_struct(_P) && variable_struct_exists(_P, "sel") && is_real(variable_struct_get(_P, "sel"))){
+        _selected = floor(variable_struct_get(_P, "sel"));
+        try {
+            if (!is_undefined(__party_visible_to_real_index)) _selected = __party_visible_to_real_index(_pid, _selected);
+        } catch (e_default_team_visible) {}
+    }
+    if (_selected >= 0 && __multiplayer_team_has_index(_usable, _selected)) array_push(_out, _selected);
+    for (var _i = 0; _i < array_length(_usable) && array_length(_out) < _count; ++_i){
+        if (__multiplayer_team_has_index(_out, _usable[_i])) continue;
+        array_push(_out, _usable[_i]);
+    }
+    return _out;
+}
+
+function __multiplayer_team_has_index(_arr, _idx){
+    if (!is_array(_arr)) return false;
+    for (var _i = 0; _i < array_length(_arr); ++_i) if (_arr[_i] == _idx) return true;
+    return false;
+}
+
+function __multiplayer_team_toggle_index(_arr, _idx, _max_count){
+    var _out = [];
+    var _removed = false;
+    if (is_array(_arr)){
+        for (var _i = 0; _i < array_length(_arr); ++_i){
+            if (_arr[_i] == _idx){ _removed = true; continue; }
+            array_push(_out, _arr[_i]);
+        }
+    }
+    if (!_removed && array_length(_out) < _max_count) array_push(_out, _idx);
+    return _out;
+}
+
+function __multiplayer_team_add_index(_arr, _idx, _max_count){
+    var _out = [];
+    if (is_array(_arr)){
+        for (var _i = 0; _i < array_length(_arr); ++_i){
+            if (_arr[_i] == _idx) return _arr;
+            array_push(_out, _arr[_i]);
+        }
+    }
+    if (array_length(_out) < _max_count) array_push(_out, _idx);
+    return _out;
+}
+
+function multiplayer_begin_trainer_team_select(_requester_pid, _responder_pid, _open_level, _area_type, _opts, _source_npc = noone, _source_owner = noone){
+    if (!is_struct(_opts)) return false;
+    var _req = max(0, floor(_requester_pid));
+    var _res = max(0, floor(_responder_pid));
+    var _battle_kind = "wild";
+    try {
+        if (variable_struct_exists(_opts, "battle_type")) _battle_kind = string_lower(string(variable_struct_get(_opts, "battle_type")));
+        else if (variable_struct_exists(_opts, "type")) _battle_kind = string_lower(string(variable_struct_get(_opts, "type")));
+    } catch (e_team_kind) { _battle_kind = "wild"; }
+    var _M = multiplayer_ensure_state();
+    variable_struct_set(_M, "trainer_team_select", {
+        active: true,
+        battle_kind: _battle_kind,
+        requester_pid: _req,
+        responder_pid: _res,
+        open_level: max(1, floor(_open_level)),
+        area_type: string(_area_type),
+        opts: _opts,
+        source_npc: _source_npc,
+        source_owner: _source_owner,
+        cursor: [0, 0],
+        ready: [false, false],
+        selected: [__multiplayer_default_team_indexes(_req, 3), __multiplayer_default_team_indexes(_res, 3)]
+    });
+    global.MULTIPLAYER = _M;
+    return true;
+}
+
+function multiplayer_finish_trainer_team_select(){
+    var _M = multiplayer_ensure_state();
+    var _TS = variable_struct_exists(_M, "trainer_team_select") ? variable_struct_get(_M, "trainer_team_select") : undefined;
+    if (!is_struct(_TS) || variable_struct_get(_TS, "active") != true) return false;
+    var _req = max(0, floor(variable_struct_get(_TS, "requester_pid")));
+    var _res = max(0, floor(variable_struct_get(_TS, "responder_pid")));
+    var _opts = variable_struct_get(_TS, "opts");
+    if (!is_struct(_opts)) return false;
+    var _battle_kind = variable_struct_exists(_TS, "battle_kind") ? string_lower(string(variable_struct_get(_TS, "battle_kind"))) : "wild";
+    var _sel = variable_struct_get(_TS, "selected");
+    var _team_req = (is_array(_sel) && array_length(_sel) > 0 && is_array(_sel[0])) ? _sel[0] : __multiplayer_default_team_indexes(_req, 3);
+    var _team_res = (is_array(_sel) && array_length(_sel) > 1 && is_array(_sel[1])) ? _sel[1] : __multiplayer_default_team_indexes(_res, 3);
+    if (array_length(_team_req) <= 0) _team_req = __multiplayer_default_team_indexes(_req, 3);
+    if (array_length(_team_res) <= 0) _team_res = __multiplayer_default_team_indexes(_res, 3);
+    variable_struct_set(_opts, "player_party_indexes", [_team_req, _team_res]);
+    variable_struct_set(_opts, "player_party_limit", 3);
+    variable_struct_set(_opts, "coop_enabled", true);
+    variable_struct_set(_opts, "player_pids", [_req, _res]);
+    variable_struct_set(_opts, "battle_format", "double");
+    variable_struct_set(_TS, "active", false);
+    variable_struct_set(_M, "trainer_team_select", _TS);
+    global.MULTIPLAYER = _M;
+    if (_battle_kind == "trainer" && !is_undefined(battle_open_trainer)) battle_open_trainer(_req, _opts);
+    else battle_open(_req, max(1, floor(variable_struct_get(_TS, "open_level"))), string(variable_struct_get(_TS, "area_type")), _opts);
+    if (!is_undefined(battle_is_open) && battle_is_open(_req)){
+        var _src_npc = variable_struct_exists(_TS, "source_npc") ? variable_struct_get(_TS, "source_npc") : noone;
+        var _src_owner = variable_struct_exists(_TS, "source_owner") ? variable_struct_get(_TS, "source_owner") : noone;
+        if (_src_npc != noone || _src_owner != noone) __multiplayer_cleanup_wild_assist_source({ source_npc: _src_npc, source_owner: _src_owner });
+    }
+    if (!is_undefined(splitscreen_apply_gui_size)) splitscreen_apply_gui_size();
+    return true;
+}
+
+function multiplayer_update_trainer_team_select(_pid){
+    var _self = max(0, floor(_pid));
+    var _M = multiplayer_ensure_state();
+    var _TS = variable_struct_exists(_M, "trainer_team_select") ? variable_struct_get(_M, "trainer_team_select") : undefined;
+    if (!is_struct(_TS) || variable_struct_get(_TS, "active") != true) return false;
+    var _req = max(0, floor(variable_struct_get(_TS, "requester_pid")));
+    var _res = max(0, floor(variable_struct_get(_TS, "responder_pid")));
+    var _slot = (_self == _req) ? 0 : ((_self == _res) ? 1 : -1);
+    if (_slot < 0) return false;
+    if (!is_undefined(dialog2p_is_open) && dialog2p_is_open(_self)) return true;
+    var _cursor = variable_struct_get(_TS, "cursor");
+    var _ready = variable_struct_get(_TS, "ready");
+    var _selected = variable_struct_get(_TS, "selected");
+    if (!is_array(_cursor)) _cursor = [0, 0];
+    if (!is_array(_ready)) _ready = [false, false];
+    if (!is_array(_selected)) _selected = [[], []];
+    var _usable = __multiplayer_party_usable_indexes(_self);
+    var _max_cursor = max(0, array_length(_usable) - 1);
+    if (array_length(_cursor) <= _slot) array_resize(_cursor, _slot + 1);
+    if (array_length(_ready) <= _slot) array_resize(_ready, _slot + 1);
+    if (array_length(_selected) <= _slot) array_resize(_selected, _slot + 1);
+    if (!is_array(_selected[_slot])) _selected[_slot] = [];
+    _cursor[_slot] = clamp(floor(_cursor[_slot]), 0, _max_cursor);
+    var _old_cursor_slot = _cursor[_slot];
+    if (controls_pressed(_self, "MoveUp")) _cursor[_slot] = max(0, _cursor[_slot] - 1);
+    if (controls_pressed(_self, "MoveDown")) _cursor[_slot] = min(_max_cursor, _cursor[_slot] + 1);
+    if (_old_cursor_slot != _cursor[_slot] && !is_undefined(ui_play_select_sound)) ui_play_select_sound();
+    if (controls_pressed(_self, "Interact") && array_length(_usable) > 0){
+        _selected[_slot] = __multiplayer_team_add_index(_selected[_slot], _usable[_cursor[_slot]], 3);
+        _ready[_slot] = false;
+    }
+    if (controls_pressed(_self, "Back")){
+        _ready[_slot] = false;
+        if (array_length(_selected[_slot]) > 0) _selected[_slot] = array_delete(_selected[_slot], array_length(_selected[_slot]) - 1, 1);
+    }
+    if (controls_pressed(_self, "Pause") || controls_pressed(_self, "Inventory")){
+        if (array_length(_selected[_slot]) > 0) _ready[_slot] = true;
+    }
+    variable_struct_set(_TS, "cursor", _cursor);
+    variable_struct_set(_TS, "ready", _ready);
+    variable_struct_set(_TS, "selected", _selected);
+    variable_struct_set(_M, "trainer_team_select", _TS);
+    global.MULTIPLAYER = _M;
+    if (_ready[0] == true && _ready[1] == true) return multiplayer_finish_trainer_team_select();
+    return true;
+}
+
+function multiplayer_draw_trainer_team_select_rect(_pid, _rx, _ry, _rw, _rh){
+    var _M = multiplayer_ensure_state();
+    var _TS = variable_struct_exists(_M, "trainer_team_select") ? variable_struct_get(_M, "trainer_team_select") : undefined;
+    if (!is_struct(_TS) || variable_struct_get(_TS, "active") != true) return false;
+    var _self = max(0, floor(_pid));
+    var _req = max(0, floor(variable_struct_get(_TS, "requester_pid")));
+    var _res = max(0, floor(variable_struct_get(_TS, "responder_pid")));
+    var _slot = (_self == _req) ? 0 : ((_self == _res) ? 1 : -1);
+    if (_slot < 0) return false;
+    var _cursor = variable_struct_get(_TS, "cursor");
+    var _ready = variable_struct_get(_TS, "ready");
+    var _selected = variable_struct_get(_TS, "selected");
+    var _usable = __multiplayer_party_usable_indexes(_self);
+    var _cur = (is_array(_cursor) && array_length(_cursor) > _slot && is_real(_cursor[_slot])) ? floor(_cursor[_slot]) : 0;
+    var _sel = (is_array(_selected) && array_length(_selected) > _slot && is_array(_selected[_slot])) ? _selected[_slot] : [];
+    var _is_ready = (is_array(_ready) && array_length(_ready) > _slot && _ready[_slot] == true);
+    draw_set_alpha(0.86);
+    draw_set_color(make_color_rgb(28, 44, 56));
+    draw_rectangle(_rx + 8, _ry + 8, _rx + _rw - 8, _ry + _rh - 8, false);
+    draw_set_alpha(1);
+    draw_set_color(make_color_rgb(222, 238, 232));
+    draw_rectangle(_rx + 11, _ry + 11, _rx + _rw - 11, _ry + _rh - 11, false);
+    var _font_small = variable_global_exists("FNT_POKEMON_SMALL") ? global.FNT_POKEMON_SMALL : (variable_global_exists("FNT_POKEMON") ? global.FNT_POKEMON : -1);
+    if (_font_small != -1) draw_set_font(_font_small);
+    draw_set_halign(fa_left);
+    draw_set_valign(fa_top);
+    draw_set_color(make_color_rgb(28, 44, 56));
+    draw_text(_rx + 18, _ry + 21, "TAG BATTLE TEAM  " + string(array_length(_sel)) + "/3");
+    var _P = party_ensure(_self);
+    var _mons = (is_struct(_P) && variable_struct_exists(_P, "mons") && is_array(variable_struct_get(_P, "mons"))) ? variable_struct_get(_P, "mons") : [];
+    var _row_y = _ry + 46;
+    var _footer_y = _ry + _rh - 20;
+    var _row_h_team = 15;
+    var _max_rows_fit = max(0, floor((_footer_y - _row_y - 4) / _row_h_team));
+    var _draw_rows = min(array_length(_usable), min(6, _max_rows_fit));
+    for (var _i = 0; _i < _draw_rows; ++_i){
+        var _idx = _usable[_i];
+        var _mon = (_idx >= 0 && _idx < array_length(_mons)) ? _mons[_idx] : undefined;
+        var _name = is_struct(_mon) && variable_struct_exists(_mon, "name") ? string(variable_struct_get(_mon, "name")) : ("Pokemon " + string(_idx + 1));
+        var _picked = __multiplayer_team_has_index(_sel, _idx);
+        var _y = _row_y + _i * _row_h_team;
+        if (_i == _cur){
+            draw_set_color(make_color_rgb(72, 88, 80));
+            draw_rectangle(_rx + 16, _y - 1, _rx + _rw - 16, _y + 12, false);
+        }
+        draw_set_color((_i == _cur) ? make_color_rgb(222, 238, 232) : make_color_rgb(28, 44, 56));
+        draw_text(_rx + 20, _y, (_picked ? "* " : "  ") + _name);
+    }
+    draw_set_color(make_color_rgb(222, 238, 232));
+    draw_rectangle(_rx + 12, _footer_y - 2, _rx + _rw - 12, _ry + _rh - 12, false);
+    draw_set_color(make_color_rgb(28, 44, 56));
+    draw_text(_rx + 18, _footer_y, _is_ready ? "READY" : "Z/N: pick   C/B removes   Start/Tab ready");
+    draw_set_alpha(1);
+    draw_set_color(c_white);
+    return true;
 }
 
 function multiplayer_wild_assist_request_active(){
@@ -625,6 +868,28 @@ function multiplayer_request_wild_assist_battle(_requester_pid, _responder_pid, 
     return true;
 }
 
+function __multiplayer_battle_opts_clone(_opts){
+    var _out = {};
+    if (!is_struct(_opts)) return _out;
+    var _keys = variable_struct_get_names(_opts);
+    for (var _i = 0; _i < array_length(_keys); ++_i){
+        var _key = _keys[_i];
+        variable_struct_set(_out, _key, variable_struct_get(_opts, _key));
+    }
+    return _out;
+}
+
+function __multiplayer_declined_assist_opts(_opts, _requester_pid){
+    var _out = __multiplayer_battle_opts_clone(_opts);
+    var _req = max(0, floor(_requester_pid));
+    variable_struct_set(_out, "coop_enabled", false);
+    variable_struct_set(_out, "battle_format", "single");
+    variable_struct_set(_out, "player_pids", [_req]);
+    try { if (variable_struct_exists(_out, "player_party_indexes")) variable_struct_remove(_out, "player_party_indexes"); } catch (e_decline_party_indexes) {}
+    try { if (variable_struct_exists(_out, "player_party_limit")) variable_struct_remove(_out, "player_party_limit"); } catch (e_decline_party_limit) {}
+    return _out;
+}
+
 function __multiplayer_cleanup_wild_assist_source(_WR){
     if (!is_struct(_WR)) return;
     var _npc = variable_struct_exists(_WR, "source_npc") ? variable_struct_get(_WR, "source_npc") : noone;
@@ -650,21 +915,20 @@ function multiplayer_start_wild_assist_battle(_accepted){
     var _requester_pid = max(0, floor(variable_struct_get(_WR, "requester_pid")));
     var _responder_pid = max(0, floor(variable_struct_get(_WR, "responder_pid")));
     var _accepted_bool = (_accepted == true);
-    var _opts = _accepted_bool ? variable_struct_get(_WR, "opts_double") : variable_struct_get(_WR, "opts_single");
+    var _opts = _accepted_bool ? __multiplayer_battle_opts_clone(variable_struct_get(_WR, "opts_double")) : __multiplayer_declined_assist_opts(variable_struct_get(_WR, "opts_single"), _requester_pid);
     if (!is_struct(_opts)) _opts = { battle_type: "wild", battle_format: "single" };
 
     if (_accepted_bool){
         if (!multiplayer_player_joined(_responder_pid)){
             _accepted_bool = false;
-            _opts = variable_struct_get(_WR, "opts_single");
+            _opts = __multiplayer_declined_assist_opts(variable_struct_get(_WR, "opts_single"), _requester_pid);
         } else {
             variable_struct_set(_opts, "coop_enabled", true);
             variable_struct_set(_opts, "player_pids", [_requester_pid, _responder_pid]);
             variable_struct_set(_opts, "battle_format", "double");
         }
     } else {
-        variable_struct_set(_opts, "coop_enabled", false);
-        variable_struct_set(_opts, "battle_format", "single");
+        _opts = __multiplayer_declined_assist_opts(_opts, _requester_pid);
     }
 
     var _req_player = player_by_pid(_requester_pid);
@@ -676,7 +940,19 @@ function multiplayer_start_wild_assist_battle(_accepted){
 
     var _level = max(1, floor(variable_struct_get(_WR, "open_level")));
     var _area = string(variable_struct_get(_WR, "area_type"));
-    battle_open(_requester_pid, _level, _area, _opts);
+    var _is_trainer_assist = false;
+    try {
+        _is_trainer_assist = (is_struct(_opts)
+            && ((variable_struct_exists(_opts, "battle_type") && string_lower(string(variable_struct_get(_opts, "battle_type"))) == "trainer")
+                || (variable_struct_exists(_opts, "type") && string_lower(string(variable_struct_get(_opts, "type"))) == "trainer")));
+    } catch (e_assist_type) { _is_trainer_assist = false; }
+    if (_accepted_bool){
+        var _source_npc_ts = variable_struct_exists(_WR, "source_npc") ? variable_struct_get(_WR, "source_npc") : noone;
+        var _source_owner_ts = variable_struct_exists(_WR, "source_owner") ? variable_struct_get(_WR, "source_owner") : noone;
+        multiplayer_clear_wild_assist_request();
+        return multiplayer_begin_trainer_team_select(_requester_pid, _responder_pid, _level, _area, _opts, _source_npc_ts, _source_owner_ts);
+    } else if (_is_trainer_assist && !is_undefined(battle_open_trainer)) battle_open_trainer(_requester_pid, _opts);
+    else battle_open(_requester_pid, _level, _area, _opts);
     var _opened = (!is_undefined(battle_is_open) && battle_is_open(_requester_pid));
     if (_opened) __multiplayer_cleanup_wild_assist_source(_WR);
     multiplayer_clear_wild_assist_request();
@@ -745,6 +1021,7 @@ function multiplayer_update_wild_assist_request(_pid){
         _sel = clamp(_sel, 0, 1);
         if (controls_pressed(_responder_pid, "MoveUp") || controls_pressed(_responder_pid, "MoveDown")){
             _sel = 1 - _sel;
+            if (!is_undefined(ui_play_select_sound)) ui_play_select_sound();
             variable_struct_set(_WR, "choice_sel", _sel);
             variable_struct_set(_M, "wild_assist_request", _WR);
             global.MULTIPLAYER = _M;
@@ -819,7 +1096,7 @@ function multiplayer_draw_wild_assist_choice_rect(_pid, _rx, _ry, _rw, _rh){
             draw_rectangle(_row_x1, _row_y, _row_x2, _row_y + _row_h, false);
         }
         draw_set_color(_hilite ? make_color_rgb(208, 232, 224) : make_color_rgb(36, 52, 40));
-        draw_text((_row_x1 + _row_x2) * 0.5, _row_y + 2 * _scale_y, _opts[_i]);
+        draw_text((_row_x1 + _row_x2) * 0.5, _row_y + 2 * _scale_y + 3, _opts[_i]);
     }
     draw_set_halign(fa_left);
     draw_set_valign(fa_top);
@@ -1144,6 +1421,7 @@ function world_play_music(_snd, _loop = true){
 
     world_stop_room_music();
     var _handle = noone;
+    try { audio_stop_sound(_snd); } catch (e_world_stop_duplicate_music) {}
     try { _handle = audio_play_sound(_snd, 1, _loop == true); } catch (e_world_play_music) { return false; }
 
     _W = world_init();
@@ -1163,7 +1441,9 @@ function world_set_room_music(_room_id, _music = noone){
 function world_stop_room_music(){
     var _W = world_init();
     var _current = variable_struct_exists(_W, "current_music") ? variable_struct_get(_W, "current_music") : noone;
+    var _current_asset = variable_struct_exists(_W, "current_music_asset") ? variable_struct_get(_W, "current_music_asset") : noone;
     try { if (is_real(_current) && _current != noone) audio_stop_sound(_current); } catch (e_stop_room_music) {}
+    try { if (!is_undefined(_current_asset) && _current_asset != noone && _current_asset != -1) audio_stop_sound(_current_asset); } catch (e_stop_room_music_asset) {}
     variable_struct_set(_W, "current_music", noone);
     variable_struct_set(_W, "current_music_asset", noone);
     global.WORLD = _W;
@@ -1196,6 +1476,7 @@ function world_apply_room_music(_room_id, _override_music = undefined, _override
 
     world_stop_room_music();
     var _handle = noone;
+    try { audio_stop_sound(_snd); } catch (e_apply_stop_duplicate_music) {}
     try { _handle = audio_play_sound(_snd, 1, true); } catch (e_play_room_music) { return false; }
 
     _W = world_init();
@@ -1234,6 +1515,24 @@ function __overworld_find_npc_by_id(_npc_id){
         if (string(variable_instance_get(_npc, "npc_id")) == _target) return _npc;
     }
     return noone;
+}
+
+function overworld_field_interaction_blocked(_pid){
+    if (!is_real(_pid)) _pid = 0;
+    _pid = max(0, floor(_pid));
+    if (!is_undefined(bag_is_open) && bag_is_open(_pid)) return true;
+    if (!is_undefined(pause_is_open) && pause_is_open(_pid)) return true;
+    if (!is_undefined(party_is_open) && party_is_open(_pid)) return true;
+    if (!is_undefined(pc_is_open) && pc_is_open(_pid)) return true;
+    if (!is_undefined(poke_index_is_open) && poke_index_is_open(_pid)) return true;
+    if (variable_global_exists("VKEYBOARD") && is_array(global.VKEYBOARD) && _pid < array_length(global.VKEYBOARD)){
+        var _vk = global.VKEYBOARD[_pid];
+        if (is_struct(_vk) && variable_struct_exists(_vk, "open") && variable_struct_get(_vk, "open") == true) return true;
+    }
+    if (!is_undefined(multiplayer_trainer_team_select_active) && multiplayer_trainer_team_select_active()) return true;
+    if (!is_undefined(battle_is_open) && battle_is_open(_pid)) return true;
+    if (!is_undefined(battle_any_open) && battle_any_open()) return true;
+    return false;
 }
 
 function __world_room_ensure_room1_cutscene_npc(){
@@ -1311,6 +1610,8 @@ function world_room_apply(){
 
 function world_warp_to_transition(_room_id, _spawn_x, _spawn_y, _opts = undefined, _style = undefined, _duration_ms = undefined){
     var _W = world_init();
+    if (is_struct(_W) && variable_struct_exists(_W, "pending_warp") && is_struct(variable_struct_get(_W, "pending_warp"))) return true;
+    if (!is_undefined(transition_is_blocking) && transition_is_blocking()) return true;
     var _facing = is_struct(_opts) && variable_struct_exists(_opts, "facing") ? variable_struct_get(_opts, "facing") : undefined;
     var _show_route = is_struct(_opts) && variable_struct_exists(_opts, "show_route") ? (variable_struct_get(_opts, "show_route") == true) : false;
     var _p2_offset_x = is_struct(_opts) && variable_struct_exists(_opts, "p2_offset_x") ? real(variable_struct_get(_opts, "p2_offset_x")) : 16;
@@ -1531,6 +1832,7 @@ function pokemon_follower_create(_pid, _mon){
     var _npc = instance_create_layer(_spawn.x, _spawn.y, "Instances", oNpc);
     if (_npc == noone) return noone;
     variable_instance_set(_npc, "follower_pokemon", true);
+    variable_instance_set(_npc, "world_solid", false);
     variable_instance_set(_npc, "follower_pid", max(0, floor(_pid)));
     variable_instance_set(_npc, "follower_mon", _mon);
     variable_instance_set(_npc, "follower_species_id", pokemon_follower_species_id(_mon));
@@ -1804,6 +2106,7 @@ function pokemon_center_start_heal(_pid){
     variable_struct_set(_C, "ball_index", 0);
     variable_struct_set(_C, "party_count", pokemon_center_party_count(_pid));
     variable_struct_set(_C, "next_ms", current_time + 160);
+    if (instance_exists(_C.npc)) pokemon_center_set_nurse_pose(_C.npc, "left");
     if (instance_exists(_C.tray)) pokemon_center_set_tray_index(_C.tray, 0);
     global.POKEMON_CENTER = _C;
     return true;
@@ -1909,7 +2212,7 @@ function pokemon_center_draw_yesno_rect(_pid, _rx, _ry, _rw, _rh){
             draw_rectangle(_row_x1, _row_y, _row_x2, _row_y + _row_h, false);
         }
         draw_set_color(_hilite ? make_color_rgb(208, 232, 224) : make_color_rgb(36, 52, 40));
-        draw_text((_row_x1 + _row_x2) * 0.5, _row_y + 2 * _scale_y, _opts[_i]);
+        draw_text((_row_x1 + _row_x2) * 0.5, _row_y + 2 * _scale_y + 3, _opts[_i]);
     }
     draw_set_halign(fa_left);
     draw_set_valign(fa_top);
@@ -1991,7 +2294,13 @@ function overworld_npc_init(_inst){
         variable_instance_set(_inst, "interact_radius", max(40, variable_instance_get(_inst, "interact_radius")));
         variable_instance_set(_inst, "wander_enabled", false);
         variable_instance_set(_inst, "trainer_enabled", false);
-        pokemon_center_set_nurse_pose(_inst, "down");
+        var _nurse_bow = asset_get_index("spr_nursejoy_bow");
+        var _current_nurse_sprite = variable_instance_exists(_inst, "sprite_index") ? variable_instance_get(_inst, "sprite_index") : -1;
+        var _has_nurse_pose = (_current_nurse_sprite == _nurse_down)
+            || (_current_nurse_sprite == _nurse_up)
+            || (_current_nurse_sprite == _nurse_left)
+            || (_current_nurse_sprite == _nurse_bow);
+        if (!_has_nurse_pose) pokemon_center_set_nurse_pose(_inst, "down");
     }
     if (!variable_instance_exists(_inst, "npc_facing_dir")) variable_instance_set(_inst, "npc_facing_dir", 2);
     if (!variable_instance_exists(_inst, "npc_anim_speed")) variable_instance_set(_inst, "npc_anim_speed", 0.16);
@@ -2026,6 +2335,7 @@ function overworld_npc_init(_inst){
     if (!variable_instance_exists(_inst, "trainer_target_pid")) variable_instance_set(_inst, "trainer_target_pid", -1);
     if (!variable_instance_exists(_inst, "trainer_approach_x")) variable_instance_set(_inst, "trainer_approach_x", variable_instance_get(_inst, "x"));
     if (!variable_instance_exists(_inst, "trainer_approach_y")) variable_instance_set(_inst, "trainer_approach_y", variable_instance_get(_inst, "y"));
+    if (!variable_instance_exists(_inst, "trainer_approach_face")) variable_instance_set(_inst, "trainer_approach_face", variable_instance_get(_inst, "npc_facing_dir"));
     if (!variable_instance_exists(_inst, "trainer_battle_sprite")) variable_instance_set(_inst, "trainer_battle_sprite", -1);
     if (!variable_instance_exists(_inst, "trainer_battle_sprite_index")) variable_instance_set(_inst, "trainer_battle_sprite_index", 0);
     if (!variable_instance_exists(_inst, "trainer_battle_started")) variable_instance_set(_inst, "trainer_battle_started", false);
@@ -2050,11 +2360,98 @@ function overworld_find_interactable_npc(_player_inst, _max_dist = 18){
         case 3: _fx -= 12; break;
     }
     var _npc = instance_nearest(_fx, _fy, oNpc);
+    if (!is_undefined(oitem)){
+        var _item_pickup = instance_nearest(_fx, _fy, oitem);
+        if (_item_pickup != noone && (_npc == noone || point_distance(_fx, _fy, variable_instance_get(_item_pickup, "x"), variable_instance_get(_item_pickup, "y")) < point_distance(_fx, _fy, variable_instance_get(_npc, "x"), variable_instance_get(_npc, "y")))){
+            _npc = _item_pickup;
+        }
+    }
+    if (!is_undefined(oFieldMoveProp)){
+        var _field_prop = instance_nearest(_fx, _fy, oFieldMoveProp);
+        if (_field_prop != noone && (_npc == noone || point_distance(_fx, _fy, variable_instance_get(_field_prop, "x"), variable_instance_get(_field_prop, "y")) < point_distance(_fx, _fy, variable_instance_get(_npc, "x"), variable_instance_get(_npc, "y")))){
+            _npc = _field_prop;
+        }
+    }
     if (_npc == noone) return noone;
     if (variable_instance_exists(_npc, "encounter_pokemon") && variable_instance_get(_npc, "encounter_pokemon") == true) return noone;
     var _radius = variable_instance_exists(_npc, "interact_radius") ? variable_instance_get(_npc, "interact_radius") : _max_dist;
     if (point_distance(_fx, _fy, variable_instance_get(_npc, "x"), variable_instance_get(_npc, "y")) > max(_max_dist, _radius)) return noone;
     return _npc;
+}
+
+function sfx_play_safe(_sound_res, _priority = 1){
+    if (is_undefined(_sound_res) || _sound_res == noone || _sound_res == -1) return false;
+    try {
+        if (!is_undefined(sound_exists) && !sound_exists(_sound_res)) return false;
+    } catch (e_sfx_exists) {}
+    try {
+        if (!is_undefined(audio_play_sound)){
+            audio_play_sound(_sound_res, _priority, false);
+            return true;
+        }
+    } catch (e_sfx_play) {}
+    return false;
+}
+
+function ui_play_select_sound(){
+    return sfx_play_safe(snd_select, 1);
+}
+
+function ui_play_confirm_sound(){
+    return sfx_play_safe(snd_success_small, 1);
+}
+
+function __overworld_item_is_hm(_item_id, _it){
+    var _txt = "";
+    if (is_struct(_it)){
+        if (variable_struct_exists(_it, "identifier")) _txt += " " + string_lower(string(variable_struct_get(_it, "identifier")));
+        if (variable_struct_exists(_it, "name")) _txt += " " + string_lower(string(variable_struct_get(_it, "name")));
+    }
+    return (string_pos("hm", _txt) > 0 || string_pos("hidden-machine", _txt) > 0);
+}
+
+function overworld_item_pickup_interact(_inst, _pid){
+    if (!instance_exists(_inst)) return false;
+    if (variable_instance_exists(_inst, "item_taken") && variable_instance_get(_inst, "item_taken") == true) return false;
+
+    var _item_id = (variable_instance_exists(_inst, "item_id") && is_real(variable_instance_get(_inst, "item_id"))) ? floor(variable_instance_get(_inst, "item_id")) : -1;
+    var _qty = (variable_instance_exists(_inst, "item_qty") && is_real(variable_instance_get(_inst, "item_qty"))) ? max(1, floor(variable_instance_get(_inst, "item_qty"))) : 1;
+    if (_item_id <= 0) return false;
+
+    var _it = undefined;
+    if (variable_global_exists("_items") && is_array(global._items) && _item_id < array_length(global._items)) _it = global._items[_item_id];
+    var _name = "ITEM";
+    try {
+        if (!is_undefined(bag__item_display_name)) _name = string(bag__item_display_name(_item_id, undefined, _it));
+        else if (is_struct(_it) && variable_struct_exists(_it, "name")) _name = string(variable_struct_get(_it, "name"));
+    } catch (e_pickup_name) { _name = "ITEM"; }
+
+    if (!is_undefined(bag_inventory_add_item)) bag_inventory_add_item(_pid, _item_id, _qty);
+    try { if (!is_undefined(bags_seed_from_items)) bags_seed_from_items(_pid); } catch (e_pickup_seed) {}
+    variable_instance_set(_inst, "item_taken", true);
+
+    if (__overworld_item_is_hm(_item_id, _it)) sfx_play_safe(snd_Receive_HM, 1);
+    else sfx_play_safe(snd_Receive_Item, 1);
+
+    var _prefix = (variable_global_exists("PLAYER_NAME") ? string(global.PLAYER_NAME) : "PLAYER");
+    var _msg = variable_instance_exists(_inst, "item_message") ? string(variable_instance_get(_inst, "item_message")) : "";
+    if (string_length(string_trim(_msg)) <= 0){
+        _msg = (_qty > 1)
+            ? (_prefix + " found " + string(_qty) + " " + string(_name) + "!")
+            : (_prefix + " found one " + string(_name) + "!");
+    }
+    try {
+        if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, _msg);
+        else if (!is_undefined(dialog2p_show)) dialog2p_show(_pid, _msg);
+    } catch (e_pickup_dialog) {}
+
+    if (!variable_instance_exists(_inst, "item_pickup_once") || variable_instance_get(_inst, "item_pickup_once") == true){
+        try { instance_destroy(_inst); } catch (e_pickup_destroy) {
+            variable_instance_set(_inst, "visible", false);
+            variable_instance_set(_inst, "world_solid", false);
+        }
+    }
+    return true;
 }
 
 function overworld_npc_finalize_interaction(_inst, _pid){
@@ -2212,7 +2609,19 @@ function __overworld_npc_snap_value(_v, _tile){
 
 function __overworld_npc_can_stand_at(_inst, _x, _y){
     if (!instance_exists(_inst)) return false;
-    if (!is_undefined(wc_collides_at) && wc_collides_at(_inst, real(_x), real(_y))) return false;
+    if (!is_undefined(wc_collides_at) && wc_collides_at(_inst, real(_x), real(_y), _inst)) return false;
+    var _dx = real(_x) - variable_instance_get(_inst, "x");
+    var _dy = real(_y) - variable_instance_get(_inst, "y");
+    var _l = _inst.bbox_left + _dx;
+    var _r = _inst.bbox_right + _dx;
+    var _t = _inst.bbox_top + _dy;
+    var _b = _inst.bbox_bottom + _dy;
+    for (var _pid = 0; _pid < 2; ++_pid){
+        if (_pid == 1 && !is_undefined(multiplayer_player_joined) && !multiplayer_player_joined(1)) continue;
+        var _pl = player_by_pid(_pid);
+        if (_pl == noone) continue;
+        if (_l < _pl.bbox_right && _r > _pl.bbox_left && _t < _pl.bbox_bottom && _b > _pl.bbox_top) return false;
+    }
     return true;
 }
 
@@ -2223,7 +2632,14 @@ function __overworld_npc_line_clear(_inst, _x1, _y1, _x2, _y2){
     for (var _i = 1; _i <= _steps; ++_i){
         var _px = lerp(_x1, _x2, _i / _steps);
         var _py = lerp(_y1, _y2, _i / _steps);
-        if (!__overworld_npc_can_stand_at(_inst, _px, _py)) return false;
+        var _dx = _px - variable_instance_get(_inst, "x");
+        var _dy = _py - variable_instance_get(_inst, "y");
+        var _l = _inst.bbox_left + _dx;
+        var _r = _inst.bbox_right + _dx;
+        var _t = _inst.bbox_top + _dy;
+        var _b = _inst.bbox_bottom + _dy;
+        if (!is_undefined(wc_tiles_hit_rect) && wc_tiles_hit_rect(_l, _t, _r, _b)) return false;
+        if (_i < _steps && !is_undefined(wc_objects_hit_rect) && wc_objects_hit_rect(_l, _t, _r, _b, _inst)) return false;
     }
     return true;
 }
@@ -2324,6 +2740,7 @@ function __overworld_trainer_player_in_sight(_inst){
         var _pl = player_by_pid(_pid);
         if (_pl == noone) continue;
         if (_pid == 1 && !multiplayer_player_joined(1)) continue;
+        if (!is_undefined(overworld_field_interaction_blocked) && overworld_field_interaction_blocked(_pid)) continue;
         if (!is_undefined(dialog2p_is_open) && dialog2p_is_open(_pid)) continue;
         var _px = variable_instance_get(_pl, "x") + 8;
         var _py = variable_instance_get(_pl, "y") + 8;
@@ -2353,12 +2770,16 @@ function __overworld_trainer_set_approach_target(_inst, _pid){
         if (abs(_delta_x) > abs(_delta_y)) _face_now = (_delta_x >= 0) ? 1 : 3;
         else if (abs(_delta_y) > 0) _face_now = (_delta_y >= 0) ? 2 : 0;
         variable_instance_set(_inst, "npc_facing_dir", _face_now);
+        variable_instance_set(_inst, "trainer_approach_face", _face_now);
+        variable_instance_set(_inst, "trainer_approach_x", __overworld_npc_snap_value(variable_instance_get(_inst, "x"), 16));
+        variable_instance_set(_inst, "trainer_approach_y", __overworld_npc_snap_value(variable_instance_get(_inst, "y"), 16));
         variable_instance_set(_inst, "trainer_target_pid", _pid);
-        variable_instance_set(_inst, "trainer_state", "dialog");
+        variable_instance_set(_inst, "trainer_state", "approach");
         __overworld_npc_anim_update(_inst, false, 0, 0);
         return true;
     }
     var _face = floor(variable_instance_get(_inst, "npc_facing_dir"));
+    variable_instance_set(_inst, "trainer_approach_face", _face);
     var _tx = variable_instance_get(_pl, "x");
     var _ty = variable_instance_get(_pl, "y");
     var _tile = 16;
@@ -2371,13 +2792,37 @@ function __overworld_trainer_set_approach_target(_inst, _pid){
     _tx = __overworld_npc_snap_value(_tx, _tile);
     _ty = __overworld_npc_snap_value(_ty, _tile);
     if (!__overworld_npc_can_stand_at(_inst, _tx, _ty)){
-        _tx = __overworld_npc_snap_value(variable_instance_get(_inst, "x"), _tile);
-        _ty = __overworld_npc_snap_value(variable_instance_get(_inst, "y"), _tile);
+        __overworld_npc_anim_update(_inst, false, 0, 0);
+        return false;
     }
     variable_instance_set(_inst, "trainer_approach_x", _tx);
     variable_instance_set(_inst, "trainer_approach_y", _ty);
     variable_instance_set(_inst, "trainer_target_pid", _pid);
     variable_instance_set(_inst, "trainer_state", "approach");
+    return true;
+}
+
+function __overworld_trainer_at_approach_target(_inst){
+    if (!instance_exists(_inst)) return false;
+    var _tx = variable_instance_exists(_inst, "trainer_approach_x") ? real(variable_instance_get(_inst, "trainer_approach_x")) : real(variable_instance_get(_inst, "x"));
+    var _ty = variable_instance_exists(_inst, "trainer_approach_y") ? real(variable_instance_get(_inst, "trainer_approach_y")) : real(variable_instance_get(_inst, "y"));
+    return point_distance(variable_instance_get(_inst, "x"), variable_instance_get(_inst, "y"), _tx, _ty) <= 1;
+}
+
+function __overworld_trainer_face_target_player(_inst, _pid){
+    var _pl = player_by_pid(_pid);
+    if (_pl == noone || !instance_exists(_inst)) return false;
+    var _trainer_cx = variable_instance_get(_inst, "x") + 8;
+    var _trainer_cy = variable_instance_get(_inst, "y") + 8;
+    var _player_cx = variable_instance_get(_pl, "x") + 8;
+    var _player_cy = variable_instance_get(_pl, "y") + 8;
+    var _dx = _player_cx - _trainer_cx;
+    var _dy = _player_cy - _trainer_cy;
+    var _face = variable_instance_exists(_inst, "trainer_approach_face") ? floor(variable_instance_get(_inst, "trainer_approach_face")) : floor(variable_instance_get(_inst, "npc_facing_dir"));
+    if (abs(_dx) > abs(_dy)) _face = (_dx >= 0) ? 1 : 3;
+    else if (abs(_dy) > 0) _face = (_dy >= 0) ? 2 : 0;
+    variable_instance_set(_inst, "npc_facing_dir", _face);
+    __overworld_npc_anim_update(_inst, false, 0, 0);
     return true;
 }
 
@@ -2408,6 +2853,40 @@ function __overworld_trainer_party_from_npc(_npc){
     var _level = max(1, floor(variable_instance_get(_npc, "trainer_level")));
     if (!is_undefined(pokemon_factory_create)) return [pokemon_factory_create(_species, _level, {})];
     return [{ species:_species, level:_level }];
+}
+
+function __overworld_trainer_random_species_id(_fallback_species){
+    var _fallback = is_real(_fallback_species) ? floor(_fallback_species) : 1;
+    if (variable_global_exists("_pokemon") && is_array(global._pokemon)){
+        for (var _try = 0; _try < 32; ++_try){
+            var _sid = irandom(max(1, array_length(global._pokemon) - 1));
+            if (_sid > 0 && _sid < array_length(global._pokemon) && is_struct(global._pokemon[_sid])) return _sid;
+        }
+    }
+    return max(1, _fallback);
+}
+
+function __overworld_trainer_ensure_double_party(_party, _leader){
+    var _out = [];
+    if (is_array(_party)){
+        for (var _i = 0; _i < array_length(_party); ++_i) array_push(_out, _party[_i]);
+    }
+    if (array_length(_out) >= 2) return _out;
+    var _base_level = 5;
+    var _base_species = 1;
+    if (array_length(_out) > 0 && is_struct(_out[0])){
+        if (variable_struct_exists(_out[0], "level") && is_real(variable_struct_get(_out[0], "level"))) _base_level = max(1, floor(variable_struct_get(_out[0], "level")));
+        else if (variable_struct_exists(_out[0], "lvl") && is_real(variable_struct_get(_out[0], "lvl"))) _base_level = max(1, floor(variable_struct_get(_out[0], "lvl")));
+        if (variable_struct_exists(_out[0], "species_id") && is_real(variable_struct_get(_out[0], "species_id"))) _base_species = floor(variable_struct_get(_out[0], "species_id"));
+        else if (variable_struct_exists(_out[0], "species") && is_real(variable_struct_get(_out[0], "species"))) _base_species = floor(variable_struct_get(_out[0], "species"));
+    } else if (instance_exists(_leader)){
+        if (variable_instance_exists(_leader, "trainer_level")) _base_level = max(1, floor(variable_instance_get(_leader, "trainer_level")));
+        if (variable_instance_exists(_leader, "trainer_species")) _base_species = floor(variable_instance_get(_leader, "trainer_species"));
+    }
+    var _sid = __overworld_trainer_random_species_id(_base_species);
+    if (!is_undefined(pokemon_factory_create)) array_push(_out, pokemon_factory_create(_sid, _base_level, {}));
+    else array_push(_out, { species:_sid, level:_base_level });
+    return _out;
 }
 
 function __overworld_trainer_pending_set(_pid, _entry){
@@ -2469,12 +2948,34 @@ function __overworld_trainer_open_pending_battle(_pid){
         if (!instance_exists(_npc)) continue;
         variable_instance_set(_npc, "trainer_battle_started", true);
         variable_instance_set(_npc, "trainer_defeated", true);
-        variable_instance_set(_npc, "trainer_state", "idle");
+        variable_instance_set(_npc, "trainer_state", "battle");
     }
     var _payload = variable_struct_get(_entry, "payload");
     var _battle_pid = (variable_struct_exists(_entry, "battle_pid") && is_real(variable_struct_get(_entry, "battle_pid"))) ? floor(variable_struct_get(_entry, "battle_pid")) : _pid;
+    if (variable_struct_exists(_entry, "assist_responder_pid") && is_real(variable_struct_get(_entry, "assist_responder_pid"))){
+        var _assist_pid = floor(variable_struct_get(_entry, "assist_responder_pid"));
+        var _payload_single = (variable_struct_exists(_entry, "payload_single") && is_struct(variable_struct_get(_entry, "payload_single"))) ? variable_struct_get(_entry, "payload_single") : _payload;
+        var _payload_double = (variable_struct_exists(_entry, "payload_double") && is_struct(variable_struct_get(_entry, "payload_double"))) ? variable_struct_get(_entry, "payload_double") : _payload;
+        var _open_level = (variable_struct_exists(_entry, "open_level") && is_real(variable_struct_get(_entry, "open_level"))) ? max(1, floor(variable_struct_get(_entry, "open_level"))) : 5;
+        var _area_type = (variable_struct_exists(_entry, "area_type")) ? string(variable_struct_get(_entry, "area_type")) : "forest";
+        if (!is_undefined(multiplayer_request_wild_assist_battle) && multiplayer_request_wild_assist_battle(_battle_pid, _assist_pid, _open_level, _area_type, _payload_single, _payload_double)){
+            return true;
+        }
+        _payload = _payload_single;
+    }
     battle_open_trainer(_battle_pid, _payload);
     return true;
+}
+
+function __overworld_trainer_payload_clone(_payload){
+    var _out = {};
+    if (!is_struct(_payload)) return _out;
+    var _keys = variable_struct_get_names(_payload);
+    for (var _i = 0; _i < array_length(_keys); ++_i){
+        var _key = _keys[_i];
+        variable_struct_set(_out, _key, variable_struct_get(_payload, _key));
+    }
+    return _out;
 }
 
 function __overworld_trainer_begin_dialog(_leader, _pid){
@@ -2500,47 +3001,100 @@ function __overworld_trainer_begin_dialog(_leader, _pid){
         if (is_real(_npc_reward)) _reward += max(0, floor(_npc_reward));
     }
     var _format = string_lower(string(variable_instance_get(_leader, "trainer_battle_format")));
-    if (array_length(_trainers) > 1) _format = "double";
-    var _coop = (variable_instance_get(_leader, "trainer_coop_enabled") == true && multiplayer_queue_mode() == "coop" && multiplayer_player_joined(1));
-    if (_coop) _format = "double";
-    var _battle_pid = _coop ? 0 : _pid;
-    var _player_pids = _coop ? [0, 1] : [_pid];
+    var _trainer_count = array_length(_trainers);
+    var _forced_double_trainers = (_trainer_count > 1);
+    if (_forced_double_trainers) _format = "double";
+    var _assist_pid = -1;
+    if (!_forced_double_trainers && variable_instance_get(_leader, "trainer_coop_enabled") == true && multiplayer_queue_mode() == "coop"){
+        _assist_pid = (_pid == 0) ? 1 : 0;
+        if (!multiplayer_player_joined(_assist_pid)) _assist_pid = -1;
+    }
+    var _battle_pid = _pid;
+    var _player_pids = [_pid];
     var _battle_sprite = variable_instance_get(_leader, "trainer_battle_sprite");
     var _payload = {
         trainer_name: (array_length(_names) > 1) ? "Double Trainers" : string(variable_instance_get(_leader, "trainer_name")),
         party: _party,
+        battle_type: "trainer",
+        type: "trainer",
         area_type: string(variable_instance_get(_leader, "trainer_area_type")),
         battle_format: _format,
-        coop_enabled: _coop,
+        coop_enabled: false,
         player_pids: _player_pids,
         trainer_reward: _reward,
         trainer_sprite: _battle_sprite,
         sprite_index: variable_instance_get(_leader, "trainer_battle_sprite_index")
     };
     var _entry = { index: 0, trainers: _trainers, dialogs: _dialogs, payload: _payload, battle_pid: _battle_pid };
+    if (_assist_pid >= 0){
+        var _payload_single = __overworld_trainer_payload_clone(_payload);
+        variable_struct_set(_payload_single, "battle_format", "single");
+        variable_struct_set(_payload_single, "coop_enabled", false);
+        variable_struct_set(_payload_single, "player_pids", [_pid]);
+        var _payload_double = __overworld_trainer_payload_clone(_payload);
+        var _double_party = __overworld_trainer_ensure_double_party(_party, _leader);
+        variable_struct_set(_payload_double, "battle_format", "double");
+        variable_struct_set(_payload_double, "coop_enabled", true);
+        variable_struct_set(_payload_double, "player_pids", [_pid, _assist_pid]);
+        variable_struct_set(_payload_double, "party", _double_party);
+        variable_struct_set(_payload_double, "enemy_party", _double_party);
+        var _open_level = 5;
+        if (array_length(_party) > 0 && is_struct(_party[0])){
+            if (variable_struct_exists(_party[0], "level") && is_real(variable_struct_get(_party[0], "level"))) _open_level = max(1, floor(variable_struct_get(_party[0], "level")));
+            else if (variable_struct_exists(_party[0], "lvl") && is_real(variable_struct_get(_party[0], "lvl"))) _open_level = max(1, floor(variable_struct_get(_party[0], "lvl")));
+        }
+        variable_struct_set(_entry, "assist_responder_pid", _assist_pid);
+        variable_struct_set(_entry, "payload_single", _payload_single);
+        variable_struct_set(_entry, "payload_double", _payload_double);
+        variable_struct_set(_entry, "open_level", _open_level);
+        variable_struct_set(_entry, "area_type", string(variable_instance_get(_leader, "trainer_area_type")));
+    }
     __overworld_trainer_pending_set(_pid, _entry);
     return __overworld_trainer_show_dialog(_pid);
 }
 
 function __overworld_trainer_step(_inst){
     if (variable_instance_get(_inst, "trainer_enabled") != true) return false;
+    var _state = string(variable_instance_get(_inst, "trainer_state"));
+    if (_state == "battle" || _state == "battle_wait"){
+        var _battle_live = (!is_undefined(battle_any_open) && battle_any_open())
+            || (!is_undefined(multiplayer_wild_assist_request_active) && multiplayer_wild_assist_request_active());
+        if (_battle_live){
+            __overworld_npc_anim_update(_inst, false, 0, 0);
+            return true;
+        }
+        variable_instance_set(_inst, "trainer_state", "idle");
+        _state = "idle";
+    }
     if (variable_instance_get(_inst, "trainer_defeated") == true){
         if (variable_instance_get(_inst, "npc_path_enabled") == true) return __overworld_npc_path_step(_inst);
         if (variable_instance_get(_inst, "wander_enabled") == true) return false;
         __overworld_npc_anim_update(_inst, false, 0, 0);
         return false;
     }
-    var _state = string(variable_instance_get(_inst, "trainer_state"));
     if (_state == "approach"){
         var _pid = floor(variable_instance_get(_inst, "trainer_target_pid"));
-        __overworld_trainer_set_approach_target(_inst, _pid);
+        if (!is_undefined(overworld_field_interaction_blocked) && overworld_field_interaction_blocked(_pid)){
+            var _battle_block = (!is_undefined(battle_any_open) && battle_any_open())
+                || (!is_undefined(multiplayer_wild_assist_request_active) && multiplayer_wild_assist_request_active());
+            variable_instance_set(_inst, "trainer_state", _battle_block ? "battle_wait" : "idle");
+            __overworld_npc_anim_update(_inst, false, 0, 0);
+            return _battle_block;
+        }
         var _moving = __overworld_npc_move_towards(
             _inst,
             variable_instance_get(_inst, "trainer_approach_x"),
             variable_instance_get(_inst, "trainer_approach_y"),
             max(0.1, variable_instance_get(_inst, "trainer_chase_speed"))
         );
-        if (!_moving) return __overworld_trainer_begin_dialog(_inst, _pid);
+        if (!_moving){
+            if (__overworld_trainer_at_approach_target(_inst)){
+                __overworld_trainer_face_target_player(_inst, _pid);
+                return __overworld_trainer_begin_dialog(_inst, _pid);
+            }
+            __overworld_npc_anim_update(_inst, false, 0, 0);
+            return __overworld_trainer_set_approach_target(_inst, _pid);
+        }
         return true;
     }
     if (_state == "dialog") return true;
@@ -2565,15 +3119,22 @@ function overworld_player_locked_by_npc(_pid){
         overworld_npc_init(_npc);
         if (variable_instance_get(_npc, "trainer_enabled") != true) continue;
         var _state = string(variable_instance_get(_npc, "trainer_state"));
-        if ((_state == "approach" || _state == "dialog") && floor(variable_instance_get(_npc, "trainer_target_pid")) == _target_pid) return true;
+        if ((_state == "approach" || _state == "dialog" || _state == "battle" || _state == "battle_wait") && floor(variable_instance_get(_npc, "trainer_target_pid")) == _target_pid) return true;
     }
     return false;
 }
 
 function overworld_npc_interact(_inst, _pid){
     if (!instance_exists(_inst)) return false;
+    if (!is_undefined(oitem) && _inst.object_index == oitem && !is_undefined(overworld_item_pickup_interact)){
+        return overworld_item_pickup_interact(_inst, _pid);
+    }
     overworld_npc_init(_inst);
+    if (!is_undefined(overworld_field_interaction_blocked) && overworld_field_interaction_blocked(_pid)) return false;
     if (variable_instance_exists(_inst, "encounter_pokemon") && variable_instance_get(_inst, "encounter_pokemon") == true) return false;
+    if (variable_instance_exists(_inst, "field_move_required") && string_length(string(variable_instance_get(_inst, "field_move_required"))) > 0 && !is_undefined(field_move_prop_interact)){
+        return field_move_prop_interact(_inst, _pid);
+    }
     if (variable_instance_exists(_inst, "follower_pokemon") && variable_instance_get(_inst, "follower_pokemon") == true) return pokemon_follower_talk(_inst, _pid);
     if (variable_instance_exists(_inst, "pokemon_center_nurse") && variable_instance_get(_inst, "pokemon_center_nurse") == true) return pokemon_center_nurse_start(_inst, _pid);
     if (is_undefined(dialog2p_show_now)) return false;
@@ -2987,6 +3548,7 @@ function __overworld_encounter_visible_spawn(_inst){
     }
 
     variable_instance_set(_npc, "encounter_pokemon", true);
+    variable_instance_set(_npc, "world_solid", false);
     variable_instance_set(_npc, "encounter_owner", _inst);
     variable_instance_set(_npc, "encounter_species_id", variable_struct_get(_pick, "species_id"));
     variable_instance_set(_npc, "encounter_level", variable_struct_get(_pick, "level"));
@@ -3170,7 +3732,7 @@ function __overworld_encounter_pokemon_npc_start_battle(_inst, _trigger_pid){
     overworld_encounter_init(_owner);
 
     var _coop_requested_vis = (multiplayer_queue_mode() == "coop");
-    var _assist_pid_vis = _coop_requested_vis ? multiplayer_find_nearby_assist_pid(_trigger_pid) : -1;
+    var _assist_pid_vis = _coop_requested_vis ? multiplayer_find_joined_assist_pid(_trigger_pid) : -1;
     var _coop_vis = (_assist_pid_vis >= 0);
 
     var _battle_format_vis = string(variable_instance_get(_owner, "encounter_battle_format"));
@@ -3581,11 +4143,7 @@ function overworld_encounter_can_start(_pid){
             if (variable_struct_exists(_slot, "sys_open") && variable_struct_get(_slot, "sys_open") == true) return false;
         }
     }
-    if (!is_undefined(bag_is_open) && bag_is_open(_pid)) return false;
-    if (!is_undefined(poke_index_is_open) && poke_index_is_open(_pid)) return false;
-    if (!is_undefined(pause_is_open) && pause_is_open(_pid)) return false;
-    if (!is_undefined(party_is_open) && party_is_open(_pid)) return false;
-    if (!is_undefined(pc_is_open) && pc_is_open(_pid)) return false;
+    if (!is_undefined(overworld_field_interaction_blocked) && overworld_field_interaction_blocked(_pid)) return false;
     return true;
 }
 
