@@ -4,7 +4,7 @@
 // small implementation that chooses frame/direction and requests a
 // full-field tiled background (bg=true).
 
-function __battle_trigger_stat_overlay(_pid, _actor, _overlay_changes, _actor_idx){
+function __battle_stat_overlay_payload(_overlay_changes, _actor_idx){
     try {
         // Collect stat keys and deltas from provided _overlay_changes struct
         var _stat_keys = [];
@@ -51,9 +51,51 @@ function __battle_trigger_stat_overlay(_pid, _actor, _overlay_changes, _actor_id
 
     var payload = { type: "stat_overlay", frame: _frame_idx, darken: _darken, stat_keys: _stat_keys, stat_deltas: _stat_deltas, bg: true, direction: _direction, target_index: _actor_idx, actor_index: _actor_idx };
     if (!is_undefined(_bg_loops)) payload.bg_loops = _bg_loops;
+    return payload;
+    } catch (e_payload) {
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_state_overlay] payload failed: " + string(e_payload));
+    }
+    return undefined;
+}
 
+function __battle_trigger_stat_overlay(_pid, _actor, _overlay_changes, _actor_idx){
+    try {
+        var payload = __battle_stat_overlay_payload(_overlay_changes, _actor_idx);
+        if (!is_struct(payload)) return;
         try { battle_anim_queue_enqueue(_pid, payload); } catch (e_q) {}
     } catch (e) {
         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_state_overlay] __battle_trigger_stat_overlay failed: " + string(e));
     }
+}
+
+function __battle_trigger_stat_overlay_multi(_pid, _entries){
+    try {
+        if (!is_array(_entries) || array_length(_entries) <= 0) return false;
+        var _first = _entries[0];
+        if (!is_struct(_first) || !variable_struct_exists(_first, "overlay_changes")) return false;
+        var _first_idx = (variable_struct_exists(_first, "actor_idx") && is_real(variable_struct_get(_first, "actor_idx"))) ? floor(variable_struct_get(_first, "actor_idx")) : 0;
+        var payload = __battle_stat_overlay_payload(variable_struct_get(_first, "overlay_changes"), _first_idx);
+        if (!is_struct(payload)) return false;
+        var _indexes = [];
+        for (var _i = 0; _i < array_length(_entries); ++_i){
+            var _entry = _entries[_i];
+            if (!is_struct(_entry)) continue;
+            var _idx = (variable_struct_exists(_entry, "actor_idx") && is_real(variable_struct_get(_entry, "actor_idx"))) ? floor(variable_struct_get(_entry, "actor_idx")) : -1;
+            if (_idx < 0) continue;
+            var _seen = false;
+            for (var _j = 0; _j < array_length(_indexes); ++_j){
+                if (_indexes[_j] == _idx){ _seen = true; break; }
+            }
+            if (!_seen) array_push(_indexes, _idx);
+        }
+        if (array_length(_indexes) <= 0) return false;
+        payload.target_indexes = _indexes;
+        payload.target_index = _indexes[0];
+        payload.actor_index = _indexes[0];
+        battle_anim_queue_enqueue(_pid, payload);
+        return true;
+    } catch (e_multi) {
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[battle_state_overlay] __battle_trigger_stat_overlay_multi failed: " + string(e_multi));
+    }
+    return false;
 }

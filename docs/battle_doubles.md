@@ -196,10 +196,24 @@ Key helper seams:
 - `__battle_get_actor_scene_anchor(pid, _B, actorIndex)`
 - `__battle_get_target_selector_rect(pid, _B, actorIndex)`
 - `__battle_draw_target_selector(pid, _B, cam_offx, cam_offy)`
+- `__battle_draw_platform(pid, _B, side, anchor_x, anchor_bottom, ui_scale)`
 
 The anchor helper is the core scene-layout seam. It decides where each active battler stands in singles versus doubles.
 
 If you want to change battler placement, do not start by editing random pixel constants in the top-level draw path. Start with `__battle_get_actor_scene_anchor(...)`.
+
+Target selectors and hit effects prefer the actor's cached live render center and opaque sprite bounds. If a Pokemon sprite is missing, the helper falls back to the placeholder geometry so doubles targeting still points at the visible battler space.
+
+Player-side doubles send-outs use `__battle_player_intro_segment(...)` to split intro timing by slot. That keeps both Pokemon from flashing and growing at the same instant during the battle intro while preserving the shared send-out animation for later switches.
+
+Stat overlay stencils support doubles targets. If a move lowers or raises stats on both opposing Pokemon, the battle system batches the matching pending stat overlays and sends one animation payload with `target_indexes`. `scripts/battle_animations/battle_animations.gml` then draws the tiled stat effect through each affected Pokemon's sprite cutout, so both battlers show the stat stencil together.
+
+Platform draw ordering:
+
+- Doubles now draw enemy platforms in a separate background pass before the enemy sprite pass.
+- Player platforms are also drawn in their own background pass before player sprites.
+- `__battle_draw_enemy(...)` accepts a platform-skip path so the top-level draw order can prevent enemy slot 1 or slot 2 from repainting over another battler's platform.
+- If a doubles scene has platform-overdraw bugs, start in `scripts/battle_draw/battle_draw.gml` before editing sprite placement math.
 
 ## Party and bag integration notes
 

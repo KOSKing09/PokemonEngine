@@ -26,6 +26,7 @@ function pkicons_init(){
             icon_strip_cache: {},
             icon_dir_cache: {},
             item_icon_cache: {},
+            capture_ball_icon_cache: {},
             item_icon_base: "",
             debug_crys: false,
             // Split placeholders (resolved immediately after init)
@@ -109,6 +110,20 @@ function pkicons_set_icon32_shiny_base(_absDir){
     var p = string_replace_all(string(_absDir),"\\","/");
     if (string_length(p)>0 && string_copy(p,string_length(p),1)!="/") p+="/";
     PKICONS.icon32_base_shiny = p;
+}
+
+// Overworld sheets use the same 32x32 directional layout as icon32:
+// row 1 = up frames, row 2 = left, row 3 = down, row 4 = right.
+function pkicons_set_overworld_base(_normalDir, _shinyDir = undefined){
+    pkicons_set_icon32_base(_normalDir);
+    if (!is_undefined(_shinyDir)) pkicons_set_icon32_shiny_base(_shinyDir);
+    PKICONS.icon_sheet_cache = {};
+    PKICONS.icon_strip_cache = {};
+    PKICONS.icon_dir_cache = {};
+}
+
+function pkicons_get_overworld_dir_by_mon(_mon, _dir){
+    return pkicons_get_icon32_dir_by_mon(_mon, _dir);
 }
 
 // ---------------- External item icons (by name) ----------------
@@ -486,6 +501,50 @@ function pkicons_get_item_icon_by_name(_name){
     if (!is_real(miss)) miss = -1;
     variable_struct_set(PKICONS.item_icon_cache,key,miss);
     return miss;
+}
+
+// Capture-only item icon clone with centered origin.
+// This must not modify the normal item icon sprite/cache because bag/UI systems depend on the original x/y offsets.
+function pkicons_get_capture_ball_icon_by_id(_item_id){
+    pkicons_init();
+
+    if (!variable_struct_exists(PKICONS, "capture_ball_icon_cache")){
+        variable_struct_set(PKICONS, "capture_ball_icon_cache", {});
+    }
+
+    var _captureKey = "CAPTUREBALLID|" + string(_item_id);
+    if (variable_struct_exists(PKICONS.capture_ball_icon_cache, _captureKey)){
+        var _cachedCaptureSpr = variable_struct_get(PKICONS.capture_ball_icon_cache, _captureKey);
+        if (!is_undefined(_cachedCaptureSpr) && sprite_exists(_cachedCaptureSpr)) return _cachedCaptureSpr;
+    }
+
+    var _baseSpr = undefined;
+    if (!is_undefined(pkicons_get_item_icon_by_id) && is_real(_item_id) && _item_id > 0){
+        try {
+            var _baseTry = pkicons_get_item_icon_by_id(floor(_item_id));
+            if (!is_undefined(_baseTry) && sprite_exists(_baseTry)) _baseSpr = _baseTry;
+        } catch (e_capture_base_icon) {
+            _baseSpr = undefined;
+        }
+    }
+
+    if (is_undefined(_baseSpr) || !sprite_exists(_baseSpr)) return _baseSpr;
+
+    var _centeredSpr = _baseSpr;
+    try {
+        var _cloneSpr = sprite_duplicate(_baseSpr);
+        if (!is_undefined(_cloneSpr) && sprite_exists(_cloneSpr)){
+            var _centerX = floor(sprite_get_width(_cloneSpr) * 0.5);
+            var _centerY = floor(sprite_get_height(_cloneSpr) * 0.5);
+            sprite_set_offset(_cloneSpr, _centerX, _centerY);
+            _centeredSpr = _cloneSpr;
+        }
+    } catch (e_capture_clone_sprite) {
+        _centeredSpr = _baseSpr;
+    }
+
+    variable_struct_set(PKICONS.capture_ball_icon_cache, _captureKey, _centeredSpr);
+    return _centeredSpr;
 }
 
 
@@ -889,6 +948,33 @@ function pkicons_get_art96(_species){
     if (PKICONS.debug_crys) pkicons__log_cry("art96 sliced species="+string(_species)+" frame="+string(frameW)+"x"+string(frameH));
     return quad;
 }
+
+function pkicons_has_art96(_species){
+    pkicons_init();
+    if (is_real(_species)){
+        var _sid = floor(_species);
+        var _key = "ART|" + string(_sid);
+        if (variable_struct_exists(PKICONS.art_meta, _key)){
+            var _meta = variable_struct_get(PKICONS.art_meta, _key);
+            return is_struct(_meta) && variable_struct_exists(_meta, "mode") && string(_meta.mode) == "quad";
+        }
+        var _spr = pkicons_get_art96(_sid);
+        if (!sprite_exists(_spr)) return false;
+        if (variable_struct_exists(PKICONS.art_meta, _key)){
+            var _meta2 = variable_struct_get(PKICONS.art_meta, _key);
+            return is_struct(_meta2) && variable_struct_exists(_meta2, "mode") && string(_meta2.mode) == "quad";
+        }
+    }
+    return false;
+}
+
+function pkicons_has_art96_by_mon(_mon){
+    if (!is_struct(_mon)) return false;
+    var _sid = pkicons__resolve_mon_species_id(_mon);
+    if (_sid < 0 && variable_struct_exists(_mon, "species") && is_real(variable_struct_get(_mon, "species"))) _sid = variable_struct_get(_mon, "species");
+    return is_real(_sid) && _sid >= 0 && pkicons_has_art96(_sid);
+}
+
 function pkicons__resolve_mon_species_id(_mon){
     if (!is_struct(_mon)) return -1;
 

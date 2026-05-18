@@ -1,0 +1,11 @@
+rogue_seed = 1337;
+rogue_chunk_x = 0;
+rogue_chunk_y = 0;
+rogue_spawn_x = 128;
+rogue_spawn_y = 128;
+rogue_transition_style = "emerald_fade_black";
+rogue_return_warp = false;
+rogue_return_edge = "up";
+warp_kind = "door";
+warp_sound = -1;
+visible = true;

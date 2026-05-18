@@ -30,9 +30,9 @@ global.DEBUG = true;
 
 // Data loaders debug gate (opt-in). Default OFF for normal play; set true for troubleshooting.
 globalvar DATA_DEBUG;
-global.DATA_DEBUG = true;
+global.DATA_DEBUG = false;
 
-global.CUTSCENE_DEBUG = true;
+global.CUTSCENE_DEBUG = false;
 global.DATA_DEBUG_TRAINER = false;
 
 // Very verbose data debug (opt-in). Default OFF.
@@ -40,15 +40,31 @@ globalvar DATA_DEBUG_VERBOSE;
 global.DATA_DEBUG_VERBOSE = false;
 
 // MOVES_DEBUG is noisy; default to false. Set to true when actively debugging moves.
-global.MOVES_DEBUG = true;
+global.MOVES_DEBUG = false;
 // Developer-only move-report runner (disabled by default). Enable to run
 // `dev_moves_impl_report()` at boot for a one-time diagnostics print.
-global.DEV_REPORT_MOVES = true;
+global.DEV_REPORT_MOVES = false;
+
+try {
+    var _battle_impl_asset = asset_get_index("battle_impls");
+    if (_battle_impl_asset != -1) script_execute(_battle_impl_asset);
+    if (!is_undefined(__battle_impls_register_all)) __battle_impls_register_all();
+} catch (e_battle_impl_boot) {
+    show_debug_message("[reg] battle_impls boot register failed: " + string(e_battle_impl_boot));
+}
+try {
+    var _battle_moves_impl_asset = asset_get_index("battle_moves_impls");
+    if (_battle_moves_impl_asset != -1) script_execute(_battle_moves_impl_asset);
+    if (!is_undefined(__battle_moves_impls_register)) __battle_moves_impls_register();
+} catch (e_battle_moves_boot) {
+    show_debug_message("[reg] battle_moves_impls boot register failed: " + string(e_battle_moves_boot));
+}
 
 // run once (debug boot or in a quick test script)
-if (variable_global_exists("_battle_impls") && is_struct(global._battle_impls)){
+if (global.DATA_DEBUG && variable_global_exists("_battle_impls") && is_struct(global._battle_impls)){
     show_debug_message("[reg] __battle_perform_action_impl present? " + string(variable_struct_exists(global._battle_impls, "__battle_perform_action_impl")));
-} else show_debug_message("[reg] _battle_impls missing");
+    show_debug_message("[reg] __battle_perform_action_impl_real present? " + string(variable_struct_exists(global._battle_impls, "__battle_perform_action_impl_real")));
+} else if (global.DATA_DEBUG) show_debug_message("[reg] _battle_impls missing");
 
 
 
@@ -64,12 +80,7 @@ if (!(variable_global_exists("_pokemon") && is_real(global._pokemon))) {
 }
 
 // --- CSV LOAD / PROFILE --------------------------------------------------
-//data_load_all_structs(); // fills global._pokemon + global._poke_stats
-var _metrics = data_load_profile_run();
-if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) {
-    show_debug_message("=== DATA LOAD PROFILE COMPLETE ===");
-    show_debug_message("Total ms: " + string(_metrics.sys_total_ms));
-}
+data_load_all_structs(); // fills global._pokemon + global._poke_stats and extended CSV tables
 
 // Startup data sanity checks (helpful when types/species arrays appear empty)
 if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) {
@@ -96,6 +107,24 @@ if (!is_undefined(data_normalize_item_flag_map)) data_normalize_item_flag_map();
 scr_poke_index_build_simple_structs(); // builds global._name_by_id / _name_list / _id_list
 pkicons_init();
 
+// Encounter style startup switch:
+// "old" = classic random step-in-bush encounters.
+// "new" = visible Pokemon wander inside bush bounds and start battle on contact.
+global.OVERWORLD_ENCOUNTER_MODE = "new";
+global.OVERWORLD_SHINY_CHANCE = 1 / 4096;
+global.OVERWORLD_VISIBLE_MAX_ACTIVE = 16;
+global.OVERWORLD_VISIBLE_PATCH_DENSITY = 4;
+global.OVERWORLD_VISIBLE_PATCH_MAX = 8;
+global.OVERWORLD_ENCOUNTER_GRACE_MS = 5000;
+global.OVERWORLD_ENCOUNTER_BLOCK_UNTIL_MS = 0;
+
+// Selectable Emerald-inspired transition styles.
+transition_init();
+transition_set_battle_style("emerald_blinds");
+transition_set_room_style("emerald_fade_black");
+if (!is_undefined(world_init)) world_init();
+if (!is_undefined(overworld_environment_init)) overworld_environment_init();
+
 // Ensure PKICONS debug flags exist (preserve pre-existing settings when possible)
     if (variable_global_exists("PKICONS")){
         if (variable_struct_exists(global.PKICONS, "debug")) global.PKICONS.debug = false;
@@ -106,7 +135,7 @@ pkicons_init();
 
 // Configure external asset bases (adjust paths as needed on your machine)
 pkicons_set_art96_base("C:/Users/trane/Documents/Pokemon Engine/sprites/pokemon/");
-pkicons_set_icon32_base("C:/Users/trane/Documents/Pokemon Engine/sprites/Overworld/Normal/");
+pkicons_set_overworld_base("C:/Users/trane/Documents/Pokemon Engine/sprites/overworld/Normal/", "C:/Users/trane/Documents/Pokemon Engine/sprites/overworld/Shiny/");
 pkicons_set_cries_base("C:/Users/trane/Documents/Pokemon Engine/cries/");
 pkicons_set_item_icon_base("C:/Users/trane/Documents/Pokemon Engine/sprites/items/");
 
@@ -138,9 +167,15 @@ global.PARTY_ASSETS = {
 
 // Region music default (used by battle system to restore pre-battle music)
 global._REGIONMUSIC = snd_Littleroot_Town;
+if (!is_undefined(world_room_register)) world_room_register(room, room_get_name(room), global._REGIONMUSIC, false);
+else if (!is_undefined(world_set_room_music)) world_set_room_music(room, global._REGIONMUSIC);
+global.STARTUP_MUSIC_DELAY_FRAMES = 12;
 
 // --- PARTY / BAGS / PLAYERS -----------------------------------------------
+if (!variable_global_exists("PAUSE_PLAYERS_ACTIVE")) global.PAUSE_PLAYERS_ACTIVE = 1;
+else global.PAUSE_PLAYERS_ACTIVE = clamp(floor(global.PAUSE_PLAYERS_ACTIVE), 1, 2);
 party_init(); // must be before demo seed (party_ensure uses it)
+
 // global.DEMO_FORCE_SPECIES = [250, 249]; // optional override
 global.DEMO_FORCE_SPECIES = [188, 268, 471, 559, 17];
 scr_poke_runtime_demo_init_random(6); // seeds PARTY[0] (and [1] if present)
@@ -166,7 +201,12 @@ global.DEV_AUTO_LOVE_GIFT_SMOKE = false;
 global.DEV_AUTO_FIELD_SWITCH_SMOKE = false;
 global.DEV_AUTO_FORCED_PLAYER_SWITCH_SMOKE = false;
 global.DEV_AUTO_DOUBLES_ENEMY_FAINT_SEND_SMOKE = false;
+global.DEV_AUTO_DOUBLES_ENTRY_HAZARDS_SMOKE = false;
+global.DEV_AUTO_ASSIST_MULTIHIT_UI_SMOKE = false;
+global.DEV_AUTO_COOP_DOUBLE_WILD_SMOKE = false;
+global.DEV_AUTO_COOP_DOUBLE_TRAINER_SMOKE = false;
 global.DEV_AUTO_BURN_POISON_RESIDUAL_SMOKE = false;
+global.DEV_AUTO_DOUBLES_EXP_MODE_SMOKE = false;
 global.DEV_AUTO_VISUAL_TARGET_SMOKE = false;
 global.DEV_AUTO_EFFECT_131_155_SMOKE = false;
 global.DEV_AUTO_EFFECT_159_176_SMOKE = false;
@@ -191,37 +231,30 @@ global.DEV_FORCE_CRIT_ROLL_100 = -1;
 global.DEV_FORCE_ACCURACY_HIT = false;
 global.DEV_SMOKE_EXIT_GAME = false;
 
-// Initialize bags (seed with some items for demo/dev)
-bags_init(1);
-bag_inventory_add_item(0, 4, 10);
-bag_inventory_add_item(0, 1, 10);
-bag_inventory_add_item(0, 17, 25);
-bag_inventory_add_item(0, 26, 25);
-bag_inventory_add_item(0, 25, 25);
-bag_inventory_add_item(0, 24, 25);
-bag_inventory_add_item(0, 23, 25);
-bag_inventory_add_item(0, 18, 25);
-bag_inventory_add_item(0, 182, 10);
-bags_seed_from_items(0); // refresh once
+// Initialize bags. Dev/test seed gives every loaded item a fixed quantity.
+bags_init(2);
+poke_index_init(2);
+bag_debug_seed_all_items(0, 20);
+bag_debug_seed_all_items(1, 20);
 
 // NOTE: startup debug simulation for move-learn/leveling removed.
 // To re-enable for debugging, reintroduce the DEBUG_SIMULATE_LEARN_ON_START guard and block here.
 
 // --- PLAYER SPAWN ---------------------------------------------------------
-global.p1 = instance_create_layer(ospawn.x, ospawn.y, "Instances", oPlayer);
-//global.p2 = instance_create_layer(ospawn.x, ospawn.y, "Instances", oPlayer);
+global.p1 = instance_create_layer(ospawn.x + 8, ospawn.y + 8, "Instances", oPlayer);
+global.p2 = noone;
 // Assign instance fields in a guarded way to satisfy static analyzers/runtime differences
 try { variable_instance_set(global.p1, "pid", 0); } catch (e_var) { /* ignore */ }
 try { variable_instance_set(global.p1, "_speed", 2); } catch (e_var2) { /* ignore */ }
-//try { variable_instance_set(global.p2, "pid", 1); } catch (e_var) { /* ignore */ }
-//try { variable_instance_set(global.p2, "_speed", 2); } catch (e_var2) { /* ignore */ }
 // Active player count (used by pause system)
 var players_active = max(1, (variable_global_exists("PAUSE_PLAYERS_ACTIVE") ? global.PAUSE_PLAYERS_ACTIVE : 1));
 
 // --- SYSTEMS (controls, pause, dialog) -----------------------------------
 scr_controls();   // creates global CTRL, loads options.ini
+if (!is_undefined(multiplayer_sync_runtime)) multiplayer_sync_runtime();
 pause_init();     // pause system
 dialog2p_init();  // dialog system (if you’re using it)
+cutscene_init();  // overworld/battle cutscene queue
 evolution_init(); // evolution scene manager
 virtual_keyboard_init();
 
@@ -232,8 +265,6 @@ CTRL.pad_index = [0,1];
 // --- WORLD COLLISION SETUP ------------------------------------------------
 wc_reset();
 wc_bind_layers(["WALL", "BLOCKS"]);
-wc_set_solids([noone]); // add object ids here if you have solid instances
+wc_set_solids([oNpc, oFieldMoveProp, oitem]);
 
-show_debug_message(global._move_meta[79]);
-
-global.DEV_AUTO_CONFUSION_ANIM_SMOKE = true
+if (global.DATA_DEBUG) show_debug_message(global._move_meta[79]);

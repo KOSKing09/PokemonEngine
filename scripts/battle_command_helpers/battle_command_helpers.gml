@@ -2,6 +2,17 @@ function __battle_command_actor_indexes(_pid){
     var _B = __battle_ensure_slot(_pid);
     var _out = [];
     var _format = (is_struct(_B) && variable_struct_exists(_B, "battle_format")) ? string(variable_struct_get(_B, "battle_format")) : "single";
+    var _versus = (is_struct(_B) && variable_struct_exists(_B, "versus_enabled") && variable_struct_get(_B, "versus_enabled") == true);
+    if (_versus && is_struct(_B) && variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor")) && variable_struct_exists(_B, "actor_owner_pid") && is_array(variable_struct_get(_B, "actor_owner_pid"))){
+        var _owners = variable_struct_get(_B, "actor_owner_pid");
+        for (var _vi = 0; _vi < array_length(variable_struct_get(_B, "actor")); ++_vi){
+            if (!__battle_actor_index_alive(_pid, _vi)) continue;
+            if (_vi >= array_length(_owners)) continue;
+            var _owner_pid = _owners[_vi];
+            if (is_real(_owner_pid) && floor(_owner_pid) == floor(_pid)) array_push(_out, _vi);
+        }
+        return _out;
+    }
     if (_format != "double"){
         if (__battle_actor_index_alive(_pid, 0)) array_push(_out, 0);
         return _out;
@@ -75,7 +86,24 @@ function __battle_previous_command_actor_index(_pid, _beforeActorIndex){
 
 function __battle_all_command_actions_ready(_pid){
     var _B = __battle_ensure_slot(_pid);
-    var _actors = __battle_command_actor_indexes(_pid);
+    var _actors = [];
+    var _format = (is_struct(_B) && variable_struct_exists(_B, "battle_format")) ? string(variable_struct_get(_B, "battle_format")) : "single";
+    var _versus = (is_struct(_B) && variable_struct_exists(_B, "versus_enabled") && variable_struct_get(_B, "versus_enabled") == true);
+    if (_versus && is_struct(_B) && variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor")) && variable_struct_exists(_B, "actor_owner_pid") && is_array(variable_struct_get(_B, "actor_owner_pid"))){
+        var _owners = variable_struct_get(_B, "actor_owner_pid");
+        for (var _vi = 0; _vi < array_length(variable_struct_get(_B, "actor")); ++_vi){
+            if (!__battle_actor_index_alive(_pid, _vi)) continue;
+            if (_vi >= array_length(_owners)) continue;
+            var _owner_pid = _owners[_vi];
+            if (is_real(_owner_pid) && floor(_owner_pid) >= 0) array_push(_actors, _vi);
+        }
+    } else if (_format == "double"){
+        for (var _ai = 0; _ai <= 1; ++_ai){
+            if (__battle_actor_index_alive(_pid, _ai)) array_push(_actors, _ai);
+        }
+    } else {
+        _actors = __battle_command_actor_indexes(_pid);
+    }
     if (array_length(_actors) <= 0) return false;
     for (var _i = 0; _i < array_length(_actors); ++_i){
         if (!is_struct(__battle_find_player_turn_action(_B, _actors[_i]))) return false;
@@ -115,18 +143,21 @@ function __battle_target_candidates(_pid, _actorIndex, _move_id){
     var _out = [];
     var _mode = __battle_move_target_mode(_move_id);
     var _side = __battle_actor_side(_actorIndex);
+    var _target_side = (_side == 0) ? 1 : 0;
     if (_mode == "self"){
         if (__battle_actor_index_alive(_pid, _actorIndex)) array_push(_out, floor(_actorIndex));
         return _out;
     }
 
-    if (!is_struct(_B) || !is_array(_B.actor)) return _out;
-    for (var _i = 0; _i < array_length(_B.actor); ++_i){
+    if (!is_struct(_B) || !variable_struct_exists(_B, "actor") || !is_array(variable_struct_get(_B, "actor"))) return _out;
+    var _actors = variable_struct_get(_B, "actor");
+    for (var _i = 0; _i < array_length(_actors); ++_i){
         if (!__battle_actor_index_alive(_pid, _i)) continue;
         if (_mode == "ally"){
             if (__battle_actor_side(_i) != _side) continue;
-        } else if (_i == floor(_actorIndex)) {
-            continue;
+        } else {
+            if (__battle_actor_side(_i) != _target_side) continue;
+            if (_i == floor(_actorIndex)) continue;
         }
         array_push(_out, _i);
     }
@@ -174,8 +205,9 @@ function __battle_target_pick_index(_B){
 
 function __battle_side_has_alive_actor(_pid, _side){
     var _B = __battle_ensure_slot(_pid);
-    if (!is_struct(_B) || !is_array(_B.actor)) return false;
-    for (var _i = 0; _i < array_length(_B.actor); ++_i){
+    if (!is_struct(_B) || !variable_struct_exists(_B, "actor") || !is_array(variable_struct_get(_B, "actor"))) return false;
+    var _actors = variable_struct_get(_B, "actor");
+    for (var _i = 0; _i < array_length(_actors); ++_i){
         if (__battle_actor_side(_i) != floor(_side)) continue;
         if (__battle_actor_index_alive(_pid, _i)) return true;
     }
@@ -185,31 +217,61 @@ function __battle_side_has_alive_actor(_pid, _side){
 function __battle_commit_player_action(_pid, _action){
     var _B = __battle_ensure_slot(_pid);
     if (!is_struct(_B) || !is_struct(_action)) return false;
+    var _versus = (variable_struct_exists(_B, "versus_enabled") && variable_struct_get(_B, "versus_enabled") == true);
+    var _split_command_ui = (!is_undefined(__battle_uses_split_command_ui) && __battle_uses_split_command_ui(_B));
+    var _UI = undefined;
+    if (_split_command_ui){
+        if (!variable_struct_exists(_B, "_versus_ui") || !is_array(variable_struct_get(_B, "_versus_ui")) || array_length(variable_struct_get(_B, "_versus_ui")) < 2){
+            variable_struct_set(_B, "_versus_ui", [
+                { menu:"root", selX:0, selY:0, command_actor_index:0, command_pending_action:undefined, target_pick_targets:undefined, target_pick_index:0 },
+                { menu:"root", selX:0, selY:0, command_actor_index:0, command_pending_action:undefined, target_pick_targets:undefined, target_pick_index:0 }
+            ]);
+        }
+        var _ui_list = variable_struct_get(_B, "_versus_ui");
+        var _ui_index = clamp(floor(_pid), 0, 1);
+        _UI = _ui_list[_ui_index];
+        if (!is_struct(_UI)){
+            _UI = { menu:"root", selX:0, selY:0, command_actor_index:0, command_pending_action:undefined, target_pick_targets:undefined, target_pick_index:0 };
+            _ui_list[_ui_index] = _UI;
+            variable_struct_set(_B, "_versus_ui", _ui_list);
+        }
+    } else if (variable_struct_exists(_B, "sys_ui")) {
+        _UI = variable_struct_get(_B, "sys_ui");
+    }
 
     __battle_store_player_turn_action(_B, _action);
-    if (variable_struct_exists(_action, "actor_index") && variable_struct_get(_action, "actor_index") == 0) _B.turn_action_player = _action;
+    if (variable_struct_exists(_action, "actor_index") && variable_struct_get(_action, "actor_index") == 0) variable_struct_set(_B, "turn_action_player", _action);
 
-    variable_struct_set(_B, "_command_pending_action", undefined);
-    variable_struct_set(_B, "_target_pick_targets", undefined);
-    variable_struct_set(_B, "_target_pick_index", 0);
+    if (_split_command_ui && is_struct(_UI)){
+        variable_struct_set(_UI, "command_pending_action", undefined);
+        variable_struct_set(_UI, "target_pick_targets", undefined);
+        variable_struct_set(_UI, "target_pick_index", 0);
+    } else {
+        variable_struct_set(_B, "_command_pending_action", undefined);
+        variable_struct_set(_B, "_target_pick_targets", undefined);
+        variable_struct_set(_B, "_target_pick_index", 0);
+    }
 
     if (__battle_all_command_actions_ready(_pid)){
-        _B.turn_action_enemy = __battle_enemy_choose_action(_pid);
-        _B.turn_queue = __battle_build_turn_actions(_pid);
+        if (!_versus) variable_struct_set(_B, "turn_action_enemy", __battle_enemy_choose_action(_pid));
+        variable_struct_set(_B, "turn_queue", __battle_build_turn_actions(_pid));
         try { variable_struct_set(_B, "_player_turn_actions", []); } catch (e_clear_turn_queue_actions) {}
         try { variable_struct_set(_B, "_preserve_player_turn_actions_once", false); } catch (e_clear_turn_queue_preserve) {}
-        _B.turn_i = 0;
-        _B.phase = "turn";
+        variable_struct_set(_B, "turn_i", 0);
+        variable_struct_set(_B, "phase", "turn");
         return true;
     }
 
     var _actor_index = (variable_struct_exists(_action, "actor_index") && is_real(variable_struct_get(_action, "actor_index"))) ? floor(variable_struct_get(_action, "actor_index")) : -1;
     var _next_actor = __battle_next_command_actor_index(_pid, _actor_index);
-    if (_next_actor >= 0) variable_struct_set(_B, "_command_actor_index", _next_actor);
-    if (is_struct(_B.sys_ui)){
-        variable_struct_set(_B.sys_ui, "menu", (_next_actor >= 0) ? "root" : "fight");
-        variable_struct_set(_B.sys_ui, "selX", 0);
-        variable_struct_set(_B.sys_ui, "selY", 0);
+    if (_next_actor >= 0){
+        if (_split_command_ui && is_struct(_UI)) variable_struct_set(_UI, "command_actor_index", _next_actor);
+        else variable_struct_set(_B, "_command_actor_index", _next_actor);
+    }
+    if (is_struct(_UI)){
+        variable_struct_set(_UI, "menu", "root");
+        variable_struct_set(_UI, "selX", 0);
+        variable_struct_set(_UI, "selY", 0);
     }
     return false;
 }

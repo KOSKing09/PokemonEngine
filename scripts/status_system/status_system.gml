@@ -191,11 +191,8 @@ function status_system_apply_status(mon, status_id, opts){
                 else if (variable_struct_exists(_src, "nickname")) variable_struct_set(_src_min, "name", variable_struct_get(_src, "nickname"));
                 if (variable_struct_exists(_src, "pid")) variable_struct_set(_src_min, "pid", variable_struct_get(_src, "pid"));
                 if (variable_struct_exists(_src, "actor_idx")) variable_struct_set(_src_min, "actor_idx", variable_struct_get(_src, "actor_idx"));
-                // Primary runtime reference (full struct)
-                inst.source = _src;
-                // Lightweight summary kept separately to avoid deep dumps while
-                // still providing quick metadata when useful.
-                variable_struct_set(inst, "_source_min", _src_min);
+                if (variable_struct_exists(_src, "actor_index")) variable_struct_set(_src_min, "actor_index", variable_struct_get(_src, "actor_index"));
+                inst.source = _src_min;
             } else {
                 inst.source = _src;
             }
@@ -231,6 +228,44 @@ function status_system_apply_status(mon, status_id, opts){
             return false;
         }
     } catch (e_block) { /* ignore any errors and continue */ }
+    try {
+        var _sid_ability = string_lower(string(status_id));
+        var _ability_actor = mon;
+        if (!is_struct(_ability_actor) || !(variable_struct_exists(_ability_actor, "ability") || variable_struct_exists(_ability_actor, "ability_id"))){
+            var _pid_ability = __status_find_battle_pid(mon);
+            if (!is_undefined(_pid_ability)){
+                var _B_ability = __battle_ensure_slot(_pid_ability);
+                if (is_struct(_B_ability) && variable_struct_exists(_B_ability, "actor") && is_array(variable_struct_get(_B_ability, "actor"))){
+                    var _acts_ability = variable_struct_get(_B_ability, "actor");
+                    for (var _abi = 0; _abi < array_length(_acts_ability); ++_abi){
+                        var _cand_ability = _acts_ability[_abi];
+                        if (!is_struct(_cand_ability)) continue;
+                        if (_cand_ability == mon || (variable_struct_exists(_cand_ability, "mon") && is_struct(variable_struct_get(_cand_ability, "mon")) && variable_struct_get(_cand_ability, "mon") == _target_mon)){
+                            _ability_actor = _cand_ability;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if (!is_undefined(__battle_actor_has_any_ability)){
+            var _blocked_by_csv_ability = false;
+            try {
+                if (!is_undefined(__battle_ability_effect_status_immune)){
+                    _blocked_by_csv_ability = __battle_ability_effect_status_immune(_ability_actor, _sid_ability);
+                    if (!_blocked_by_csv_ability && _sid_ability == "paralyze") _blocked_by_csv_ability = __battle_ability_effect_status_immune(_ability_actor, "paralysis");
+                    if (!_blocked_by_csv_ability && _sid_ability == "paralysis") _blocked_by_csv_ability = __battle_ability_effect_status_immune(_ability_actor, "paralyze");
+                }
+            } catch (e_csv_ability_guard) { _blocked_by_csv_ability = false; }
+            if (_blocked_by_csv_ability) return false;
+            if ((_sid_ability == "poison" || _sid_ability == "toxic") && __battle_actor_has_any_ability(_ability_actor, ["immunity"])) return false;
+            if (_sid_ability == "burn" && __battle_actor_has_any_ability(_ability_actor, ["water-veil", "water-bubble"])) return false;
+            if ((_sid_ability == "paralysis" || _sid_ability == "paralyze") && __battle_actor_has_any_ability(_ability_actor, ["limber"])) return false;
+            if (_sid_ability == "sleep" && __battle_actor_has_any_ability(_ability_actor, ["insomnia", "vital-spirit", "sweet-veil"])) return false;
+            if (_sid_ability == "freeze" && __battle_actor_has_any_ability(_ability_actor, ["magma-armor"])) return false;
+            if (_sid_ability == "confusion" && __battle_actor_has_any_ability(_ability_actor, ["own-tempo"])) return false;
+        }
+    } catch (e_ability_status_guard) {}
     try {
         var _sid_guard = string_lower(string(status_id));
         var _is_major_guard = (_sid_guard == "sleep" || _sid_guard == "burn" || _sid_guard == "poison" || _sid_guard == "toxic" || _sid_guard == "paralysis" || _sid_guard == "freeze");
@@ -437,6 +472,33 @@ function status_system_apply_status(mon, status_id, opts){
     if (is_struct(meta) && variable_struct_exists(meta, "on_apply") && !is_undefined(variable_struct_get(meta, "on_apply"))){
         try { variable_struct_get(meta, "on_apply")(mon, inst, opts); } catch (e) {}
     }
+    try {
+        var _reflecting = (is_struct(opts) && variable_struct_exists(opts, "_ability_status_reflect") && variable_struct_get(opts, "_ability_status_reflect") == true);
+        if (!_reflecting && !is_undefined(__battle_actor_ability_actions)){
+            var _status_actions = __battle_actor_ability_actions(mon, "after_status_received");
+            for (var _sai = 0; _sai < array_length(_status_actions); ++_sai){
+                var _sact = _status_actions[_sai];
+                if (!is_struct(_sact)) continue;
+                var _skind = variable_struct_exists(_sact, "kind") ? string_lower(string(variable_struct_get(_sact, "kind"))) : "";
+                if (_skind != "copy_status_to_source") continue;
+                var _sdata = (!is_undefined(__battle_ability_action_data)) ? __battle_ability_action_data(_sact) : {};
+                var _allowed = variable_struct_exists(_sdata, "statuses") ? variable_struct_get(_sdata, "statuses") : [];
+                if (!is_array(_allowed)) _allowed = [string(_allowed)];
+                var _match_status = false;
+                for (var _ali = 0; _ali < array_length(_allowed); ++_ali){
+                    if (string_lower(string(_allowed[_ali])) == string_lower(string(status_id))){ _match_status = true; break; }
+                }
+                if (!_match_status) continue;
+                var _src_live = undefined;
+                if (is_struct(opts) && variable_struct_exists(opts, "source")) _src_live = variable_struct_get(opts, "source");
+                if (!is_struct(_src_live) || _src_live == mon || _src_live == _target_mon) continue;
+                if (status_system_has_status(_src_live, status_id)) continue;
+                if (status_system_apply_status(_src_live, status_id, { source:mon, _ability_status_reflect:true })){
+                    try { if (!is_undefined(__battle_queue_ability_action_dialog)) __battle_queue_ability_action_dialog(mon, _sact, _src_live, {}); } catch (e_reflect_dialog) {}
+                }
+            }
+        }
+    } catch (e_status_ability_reflect) {}
     return true;
 }
 
@@ -821,6 +883,22 @@ function __status_request_dialog_for_mon(mon, text, priority_front){
             // Enqueue into the battle slot so the battle engine controls ordering.
             var _B = __battle_ensure_slot(pid);
             if (is_struct(_B)){
+                var _owner_pid = pid;
+                try {
+                    if (variable_struct_exists(mon, "owner_pid") && is_real(variable_struct_get(mon, "owner_pid"))) _owner_pid = max(0, floor(variable_struct_get(mon, "owner_pid")));
+                    else if (variable_struct_exists(mon, "control_pid") && is_real(variable_struct_get(mon, "control_pid"))) _owner_pid = max(0, floor(variable_struct_get(mon, "control_pid")));
+                    else if (variable_struct_exists(_B, "actor") && is_array(variable_struct_get(_B, "actor")) && !is_undefined(__battle_actor_owner_pid)){
+                        var _actors = variable_struct_get(_B, "actor");
+                        for (var _own_ai = 0; _own_ai < array_length(_actors); ++_own_ai){
+                            var _actor_probe = _actors[_own_ai];
+                            if (_actor_probe == mon || (is_struct(_actor_probe) && variable_struct_exists(_actor_probe, "mon") && variable_struct_get(_actor_probe, "mon") == mon)){
+                                var _own = __battle_actor_owner_pid(pid, _own_ai);
+                                if (is_real(_own) && _own >= 0) _owner_pid = floor(_own);
+                                break;
+                            }
+                        }
+                    }
+                } catch (e_owner_pid) { _owner_pid = pid; }
                 var pending = (variable_struct_exists(_B, "_pending_status_msgs") ? variable_struct_get(_B, "_pending_status_msgs") : undefined);
                 if (!is_array(pending)) pending = [];
                 // Split incoming text by newlines so each line becomes its own dialog entry
@@ -836,9 +914,14 @@ function __status_request_dialog_for_mon(mon, text, priority_front){
                     if (string_length(line) == 0) continue;
                     // avoid duplicates in pending
                     var _skip_line = false;
-                    for (var _i2=0; _i2<array_length(pending); ++_i2) if (pending[_i2] == line) { _skip_line = true; break; }
+                    for (var _i2=0; _i2<array_length(pending); ++_i2) {
+                        var _pending_line = pending[_i2];
+                        var _pending_text = (is_struct(_pending_line) && variable_struct_exists(_pending_line, "text")) ? string(variable_struct_get(_pending_line, "text")) : string(_pending_line);
+                        var _pending_pid = (is_struct(_pending_line) && variable_struct_exists(_pending_line, "pid") && is_real(variable_struct_get(_pending_line, "pid"))) ? floor(variable_struct_get(_pending_line, "pid")) : pid;
+                        if (_pending_text == line && _pending_pid == _owner_pid) { _skip_line = true; break; }
+                    }
                     if (!_skip_line){
-                        _lines[array_length(_lines)] = line;
+                        _lines[array_length(_lines)] = { text: line, pid: _owner_pid };
                         added_any = true;
                     }
                 }
@@ -1170,6 +1253,12 @@ if (variable_global_exists("STATUS_SYS") && variable_struct_exists(global.STATUS
             __battle_request_animation_safe(mon, { type: "status_cured", status: "sleep" });
         } catch (e_anim) {}
         try {
+            if (is_struct(mon) && variable_struct_exists(mon, "_suppress_sleep_wake_dialog_once") && variable_struct_get(mon, "_suppress_sleep_wake_dialog_once") == true){
+                variable_struct_set(mon, "_suppress_sleep_wake_dialog_once", false);
+                return;
+            }
+        } catch (e_skip_dlg) {}
+        try {
             var _nm = __status_mon_display_name(mon);
             __status_request_dialog_for_mon(mon, string(_nm) + " woke up!", false);
         } catch (e_dlg) {}
@@ -1282,4 +1371,3 @@ function scr_status_apply_debug(pid, actor_index, status_id){
     if (!is_struct(A)) return false;
     return status_system_apply_status(A, status_id, { duration:2 });
 }
-

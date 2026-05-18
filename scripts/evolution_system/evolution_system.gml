@@ -10,6 +10,7 @@ function __evolution_slot(){
         source_species_id: -1,
         target_species_id: -1,
         source_name: "",
+        nickname_name: "",
         target_name: "",
         display_name: "",
         anim_start_ms: -1,
@@ -66,21 +67,30 @@ function __evolution_mon_happiness(_mon){
 }
 
 function __evolution_mon_display_name(_mon){
+    return __evolution_mon_species_name(_mon);
+}
+
+function __evolution_mon_species_name(_mon){
     if (!is_struct(_mon)) return "Pokemon";
-    if (variable_struct_exists(_mon, "nickname")){
-        var _nn = string(variable_struct_get(_mon, "nickname"));
-        if (string_length(string_trim(_nn)) > 0) return _nn;
+    var _sid = __evolution_species_id(_mon);
+    if (_sid > 0 && !is_undefined(scr_poke_name_by_id)){
+        var _species_name = scr_poke_name_by_id(_sid);
+        if (is_string(_species_name) && string_length(string_trim(_species_name)) > 0) return string_trim(_species_name);
     }
     if (variable_struct_exists(_mon, "name")){
-        var _nm = string(variable_struct_get(_mon, "name"));
-        if (string_length(string_trim(_nm)) > 0) return _nm;
+        var _name = string(variable_struct_get(_mon, "name"));
+        if (string_length(string_trim(_name)) > 0 && string_lower(string_trim(_name)) != "undefined") return string_trim(_name);
     }
-    if (variable_struct_exists(_mon, "species")){
-        var _sp = string(variable_struct_get(_mon, "species"));
-        if (string_length(string_trim(_sp)) > 0) return _sp;
+    return "Pokemon";
+}
+
+function __evolution_mon_nickname_or_species_name(_mon){
+    if (!is_struct(_mon)) return "Pokemon";
+    if (variable_struct_exists(_mon, "nickname")){
+        var _nick = string(variable_struct_get(_mon, "nickname"));
+        if (string_length(string_trim(_nick)) > 0 && string_lower(string_trim(_nick)) != "undefined") return string_trim(_nick);
     }
-    var _sid = __evolution_species_id(_mon);
-    return (_sid > 0 && !is_undefined(scr_poke_name_by_id)) ? string(scr_poke_name_by_id(_sid)) : "Pokemon";
+    return __evolution_mon_species_name(_mon);
 }
 
 function __evolution_field_has_value(_row, _field){
@@ -173,6 +183,7 @@ function __evolution_can_begin(_pid){
     if (!is_undefined(pause_is_open) && pause_is_open(_pid)) return false;
     if (!is_undefined(bag_is_open) && bag_is_open(_pid)) return false;
     if (!is_undefined(party_is_open) && party_is_open(_pid)) return false;
+    if (!is_undefined(pc_is_open) && pc_is_open(_pid)) return false;
     if (!is_undefined(battle_is_open) && battle_is_open(_pid)){
         var _B = __battle_ensure_slot(_pid);
         if (is_struct(_B) && variable_struct_exists(_B, "_exp_anim")){
@@ -215,7 +226,7 @@ function __evolution_apply_to_mon(_mon, _target_species_id){
     var _new_mon = pokemon_factory_create(_target, _level, _opts);
     if (!is_struct(_new_mon)) return false;
 
-    var _preserve_keys = ["nickname","iv","ev","ev_total","pps","seen_moves","status","status_id","status_turns","happiness","friendship","friendliness","affection","gender","nature","nature_name","held_item_real_name","battleAnim"];
+    var _preserve_keys = ["nickname","iv","ev","ev_total","pps","seen_moves","status","status_id","status_turns","happiness","friendship","friendliness","affection","sex","gender","sex_id","gender_id","nature","nature_name","held_item_real_name","battleAnim"];
     for (var _i = 0; _i < array_length(_preserve_keys); ++_i){
         var _pk = _preserve_keys[_i];
         if (variable_struct_exists(_mon, _pk)) variable_struct_set(_new_mon, _pk, variable_struct_get(_mon, _pk));
@@ -267,9 +278,10 @@ function __evolution_begin_next(_pid){
     variable_struct_set(_E, "actor_ref", variable_struct_exists(_entry, "actor_ref") ? variable_struct_get(_entry, "actor_ref") : undefined);
     variable_struct_set(_E, "source_species_id", _source);
     variable_struct_set(_E, "target_species_id", _target);
-    variable_struct_set(_E, "source_name", !is_undefined(scr_poke_name_by_id) ? string(scr_poke_name_by_id(_source)) : __evolution_mon_display_name(_mon));
+    variable_struct_set(_E, "source_name", __evolution_mon_species_name(_mon));
+    variable_struct_set(_E, "nickname_name", __evolution_mon_nickname_or_species_name(_mon));
     variable_struct_set(_E, "target_name", !is_undefined(scr_poke_name_by_id) ? string(scr_poke_name_by_id(_target)) : "Pokemon");
-    variable_struct_set(_E, "display_name", __evolution_mon_display_name(_mon));
+    variable_struct_set(_E, "display_name", __evolution_mon_species_name(_mon));
     variable_struct_set(_E, "allow_cancel", false);
 
     try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, "What?\n" + string(variable_struct_get(_E, "display_name")) + " is evolving!"); } catch (e_evo_announce) {}
@@ -320,7 +332,7 @@ function evolution_update(_pid){
                 if (!is_undefined(pkicons_play_cry_by_mon) && is_struct(_mon2)) pkicons_play_cry_by_mon(_mon2);
                 variable_struct_set(_E, "phase", "result_wait");
                 variable_struct_set(_E, "allow_cancel", false);
-                try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, "Congratulations!\nYour " + string(variable_struct_get(_E, "source_name")) + " evolved into " + string(variable_struct_get(_E, "target_name")) + "!"); } catch (e_evo_done) {}
+                try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, "Congratulations!\n" + string(variable_struct_get(_E, "nickname_name")) + " evolved into " + string(variable_struct_get(_E, "target_name")) + "!"); } catch (e_evo_done) {}
             } else {
                 variable_struct_set(_E, "phase", "cancel_wait");
                 try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, "Evolution failed."); } catch (e_evo_fail) {}

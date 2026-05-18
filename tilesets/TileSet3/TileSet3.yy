@@ -18,8 +18,8 @@
   "resourceType":"GMTileSet",
   "resourceVersion":"2.0",
   "spriteId":{
-    "name":"Sprite7",
-    "path":"sprites/Sprite7/Sprite7.yy",
+    "name":"spr_Interior",
+    "path":"sprites/spr_Interior/spr_Interior.yy",
   },
   "spriteNoExport":false,
   "textureGroupId":{

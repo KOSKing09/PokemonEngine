@@ -4,14 +4,21 @@
 // Draw the full party summary UI for player `_pid` at GUI origin (_OX,_OY).
 // Renders left panel, right frame, and optional learnset UI based on `_P`.
 function __party_impl_draw_summary(_pid, _P, _OX, _OY, _S){
-    var _C_BG    = make_color_rgb(224, 216, 248);
+    var _C_BG    = make_color_rgb(88, 176, 152);
+    var _C_BG2   = make_color_rgb(64, 144, 136);
     var _C_PAPER = make_color_rgb(255, 243, 195);
-    var _C_EDGE  = make_color_rgb(64, 56, 112);
-    var _C_ACC   = make_color_rgb(208, 48, 48);
+    var _C_EDGE  = make_color_rgb(24, 80, 88);
+    var _C_ACC   = make_color_rgb(48, 152, 112);
     var _C_TEXT  = c_white;
 
     gpu_set_blendmode(bm_normal);
     draw_set_color(_C_BG);   draw_rectangle(_OX, _OY, _OX + 240*_S, _OY + 160*_S, false);
+    draw_set_color(_C_BG2);
+    for (var _stripe = -160; _stripe < 260; _stripe += 18){
+        draw_line_width(_OX + _stripe * _S, _OY + 160 * _S, _OX + (_stripe + 80) * _S, _OY, 4 * _S);
+    }
+    draw_set_color(make_color_rgb(32, 104, 112));
+    draw_rectangle(_OX, _OY, _OX + 240*_S, _OY + 20*_S, false);
     draw_set_color(_C_EDGE); draw_rectangle(_OX, _OY, _OX + 240*_S, _OY + 20*_S, true);
 
     var _mons = __party_mons(_pid), _n = array_length(_mons);
@@ -21,14 +28,30 @@ function __party_impl_draw_summary(_pid, _P, _OX, _OY, _S){
     var _RIGHT_X = 108, _RIGHT_Y = 24, _RIGHT_W = 124, _RIGHT_H = 120;
 
     var _M = __party_mon_get(_P, _pid);
+    if (!is_struct(_M)){
+        var _firstValidIndex = -1;
+        for (var _validMonIndex = 0; _validMonIndex < _n; _validMonIndex++){
+            if (is_struct(_mons[_validMonIndex])){
+                _firstValidIndex = _validMonIndex;
+                break;
+            }
+        }
+
+        if (_firstValidIndex >= 0){
+            _P.sel = _firstValidIndex;
+            _M = _mons[_firstValidIndex];
+        } else {
+            return;
+        }
+    }
     var _leftInfo = __party_impl_draw_left_panel(_P, _M, _OX, _OY, _S, _LEFT_X, _LEFT_Y, _LEFT_W, _LEFT_H);
     var _rightInfo = __party_impl_draw_right_frame(_OX, _OY, _S, _RIGHT_X, _RIGHT_Y, _RIGHT_W, _RIGHT_H);
 
     // Defensive reads for leftInfo geometry
     var _descPad = (is_struct(_leftInfo) && variable_struct_exists(_leftInfo, "descPad")) ? variable_struct_get(_leftInfo, "descPad") : (3 * _S);
-    var _descAreaH = (is_struct(_leftInfo) && variable_struct_exists(_leftInfo, "descAreaH")) ? variable_struct_get(_leftInfo, "descAreaH") : (38 * _S);
+    var _descAreaH = (is_struct(_leftInfo) && variable_struct_exists(_leftInfo, "descAreaH")) ? variable_struct_get(_leftInfo, "descAreaH") : (50 * _S);
     var _descX = (is_struct(_leftInfo) && variable_struct_exists(_leftInfo, "descX")) ? variable_struct_get(_leftInfo, "descX") : (_OX + _LEFT_X * _S + (3 * _S));
-    var _descY = (is_struct(_leftInfo) && variable_struct_exists(_leftInfo, "descY")) ? variable_struct_get(_leftInfo, "descY") : ((_OY + (_LEFT_Y + _LEFT_H) * _S) - (38 * _S) + (3 * _S));
+    var _descY = (is_struct(_leftInfo) && variable_struct_exists(_leftInfo, "descY")) ? variable_struct_get(_leftInfo, "descY") : ((_OY + (_LEFT_Y + _LEFT_H) * _S) - (50 * _S) + (3 * _S));
     var _descW = (is_struct(_leftInfo) && variable_struct_exists(_leftInfo, "descW")) ? variable_struct_get(_leftInfo, "descW") : (min((_LEFT_W + 10) * _S, (108 - _LEFT_X - 4) * _S) - (3 * _S) * 2);
     var _descH = (is_struct(_leftInfo) && variable_struct_exists(_leftInfo, "descH")) ? variable_struct_get(_leftInfo, "descH") : ((_descAreaH) - (_descPad) * 2);
 
@@ -65,7 +88,9 @@ function __party_impl_draw_summary(_pid, _P, _OX, _OY, _S){
             // Determine currently-selected move id from learn_pending.list_sel and global index
             var _sel_idx = (variable_struct_exists(_lp, "list_sel") ? variable_struct_get(_lp, "list_sel") : 0);
             var _move_id_candidate = -1;
-            if (variable_global_exists("_move_index") && is_array(global._move_index)){
+            if (variable_struct_exists(_lp, "source_machine") && variable_struct_get(_lp, "source_machine") == true && variable_struct_exists(_lp, "move_id")){
+                _move_id_candidate = variable_struct_get(_lp, "move_id");
+            } else if (variable_global_exists("_move_index") && is_array(global._move_index)){
                 var _mi = global._move_index;
                 if (is_array(_mi) && _sel_idx >= 0 && _sel_idx < array_length(_mi)) _move_id_candidate = _mi[_sel_idx];
             }
@@ -99,7 +124,7 @@ function __party_impl_draw_summary(_pid, _P, _OX, _OY, _S){
         // draw the move list in the right panel area (guarded reads)
         var _rx = (is_struct(_rightInfo) && variable_struct_exists(_rightInfo, "rx1")) ? variable_struct_get(_rightInfo, "rx1") : (_OX + _RIGHT_X*_S);
         var _ry = (is_struct(_rightInfo) && variable_struct_exists(_rightInfo, "ry1")) ? variable_struct_get(_rightInfo, "ry1") : (_OY + _RIGHT_Y*_S);
-        // (Header removed; badge from party_system.gml will be used instead)
+        __party_impl_draw_learn_panel_frame(_rx, _ry, _RIGHT_W, _RIGHT_H, _S);
         // Now draw the selectable learn list
         __party_draw_learn_list(_pid, _P, _OX, _OY, _S, _rx, _ry, _RIGHT_W, _RIGHT_H, _descX, _descY, _descW, _descH);
     }
@@ -117,9 +142,199 @@ function __party_impl_draw_summary(_pid, _P, _OX, _OY, _S){
     }
 }
 
+function __party_impl_mon_get_any(_M, _keys, _fallback){
+    if (!is_struct(_M)) return _fallback;
+    for (var _i = 0; _i < array_length(_keys); ++_i){
+        if (variable_struct_exists(_M, _keys[_i])){
+            var _v = variable_struct_get(_M, _keys[_i]);
+            if (!is_undefined(_v)) return _v;
+        }
+    }
+    return _fallback;
+}
+
+function __party_impl_mon_get_number(_M, _keys, _fallback){
+    var _v = __party_impl_mon_get_any(_M, _keys, _fallback);
+    if (is_real(_v)) return floor(_v);
+    if (is_string(_v) && string_length(string_trim(_v)) > 0){
+        var _r = real(_v);
+        if (is_real(_r)) return floor(_r);
+    }
+    return _fallback;
+}
+
+function __party_impl_struct_number(_Sct, _keys, _fallback){
+    if (!is_struct(_Sct)) return _fallback;
+    for (var _i = 0; _i < array_length(_keys); ++_i){
+        if (variable_struct_exists(_Sct, _keys[_i])){
+            var _v = variable_struct_get(_Sct, _keys[_i]);
+            if (is_real(_v)) return floor(_v);
+            if (is_string(_v) && string_length(string_trim(_v)) > 0){
+                var _r = real(_v);
+                if (is_real(_r)) return floor(_r);
+            }
+        }
+    }
+    return _fallback;
+}
+
+function __party_impl_fit_text(_txt, _maxW){
+    var _out = string(_txt);
+    if (string_width(_out) <= _maxW) return _out;
+    while (string_width(_out + "...") > _maxW && string_length(_out) > 3){
+        _out = string_copy(_out, 1, string_length(_out) - 1);
+    }
+    return (string_length(_out) > 3) ? (_out + "...") : _out;
+}
+
+function __party_impl_draw_scaled_outline(_x1, _y1, _x2, _y2, _thick, _col){
+    var _t = max(1, _thick);
+    draw_set_color(_col);
+    draw_rectangle(_x1, _y1, _x2, _y1 + _t, false);
+    draw_rectangle(_x1, _y2 - _t, _x2, _y2, false);
+    draw_rectangle(_x1, _y1, _x1 + _t, _y2, false);
+    draw_rectangle(_x2 - _t, _y1, _x2, _y2, false);
+}
+
+function __party_impl_mon_type_text(_M){
+    var _sid_try = __party_impl_mon_get_number(_M, ["species_id","species","id","_id"], -1);
+    if (_sid_try >= 0 && !is_undefined(scr_poke_type_str)){
+        var _resolved = scr_poke_type_str(_sid_try);
+        if (string_length(string_trim(_resolved)) > 0) return _resolved;
+    }
+    var _t1 = string(__party_impl_mon_get_any(_M, ["type1"], ""));
+    var _t2 = string(__party_impl_mon_get_any(_M, ["type2"], ""));
+    if (string_length(string_trim(_t1)) > 0 && string_length(string_trim(_t2)) > 0 && _t2 != _t1) return _t1 + "/" + _t2;
+    if (string_length(string_trim(_t1)) > 0) return _t1;
+    var _raw = __party_impl_mon_get_any(_M, ["type"], "");
+    if (is_array(_raw) && array_length(_raw) > 0){
+        var _out = string(_raw[0]);
+        for (var _i = 1; _i < array_length(_raw); ++_i) _out += "/" + string(_raw[_i]);
+        return _out;
+    }
+    if (string_length(string_trim(string(_raw))) > 0) return string(_raw);
+    return "--";
+}
+
+function __party_impl_mon_stat_value(_M, _stat){
+    if (_stat == "HP") return __party_impl_mon_get_number(_M, ["hp_max","maxhp","max_hp","hp"], 0);
+    if (_stat == "ATK") return __party_impl_mon_get_number(_M, ["attack","atk","stat_atk"], 0);
+    if (_stat == "DEF") return __party_impl_mon_get_number(_M, ["defense","def","stat_def"], 0);
+    if (_stat == "SP.A") return __party_impl_mon_get_number(_M, ["special_attack","sp_atk","spatk","spa","stat_spa"], 0);
+    if (_stat == "SP.D") return __party_impl_mon_get_number(_M, ["special_defense","sp_def","spdef","spd","stat_spd"], 0);
+    if (_stat == "SPD") return __party_impl_mon_get_number(_M, ["speed","spe","stat_spe"], 0);
+    return 0;
+}
+
+function __party_impl_mon_iv_ev_text(_M, _fieldName, _prefix){
+    var _box = is_struct(_M) && variable_struct_exists(_M, _fieldName) ? variable_struct_get(_M, _fieldName) : undefined;
+    var _hp = __party_impl_struct_number(_box, ["hp"], __party_impl_mon_get_number(_M, [_prefix + "_hp"], 0));
+    var _at = __party_impl_struct_number(_box, ["atk","attack"], __party_impl_mon_get_number(_M, [_prefix + "_atk"], 0));
+    var _df = __party_impl_struct_number(_box, ["def","defense"], __party_impl_mon_get_number(_M, [_prefix + "_def"], 0));
+    var _sa = __party_impl_struct_number(_box, ["spa","sp_atk","spatk","special_attack"], __party_impl_mon_get_number(_M, [_prefix + "_spa", _prefix + "_sp_atk"], 0));
+    var _sd = __party_impl_struct_number(_box, ["spd","sp_def","spdef","special_defense"], __party_impl_mon_get_number(_M, [_prefix + "_spd", _prefix + "_sp_def"], 0));
+    var _sp = __party_impl_struct_number(_box, ["spe","speed"], __party_impl_mon_get_number(_M, [_prefix + "_spe", _prefix + "_speed"], 0));
+    return string(_hp) + "/" + string(_at) + "/" + string(_df) + "/" + string(_sa) + "/" + string(_sd) + "/" + string(_sp);
+}
+
+function __party_impl_draw_summary_row(_x, _y, _label, _value, _maxW, _S){
+    var _boxH = max(9 * _S, string_height("A") + 3);
+    draw_set_color(make_color_rgb(24, 96, 96));
+    var _ty = _y + max(0, (_boxH - string_height("A")) * 0.5) - _S;
+    draw_text(_x, _ty, _label);
+    draw_set_color(make_color_rgb(32, 48, 56));
+    var _vx = _x + 38 * _S;
+    draw_text(_vx, _ty, __party_impl_fit_text(_value, max(8, _maxW - 38 * _S)));
+}
+
+function __party_impl_draw_summary_pair_row(_x, _y, _l1, _v1, _l2, _v2, _maxW, _S){
+    var _gap = 3 * _S;
+    var _half = floor((_maxW - _gap) * 0.5);
+    var _boxH = max(9 * _S, string_height("A") + 3);
+    var _ty = _y + max(0, (_boxH - string_height("A")) * 0.5) - _S;
+    draw_set_color(make_color_rgb(24, 96, 96));
+    draw_text(_x, _ty, _l1);
+    draw_text(_x + _half + _gap, _ty, _l2);
+    draw_set_color(make_color_rgb(32, 48, 56));
+    draw_text(_x + 25*_S, _ty, __party_impl_fit_text(_v1, max(8, _half - 25*_S)));
+    draw_text(_x + _half + _gap + 25*_S, _ty, __party_impl_fit_text(_v2, max(8, _half - 25*_S)));
+}
+
 // Draw the profile info block for a single mon (_M) into the left column.
 // Shows OT, types, ability, nature, and trainer memo fields.
 function __party_impl_draw_profile_block(_M, _x, _y, _w, _h, _S){
+    var _oldFont = draw_get_font();
+    if (variable_global_exists("FNT_POKEMON_SMALL")) draw_set_font(global.FNT_POKEMON_SMALL);
+    var _C_ACC = make_color_rgb(48, 152, 112);
+    var _C_TEXT = make_color_rgb(32, 48, 56);
+    var _C_LINE = make_color_rgb(128, 184, 152);
+    var _C_BOX = make_color_rgb(255, 248, 216);
+    var _innerX = _x + 5 * _S;
+    var _innerW = (_w * _S) - 10 * _S;
+    var _textX = _innerX + 4 * _S;
+    var _textW = _innerW - 4 * _S;
+    var _textYOff = 4 * _S;
+    var _boxH = max(8 * _S, string_height("A") + 2);
+    var _rowH = floor(((_h * _S) - 20 * _S) / 10);
+    _rowH = max(string_height("A") + 1, _rowH);
+
+    draw_set_color(make_color_rgb(255, 248, 216));
+    draw_rectangle(_x + 3*_S, _y + 15*_S, _x + (_w*_S) - 3*_S, _y + (_h*_S) - 3*_S, false);
+    __party_impl_draw_scaled_outline(_x + 3*_S, _y + 15*_S, _x + (_w*_S) - 3*_S, _y + (_h*_S) - 3*_S, _S, make_color_rgb(184, 216, 176));
+
+    draw_set_color(_C_ACC);
+    draw_rectangle(_x + 3*_S, _y + 3*_S, _x + (_w*_S) - 3*_S, _y + 13*_S, false);
+    __party_impl_text_white(_textX + 2*_S, _y + 3*_S + _textYOff, "POKEMON DATA");
+
+    var _ot = string(__party_impl_mon_get_any(_M, ["ot","original_trainer","trainer"], "--"));
+    var _idno = string(__party_impl_mon_get_any(_M, ["idno","id_no","trainer_id"], "--"));
+    var _typ = __party_impl_mon_type_text(_M);
+    var _abi = string(__party_impl_mon_get_any(_M, ["ability","ability_name"], "--"));
+    var _nat = string(__party_impl_mon_get_any(_M, ["nature","nature_name"], "--"));
+    var _sex = string(__party_impl_mon_get_any(_M, ["sex","gender"], "--"));
+    var _held = string(__party_impl_mon_get_any(_M, ["held_item_name","held_item_real_name","held_item_identifier","held_item","item"], "None"));
+    var _metLv = string(__party_impl_mon_get_any(_M, ["met_level","met_lvl"], "--"));
+    var _metMp = string(__party_impl_mon_get_any(_M, ["met_map","met_location","met_place"], "--"));
+    var _curHp = __party_impl_mon_get_number(_M, ["hp_now","hp_current","current_hp","hp"], 0);
+    var _maxHp = max(_curHp, __party_impl_mon_stat_value(_M, "HP"));
+    var _exp = __party_impl_mon_get_number(_M, ["exp","experience"], 0);
+    var _next = __party_impl_mon_get_number(_M, ["exp_next","next_exp","experience_next"], 0);
+
+    var _yy = _y + 15 * _S + _textYOff;
+    __party_impl_draw_summary_pair_row(_textX, _yy, "TYPE", _typ, "SEX", _sex, _textW, _S); _yy += _rowH;
+    __party_impl_draw_summary_pair_row(_textX, _yy, "NAT", _nat, "ITEM", _held, _textW, _S); _yy += _rowH;
+    __party_impl_draw_summary_row(_textX, _yy, "ABILITY", _abi, _textW, _S); _yy += _rowH;
+    __party_impl_draw_summary_pair_row(_textX, _yy, "OT", _ot, "ID", _idno, _textW, _S); _yy += _rowH;
+
+    var _dividerLift = 5 * _S;
+    draw_set_color(_C_LINE); draw_rectangle(_textX, _yy - _dividerLift, _textX + _textW, _yy - _dividerLift + max(1, _S), false);
+    _yy += max(2, _S);
+    var _statTitleY = _yy + max(0, (_boxH - string_height("A")) * 0.5) - _S;
+    draw_set_color(_C_ACC); draw_text(_textX, _statTitleY, "STATS");
+    draw_set_color(_C_TEXT); draw_text(_textX + 38*_S, _statTitleY, "HP " + string(_curHp) + "/" + string(_maxHp));
+    _yy += _rowH;
+
+    var _expText = string(_exp);
+    if (_next > 0) _expText += "/" + string(_next);
+    var _statLabels = ["ATK","DEF","SP.A","SP.D","SPD","EXP"];
+    for (var _si = 0; _si < array_length(_statLabels); ++_si){
+        var _sx = _textX + (((_si mod 2) == 0) ? 0 : 58 * _S);
+        var _sy = _yy + floor(_si / 2) * _rowH;
+        var _sl = _statLabels[_si];
+        var _sty = _sy + max(0, (_boxH - string_height("A")) * 0.5) - _S;
+        draw_set_color(make_color_rgb(24, 96, 96)); draw_text(_sx, _sty, _sl);
+        var _sv = (_sl == "EXP") ? _expText : string(__party_impl_mon_stat_value(_M, _sl));
+        draw_set_color(_C_TEXT); draw_text(_sx + 24*_S, _sty, __party_impl_fit_text(_sv, 31*_S));
+    }
+    _yy += 3 * _rowH;
+
+    draw_set_color(_C_LINE); draw_rectangle(_textX, _yy - _dividerLift, _textX + _textW, _yy - _dividerLift + max(1, _S), false);
+    _yy += max(2, _S);
+    __party_impl_draw_summary_pair_row(_textX, _yy, "IV", __party_impl_mon_iv_ev_text(_M, "ivs", "iv"), "EV", __party_impl_mon_iv_ev_text(_M, "evs", "ev"), _textW, _S); _yy += _rowH;
+
+    draw_set_font(_oldFont);
+    return;
+
     var _C_LABEL = make_color_rgb(40, 96, 96);
     var _lh = max(12, string_height("A") + 2) * _S;
     __party_impl_text_white(_x + 6*_S, _y + 6*_S, "PROFILE");
@@ -221,17 +436,45 @@ function __party_impl_draw_profile_block(_M, _x, _y, _w, _h, _S){
 function __party_impl_draw_moves_block(_P, _M, _x, _y, _w, _h, _S, _highlightForget){
     var _lh = max(12, string_height("A") + 2) * _S;
     draw_set_color(c_white);
-    draw_text(_x + 6*_S, _y + 6*_S, "MOVES");
+    var _pendingLearnMove = -1;
+    if (_highlightForget && is_struct(_P) && variable_struct_exists(_P, "learn_pending") && is_struct(variable_struct_get(_P, "learn_pending"))){
+        var _lp_forget_draw = variable_struct_get(_P, "learn_pending");
+        if (variable_struct_exists(_lp_forget_draw, "move_id")) _pendingLearnMove = variable_struct_get(_lp_forget_draw, "move_id");
+    }
+    draw_text(_x + 6*_S, _y + 6*_S, _highlightForget ? "FORGET?" : "MOVES");
+    if (_highlightForget && is_real(_pendingLearnMove) && _pendingLearnMove > 0){
+        draw_set_color(make_color_rgb(72, 200, 88));
+        var _learnLabel = "Learn " + __party_move_name(_pendingLearnMove);
+        var _learnMaxW = (_w * _S) - 12 * _S;
+        while (string_width(_learnLabel) > _learnMaxW && string_length(_learnLabel) > 6){
+            _learnLabel = string_copy(_learnLabel, 1, string_length(_learnLabel) - 1);
+        }
+        draw_text(_x + 6*_S, _y + 16*_S, _learnLabel);
+    }
 
     var _mv = is_struct(_M) && variable_struct_exists(_M,"moves") ? _M.moves : [];
     var _nm = array_length(_mv);
     for (var _i = 0; _i < max(4,_nm); _i++){
-        var _lineY = _y + 20*_S + _lh*_i;
+        var _lineY = _y + (_highlightForget ? 32 : 20) * _S + _lh*_i;
         // Draw existing move name or a blank placeholder for empty slots so
         // the player can visually see and learn into empty slots.
         var _txt = (_i < _nm) ? __party_move_name(_mv[_i]) : "-----";
-        draw_set_color( _i == _P.sum_move_sel ? (_highlightForget ? make_color_rgb(232,64,48) : make_color_rgb(72,200,88)) : c_white );
-        draw_text(_x + 10*_S, _lineY, _txt);
+        if (_i == _P.sum_move_sel){
+            if (_highlightForget){
+                draw_set_color(make_color_rgb(216, 72, 56));
+                draw_rectangle(_x + 6*_S, _lineY - 6*_S, _x + (_w*_S) - 6*_S, _lineY + _lh - 6*_S, false);
+                draw_set_color(make_color_rgb(112, 32, 32));
+                draw_rectangle(_x + 6*_S, _lineY - 6*_S, _x + (_w*_S) - 6*_S, _lineY + _lh - 6*_S, true);
+                draw_set_color(c_white);
+                draw_text(_x + 10*_S, _lineY, "> " + _txt);
+            } else {
+                draw_set_color(make_color_rgb(72,200,88));
+                draw_text(_x + 10*_S, _lineY, _txt);
+            }
+        } else {
+            draw_set_color(c_white);
+            draw_text(_x + 10*_S, _lineY, _txt);
+        }
     }
 
     // Do not render the small learnset column here. The small column can
@@ -315,25 +558,19 @@ function __party_impl_draw_left_panel(_P, _M, _OX, _OY, _S, _LEFT_X, _LEFT_Y, _L
     var _lx2 = _OX + (_LEFT_X + _LEFT_W)*_S, _ly2 = _OY + (_LEFT_Y + _LEFT_H)*_S;
     var _PARCHMENT = make_color_rgb(255,243,195);
     draw_set_color(_PARCHMENT); draw_rectangle(_lx1, _ly1, _lx2, _ly2, false);
-    var _C_EDGE = make_color_rgb(64, 56, 112);
-    draw_set_color(_C_EDGE);  draw_rectangle(_lx1- _S, _ly1- _S, _lx2+ _S, _ly2+ _S, true);
+    draw_set_color(make_color_rgb(248, 224, 160));
+    __party_impl_draw_scaled_outline(_lx1 + 2*_S, _ly1 + 2*_S, _lx2 - 2*_S, _ly2 - 2*_S, _S, make_color_rgb(248, 224, 160));
+    var _C_EDGE = make_color_rgb(24, 80, 88);
+    __party_impl_draw_scaled_outline(_lx1- _S, _ly1- _S, _lx2+ _S, _ly2+ _S, 2*_S, _C_EDGE);
 
     var _DESC_PAD = 3 * _S;
-    var _DESC_AREA_H = 38 * _S;
+    var _DESC_AREA_H = 50 * _S;
 
     if (variable_global_exists("FNT_POKEMON")) draw_set_font(global.FNT_POKEMON); else draw_set_font(-1);
     draw_set_color(c_white);
 
     if (is_struct(_M)){
-        var _nm = "???";
-        if (variable_struct_exists(_M,"species_id") && is_real(_M.species_id)){
-            var _idn = scr_poke_name_by_id(_M.species_id);
-            if (string_length(_idn) > 0){
-                _nm = string_replace_all(_idn, "-", " ");
-                if (string_length(_nm) > 0) _nm = string_upper(string_copy(_nm,1,1)) + string_delete(_nm,1,1);
-            }
-        } else if (variable_struct_exists(_M,"species")) _nm = string(_M.species);
-        else if (variable_struct_exists(_M,"name"))     _nm = string(_M.name);
+        var _nm = __party_impl_species_display_name(_M);
         draw_text(_lx1 + 6*_S, _ly1 + 6*_S, _nm);
 
         // (Badge moved to level area) — no badge drawn here any more.
@@ -419,14 +656,52 @@ function __party_impl_draw_left_panel(_P, _M, _OX, _OY, _S, _LEFT_X, _LEFT_Y, _L
     return { descPad: _DESC_PAD, descAreaH: _DESC_AREA_H, descX: (_lx1 + _DESC_PAD), descY: (_ly2 - _DESC_AREA_H + _DESC_PAD), descW: min((_LEFT_W + 10) * _S, (108 - _LEFT_X - 4) * _S) - _DESC_PAD*2, descH: _DESC_AREA_H - _DESC_PAD*2 };
 }
 
+function __party_impl_species_display_name(_M){
+    if (!is_struct(_M)) return "???";
+
+    var _sid = -1;
+    if (variable_struct_exists(_M, "species_id") && is_real(_M.species_id)) _sid = floor(_M.species_id);
+    else if (variable_struct_exists(_M, "species") && is_real(_M.species)) _sid = floor(_M.species);
+    else if (variable_struct_exists(_M, "id") && is_real(_M.id)) _sid = floor(_M.id);
+    else if (variable_struct_exists(_M, "_id") && is_real(_M._id)) _sid = floor(_M._id);
+
+    if (_sid > 0 && !is_undefined(scr_poke_name_by_id)){
+        var _idn = scr_poke_name_by_id(_sid);
+        if (is_string(_idn) && string_length(string_trim(_idn)) > 0){
+            var _out = string_replace_all(string_trim(_idn), "-", " ");
+            return string_upper(string_copy(_out, 1, 1)) + string_delete(_out, 1, 1);
+        }
+    }
+
+    if (variable_struct_exists(_M, "name")){
+        var _name = string(variable_struct_get(_M, "name"));
+        if (string_length(string_trim(_name)) > 0 && string_lower(string_trim(_name)) != "undefined") return string_trim(_name);
+    }
+
+    return "???";
+}
+
+function __party_impl_draw_learn_panel_frame(_rx, _ry, _rw, _rh, _S){
+    var _x2 = _rx + _rw * _S;
+    var _y2 = _ry + _rh * _S;
+    draw_set_color(make_color_rgb(224, 248, 216));
+    draw_rectangle(_rx, _ry, _x2, _y2, false);
+    __party_impl_draw_scaled_outline(_rx - _S, _ry - _S, _x2 + _S, _y2 + _S, 2*_S, make_color_rgb(32, 120, 88));
+    draw_set_color(make_color_rgb(48, 152, 112));
+    draw_rectangle(_rx + 3*_S, _ry + 3*_S, _x2 - 3*_S, _ry + 15*_S, false);
+    __party_impl_text_white(_rx + 7*_S, _ry + 4*_S, "LEARN MOVE");
+}
+
 // Draw the right parchment frame and return its GUI coordinates.
 function __party_impl_draw_right_frame(_OX, _OY, _S, _RIGHT_X, _RIGHT_Y, _RIGHT_W, _RIGHT_H){
     var _rx1 = _OX + _RIGHT_X*_S, _ry1 = _OY + _RIGHT_Y*_S;
     var _rx2 = _OX + (_RIGHT_X + _RIGHT_W)*_S, _ry2 = _OY + (_RIGHT_Y + _RIGHT_H)*_S;
     var _PARCHMENT = make_color_rgb(255,243,195);
     draw_set_color(_PARCHMENT); draw_rectangle(_rx1, _ry1, _rx2, _ry2, false);
-    var _C_EDGE = make_color_rgb(64, 56, 112);
-    draw_set_color(_C_EDGE);  draw_rectangle(_rx1- _S, _ry1- _S, _rx2+ _S, _ry2+ _S, true);
+    draw_set_color(make_color_rgb(248, 224, 160));
+    __party_impl_draw_scaled_outline(_rx1 + 2*_S, _ry1 + 2*_S, _rx2 - 2*_S, _ry2 - 2*_S, _S, make_color_rgb(248, 224, 160));
+    var _C_EDGE = make_color_rgb(24, 80, 88);
+    __party_impl_draw_scaled_outline(_rx1- _S, _ry1- _S, _rx2+ _S, _ry2+ _S, 2*_S, _C_EDGE);
     return { rx1: _rx1, ry1: _ry1, rx2: _rx2, ry2: _ry2 };
 }
 

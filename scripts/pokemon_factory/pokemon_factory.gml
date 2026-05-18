@@ -120,6 +120,46 @@ function scr_nature_multiplier(_nature, _stat){
     return 1.0;
 }
 
+function pokemon_factory_gender_rate(_sid){
+    var _s = (is_real(_sid) ? floor(_sid) : -1);
+    if (_s >= 0 && variable_global_exists("_species_gender_rates") && is_array(global._species_gender_rates) && _s < array_length(global._species_gender_rates)){
+        var _rate = global._species_gender_rates[_s];
+        if (is_real(_rate)) return clamp(floor(_rate), -1, 8);
+    }
+    if (_s >= 0 && variable_global_exists("_pokemon") && is_array(global._pokemon) && _s < array_length(global._pokemon)){
+        var _rec = global._pokemon[_s];
+        if (is_struct(_rec) && variable_struct_exists(_rec, "gender_rate") && is_real(_rec.gender_rate)) return clamp(floor(_rec.gender_rate), -1, 8);
+    }
+    return 4;
+}
+
+function pokemon_factory_normalize_sex(_value){
+    var _s = string_lower(string(_value));
+    if (_s == "m" || _s == "male" || _s == "boy") return "male";
+    if (_s == "f" || _s == "female" || _s == "girl") return "female";
+    if (_s == "genderless" || _s == "none" || _s == "unknown" || _s == "n/a") return "genderless";
+    return "";
+}
+
+function pokemon_factory_roll_sex(_sid, _seed){
+    var _rate = pokemon_factory_gender_rate(_sid);
+    if (_rate < 0) return "genderless";
+    if (_rate <= 0) return "male";
+    if (_rate >= 8) return "female";
+    if (is_real(_seed)){
+        var _roll = abs(floor(_seed)) mod 8;
+        return (_roll < _rate) ? "female" : "male";
+    }
+    return (irandom(7) < _rate) ? "female" : "male";
+}
+
+function pokemon_factory_sex_id(_sex){
+    var _s = pokemon_factory_normalize_sex(_sex);
+    if (_s == "female") return 1;
+    if (_s == "male") return 2;
+    return 0;
+}
+
 // Award EVs to a mon (clamped per-stat and total). _ev_gain should be a struct with keys hp/atk/def/spa/spd/spe
 function scr_award_ev_to_mon(_mon, _ev_gain){
     if (!is_struct(_mon)) return;
@@ -179,6 +219,11 @@ function pokemon_factory_create(_sid, _level, _opts){
     var _ot = (variable_struct_exists(_o, "ot")) ? string(_o.ot) : (variable_global_exists("PLAYER_NAME") ? string(global.PLAYER_NAME) : "YOU");
     if (variable_struct_exists(_o, "pid") && is_real(_o.pid) && _o.pid == 1 && variable_global_exists("PLAYER2_NAME")) _ot = string(global.PLAYER2_NAME);
     var _idno = (variable_struct_exists(_o, "idno") && is_real(_o.idno)) ? floor(_o.idno) : _s;
+    var _sex = "";
+    if (variable_struct_exists(_o, "sex")) _sex = pokemon_factory_normalize_sex(_o.sex);
+    if (string_length(_sex) <= 0 && variable_struct_exists(_o, "gender")) _sex = pokemon_factory_normalize_sex(_o.gender);
+    if (string_length(_sex) <= 0) _sex = pokemon_factory_roll_sex(_s, _idno + (_s * 1000) + L);
+    var _sex_id = pokemon_factory_sex_id(_sex);
 
     var _icon = (variable_struct_exists(_o, "icon")) ? _o.icon : -1;
     if (_icon == -1) {
@@ -288,6 +333,10 @@ function pokemon_factory_create(_sid, _level, _opts){
         idno       : _idno,
         icon       : _icon,
         shiny      : __pfc_bool((variable_struct_exists(_o, "shiny") ? _o.shiny : undefined), false),
+        sex        : _sex,
+        gender     : _sex,
+        sex_id     : _sex_id,
+        gender_id  : _sex_id,
         type1      : _t1,
         type2      : _t2,
         types      : _types_arr,
@@ -393,6 +442,17 @@ function pokemon_factory_create(_sid, _level, _opts){
     mon.maxhp = mon.hp_max;
     mon.hp = mon.hp_max;
     mon.hp_now = mon.hp_max;
+    try {
+        if ((!variable_struct_exists(mon, "ability_id") || !is_real(mon.ability_id)) && !is_undefined(scr_poke_pick_ability)){
+            var _ability_id = scr_poke_pick_ability(_s, _s * 1000 + L);
+            if (is_real(_ability_id) && _ability_id > 0){
+                mon.ability_id = _ability_id;
+                if (!is_undefined(scr_ability_name_by_id)) mon.ability = scr_ability_name_by_id(_ability_id);
+            }
+        } else if (variable_struct_exists(mon, "ability_id") && is_real(mon.ability_id) && (!variable_struct_exists(mon, "ability") || string_length(string(mon.ability)) <= 0) && !is_undefined(scr_ability_name_by_id)){
+            mon.ability = scr_ability_name_by_id(mon.ability_id);
+        }
+    } catch (e_ability_assign) {}
     // Populate a per-mon `learnset` for convenience: list of move IDs the species can learn up to this level.
     // This allows UI code that prefers a per-mon learnset (mon.learnset) to work without additional fallbacks.
     if (!is_undefined(scr_poke_moves_upto_level)){

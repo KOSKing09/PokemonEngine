@@ -2,6 +2,8 @@
 
 This guide covers how the bag is booted, which public helpers are safe to call, how the bag behaves in and out of battle, and where to edit layout versus logic versus text sourcing.
 
+For the current implemented/partial/pending item coverage list, see `docs/item_tracker.md`.
+
 ## Runtime contract
 
 - Boot once with `bags_init(playerCount)`.
@@ -94,6 +96,35 @@ Key behavior:
 - healing and revive-style items can hand off to the party UI by opening `party_open(pid)` and populating `P.use_pending`
 
 This split is important: bag code decides what item action to queue, but battle and party code finish the action in their own state machines.
+
+## CSV Item Behaviors
+
+The bag now uses the CSV data for both medicine-style items and machines.
+
+- `data/csv/item_prose.csv` is parsed by `data_load_item_effects_structs()` into `global._item_effects`.
+- `scripts/scr_apply_item_effects/scr_apply_item_effects.gml` applies supported effects: HP restore, full restore, revive, status cure, PP restore, EV vitamins/reducers, Rare Candy level-up, PP Up/PP Max, item evolution, and battle X-item boosts.
+- `data/csv/machines.csv` is parsed by `data_load_machine_moves_structs()` into `global._machine_item_to_move[item_id]`.
+- `data/csv/pokemon_moves.csv` is also parsed for method `4` rows, producing `global._species_machine_moves[species_id]` for TM/HM compatibility checks.
+- Machine lookup prefers Emerald's `version_group_id = 6` when the same TM/HM item id appears in multiple generations.
+- HM01-HM08 also have a small hardcoded Emerald fallback in `bag__machine_move_id(...)`, so Cut, Fly, Surf, Strength, Flash, Rock Smash, Waterfall, and Dive still teach if the CSV machine cache is unavailable.
+
+TM/HM use flow:
+
+1. Bag `Use` detects a machine item with `bag__machine_move_id(item_id, item_struct)`.
+2. The bag closes and opens the player's party in `mode = "select_item"` with `P.teach_pending`.
+3. Party draw shows an `OK` or `NO` badge beside every Pokemon while choosing who to teach.
+4. Party input checks `party__machine_can_teach(mon, move_id)`.
+5. If the Pokemon has room, `scr_move_learn_try(...)` teaches immediately and persists through `party_model_update_mon(...)`.
+6. If four moves are already known, the party enters the normal summary forget screen, shows the pending TM/HM move, and lets the player pick one current move to replace.
+7. TMs consume one item after a successful learn; HMs do not.
+
+Other direct-use CSV items:
+
+- Vitamins, wings, EV-reducing berries, Rare Candy, PP Up/PP Max, medicine, and evolution stones open the party selector.
+- Poke Doll, Fluffy Tail, and Poke Toy end wild battles.
+- Repel/Lure-style field items store per-player overworld encounter modifiers in `global.BAG_FIELD_EFFECTS`.
+- X Attack/X Defense/X Speed/X Accuracy/X Sp. Atk/X Sp. Def, Dire Hit, and Guard Spec apply to the active battler during battle.
+- Held-only/passive items remain handled through the existing `Give` flow; their battle passives are not simulated by the bag use button.
 
 ## Copyable examples
 

@@ -6,7 +6,7 @@
 
 // Full-screen party draw (moved from party_system.gml)
 function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
-    if (!party_is_open(_pid)) return;
+    if (!party_is_open(_pid) || (!is_undefined(pc_is_open) && pc_is_open(_pid))) return;
     var _P = party_ensure(_pid);
 
     var _S  = max(1, min(floor(_rw / 240), floor(_rh / 160)));
@@ -85,7 +85,7 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
             draw_set_color(_C_PAPER_E); draw_rectangle(_bx1 - _S, _by1 - _S, _bx2 + _S, _by2 + _S, true);
             // Use the party sprite font helper so the prompt uses the same pixel font
             var _oldFont = __party_use_font();
-            draw_set_color(c_white);
+            draw_set_color(make_color_rgb(44, 54, 78));
             var _txt = "Switch with which Pokémon ?";
             // Measure with the sprite font active
             var _txt_w = string_width(_txt);
@@ -117,9 +117,9 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     draw_set_color(_C_PAPER_E); draw_rectangle(_lx1 - _S, _ly1 - _S, _lx2 + _S, _ly2 + _S, true);
 
     var _partyFontOld = __party_use_font();
-    draw_set_color(c_white);
+    draw_set_color(make_color_rgb(44, 54, 78));
 
-    var _mons  = _P.mons;
+    var _mons  = __party_visible_mons(_pid);
     var _n     = array_length(_mons);
     var _ROWS  = 6;
     var _ROW_H = max(12, string_height("A") + 2);
@@ -132,23 +132,26 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         var _M = _mons[_idx];
         var _row_y_gui = _OY + (_LIST_Y + 8 + _r*(_ROW_H + PARTY_ROW_PAD_UI)) * _S;
 
+        var _teach_select_offset_y = (string(_P.mode) == "select_item" && is_struct(_P) && variable_struct_exists(_P, "teach_pending") && is_struct(variable_struct_get(_P, "teach_pending"))) ? (-5 * _S) : 0;
+        var _selector_underlay_offset_y = -5 * _S;
+
         if (_idx == _P.sel){
             var _rx1 = _OX + (_LIST_X + 2) * _S;
-            var _ry1 = _row_y_gui - (_ROW_H * 0.65) * _S;
+            var _ry1 = _row_y_gui - 2 * _S + _selector_underlay_offset_y;
             var _rx2 = _OX + (_LIST_X + _LIST_W - 2) * _S;
-            var _ry2 = _ry1 + (_ROW_H * 1.25) * _S;
+            var _ry2 = _row_y_gui + (_ROW_H + 2) * _S + _selector_underlay_offset_y;
             draw_set_color(PARTY_HILITE_COL);
             draw_rectangle(_rx1, _ry1, _rx2, _ry2, false);
             draw_set_color(PARTY_HILITE_EDGE);
             draw_rectangle(_rx1, _ry1, _rx2, _ry2, true);
-            draw_set_color(c_white);
+            draw_set_color(make_color_rgb(44, 54, 78));
         }
 
         if (_idx == _P.sel){
             var _sh2 = max(1, sprite_get_height(sprSelector));
             var _tgt2 = _ROW_H * _S;
             var _sc2  = _tgt2 / _sh2;
-            draw_sprite_ext(sprSelector, 0, _OX + (_LIST_X + 2)*_S - 10*_S, _row_y_gui - _tgt2*0.15, _sc2, _sc2, 0, c_white, 1);
+            draw_sprite_ext(sprSelector, 0, _OX + (_LIST_X + 2)*_S - 10*_S, _row_y_gui - _tgt2*0.15 + _teach_select_offset_y, _sc2, _sc2, 0, c_white, 1);
         }
 
         var _sprDown = -1;
@@ -207,21 +210,17 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
             }
         }
 
-    var _disp_name = "???";
+        var _disp_name = "???";
         if (is_struct(_M)){
-            if (variable_struct_exists(_M,"species_id")){
-                var _sid = _M.species_id;
-                if (is_real(_sid) && _sid >= 0){
-                    var _idn = scr_poke_name_by_id(_sid);
-                    if (string_length(_idn) > 0){
-                        _disp_name = string_replace_all(_idn, "-", " ");
-                        if (string_length(_disp_name) > 0){
-                            _disp_name = string_upper(string_copy(_disp_name,1,1)) + string_delete(_disp_name,1,1);
-                        }
-                    }
-                }
-            } else if (variable_struct_exists(_M,"species")) _disp_name = string(_M.species);
-            else if (variable_struct_exists(_M,"name"))     _disp_name = string(_M.name);
+            if (!is_undefined(mon_display_name)){
+                _disp_name = mon_display_name(_M);
+            } else if (variable_struct_exists(_M, "nickname") && is_string(_M.nickname) && string_length(string_trim(_M.nickname)) > 0){
+                _disp_name = string_trim(_M.nickname);
+            } else if (variable_struct_exists(_M,"name")) {
+                _disp_name = string(_M.name);
+            } else if (variable_struct_exists(_M,"species")) {
+                _disp_name = string(_M.species);
+            }
         }
         var _name_x_ui = 120 + 2 + _drawnIconW_ui + 6;
         var _name_x_gui = _OX + _name_x_ui * _S;
@@ -233,13 +232,28 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
             else if (variable_struct_exists(_M, "HP")) _hp_chk = _M.HP;
             if (is_real(_hp_chk) && _hp_chk <= 0) _is_fainted = true;
         }
-        if (_is_fainted){ draw_set_color(make_color_rgb(160,160,160)); } else { draw_set_color(c_white); }
+        if (_is_fainted){ draw_set_color(make_color_rgb(132,132,132)); } else { draw_set_color(make_color_rgb(44,54,78)); }
         draw_text(_name_x_gui, _row_y_gui, _disp_name);
+        if (string(_P.mode) == "select_item" && is_struct(_P) && variable_struct_exists(_P, "teach_pending") && is_struct(variable_struct_get(_P, "teach_pending"))){
+            var _tp_draw = variable_struct_get(_P, "teach_pending");
+            var _teach_mid_draw = variable_struct_exists(_tp_draw, "move_id") ? variable_struct_get(_tp_draw, "move_id") : -1;
+            if (is_real(_teach_mid_draw) && _teach_mid_draw > 0){
+                var _can_machine_draw = true;
+                if (!is_undefined(party__machine_can_teach)) _can_machine_draw = party__machine_can_teach(_M, _teach_mid_draw);
+                var _badge_txt = _can_machine_draw ? "OK" : "NO";
+                var _badge_col = _can_machine_draw ? make_color_rgb(52, 148, 82) : make_color_rgb(178, 70, 70);
+                var _badge_x = _OX + (_LIST_X + _LIST_W - 17) * _S;
+                var _badge_y = _row_y_gui;
+                draw_set_color(_badge_col);
+                draw_text(_badge_x, _badge_y, _badge_txt);
+                draw_set_color(make_color_rgb(44,54,78));
+            }
+        }
         var _row_status_x = _OX + (_LIST_X + _LIST_W - 42) * _S;
         var _row_status_y = _row_y_gui + max(0, floor(1 * _S));
         if (!is_undefined(__party_draw_status_ui)){
             __party_draw_status_ui(_row_status_x, _row_status_y, _S * 0.8, _M, 40 * _S);
-            draw_set_color(c_white);
+            draw_set_color(make_color_rgb(44,54,78));
         }
     }
 
@@ -255,21 +269,17 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
 
         var _nm_disp = "???";
         if (is_struct(_L)){
-            if (variable_struct_exists(_L,"species_id")){
-                var _sid2 = _L.species_id;
-                if (is_real(_sid2) && _sid2 >= 0){
-                    var _idn2 = scr_poke_name_by_id(_sid2);
-                    if (string_length(_idn2) > 0){
-                        _nm_disp = string_replace_all(_idn2, "-", " ");
-                        if (string_length(_nm_disp) > 0){
-                            _nm_disp = string_upper(string_copy(_nm_disp,1,1)) + string_delete(_nm_disp,1,1);
-                        }
-                    }
-                }
-            } else if (variable_struct_exists(_L,"species")) _nm_disp = string(_L.species);
-            else if (variable_struct_exists(_L,"name"))     _nm_disp = string(_L.name);
+            if (!is_undefined(mon_display_name)){
+                _nm_disp = mon_display_name(_L);
+            } else if (variable_struct_exists(_L, "nickname") && is_string(_L.nickname) && string_length(string_trim(_L.nickname)) > 0){
+                _nm_disp = string_trim(_L.nickname);
+            } else if (variable_struct_exists(_L,"name")) {
+                _nm_disp = string(_L.name);
+            } else if (variable_struct_exists(_L,"species")) {
+                _nm_disp = string(_L.species);
+            }
         }
-        draw_set_color(c_white);
+        draw_set_color(make_color_rgb(44,54,78));
         draw_text(_ix1 + 6*_S, _iy1 + 6*_S, _nm_disp);
 
         var _nature_txt = "—";
@@ -278,7 +288,27 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
             else if (variable_struct_exists(_L,"Nature")) _nature_txt = string(_L.Nature);
             else if (variable_struct_exists(_L,"nat"))    _nature_txt = string(_L.nat);
         }
-        draw_text(_ix1 + 6*_S, _iy1 + 20*_S, "Nature: " + _nature_txt);
+        var _teach_info_drawn = false;
+        if (string(_P.mode) == "select_item" && is_struct(_P) && variable_struct_exists(_P, "teach_pending") && is_struct(variable_struct_get(_P, "teach_pending"))){
+            var _tp_info = variable_struct_get(_P, "teach_pending");
+            var _teach_mid_info = variable_struct_exists(_tp_info, "move_id") ? variable_struct_get(_tp_info, "move_id") : -1;
+            if (is_real(_teach_mid_info) && _teach_mid_info > 0){
+                var _can_info = true;
+                if (!is_undefined(party__machine_can_teach)) _can_info = party__machine_can_teach(_L, _teach_mid_info);
+                draw_set_color(_can_info ? make_color_rgb(44, 130, 72) : make_color_rgb(168, 64, 64));
+                var _teach_info_txt = (_can_info ? "ABLE: " : "NO: ") + __party_move_name(_teach_mid_info);
+                if (string_width(_teach_info_txt) > (_INFO_W - 12) * _S){
+                    while (string_length(_teach_info_txt) > 0 && string_width(_teach_info_txt + "...") > (_INFO_W - 12) * _S){
+                        _teach_info_txt = string_delete(_teach_info_txt, string_length(_teach_info_txt), 1);
+                    }
+                    _teach_info_txt += "...";
+                }
+                draw_text(_ix1 + 6*_S, _iy1 + 20*_S, _teach_info_txt);
+                draw_set_color(make_color_rgb(44,54,78));
+                _teach_info_drawn = true;
+            }
+        }
+        if (!_teach_info_drawn) draw_text(_ix1 + 6*_S, _iy1 + 20*_S, "Nature: " + _nature_txt);
 
         var _hp_cur = 0; if (is_struct(_L)){ if (variable_struct_exists(_L,"hp_now")) _hp_cur = _L.hp_now; else if (variable_struct_exists(_L,"hp")) _hp_cur = _L.hp; else if (variable_struct_exists(_L,"HP")) _hp_cur = _L.HP; }
         var _hp_max = 1; if (is_struct(_L)){ if (variable_struct_exists(_L,"maxhp")) _hp_max = _L.maxhp; else if (variable_struct_exists(_L,"hp_max")) _hp_max = _L.hp_max; }
@@ -305,7 +335,7 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         var _hp_tx  = _bar_x + _bar_w - string_width(_hp_txt);
         var _hp_ty  = _bar_y + _bar_h + (2*_S) + 6;
 
-        draw_set_color(c_white);
+        draw_set_color(make_color_rgb(44,54,78));
         draw_text(_bar_x, _hp_ty, "Lv " + string(_lvl_val));
         draw_text(_hp_tx, _hp_ty, _hp_txt);
     }
@@ -321,7 +351,7 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         draw_set_color(_PARCHMENT);   draw_rectangle(_bx1, _by1, _bx2, _by2, false);
         draw_set_color(_C_PAPER_E); draw_rectangle(_bx1 - _S, _by1 - _S, _bx2 + _S, _by2 + _S, true);
 
-        draw_set_color(c_white);
+        draw_set_color(make_color_rgb(44,54,78));
 
         // When party was opened from a battle for swapping, change "Switch" -> "Swap In".
         // Also mirror input logic: only hide the Swap/ Switch label for fainted mons when
@@ -367,7 +397,7 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
                 _shouldShowGive = true;
             } else {
                 var _selMon = undefined;
-                if (variable_struct_exists(_P, "mons") && is_array(_P.mons) && _P.sel >= 0 && _P.sel < array_length(_P.mons)) _selMon = _P.mons[_P.sel];
+                if (is_array(_mons) && _P.sel >= 0 && _P.sel < array_length(_mons)) _selMon = _mons[_P.sel];
                 if (!is_undefined(_selMon) && is_struct(_selMon) && variable_struct_exists(_selMon, "held_item_id")){
                     var _hid_tmp = variable_struct_get(_selMon, "held_item_id");
                     if (is_real(_hid_tmp) && _hid_tmp > 0){ _shouldShowGive = false; } else { _shouldShowGive = true; }
@@ -396,8 +426,16 @@ function __party_impl_party_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
             // Draw labels inside box
             for (var _ii = 0; _ii < _sub_count; _ii++){
                 var _y2 = _iy + (_ii * _m_h);
-                if (_ii == _menuSel){ draw_set_color(c_white); draw_text(_ix + 4*_S, _y2, "> " + _labels[_ii]); }
-                else { draw_set_color(c_white); draw_text(_ix + 4*_S, _y2, _labels[_ii]); }
+                if (_ii == _menuSel){
+                    draw_set_color(make_color_rgb(92,132,204));
+                    draw_rectangle(_sub_x1 + 3*_S, _y2 - _S, _sub_x2 - 3*_S, _y2 + _m_h, false);
+                    draw_set_color(c_white);
+                    draw_text(_ix + 4*_S, _y2, "> " + _labels[_ii]);
+                }
+                else {
+                    draw_set_color(make_color_rgb(44,54,78));
+                    draw_text(_ix + 4*_S, _y2, _labels[_ii]);
+                }
             }
         }
     }

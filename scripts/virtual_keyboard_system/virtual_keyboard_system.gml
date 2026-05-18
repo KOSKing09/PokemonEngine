@@ -27,7 +27,8 @@ function __vk_default_state(){
         caps_lock: false,
         shift_once: false,
         next_input_ms: 0,
-        keyboard_latch: ""
+        keyboard_latch: "",
+        keyboard_snapshot: ""
     };
 }
 
@@ -73,6 +74,7 @@ function virtual_keyboard_request_caught_nickname(_pid, _store_info, _species_na
     variable_struct_set(_S, "shift_once", false);
     variable_struct_set(_S, "next_input_ms", current_time + 180);
     variable_struct_set(_S, "keyboard_latch", "");
+    variable_struct_set(_S, "keyboard_snapshot", "");
     return true;
 }
 
@@ -192,6 +194,9 @@ function __vk_handle_prompt(_pid, _S){
         if (floor(variable_struct_get(_S, "prompt_sel")) == 0){
             variable_struct_set(_S, "phase", "entry");
             variable_struct_set(_S, "next_input_ms", _now + 140);
+            variable_struct_set(_S, "keyboard_latch", "");
+            variable_struct_set(_S, "keyboard_snapshot", "");
+            try { keyboard_string = ""; } catch (e_vk_clear_string) {}
         } else {
             __vk_finish(_pid, false);
         }
@@ -205,13 +210,21 @@ function __vk_handle_prompt(_pid, _S){
 function __vk_handle_physical_keyboard(_pid, _S){
     if (!is_struct(_S)) return;
     if (__vk_physical_keyboard_owner_pid() != _pid) return;
-    var _last = "";
-    try { _last = string(keyboard_lastchar); } catch (e_vk_last) { _last = ""; }
-    var _latch = string(variable_struct_get(_S, "keyboard_latch"));
-    if (string_length(_last) > 0 && _last != _latch && __vk_accept_char(_last)){
-        __vk_append_text(_S, _last);
+    var _now = current_time;
+    if (_now < variable_struct_get(_S, "next_input_ms")) return;
+
+    var _kb_text = "";
+    try { _kb_text = string(keyboard_string); } catch (e_vk_string) { _kb_text = ""; }
+    var _snapshot = string(variable_struct_get(_S, "keyboard_snapshot"));
+    if (string_length(_kb_text) < string_length(_snapshot)) _snapshot = "";
+    if (string_length(_kb_text) > string_length(_snapshot)){
+        var _delta = string_copy(_kb_text, string_length(_snapshot) + 1, string_length(_kb_text) - string_length(_snapshot));
+        for (var _di = 1; _di <= string_length(_delta); ++_di){
+            var _ch = string_copy(_delta, _di, 1);
+            if (__vk_accept_char(_ch)) __vk_append_text(_S, _ch);
+        }
     }
-    variable_struct_set(_S, "keyboard_latch", _last);
+    variable_struct_set(_S, "keyboard_snapshot", _kb_text);
     if (keyboard_check_pressed(vk_backspace)) __vk_backspace(_S);
     if (keyboard_check_pressed(vk_enter)) __vk_finish(variable_struct_get(_S, "pid"), true);
     if (keyboard_check_pressed(vk_escape)) __vk_finish(variable_struct_get(_S, "pid"), false);
@@ -229,11 +242,9 @@ function __vk_handle_grid_token(_pid, _S, _token){
 }
 
 function __vk_handle_entry(_pid, _S){
-    __vk_handle_physical_keyboard(_pid, _S);
-    if (!virtual_keyboard_is_active(_pid)) return;
-
     var _now = current_time;
     if (_now < variable_struct_get(_S, "next_input_ms")) return;
+
     if (!is_undefined(controls_pressed) && controls_pressed(_pid, "MoveLeft")){
         variable_struct_set(_S, "cursor_col", variable_struct_get(_S, "cursor_col") - 1);
         __vk_clamp_cursor(_S);
@@ -266,7 +277,9 @@ function __vk_handle_entry(_pid, _S){
     if (!is_undefined(controls_pressed) && (controls_pressed(_pid, "Run") || controls_pressed(_pid, "Back"))){
         __vk_backspace(_S);
         variable_struct_set(_S, "next_input_ms", _now + 120);
+        return;
     }
+    __vk_handle_physical_keyboard(_pid, _S);
 }
 
 function virtual_keyboard_update(_pid){

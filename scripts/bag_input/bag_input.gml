@@ -9,8 +9,9 @@ function __bag_impl_bags_update(){
         // Inventory is a registered-item button in the field. Open the bag via the pause menu.
         if (!b.open){
             var _can_use_registered = true;
-            if (!is_undefined(pause_is_open) && pause_is_open(pid)) _can_use_registered = false;
-            if (!is_undefined(party_is_open) && party_is_open(pid)) _can_use_registered = false;
+            if (!is_undefined(pause_is_open) && pause_is_open(pid) || (!is_undefined(pc_is_open) && pc_is_open(pid)) || (!is_undefined(pc_is_open) && pc_is_open(pid))) _can_use_registered = false;
+            if (!is_undefined(party_is_open) && party_is_open(pid) || (!is_undefined(pc_is_open) && pc_is_open(pid)) || (!is_undefined(pc_is_open) && pc_is_open(pid))) _can_use_registered = false;
+            if (!is_undefined(poke_index_is_open) && poke_index_is_open(pid)) _can_use_registered = false;
             if (!is_undefined(dialog2p_is_open) && dialog2p_is_open(pid)) _can_use_registered = false;
             if (!is_undefined(battle_is_open) && battle_is_open(pid)) _can_use_registered = false;
             if (_can_use_registered && controls_pressed(pid, "Inventory") && !is_undefined(bag_registered_use)) bag_registered_use(pid);
@@ -29,13 +30,22 @@ function __bag_impl_bags_update(){
         var lst = b.items[b.page];
         var n   = array_length(lst);
 
-        if (controls_pressed(pid, "MoveDown") && (n > 0)) b.sel = clamp(b.sel + 1, 0, n - 1);
-        if (controls_pressed(pid, "MoveUp")   && (n > 0)) b.sel = clamp(b.sel - 1, 0, n - 1);
+        if (!variable_struct_exists(b, "desc_scroll")) b.desc_scroll = 0;
+        if (!variable_struct_exists(b, "desc_key")) b.desc_key = "";
 
-        if (controls_pressed(pid, "MoveRight")) { b.page = (b.page + 1) mod 5; b.sel = 0; b.scroll = 0; b.spin_ticks = 18; }
-        if (controls_pressed(pid, "MoveLeft"))  { b.page = (b.page + 4) mod 5; b.sel = 0; b.scroll = 0; b.spin_ticks = 18; }
+        var _invHeld = controls_down(pid, "Inventory");
+        if (_invHeld){
+            if (controls_repeat(pid, "MoveUp", 12, 4)) { b.desc_scroll -= 28; if (!is_undefined(ui_play_select_sound)) ui_play_select_sound(); }
+            if (controls_repeat(pid, "MoveDown", 12, 4)) { b.desc_scroll += 28; if (!is_undefined(ui_play_select_sound)) ui_play_select_sound(); }
+        } else {
+            if (controls_pressed(pid, "MoveDown") && (n > 0)) { b.sel = clamp(b.sel + 1, 0, n - 1); if (!is_undefined(ui_play_select_sound)) ui_play_select_sound(); }
+            if (controls_pressed(pid, "MoveUp")   && (n > 0)) { b.sel = clamp(b.sel - 1, 0, n - 1); if (!is_undefined(ui_play_select_sound)) ui_play_select_sound(); }
+        }
 
-        var rows = 8;
+        if (controls_pressed(pid, "MoveRight")) { b.page = (b.page + 1) mod 5; b.sel = 0; b.scroll = 0; b.desc_scroll = 0; b.desc_key = ""; b.spin_ticks = 18; if (!is_undefined(ui_play_select_sound)) ui_play_select_sound(); }
+        if (controls_pressed(pid, "MoveLeft"))  { b.page = (b.page + 4) mod 5; b.sel = 0; b.scroll = 0; b.desc_scroll = 0; b.desc_key = ""; b.spin_ticks = 18; if (!is_undefined(ui_play_select_sound)) ui_play_select_sound(); }
+
+        var rows = 13;
         n        = array_length(b.items[b.page]);
         b.sel    = clamp(b.sel, 0, max(0, n - 1));
         b.scroll = clamp(b.scroll, 0, max(0, n - rows));
@@ -141,9 +151,11 @@ function __bag_impl_bag_item_menu_update(_pid){
     // navigate submenu using dynamic bounds
     if (controls_pressed(_pid, "MoveDown")){
         b.item_menu_sel = clamp(b.item_menu_sel + 1, 0, _maxIdx);
+        if (!is_undefined(ui_play_select_sound)) ui_play_select_sound();
     }
     if (controls_pressed(_pid, "MoveUp")){
         b.item_menu_sel = clamp(b.item_menu_sel - 1, 0, _maxIdx);
+        if (!is_undefined(ui_play_select_sound)) ui_play_select_sound();
     }
 
     // selection by label (keeps behavior consistent when 'Give' is present or not)

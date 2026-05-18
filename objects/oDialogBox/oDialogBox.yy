@@ -6,8 +6,8 @@
   "name":"oDialogBox",
   "overriddenProperties":[],
   "parent":{
-    "name":"Objects",
-    "path":"folders/Objects.yy",
+    "name":"NeededObjects",
+    "path":"folders/Objects/NeededObjects.yy",
   },
   "parentObjectId":null,
   "persistent":false,

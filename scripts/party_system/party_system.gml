@@ -96,6 +96,72 @@ function party_is_open(_pid){
     if (!variable_struct_exists(_P,"open")) return false;
     return _P.open;
 }
+
+function __party_battle_visible_indexes(_pid){
+    var _out = [];
+    try {
+        if (is_undefined(battle_is_open) || !battle_is_open(_pid) || is_undefined(__battle_ensure_slot)) return _out;
+        var _B = __battle_ensure_slot(_pid);
+        if (!is_struct(_B) || !variable_struct_exists(_B, "player_party_indexes") || !is_array(variable_struct_get(_B, "player_party_indexes"))) return _out;
+        var _sets = variable_struct_get(_B, "player_party_indexes");
+        var _set_index = 0;
+        if (variable_struct_exists(_B, "player_pids") && is_array(variable_struct_get(_B, "player_pids"))){
+            var _pids = variable_struct_get(_B, "player_pids");
+            for (var _pi = 0; _pi < array_length(_pids); ++_pi){
+                if (is_real(_pids[_pi]) && floor(_pids[_pi]) == floor(_pid)){ _set_index = _pi; break; }
+            }
+        } else {
+            _set_index = clamp(floor(_pid), 0, max(0, array_length(_sets) - 1));
+        }
+        var _src = [];
+        if (array_length(_sets) > 0 && is_array(_sets[0])){
+            if (_set_index >= 0 && _set_index < array_length(_sets) && is_array(_sets[_set_index])) _src = _sets[_set_index];
+        } else {
+            _src = _sets;
+        }
+        var _mons_all = party_model_get_mons(_pid);
+        for (var _i = 0; _i < array_length(_src); ++_i){
+            if (!is_real(_src[_i])) continue;
+            var _idx = floor(_src[_i]);
+            if (_idx >= 0 && is_array(_mons_all) && _idx < array_length(_mons_all) && is_struct(_mons_all[_idx])) array_push(_out, _idx);
+        }
+    } catch (e_party_visible_indexes) {
+        _out = [];
+    }
+    return _out;
+}
+
+function __party_visible_mons(_pid){
+    var _map = __party_battle_visible_indexes(_pid);
+    if (array_length(_map) <= 0) return party_model_get_mons(_pid);
+    var _all = party_model_get_mons(_pid);
+    var _out = [];
+    if (!is_array(_all)) return _out;
+    for (var _i = 0; _i < array_length(_map); ++_i){
+        var _idx = _map[_i];
+        if (is_real(_idx) && _idx >= 0 && _idx < array_length(_all)) array_push(_out, _all[_idx]);
+    }
+    return _out;
+}
+
+function __party_visible_to_real_index(_pid, _visible_index){
+    var _map = __party_battle_visible_indexes(_pid);
+    var _v = max(0, floor(_visible_index));
+    if (array_length(_map) <= 0) return _v;
+    if (_v >= 0 && _v < array_length(_map) && is_real(_map[_v])) return floor(_map[_v]);
+    return -1;
+}
+
+function __party_real_to_visible_index(_pid, _real_index){
+    var _map = __party_battle_visible_indexes(_pid);
+    var _r = floor(_real_index);
+    if (array_length(_map) <= 0) return _r;
+    for (var _i = 0; _i < array_length(_map); ++_i){
+        if (is_real(_map[_i]) && floor(_map[_i]) == _r) return _i;
+    }
+    return 0;
+}
+
 // Open the party UI for `_pid` and initialize UI state (mode, sel, locks).
 // Also reorders fainted mons to the bottom and clears transient swap flags.
 function party_open(_pid){
@@ -115,6 +181,16 @@ function party_open(_pid){
     if (!is_undefined(party_model_reorder_fainted_to_bottom)){
         try { party_model_reorder_fainted_to_bottom(_pid); } catch (e_re) {}
     }
+    try {
+        var _battle_visible = __party_battle_visible_indexes(_pid);
+        if (array_length(_battle_visible) > 0){
+            variable_struct_set(_P, "_battle_visible_party_indexes", _battle_visible);
+            _P.sel = clamp(__party_real_to_visible_index(_pid, _P.sel), 0, max(0, array_length(_battle_visible) - 1));
+            _P.scroll = 0;
+        } else if (variable_struct_exists(_P, "_battle_visible_party_indexes")) {
+            variable_struct_set(_P, "_battle_visible_party_indexes", []);
+        }
+    } catch (e_party_visible_open) {}
     // Ensure the battle-swap marker is false by default; callers (battle) may set it.
     try { party_set_swap_mode_impl(_pid, false, false); } catch (e_psi) {}
     try { if (variable_struct_exists(_P, "_battle_baton_pass_mode")) variable_struct_set(_P, "_battle_baton_pass_mode", false); } catch (e_bpm_open) {}
@@ -296,7 +372,7 @@ function party_ensure(_pid){
 
 // ---------- Helpers ----------
 function __party_mons(_pid){
-    return party_model_get_mons(_pid);
+    return __party_visible_mons(_pid);
 }
 
 // Basic string wrap fallback used by the learn UI if higher-level helper missing
@@ -330,7 +406,7 @@ if (is_undefined(scr_move_learn_try)){
     }
 }
 function __party_mon_get(_P, _pid){
-    return party_model_get_mon(_pid, _P.sel);
+    return party_model_get_mon(_pid, __party_visible_to_real_index(_pid, _P.sel));
 }
 function __party_move_name(_id){
     // Treat non-positive IDs as empty slots
@@ -339,6 +415,75 @@ function __party_move_name(_id){
     var _t = scr_move_name_by_id(_id);
     if (is_string(_t) && string_length(_t) > 0) return _t;
     return "Move#" + string(_id);
+}
+
+function __party_mon_species_id(_mon){
+    if (!is_struct(_mon)) return -1;
+    var raw = -1;
+    if (variable_struct_exists(_mon, "species_id")) raw = variable_struct_get(_mon, "species_id");
+    else if (variable_struct_exists(_mon, "speciesId")) raw = variable_struct_get(_mon, "speciesId");
+    else if (variable_struct_exists(_mon, "species")) raw = variable_struct_get(_mon, "species");
+    else if (variable_struct_exists(_mon, "pokemon_id")) raw = variable_struct_get(_mon, "pokemon_id");
+    else if (variable_struct_exists(_mon, "pokemonId")) raw = variable_struct_get(_mon, "pokemonId");
+    else if (variable_struct_exists(_mon, "dex_id")) raw = variable_struct_get(_mon, "dex_id");
+    else if (variable_struct_exists(_mon, "dexId")) raw = variable_struct_get(_mon, "dexId");
+    else if (variable_struct_exists(_mon, "national_id")) raw = variable_struct_get(_mon, "national_id");
+    else if (variable_struct_exists(_mon, "id")) raw = variable_struct_get(_mon, "id");
+    else if (variable_struct_exists(_mon, "_id")) raw = variable_struct_get(_mon, "_id");
+    if (is_real(raw)) return floor(raw);
+    if (is_string(raw)){
+        var txt = string_trim(raw);
+        if (string_length(txt) <= 0) return -1;
+        var parsed = -1;
+        try { parsed = real(txt); } catch (e_species_parse) { parsed = -1; }
+        if (is_real(parsed)) return floor(parsed);
+    }
+    return -1;
+}
+
+function party__machine_can_teach(_mon, _move_id){
+    if (!is_struct(_mon) || !is_real(_move_id) || _move_id <= 0) return false;
+    if (variable_struct_exists(_mon, "learnset") && is_array(variable_struct_get(_mon, "learnset"))){
+        var _ls_machine = variable_struct_get(_mon, "learnset");
+        for (var _li_machine = 0; _li_machine < array_length(_ls_machine); ++_li_machine){
+            var _ent_machine = _ls_machine[_li_machine];
+            if (!is_struct(_ent_machine)) continue;
+            var _mid_machine = -1;
+            if (variable_struct_exists(_ent_machine, "move_id")) _mid_machine = variable_struct_get(_ent_machine, "move_id");
+            else if (variable_struct_exists(_ent_machine, "move")) _mid_machine = variable_struct_get(_ent_machine, "move");
+            else if (variable_struct_exists(_ent_machine, "id")) _mid_machine = variable_struct_get(_ent_machine, "id");
+            if (!is_real(_mid_machine) || floor(_mid_machine) != floor(_move_id)) continue;
+            var _method_machine = "";
+            var _method_id_machine = -1;
+            if (variable_struct_exists(_ent_machine, "method")) _method_machine = string_lower(string(variable_struct_get(_ent_machine, "method")));
+            else if (variable_struct_exists(_ent_machine, "by")) _method_machine = string_lower(string(variable_struct_get(_ent_machine, "by")));
+            if (variable_struct_exists(_ent_machine, "method_id")) _method_id_machine = variable_struct_get(_ent_machine, "method_id");
+            if (_method_machine == "machine" || _method_machine == "tm" || _method_machine == "hm" || _method_id_machine == 4) return true;
+        }
+    }
+    var sid = __party_mon_species_id(_mon);
+    if (sid <= 0) return true;
+    if (!variable_global_exists("_species_machine_moves") || !is_array(global._species_machine_moves)) return true;
+    if (sid >= array_length(global._species_machine_moves)) return true;
+    var arr = global._species_machine_moves[sid];
+    if (!is_array(arr) || array_length(arr) <= 0) return false;
+    for (var i = 0; i < array_length(arr); i++){
+        if (arr[i] == _move_id) return true;
+    }
+    return false;
+}
+
+function __party_learn_choices_for_pending(_P, _mon){
+    if (is_struct(_P) && variable_struct_exists(_P, "learn_pending") && is_struct(variable_struct_get(_P, "learn_pending"))){
+        var _lp_choices = variable_struct_get(_P, "learn_pending");
+        if (variable_struct_exists(_lp_choices, "move_id") && string(variable_struct_get(_P, "mode")) == "summary_forget"){
+            return [variable_struct_get(_lp_choices, "move_id")];
+        }
+        if (variable_struct_exists(_lp_choices, "source_machine") && variable_struct_get(_lp_choices, "source_machine") == true && variable_struct_exists(_lp_choices, "move_id")){
+            return [variable_struct_get(_lp_choices, "move_id")];
+        }
+    }
+    return __party_get_learnset_for_mon(_mon);
 }
 
 // Return an ordered array of move IDs this mon can currently learn.
@@ -438,13 +583,10 @@ function party_update(){
             if (variable_struct_exists(_P, "learn_pending") && is_struct(variable_struct_get(_P, "learn_pending"))){
                 var _lp_tmp_check = variable_struct_get(_P, "learn_pending");
                 var _lp_step_check = (variable_struct_exists(_lp_tmp_check, "step") ? variable_struct_get(_lp_tmp_check, "step") : "desc");
-                // Only run the learn-list input handler when we're on the moves
-                // summary page. If we're in summary_forget, let the main input
-                // state machine handle replacement confirmation/navigation.
-                if (string(_lp_step_check) == "list" && string(_P.mode) == "summary_moves"){
-                    // Run the learn input handler when the learn LIST is active
-                    // from the moves summary. Do NOT intercept during summary_forget
-                    // so the replace-confirm code in the main state machine runs.
+                // Run learn input only from the moves summary. The helper owns
+                // both the description step (Right opens the learn list) and
+                // the list step. summary_forget keeps replacement input local.
+                if (string(_P.mode) == "summary_moves"){
                     if (__party_input_learn(0)) {
                         return;
                     }
@@ -511,6 +653,8 @@ function __party_draw_right_frame(_OX, _OY, _S, _RIGHT_X, _RIGHT_Y, _RIGHT_W, _R
 
 // Return the appropriate description text for the summary page (species flavor or move text)
 function __party_get_desc_text(_P, _M){
+    if (!is_struct(_M)) return "";
+
     var _descText = "";
     if (string(_P.mode) == "summary_profile") {
         // Resolve species id into a safe integer (accept real or numeric string)
@@ -671,16 +815,21 @@ function __party_draw_learn_desc(_pid, _P, _OX, _OY, _S, _descX, _descY, _descW,
     if (!is_struct(lp)) return;
     var move_id = (variable_struct_exists(lp, "move_id") ? lp.move_id : -1);
     var mname = __party_move_name(move_id);
+    var _isForget = (is_struct(_P) && variable_struct_exists(_P, "mode") && string(variable_struct_get(_P, "mode")) == "summary_forget");
     // header (no "Right to list" hint — we're already in the learn flow)
+    draw_set_color(_isForget ? make_color_rgb(216, 72, 56) : make_color_rgb(32, 128, 88));
+    draw_rectangle(_descX - 2*_S, _descY - 13*_S, _descX + _descW + 2*_S, _descY - 2*_S, false);
     draw_set_color(c_white);
-    __party_text_white(_descX, _descY - 12*_S, mname + "?");
+    __party_text_white(_descX, _descY - 12*_S, _isForget ? "Forget move?" : ("Learn " + mname + "?"));
     // description text
     var desc = "";
     if (is_real(move_id) && move_id >= 0 && variable_global_exists("_move_text") && is_array(global._move_text) && move_id < array_length(global._move_text)){
         var mv = global._move_text[move_id];
         if (is_string(mv)) desc = mv; else if (is_struct(mv) && variable_struct_exists(mv, "short_desc")) desc = variable_struct_get(mv, "short_desc");
     }
-    if (string_length(string_trim(desc)) == 0) desc = "No description available.";
+    if (_isForget){
+        desc = "Choose a move to forget, then " + string(mname) + " will be learned.";
+    } else if (string_length(string_trim(desc)) == 0) desc = "No description available.";
     // Use the existing scrollable renderer if available
     if (!is_undefined(__party_impl_desc_draw_scrollable_colored)){
         __party_impl_desc_draw_scrollable_colored(_descX, _descY, _descW, _descH, desc);
@@ -706,9 +855,7 @@ function __party_draw_learn_list(_pid, _P, _OX, _OY, _S, _rx, _ry, _rw, _rh, _de
     // fall back to global move index or a small dummy list
     var move_index = [];
     var mon = (is_array(_P.mons) && _P.sel < array_length(_P.mons)) ? _P.mons[_P.sel] : undefined;
-    if (is_struct(mon)){
-        move_index = __party_get_learnset_for_mon(mon);
-    }
+    move_index = __party_learn_choices_for_pending(_P, mon);
     if (!is_array(move_index) || array_length(move_index) == 0){
         if (variable_global_exists("_move_index") && is_array(global._move_index)) move_index = global._move_index;
         else { move_index = []; for (var ii = 1; ii <= 50; ii++) array_push(move_index, ii); }
@@ -769,6 +916,15 @@ function __party_draw_learn_list(_pid, _P, _OX, _OY, _S, _rx, _ry, _rw, _rh, _de
     var _list_x = _rx + _pad;
     var _list_y = _list_top;
     var _list_w = max(0, _rw - _pad*2);
+    function _party_fit_move_line(_name, _suffix, _maxw){
+        var _out = string(_name);
+        var _suf = string(_suffix);
+        if (string_width(_out + _suf) <= _maxw) return _out + _suf;
+        while (string_width(_out + "..." + _suf) > _maxw && string_length(_out) > 3){
+            _out = string_copy(_out, 1, string_length(_out) - 1);
+        }
+        return _out + "..." + _suf;
+    }
     // Let the list fill the right-box area below the header
     var _list_h = max(0, _list_bottom - _list_top);
     // recompute perPage from right-box available height so the list fills it
@@ -782,6 +938,9 @@ function __party_draw_learn_list(_pid, _P, _OX, _OY, _S, _rx, _ry, _rw, _rh, _de
         if (yy + _line_h > _list_y + _list_h) break;
         var isKnown = false;
         for (var k = 0; k < array_length(_known); k++) if (_known[k] == mid) { isKnown = true; break; }
+        var suffix = (isKnown ? " (known)" : "");
+        var prefix = (idx == lp.list_sel) ? "> " : "  ";
+        var draw_txt = _party_fit_move_line(txt, suffix, max(8, _list_w - string_width(prefix)));
 
         // Determine if this move is 'New' for this mon (not in seen_moves and not known)
         var _is_new = false;
@@ -794,12 +953,12 @@ function __party_draw_learn_list(_pid, _P, _OX, _OY, _S, _rx, _ry, _rw, _rh, _de
 
         if (idx == lp.list_sel){
             draw_set_color(c_white);
-            __party_text_white(_list_x, yy, "> " + txt + (isKnown ? " (known)" : ""));
-            if (_is_new){ draw_set_color(make_color_rgb(220,40,40)); draw_text(_list_x + string_width("> " + txt + (isKnown ? " (known)" : "")) + 6*_S, yy, "(New)"); draw_set_color(c_white); }
+            __party_text_white(_list_x, yy, prefix + draw_txt);
+            if (_is_new){ draw_set_color(make_color_rgb(220,40,40)); draw_text(_list_x + min(_list_w - 22*_S, string_width(prefix + draw_txt) + 6*_S), yy, "(New)"); draw_set_color(c_white); }
         } else {
             if (isKnown) draw_set_color(make_color_rgb(160,160,160)); else draw_set_color(make_color_rgb(220,220,220));
-            draw_text(_list_x, yy, "  " + txt + (isKnown ? " (known)" : ""));
-            if (_is_new){ draw_set_color(make_color_rgb(220,40,40)); draw_text(_list_x + string_width("  " + txt + (isKnown ? " (known)" : "")) + 6*_S, yy, "(New)"); draw_set_color(c_white); }
+            draw_text(_list_x, yy, prefix + draw_txt);
+            if (_is_new){ draw_set_color(make_color_rgb(220,40,40)); draw_text(_list_x + min(_list_w - 22*_S, string_width(prefix + draw_txt) + 6*_S), yy, "(New)"); draw_set_color(c_white); }
         }
     }
     // persist updated scroll/sel
@@ -829,9 +988,27 @@ function __party_draw_learn_list(_pid, _P, _OX, _OY, _S, _rx, _ry, _rw, _rh, _de
     var _oldFont = draw_get_font();
     if (variable_global_exists("FNT_POKEMON")) draw_set_font(global.FNT_POKEMON);
     draw_set_color(c_white);
-    var _textW = string_width(_footerTxt);
-    var _center_x = _OX + (120 * _S) - (_textW / 2);
-    draw_text(_center_x, _footer_y, _footerTxt);
+    var _footerMaxW = 232 * _S;
+    var _footerWords = string_split(_footerTxt, " ");
+    var _footerLines = [];
+    var _footerCur = "";
+    for (var _fw = 0; _fw < array_length(_footerWords); _fw++){
+        var _candidate = (_footerCur == "") ? _footerWords[_fw] : (_footerCur + " " + _footerWords[_fw]);
+        if (string_width(_candidate) <= _footerMaxW){
+            _footerCur = _candidate;
+        } else {
+            if (string_length(_footerCur) > 0) array_push(_footerLines, _footerCur);
+            _footerCur = _footerWords[_fw];
+        }
+    }
+    if (string_length(_footerCur) > 0) array_push(_footerLines, _footerCur);
+    var _footerLineH = max(10 * _S, string_height("A") + 2 * _S);
+    for (var _fl = 0; _fl < min(2, array_length(_footerLines)); _fl++){
+        var _lineText = _footerLines[_fl];
+        var _textW = string_width(_lineText);
+        var _center_x = _OX + (120 * _S) - (_textW / 2);
+        draw_text(_center_x, _footer_y + _fl * _footerLineH, _lineText);
+    }
     // restore font
     draw_set_font(_oldFont);
 }
@@ -920,7 +1097,7 @@ function __party_input_learn(_pid){
         // Prefer per-mon filtered learnset for input navigation as well
         var move_index = [];
         var mon = (is_array(P.mons) && P.sel < array_length(P.mons)) ? P.mons[P.sel] : undefined;
-        if (is_struct(mon)) move_index = __party_get_learnset_for_mon(mon);
+        move_index = __party_learn_choices_for_pending(P, mon);
         if (!is_array(move_index) || array_length(move_index) == 0){
             if (variable_global_exists("_move_index") && is_array(global._move_index)) move_index = global._move_index;
             else { move_index = []; for (var ii = 1; ii <= 50; ii++) array_push(move_index, ii); }
@@ -931,11 +1108,11 @@ function __party_input_learn(_pid){
         if (!variable_struct_exists(lp, "list_scroll")) variable_struct_set(lp, "list_scroll", 0);
     var perPage = 6;
         // navigation: up/down
-        if (controls_pressed(_pid, "MoveDown")) { var _cur = variable_struct_get(lp, "list_sel"); _cur = min(total-1, _cur + 1); variable_struct_set(lp, "list_sel", _cur); if (_cur - variable_struct_get(lp, "list_scroll") >= perPage) variable_struct_set(lp, "list_scroll", _cur - perPage + 1); variable_struct_set(P, "learn_pending", lp); return true; }
-        if (controls_pressed(_pid, "MoveUp")) { var _cur = variable_struct_get(lp, "list_sel"); _cur = max(0, _cur - 1); variable_struct_set(lp, "list_sel", _cur); if (_cur < variable_struct_get(lp, "list_scroll")) variable_struct_set(lp, "list_scroll", _cur); variable_struct_set(P, "learn_pending", lp); return true; }
+        if (controls_pressed(_pid, "MoveDown")) { var _cur = variable_struct_get(lp, "list_sel"); var _old_cur = _cur; _cur = min(total-1, _cur + 1); variable_struct_set(lp, "list_sel", _cur); if (_cur - variable_struct_get(lp, "list_scroll") >= perPage) variable_struct_set(lp, "list_scroll", _cur - perPage + 1); variable_struct_set(P, "learn_pending", lp); if (_old_cur != _cur && !is_undefined(ui_play_select_sound)) ui_play_select_sound(); return true; }
+        if (controls_pressed(_pid, "MoveUp")) { var _cur = variable_struct_get(lp, "list_sel"); var _old_cur = _cur; _cur = max(0, _cur - 1); variable_struct_set(lp, "list_sel", _cur); if (_cur < variable_struct_get(lp, "list_scroll")) variable_struct_set(lp, "list_scroll", _cur); variable_struct_set(P, "learn_pending", lp); if (_old_cur != _cur && !is_undefined(ui_play_select_sound)) ui_play_select_sound(); return true; }
         // page up/down (if you have bindings)
-        if (controls_pressed(_pid, "PageDown")) { var _cur = variable_struct_get(lp, "list_sel"); _cur = min(total-1, _cur + perPage); variable_struct_set(lp, "list_sel", _cur); variable_struct_set(lp, "list_scroll", min(max(0, total-perPage), _cur)); variable_struct_set(P, "learn_pending", lp); return true; }
-        if (controls_pressed(_pid, "PageUp")) { var _cur = variable_struct_get(lp, "list_sel"); _cur = max(0, _cur - perPage); variable_struct_set(lp, "list_sel", _cur); if (_cur < variable_struct_get(lp, "list_scroll")) variable_struct_set(lp, "list_scroll", _cur); variable_struct_set(P, "learn_pending", lp); return true; }
+        if (controls_pressed(_pid, "PageDown")) { var _cur = variable_struct_get(lp, "list_sel"); var _old_cur = _cur; _cur = min(total-1, _cur + perPage); variable_struct_set(lp, "list_sel", _cur); variable_struct_set(lp, "list_scroll", min(max(0, total-perPage), _cur)); variable_struct_set(P, "learn_pending", lp); if (_old_cur != _cur && !is_undefined(ui_play_select_sound)) ui_play_select_sound(); return true; }
+        if (controls_pressed(_pid, "PageUp")) { var _cur = variable_struct_get(lp, "list_sel"); var _old_cur = _cur; _cur = max(0, _cur - perPage); variable_struct_set(lp, "list_sel", _cur); if (_cur < variable_struct_get(lp, "list_scroll")) variable_struct_set(lp, "list_scroll", _cur); variable_struct_set(P, "learn_pending", lp); if (_old_cur != _cur && !is_undefined(ui_play_select_sound)) ui_play_select_sound(); return true; }
         // confirm: teach selected move
         if (controls_pressed(_pid, "Interact")){
             // Use the per-mon filtered move_index computed above for selection.
@@ -967,24 +1144,28 @@ function __party_input_learn(_pid){
             if (is_struct(res) && string(res.status) == "learned"){
                 // persist mon changes back into party structure if our stub altered it
                 if (is_struct(mon) && is_array(P.mons) && mon_idx >= 0 && mon_idx < array_length(P.mons)) P.mons[mon_idx] = mon;
+                if (is_struct(mon) && !is_undefined(party_model_update_mon)) party_model_update_mon(_pid, mon_idx, mon);
+                if (!is_undefined(ui_play_confirm_sound)) ui_play_confirm_sound();
                 // show learned dialog (use dialog helper if present)
                 try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, __party_move_name(chosen_mid) + " learned!"); else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, __party_move_name(chosen_mid) + " learned!", __party_move_name(chosen_mid) + " learned!", "any"); } catch(e_){}
                 // clear pending
                 variable_struct_set(P, "learn_pending", undefined);
                 return true;
             } else if (is_struct(res) && string(res.status) == "need_replace"){
-                // Transition: show replace flow and present the full learn LIST
-                try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, "Need to forget a move — please pick which to replace in the moves screen."); else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, "Need to forget a move — please pick which to replace in the moves screen.", "Need to forget a move — please pick which to replace in the moves screen.", "any"); } catch(e_){}
-                // Enter forget mode
+                // Enter replace mode. The move is already chosen; only the
+                // current move slot should be selected here.
                 P.mode = "summary_forget";
-                // Ensure the learn list wrapper is visible while forgetting so the
-                // player can choose the replacement. Initialize selection/scroll.
+                // Keep the pending wrapper alive so summary_forget knows the
+                // move being taught, without reopening the learn list.
                 if (is_struct(lp)){
-                    variable_struct_set(lp, "step", "list");
+                    variable_struct_set(lp, "move_id", chosen_mid);
+                    variable_struct_set(lp, "step", "desc");
                     if (!variable_struct_exists(lp, "list_sel")) variable_struct_set(lp, "list_sel", 0);
                     if (!variable_struct_exists(lp, "list_scroll")) variable_struct_set(lp, "list_scroll", 0);
                 }
                 variable_struct_set(P, "learn_pending", lp);
+                P.learn_forget_wait_release = true;
+                P.lock = max(P.lock, 4);
                 return true;
             } else {
                 try { if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_pid, __party_move_name(chosen_mid) + " not learned."); else if (!is_undefined(dialog2p_enqueue_text)) dialog2p_enqueue_text(_pid, __party_move_name(chosen_mid) + " not learned.", __party_move_name(chosen_mid) + " not learned.", "any"); } catch(e_){}

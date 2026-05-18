@@ -29,6 +29,7 @@ function cutscene_init(){
     // Per-pid session (two players supported like dialog2p)
     global.CUTSCENE = [ { open:false, _current_item:noone, _on_complete_callbacks:[] }, { open:false, _current_item:noone, _on_complete_callbacks:[] } ];
     global.CUTSCENE_Q = [ [], [] ];
+    global.CUTSCENE_SHARED_LOCK = [false, false];
     __cut_dbg("init sessions and queues");
 }
 
@@ -38,10 +39,28 @@ function cutscene_is_playing(_pid){
     return (is_struct(s) && variable_struct_exists(s, "open")) ? s.open : false;
 }
 
+function cutscene_any_playing(){
+    if (!variable_global_exists("CUTSCENE")) return false;
+    for (var _i = 0; _i < array_length(global.CUTSCENE); ++_i){
+        if (cutscene_is_playing(_i)) return true;
+    }
+    return false;
+}
+
+function cutscene_blocks_player(_pid){
+    if (!variable_global_exists("CUTSCENE")) cutscene_init();
+    if (cutscene_is_playing(_pid)) return true;
+    if (variable_global_exists("CUTSCENE_SHARED_LOCK") && is_array(global.CUTSCENE_SHARED_LOCK) && _pid >= 0 && _pid < array_length(global.CUTSCENE_SHARED_LOCK)){
+        return global.CUTSCENE_SHARED_LOCK[_pid] == true;
+    }
+    return false;
+}
+
 function __cut_gate_allows_now(_pid, _gate){
     var gate = string_lower(string(_gate));
-    if (!variable_global_exists("sys_battles") || !is_array(global.sys_battles) || array_length(global.sys_battles) <= _pid) return true;
-    var _B = global.sys_battles[_pid];
+    var _B = undefined;
+    if (!is_undefined(__battle_ensure_slot)) _B = __battle_ensure_slot(_pid);
+    else if (variable_global_exists("sys_battles") && is_array(global.sys_battles) && array_length(global.sys_battles) > _pid) _B = global.sys_battles[_pid];
     if (!is_struct(_B)) return true;
     // Provide a simple gate example: "no-intro" blocks during battle intro phases
     if (gate == "no-intro"){
@@ -65,6 +84,9 @@ function cutscene_enqueue(_pid, _payload){
     if (variable_struct_exists(payload, "on_start")) item.on_start = variable_struct_get(payload, "on_start");
     if (variable_struct_exists(payload, "on_update")) item.on_update = variable_struct_get(payload, "on_update");
     if (variable_struct_exists(payload, "on_complete")) item.on_complete = variable_struct_get(payload, "on_complete");
+    if (variable_struct_exists(payload, "pids")) item.pids = variable_struct_get(payload, "pids");
+    if (variable_struct_exists(payload, "steps")) item.steps = variable_struct_get(payload, "steps");
+    if (variable_struct_exists(payload, "step_index")) item.step_index = variable_struct_get(payload, "step_index");
     // copy optional behavior flags
     if (variable_struct_exists(payload, "allow_battle_progress")) item.allow_battle_progress = (variable_struct_get(payload, "allow_battle_progress") == true);
     // dedupe by key if desired
@@ -208,5 +230,136 @@ function cutscene_interrupt(_pid){
 
 // Utility: peek queue as array (for debug)
 function cutscene_peek_queue(_pid){ if (!variable_global_exists("CUTSCENE_Q")) cutscene_init(); return global.CUTSCENE_Q[_pid]; }
+
+function __cutscene_set_shared_lock(_pids, _locked){
+    if (!variable_global_exists("CUTSCENE_SHARED_LOCK")) cutscene_init();
+    var _locks = global.CUTSCENE_SHARED_LOCK;
+    if (!is_array(_locks)) _locks = [false, false];
+    if (is_array(_pids)){
+        for (var _i = 0; _i < array_length(_pids); ++_i){
+            if (!is_real(_pids[_i])) continue;
+            var _pid = max(0, floor(_pids[_i]));
+            if (array_length(_locks) <= _pid) array_resize(_locks, _pid + 1);
+            _locks[_pid] = _locked == true;
+        }
+    }
+    global.CUTSCENE_SHARED_LOCK = _locks;
+}
+
+function __cutscene_overworld_step(_step, _pid, _item){
+    if (!is_struct(_step)) return true;
+    var _action = variable_struct_exists(_step, "action") ? string_lower(string(variable_struct_get(_step, "action"))) : "wait";
+    if (_action == "wait"){
+        if (!variable_struct_exists(_step, "_start_ms")) variable_struct_set(_step, "_start_ms", current_time);
+        var _dur = variable_struct_exists(_step, "duration_ms") && is_real(variable_struct_get(_step, "duration_ms")) ? max(0, real(variable_struct_get(_step, "duration_ms"))) : 0;
+        return current_time - real(variable_struct_get(_step, "_start_ms")) >= _dur;
+    }
+    if (_action == "dialog"){
+        var _dpid = variable_struct_exists(_step, "pid") && is_real(variable_struct_get(_step, "pid")) ? floor(variable_struct_get(_step, "pid")) : _pid;
+        if (!variable_struct_exists(_step, "_shown")){
+            variable_struct_set(_step, "_shown", true);
+            if (!is_undefined(dialog2p_show_now)) dialog2p_show_now(_dpid, string(variable_struct_get(_step, "text")));
+        }
+        return is_undefined(dialog2p_is_open) || !dialog2p_is_open(_dpid);
+    }
+    if (_action == "face_npc"){
+        if (variable_struct_exists(_step, "inst")){
+            var _npc = variable_struct_get(_step, "inst");
+            if (instance_exists(_npc)){
+                var _dir = variable_struct_exists(_step, "dir") ? variable_struct_get(_step, "dir") : 2;
+                variable_instance_set(_npc, "npc_facing_dir", floor(real(_dir)));
+                if (!is_undefined(__overworld_npc_anim_update)) __overworld_npc_anim_update(_npc, false, 0, 0);
+            }
+        }
+        return true;
+    }
+    if (_action == "move_npc"){
+        var _mnpc = variable_struct_exists(_step, "inst") ? variable_struct_get(_step, "inst") : noone;
+        if (!instance_exists(_mnpc)) return true;
+        var _mx = variable_struct_exists(_step, "x") ? real(variable_struct_get(_step, "x")) : variable_instance_get(_mnpc, "x");
+        var _my = variable_struct_exists(_step, "y") ? real(variable_struct_get(_step, "y")) : variable_instance_get(_mnpc, "y");
+        var _ms = variable_struct_exists(_step, "speed") ? max(0.1, real(variable_struct_get(_step, "speed"))) : 1;
+        if (!is_undefined(__overworld_npc_move_towards)) return !__overworld_npc_move_towards(_mnpc, _mx, _my, _ms);
+        variable_instance_set(_mnpc, "x", _mx);
+        variable_instance_set(_mnpc, "y", _my);
+        return true;
+    }
+    if (_action == "move_player"){
+        var _mpid = variable_struct_exists(_step, "pid") && is_real(variable_struct_get(_step, "pid")) ? floor(variable_struct_get(_step, "pid")) : _pid;
+        var _pl = !is_undefined(player_by_pid) ? player_by_pid(_mpid) : noone;
+        if (_pl == noone) return true;
+        var _tx = variable_struct_exists(_step, "x") ? real(variable_struct_get(_step, "x")) : variable_instance_get(_pl, "x");
+        var _ty = variable_struct_exists(_step, "y") ? real(variable_struct_get(_step, "y")) : variable_instance_get(_pl, "y");
+        var _sp = variable_struct_exists(_step, "speed") ? max(0.1, real(variable_struct_get(_step, "speed"))) : 1;
+        var _x = variable_instance_get(_pl, "x");
+        var _y = variable_instance_get(_pl, "y");
+        var _dist = point_distance(_x, _y, _tx, _ty);
+        if (_dist <= _sp){
+            variable_instance_set(_pl, "x", _tx);
+            variable_instance_set(_pl, "y", _ty);
+            return true;
+        }
+        var _ang = point_direction(_x, _y, _tx, _ty);
+        variable_instance_set(_pl, "x", _x + lengthdir_x(_sp, _ang));
+        variable_instance_set(_pl, "y", _y + lengthdir_y(_sp, _ang));
+        return false;
+    }
+    if (_action == "callback"){
+        if (!variable_struct_exists(_step, "_called")){
+            variable_struct_set(_step, "_called", true);
+            if (variable_struct_exists(_step, "fn")){
+                var _fn = variable_struct_get(_step, "fn");
+                if (!is_undefined(_fn)) _fn(_pid, _item, _step);
+            }
+        }
+        return true;
+    }
+    return true;
+}
+
+function __cutscene_overworld_update(_pid, _item, _elapsed_ms){
+    if (!is_struct(_item) || !variable_struct_exists(_item, "steps")) return true;
+    var _steps = variable_struct_get(_item, "steps");
+    if (!is_array(_steps)) return true;
+    var _index = variable_struct_exists(_item, "step_index") && is_real(variable_struct_get(_item, "step_index")) ? floor(variable_struct_get(_item, "step_index")) : 0;
+    while (_index < array_length(_steps)){
+        var _step = _steps[_index];
+        if (!__cutscene_overworld_step(_step, _pid, _item)){
+            _steps[_index] = _step;
+            variable_struct_set(_item, "steps", _steps);
+            variable_struct_set(_item, "step_index", _index);
+            return false;
+        }
+        _steps[_index] = _step;
+        _index += 1;
+        variable_struct_set(_item, "step_index", _index);
+    }
+    variable_struct_set(_item, "steps", _steps);
+    return true;
+}
+
+function cutscene_play_overworld(_pids, _steps, _key = "overworld_cutscene"){
+    if (!variable_global_exists("CUTSCENE")) cutscene_init();
+    var _pid_list = is_array(_pids) ? _pids : [_pids];
+    if (array_length(_pid_list) <= 0) _pid_list = [0];
+    var _master = 0;
+    for (var _i = 0; _i < array_length(_pid_list); ++_i){
+        if (is_real(_pid_list[_i])){ _master = max(0, floor(_pid_list[_i])); break; }
+    }
+    return cutscene_play_now(_master, {
+        key: _key,
+        gate: "any",
+        pids: _pid_list,
+        steps: _steps,
+        step_index: 0,
+        on_start: function(_pid, _item){
+            if (variable_struct_exists(_item, "pids")) __cutscene_set_shared_lock(variable_struct_get(_item, "pids"), true);
+        },
+        on_update: __cutscene_overworld_update,
+        on_complete: function(_pid, _item){
+            if (variable_struct_exists(_item, "pids")) __cutscene_set_shared_lock(variable_struct_get(_item, "pids"), false);
+        }
+    });
+}
 
 // End of CutsceneSystem

@@ -8,8 +8,8 @@
   "name":"obattleActor",
   "overriddenProperties":[],
   "parent":{
-    "name":"Objects",
-    "path":"folders/Objects.yy",
+    "name":"BattleSystem",
+    "path":"folders/Objects/BattleSystem.yy",
   },
   "parentObjectId":null,
   "persistent":false,

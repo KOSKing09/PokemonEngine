@@ -37,8 +37,118 @@ Common fields:
 - `mons`: array of canonical mon structs
 - `sum_move_sel`, `sum_learn_sel`: summary and learn-flow selection state
 - `learn_pending`: move-learn payload used by the summary/forget flow
+- `teach_pending`: TM/HM payload passed in from the bag while `mode = "select_item"`
 - `give_pending` and `use_pending`: temporary payloads passed in from the bag system
 - `_battle_swap_mode`, `_battle_swap_mode_forced`, `_battle_baton_pass_mode`: battle-owned flags for switch behavior
+
+## Player/Party Layering
+
+Player instances and party data are separate layers.
+
+- `oPlayer` stores movement, input-facing state, skin, and runtime presentation fields like `pid`, `battleAnim`, and directional sprites.
+- `global.PARTY[pid]` stores the actual team for that player.
+- `P.mons` is the authoritative array of Pokemon structs for that player.
+- Battle, bag, party UI, and catch flows all read mons through `party_ensure(pid)` and `party_model_*` helpers, not from the player instance.
+
+Practical rule:
+
+- If you want to give a player Pokemon, write to `global.PARTY[pid].mons` through the model helpers.
+- Do not add mon structs to `oPlayer` and expect the rest of the systems to see them.
+
+Common ownership path:
+
+- `pid` on `oPlayer`
+- `global.PARTY[pid]`
+- `global.PARTY[pid].mons[index]`
+
+For co-op drop-in, player 2 now gets their party seeded on join if `PARTY[1]` is still empty.
+
+## Adding Pokemon
+
+There are two supported ways to add a Pokemon to a player.
+
+1. Build a mon with `pokemon_factory_create(...)`, then store it with `party_model_add_mon(pid, mon)`.
+2. Use the demo seed helpers when you want a quick test party.
+
+Recommended API flow:
+
+- `party_ensure(pid)` to ensure the container exists
+- `pokemon_factory_create(species_id, level, opts)` to build the mon struct
+- `party_model_copy_mon(mon)` if you want a detached copy
+- `party_model_add_mon(pid, mon)` to append it
+- `party_model_update_mon(pid, index, mon)` to replace or mutate an existing slot
+
+Example: add one specific Pokemon to player 1.
+
+```gml
+var _pid = 0;
+party_ensure(_pid);
+
+var _mon = pokemon_factory_create(25, 12, {
+    ot: "YOU",
+    idno: 25012,
+    shiny: false,
+    sex: "female"
+});
+
+party_model_add_mon(_pid, party_model_copy_mon(_mon));
+```
+
+Example: replace slot 0 for player 2.
+
+```gml
+var _pid = 1;
+party_ensure(_pid);
+
+var _mon = pokemon_factory_create(133, 10, {
+    ot: "P2",
+    idno: 11010,
+    shiny: false
+});
+
+party_model_update_mon(_pid, 0, party_model_copy_mon(_mon));
+```
+
+Example: give player 2 a full quick test party.
+
+```gml
+multiplayer_seed_party_if_missing(1, 6);
+```
+
+That helper is intended for multiplayer drop-in and dev smoke paths. For production content, prefer explicit `pokemon_factory_create(...)` plus `party_model_add_mon(...)`.
+
+## Pokemon Sex / Gender
+
+Every newly created Pokemon now gets both `sex` and `gender` fields. They contain the same string so older battle logic and future breeding logic can both read the value.
+
+Values:
+
+- `"male"`
+- `"female"`
+- `"genderless"`
+
+Numeric aliases are also stored:
+
+- `sex_id`
+- `gender_id`
+
+The ids use `0 = genderless`, `1 = female`, and `2 = male`. This matches the evolution data checks that use `gender_id`.
+
+Default assignment comes from `data/csv/pokemon_species.csv` using the official `gender_rate` column:
+
+- `-1`: genderless
+- `0`: always male
+- `8`: always female
+- `1..7`: female chance out of 8
+
+You can force sex when creating a Pokemon:
+
+```gml
+var _female = pokemon_factory_create(25, 12, { sex: "female" });
+var _male = pokemon_factory_create(25, 12, { gender: "male" });
+```
+
+Captured Pokemon are normalized through `party_model_store_caught_mon(...)`, and existing mons passed through `party_model_add_mon(...)` get missing sex fields filled in automatically.
 
 ## Ownership map
 
@@ -55,9 +165,10 @@ Common fields:
 - `menu`: per-mon action menu, usually `Summary / Switch or Swap In / Item / Cancel`
 - `select`: choosing another party member for a swap flow
 - `select_item`: choosing a target mon for a bag action
+- `select_item` with `teach_pending`: choosing which Pokemon should learn a TM/HM; each row shows `OK` or `NO` based on `party__machine_can_teach(...)`
 - `summary_profile`: Pokemon summary info page, with the left description box and the right-side profile block
 - `summary_moves`: move list page, with move selection on the right and move description text on the left
-- `summary_forget`: replacement flow when learning a new move
+- `summary_forget`: replacement flow when learning a new move; TM/HM flows keep the machine move as the pending move and draw the current move list as the replacement choices
 
 The main mode dispatcher lives in `scripts/party_input/party_input.gml::__party_impl_party_update()`.
 
@@ -132,6 +243,8 @@ Caught-Pokemon naming is no longer a party-only concern. The current flow is:
 4. confirming the nickname applies it through `party_model_set_stored_mon_nickname(...)`
 
 This matters because a caught mon may already have been routed into PC storage before the nickname is entered. Do not assume the target is still a live party slot.
+
+The virtual keyboard owns both controller-grid input and physical-keyboard entry while this prompt is active. It applies a short input grace when the prompt enters name-entry mode so the same `Interact` press that opened the prompt is not consumed as a character action, and physical text entry accepts repeated characters from `keyboard_string` deltas.
 
 If you need to change caught-mon naming behavior, start in `scripts/virtual_keyboard_system/virtual_keyboard_system.gml`, `scripts/party_model/party_model.gml`, and the catch-finalization seam in `scripts/battle_impls/battle_impls.gml`.
 

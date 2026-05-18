@@ -5,8 +5,15 @@ This project is a GameMaker Studio project. The runtime contracts live in script
 ## Documentation map
 
 - `docs/script_systems.md`: quick ownership map when you only need to know which folder owns a behavior
+- `docs/runtime_systems.md`: controls, collision and grid movement, split-screen layout, pause, cutscenes, transitions, and world room runtime
+- `docs/overworld_systems.md`: overworld NPC interaction flow, trainer approach behavior, visible wild wandering mons, and world props
+- `docs/roguelike_world.md`: infinite `rm_world` chunk generation, custom biomes, prefab hooks, reserved zones, and rogue-world warp setup
+- `docs/progression_support_systems.md`: virtual keyboard, evolution queue, PC storage, and currency
+- `docs/data_asset_systems.md`: data load, mon factory, demo seeders, font and skin helpers, and external pkicons assets
 - `docs/battle_system.md`: battle slot shape, phase flow, entrypoints, and battle-specific extension seams
 - `docs/battle_doubles.md`: doubles/co-op format rules, actor layout, ownership routing, target helpers, and trainer doubles seams
+- `docs/versus_system.md`: local-versus request state, accept or decline flow, format selection, and battle-slot ownership setup
+- `docs/overworld_encounters.md`: encounter tables, encounter-volume wiring, wild battle handoff, and co-op wild trigger rules
 - `docs/bag_system.md`: bag state, inventory helpers, in-battle item use flow, and bag draw/input split
 - `docs/party_system.md`: party state, menu modes, summary flow, and party/battle integration
 - `docs/dialog_system.md`: dialog queue ownership, battle-vs-overworld rendering rules, callbacks, and split-screen draw behavior
@@ -26,6 +33,7 @@ The current boot path is:
   - sets up fonts and GUI size (`240x160`)
   - loads data tables
   - initializes pkicons base paths
+  - initializes transition defaults plus world room runtime and startup world music
   - calls `party_init()`, `bags_init()`, `scr_controls()`, `pause_init()`, `dialog2p_init()`, `evolution_init()`, and `virtual_keyboard_init()`
 - `objects/oGame/Step_1.gml`
   - calls `controls_update()` before any input-driven UI reads
@@ -52,10 +60,26 @@ The current boot path is:
   - use `party_ensure(pid)` before touching `global.PARTY[pid]`
   - use `party_model_set_stored_mon_nickname(pid, store_info, nick)` when updating a caught mon that may already have been routed into party or PC storage
 - Battle:
-  - open with `battle_open(...)` or `battle_open_trainer(...)`
+  - open wild battles with `battle_open(wildLevel)`, `battle_open(pid, wildLevel)`, or `battle_open(pid, wildLevel, areaTypeOrOpts, opts)`
+  - open trainer battles with `battle_open_trainer(pid, trainer_payload)`, which forwards into `battle_open(...)`
+  - press F1 in `objects/oPlayer/Step_1.gml` for the debug wild battle path
   - call `battle_update(pid)` in Step
   - call `battle_draw_gui(pid)` in Draw GUI
   - battle close waits while nickname entry is active through `virtual_keyboard_blocks_input(pid)`
+- Overworld encounters:
+  - call `overworld_encounter_init(id)` from the encounter volume's Create event
+  - call `overworld_encounter_step(id)` from that volume's Step event
+  - register route data with `overworld_encounter_register_table(region, habitat, entries)`
+  - prefer per-instance overrides for local tuning instead of editing global defaults for every route
+- World runtime and room audio:
+  - use `world_room_register(room_id, display_name, music, indoor)` or `world_set_room_music(room_id, music)` to author room music
+  - use `world_play_music(sound)` for immediate world-music playback and `world_stop_room_music()` to stop it cleanly
+  - use `room_music = -1` on warp opts for explicit silent rooms
+  - keep `world_room_apply()` running from `objects/oGame/Other_4.gml` so warp placement, room audio, and route bars re-apply on every room entry
+- Multiplayer versus:
+  - use `multiplayer_request_versus_battle(pid)` for player-driven versus starts
+  - keep `multiplayer_update_versus_request(pid)` running so accept or decline input is processed
+  - use `multiplayer_start_versus_battle(pid, format)` only for controlled tests or flows that intentionally bypass the accept prompt
 - Dialog:
   - `dialog2p_step(pid)` advances queued dialogs
   - `dialog2p_update(pid)` advances an active dialog page
@@ -67,12 +91,15 @@ The current boot path is:
   - call `virtual_keyboard_draw_gui(pid)` or `virtual_keyboard_draw_gui_rect(pid, rx, ry, rw, rh)` from Draw GUI
   - use `virtual_keyboard_request_caught_nickname(pid, store_info, species_name)` after a successful catch-storage handoff
   - treat `virtual_keyboard_blocks_input(pid)` as a gameplay/input gate for movement and overlapping menus
+  - preserve the name-entry input grace and `keyboard_string` delta path so the opening `Interact` press is ignored and repeated typed characters are accepted
 - Pkicons:
   - call `pkicons_set_art96_base(...)`, `pkicons_set_icon32_base(...)`, and `pkicons_set_cries_base(...)` before relying on external assets
 
 ## Manual debug entrypoints
 
 - `F1` in the default debug room toggles a sample wild double battle from `objects/oPlayer/Step_1.gml`
+- The F1 path revives up to the first two party mons, picks a random battle theme, and then prefers weighted `demo_route_1` grass/bush encounter-table rolls for both enemy slots at roughly `Lv. 5-10`
+- If the encounter helpers are unavailable, the same F1 path falls back to fully random species ids and levels
 - The default debug startup seeds a party and bag so battle, party, and bag UIs can be exercised immediately
 
 ## Split-screen usage
@@ -81,7 +108,7 @@ The current boot path is:
 - pid `0` uses the left half of the GUI and pid `1` uses the right half.
 - `objects/oGame/Draw_64.gml` is the main composition seam for split-screen UI ownership.
 - Systems with split-screen-aware draw entrypoints currently include battle, pause, bag, party, evolution, the virtual keyboard, and overworld dialog.
-- Physical keyboard character entry for the virtual keyboard is intentionally owned by the first active nickname-entry pid to avoid both sides consuming the same `keyboard_lastchar` events.
+- Physical keyboard character entry for the virtual keyboard is intentionally owned by the first active nickname-entry pid so split-screen players do not both consume the same typed text.
 
 ## Smoke tests
 

@@ -123,8 +123,12 @@ function controls_load(){
     // Dialog speed global (1 slow, 2 normal, 3 fast)
     global.DIALOG_SPEED = ini_read_real("Dialog","speed", 2);
     CTRL.deadzone = clamp(ini_read_real("Input", "deadzone", CTRL.deadzone), 0.05, 0.95);
+    global.SPLITSCREEN_LAYOUT = ini_read_string("Display", "splitscreen_layout", "vertical");
+    if (string_lower(string(global.SPLITSCREEN_LAYOUT)) != "horizontal") global.SPLITSCREEN_LAYOUT = "vertical";
 
     ini_close();
+    if (!is_undefined(multiplayer_load_options)) multiplayer_load_options();
+    if (!is_undefined(battle_xp_load_options)) battle_xp_load_options();
 }
 
 function controls_save(){
@@ -163,8 +167,12 @@ function controls_save(){
     // Dialog
     ini_write_real("Dialog","speed", global.DIALOG_SPEED);
     ini_write_real("Input","deadzone", CTRL.deadzone);
+    if (!variable_global_exists("SPLITSCREEN_LAYOUT")) global.SPLITSCREEN_LAYOUT = "vertical";
+    ini_write_string("Display", "splitscreen_layout", string(global.SPLITSCREEN_LAYOUT));
 
     ini_close();
+    if (!is_undefined(multiplayer_save_options)) multiplayer_save_options();
+    if (!is_undefined(battle_xp_save_options)) battle_xp_save_options();
 }
 
 // ---- Queries for objects ---------------------------------------------------

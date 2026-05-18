@@ -1,22 +1,26 @@
 // Only THIS player halts while THEY are in dialog
+if (!is_undefined(transition_is_blocking) && transition_is_blocking()) exit;
+if (!is_undefined(cutscene_blocks_player) && cutscene_blocks_player(pid)) exit;
 if (dialog2p_is_open(pid)) exit;
-var _battle_open = false;
-if (variable_global_exists("sys_battles") && is_array(global.sys_battles)) {
-	if (pid >= 0 && pid < array_length(global.sys_battles)) {
-		var _slot_guard = global.sys_battles[pid];
-		if (is_struct(_slot_guard)) {
-			try { if (variable_struct_exists(_slot_guard, "sys_open")) _battle_open = (variable_struct_get(_slot_guard, "sys_open") == true); } catch (e_guard) {}
-		}
-	}
-}
+var _battle_open = (!is_undefined(battle_is_open) && battle_is_open(pid));
 var _vk_open = false;
 try {
 	if (!is_undefined(virtual_keyboard_blocks_input)) _vk_open = (virtual_keyboard_blocks_input(pid) == true);
 } catch (e_vk_guard) {}
-if (bag_is_open(pid) || pause_is_open(pid) || party_is_open(pid) || _battle_open || _vk_open) exit;
+var _pc_open = (!is_undefined(pc_is_open) && pc_is_open(pid));
+var _wild_assist_wait = (!is_undefined(multiplayer_wild_assist_request_active) && multiplayer_wild_assist_request_active());
+var _trainer_team_wait = (!is_undefined(multiplayer_trainer_team_select_active) && multiplayer_trainer_team_select_active());
+var _npc_lock = (!is_undefined(overworld_player_locked_by_npc) && overworld_player_locked_by_npc(pid));
+if (_battle_open && !is_undefined(player_force_stand_still)) player_force_stand_still(id);
+if (_wild_assist_wait && !is_undefined(player_force_stand_still)) player_force_stand_still(id);
+if (_trainer_team_wait && !is_undefined(player_force_stand_still)) player_force_stand_still(id);
+if (_npc_lock && !is_undefined(player_force_stand_still)) player_force_stand_still(id);
+if (bag_is_open(pid) || _pc_open || pause_is_open(pid) || party_is_open(pid) || _battle_open || _vk_open || _wild_assist_wait || _trainer_team_wait || _npc_lock) exit;
 // advance one tile at a time; Run (B/O) speeds up tween
 grid_step(id, pid);
 
 // feed anim with your grid state
 var moving = (grid.state == "move");
 player_anim_update_basic(id, moving, grid.dir);
+
+depth = -(y - 5);

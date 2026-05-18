@@ -65,18 +65,30 @@ function dialog2p_init(){
     global.DIALOG2P_Q = [ [], [] ];
 }
 
+function dialog2p_ensure_pid(_pid){
+    if (!is_real(_pid)) _pid = 0;
+    _pid = max(0, floor(_pid));
+    if (!variable_global_exists("DIALOG2P") || !is_array(global.DIALOG2P)) global.DIALOG2P = [];
+    if (!variable_global_exists("DIALOG2P_Q") || !is_array(global.DIALOG2P_Q)) global.DIALOG2P_Q = [];
+    if (array_length(global.DIALOG2P) <= _pid) array_resize(global.DIALOG2P, _pid + 1);
+    if (array_length(global.DIALOG2P_Q) <= _pid) array_resize(global.DIALOG2P_Q, _pid + 1);
+    if (!is_struct(global.DIALOG2P[_pid])) global.DIALOG2P[_pid] = __dlg_make_session();
+    if (!is_array(global.DIALOG2P_Q[_pid])) global.DIALOG2P_Q[_pid] = [];
+    return global.DIALOG2P[_pid];
+}
+
 // ---------- Query -----------------------------------------------------------
 function dialog2p_is_open(_pid){
-    if (!variable_global_exists("DIALOG2P")) return false;
-    var d = global.DIALOG2P[_pid];
+    var d = dialog2p_ensure_pid(_pid);
     return (is_struct(d) && variable_struct_exists(d,"open")) ? d.open : false;
 }
 
 // ---------- Queue helpers (enqueue + gated drain) --------------------------
 function __dlg_gate_allows_now(_pid, _gate){
     var gate = string_lower(string(_gate));
-    if (!variable_global_exists("sys_battles") || !is_array(global.sys_battles) || array_length(global.sys_battles) <= _pid) return true;
-    var _B = global.sys_battles[_pid];
+    var _B = undefined;
+    if (!is_undefined(__battle_ensure_slot)) _B = __battle_ensure_slot(_pid);
+    else if (variable_global_exists("sys_battles") && is_array(global.sys_battles) && array_length(global.sys_battles) > _pid) _B = global.sys_battles[_pid];
     if (!is_struct(_B)) return true;
     // Faint gating
     if (gate == "after-faint"){
@@ -115,8 +127,11 @@ function dialog2p_show(_pid, _text){
 }
 
 function dialog2p_step(_pid){
-    if (!variable_global_exists("DIALOG2P_Q")) return;
+    dialog2p_ensure_pid(_pid);
     if (dialog2p_is_open(_pid)) return;
+    if (!is_undefined(battle_any_open) && battle_any_open()){
+        if (is_undefined(battle_is_open) || !battle_is_open(_pid)) return;
+    }
     var q = global.DIALOG2P_Q[_pid];
     if (!is_array(q) || array_length(q) == 0) return;
     // Ensure faint messages remain high priority. If any faint item sits behind
@@ -200,8 +215,10 @@ function __dlg_wrap_text(_text, _box_w){
 // Internal implementation accepting optional originating item.
 function dialog2p_open_text_impl(_pid, _text, _item){
     // Ensure dialog system is initialized before accessing the session array
-    if (!variable_global_exists("DIALOG2P")) dialog2p_init();
-    var d = global.DIALOG2P[_pid];
+    var d = dialog2p_ensure_pid(_pid);
+    if (!is_undefined(battle_any_open) && battle_any_open()){
+        if (is_undefined(battle_is_open) || !battle_is_open(_pid)) return;
+    }
 
     // If a battle slot exists for this pid and a faint is pending, do not
     // immediately replace the dialog. Instead enqueue the text as a pending
@@ -335,7 +352,10 @@ function dialog2p_open_text(){
 // payload may be a string (text) or a struct with fields:
 // { text, key?, gate?, portrait?, portrait_frame?, name_label?, sfx_tick?, on_close? }
 function dialog2p_enqueue(_pid, _payload){
-    if (!variable_global_exists("DIALOG2P_Q")) dialog2p_init();
+    dialog2p_ensure_pid(_pid);
+    if (!is_undefined(battle_any_open) && battle_any_open()){
+        if (is_undefined(battle_is_open) || !battle_is_open(_pid)) return noone;
+    }
     var q = global.DIALOG2P_Q[_pid];
     var payload = _payload;
     if (is_string(payload)) payload = { text: string(payload) };
@@ -403,8 +423,7 @@ function dialog2p_show_now(_pid, _payload){
 }
 
 function dialog2p_wait_closed(_pid, _callback){
-    if (!variable_global_exists("DIALOG2P")) dialog2p_init();
-    var d = global.DIALOG2P[_pid];
+    var d = dialog2p_ensure_pid(_pid);
     if (!d.open){ // already closed
         try { if (!is_undefined(_callback) && _callback != noone) _callback(); } catch(e) {}
         return;
@@ -424,7 +443,7 @@ function dialog2p_wait_closed(_pid, _callback){
 // it defined in a dedicated resource rather than creating one dynamically.
 
 function dialog2p_set_portrait(_pid, _spr, _subimg, _name){
-    var d = global.DIALOG2P[_pid];
+    var d = dialog2p_ensure_pid(_pid);
     d.portrait       = _spr;
     d.portrait_frame = _subimg;
     d.name_label     = string(_name);
@@ -432,7 +451,7 @@ function dialog2p_set_portrait(_pid, _spr, _subimg, _name){
 
 // ---------- Update (advance/close, robust) ---------------------------------
 function dialog2p_update(_pid){
-    var d = global.DIALOG2P[_pid];
+    var d = dialog2p_ensure_pid(_pid);
     if (!d.open) return;
 
     var i0 = d.page_idx*2, i1 = i0+1;
@@ -676,21 +695,37 @@ function __dlg_style_line_parts(_line, _base_color = c_white){
         return _parts;
     }
 
+    var _mh_start = string_pos("(", _line);
+    var _mh_times = string_pos(" time", string_lower(_line));
+    var _mh_end = 0;
+    if (_mh_start > 0 && _mh_times > _mh_start) _mh_end = string_pos(")", _line);
+
     var _move = __dlg_find_move_match(_line);
-    if (is_struct(_move)){
+    if (is_struct(_move) && _mh_start > 0 && _mh_times > _mh_start && _mh_end > _mh_times){
         var _pos_move = variable_struct_get(_move, "pos");
         var _len_move = variable_struct_get(_move, "len");
-        if (_pos_move > 1) array_push(_parts, { text: string_copy(_line, 1, _pos_move - 1), color: _base_color });
-        array_push(_parts, { text: variable_struct_get(_move, "text"), color: variable_struct_get(_move, "color") });
+        var _move_color = variable_struct_get(_move, "color");
         var _move_end = _pos_move + _len_move;
-        if (_move_end <= string_length(_line)) array_push(_parts, { text: string_copy(_line, _move_end, string_length(_line) - _move_end + 1), color: _base_color });
+        if (_pos_move > 1) array_push(_parts, { text: string_copy(_line, 1, _pos_move - 1), color: _base_color });
+        array_push(_parts, { text: variable_struct_get(_move, "text"), color: _move_color });
+        if (_mh_start > _move_end) array_push(_parts, { text: string_copy(_line, _move_end, _mh_start - _move_end), color: _base_color });
+        array_push(_parts, { text: string_copy(_line, _mh_start, _mh_end - _mh_start + 1), color: c_red });
+        var _mh_suffix = _mh_end + 1;
+        if (_mh_suffix <= string_length(_line)) array_push(_parts, { text: string_copy(_line, _mh_suffix, string_length(_line) - _mh_suffix + 1), color: _base_color });
         return _parts;
     }
 
-    var _mh_start = string_pos("(", _line);
-    var _mh_times = string_pos(" time", string_lower(_line));
+    if (is_struct(_move)){
+        var _pos_move_only = variable_struct_get(_move, "pos");
+        var _len_move_only = variable_struct_get(_move, "len");
+        if (_pos_move_only > 1) array_push(_parts, { text: string_copy(_line, 1, _pos_move_only - 1), color: _base_color });
+        array_push(_parts, { text: variable_struct_get(_move, "text"), color: variable_struct_get(_move, "color") });
+        var _move_end_only = _pos_move_only + _len_move_only;
+        if (_move_end_only <= string_length(_line)) array_push(_parts, { text: string_copy(_line, _move_end_only, string_length(_line) - _move_end_only + 1), color: _base_color });
+        return _parts;
+    }
+
     if (_mh_start > 0 && _mh_times > _mh_start){
-        var _mh_end = string_pos(")", _line);
         if (_mh_end > _mh_times){
             if (_mh_start > 1) array_push(_parts, { text: string_copy(_line, 1, _mh_start - 1), color: _base_color });
             array_push(_parts, { text: string_copy(_line, _mh_start, _mh_end - _mh_start + 1), color: c_red });
@@ -741,22 +776,60 @@ function __dlg_draw_lines_spritefont(_l0, _l1, _x, _y, _base_color = c_white){
 function __dlg_pause_palette(){
     return {
         panel_fill: make_color_rgb(236, 228, 184),
+        panel_inner: make_color_rgb(246, 239, 204),
         panel_border: make_color_rgb(52, 60, 76),
+        panel_shadow: make_color_rgb(16, 24, 28),
         text: c_white,
         accent: make_color_rgb(120, 160, 220),
         accent_dark: make_color_rgb(40, 64, 168),
+        title_fill: make_color_rgb(120, 160, 220),
         title_text: c_white,
         arrow: c_red
     };
 }
 
+function __dlg_draw_panel(_x, _y, _w, _h, _pal){
+    draw_set_alpha(0.35);
+    draw_set_color(_pal.panel_shadow);
+    draw_rectangle(_x + 3, _y + 3, _x + _w + 3, _y + _h + 3, false);
+    draw_set_alpha(1);
+
+    draw_set_color(_pal.accent_dark);
+    draw_rectangle(_x - 2, _y - 2, _x + _w + 2, _y + _h + 2, false);
+    draw_set_color(_pal.accent);
+    draw_rectangle(_x - 1, _y - 1, _x + _w + 1, _y + _h + 1, false);
+    draw_set_color(_pal.panel_border);
+    draw_rectangle(_x, _y, _x + _w, _y + _h, true);
+    draw_set_color(_pal.panel_fill);
+    draw_rectangle(_x + 3, _y + 3, _x + _w - 3, _y + _h - 3, false);
+    draw_set_color(_pal.panel_inner);
+    draw_rectangle(_x + 6, _y + 6, _x + _w - 6, _y + _h - 6, false);
+    draw_set_color(_pal.panel_border);
+    draw_rectangle(_x + 3, _y + 3, _x + _w - 3, _y + _h - 3, true);
+}
+
+function __dlg_draw_nameplate(_x, _y, _label, _pal){
+    if (string_length(string(_label)) <= 0) return false;
+    var _pad_x = 8;
+    var _w = max(42, string_width(string(_label)) + _pad_x * 2);
+    var _h = 14;
+    draw_set_color(_pal.accent_dark);
+    draw_rectangle(_x, _y, _x + _w, _y + _h, false);
+    draw_set_color(_pal.title_fill);
+    draw_rectangle(_x + 1, _y + 1, _x + _w - 1, _y + _h - 1, false);
+    draw_set_color(_pal.title_text);
+    draw_set_halign(fa_left);
+    draw_set_valign(fa_top);
+    draw_text(_x + _pad_x, _y + 3, string(_label));
+    return true;
+}
 
 function dialog2p_draw_world(_pid, _cam){
     // If a battle is active for this pid, prefer drawing inside the battle GUI
     // to avoid double-rendering and coordinate mismatches. The battle renderer
     // will call dialog2p_draw_gui_rect.
     if (!is_undefined(battle_is_open) && battle_is_open(_pid)) return;
-    var d = global.DIALOG2P[_pid];
+    var d = dialog2p_ensure_pid(_pid);
     if (!d.open) return;
 
     // Debug logging for dialog draw. Disabled by default; enable by setting
@@ -795,18 +868,12 @@ function dialog2p_draw_world(_pid, _cam){
     var px = round(vx + (vw - bw) * 0.5);
     var py = round(vy + vh - (bh + d.margin_v));
 
-    // panel
-    draw_set_color(_pal.panel_fill);
-    draw_roundrect(px, py, px + bw, py + bh, false);
-    draw_set_color(_pal.panel_border);
-    draw_roundrect(px - 1, py - 1, px + bw + 1, py + bh + 1, true);
+    __dlg_draw_panel(px, py, bw, bh, _pal);
 
     // name
     var y_off = 0;
     if (d.name_label != ""){
-        draw_set_color(_pal.title_text);
-        draw_set_halign(fa_left);
-        draw_text(px + pad, py + 4, d.name_label);
+        __dlg_draw_nameplate(px + pad, py + 5, d.name_label, _pal);
         y_off = 14;
     }
 
@@ -845,6 +912,8 @@ function dialog2p_draw_world(_pid, _cam){
         if ((d.arrow_tick div 30) == 0){
             var ax = round(px + bw - pad - 12);
             var ay = round(py + bh - pad - 10);
+            draw_set_color(_pal.accent_dark);
+            draw_triangle(ax - 1, ay - 1, ax + 9, ay - 1, ax + 4, ay + 7, false);
             draw_set_color(_pal.arrow);
             draw_triangle(ax, ay, ax+8, ay, ax+4, ay+6, false);
         }
@@ -856,8 +925,7 @@ function dialog2p_draw_world(_pid, _cam){
 /// Draws the classic dialog box anchored to the bottom-center of the provided
 /// GUI-space rectangle. Mirrors the look/behavior of dialog2p_draw_world.
 function dialog2p_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
-    if (!variable_global_exists("DIALOG2P")) dialog2p_init();
-    var d = global.DIALOG2P[_pid];
+    var d = dialog2p_ensure_pid(_pid);
     if (!is_struct(d) || !d.open) return;
 
     var pad = d.border_pad;
@@ -873,18 +941,12 @@ function dialog2p_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
     var px = round(_rx + (_rw - bw) * 0.5);
     var py = round(_ry + _rh - (bh + d.margin_v));
 
-    // panel
-    draw_set_color(_pal.panel_fill);
-    draw_roundrect(px, py, px + bw, py + bh, false);
-    draw_set_color(_pal.panel_border);
-    draw_roundrect(px - 1, py - 1, px + bw + 1, py + bh + 1, true);
+    __dlg_draw_panel(px, py, bw, bh, _pal);
 
     // name
     var y_off = 0;
     if (d.name_label != ""){
-        draw_set_color(_pal.title_text);
-        draw_set_halign(fa_left);
-        draw_text(px + pad, py + 4, d.name_label);
+        __dlg_draw_nameplate(px + pad, py + 5, d.name_label, _pal);
         y_off = 14;
     }
 
@@ -923,6 +985,8 @@ function dialog2p_draw_gui_rect(_pid, _rx, _ry, _rw, _rh){
         if ((d.arrow_tick div 30) == 0){
             var ax = round(px + bw - pad - 12);
             var ay = round(py + bh - pad - 10);
+            draw_set_color(_pal.accent_dark);
+            draw_triangle(ax - 1, ay - 1, ax + 9, ay - 1, ax + 4, ay + 7, false);
             draw_set_color(_pal.arrow);
             draw_triangle(ax, ay, ax+8, ay, ax+4, ay+6, false);
         }

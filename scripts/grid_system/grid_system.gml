@@ -31,6 +31,12 @@ function grid_snap_to_tile(_inst){
     var ts = _inst.grid.tile; // 16
     _inst.x = round(_inst.x / ts) * ts;
     _inst.y = round(_inst.y / ts) * ts;
+    if (variable_struct_exists(_inst.grid, "tx")) _inst.grid.tx = _inst.x;
+    if (variable_struct_exists(_inst.grid, "ty")) _inst.grid.ty = _inst.y;
+}
+
+function grid_snap_value(_value, _tile){
+    return round(real(_value) / max(1, real(_tile))) * max(1, real(_tile));
 }
 
 
@@ -59,6 +65,11 @@ function grid_try_start(_inst, _dir){
     if (!(variable_instance_exists(_inst,"grid") && is_struct(_inst.grid))) return false;
     var g  = _inst.grid;
     var ts = g.tile;
+
+    if (g.state != "move"){
+        _inst.x = grid_snap_value(_inst.x, ts);
+        _inst.y = grid_snap_value(_inst.y, ts);
+    }
 
     var dx = 0, dy = 0;
     switch (_dir){
@@ -155,8 +166,10 @@ function grid_step(_inst, _pid){
 
             // reached target tile?
             if (_inst.x == g.tx && _inst.y == g.ty){
-                _inst.x = g.tx;
-                _inst.y = g.ty;
+                _inst.x = grid_snap_value(g.tx, ts);
+                _inst.y = grid_snap_value(g.ty, ts);
+                g.tx = _inst.x;
+                g.ty = _inst.y;
                 g.state = "idle";
 
                 var _next_dir = -1;
@@ -250,4 +263,3 @@ function debug_grid_draw(_cam, _drawTiles, _who){
         draw_text(_who.x + 8, _who.y - 24, "tile: " + string(tx) + "," + string(ty));
     }
 }
-

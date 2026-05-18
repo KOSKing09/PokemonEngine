@@ -38,12 +38,18 @@ function scr_poke_runtime_demo_init_random(_count)
     // Always seed random party entries first, then optionally overwrite specific slots
     // with forced species if `global.DEMO_FORCE_SPECIES` is defined. This keeps the
     // random flavour while allowing deterministic replacements for testing.
-    scr_party_debug_seed_random(0, count);
-    if (instance_number(oPlayer) > 1) scr_party_debug_seed_random(1, count);
+    var _player_count = 1;
+    if (variable_global_exists("PAUSE_PLAYERS_ACTIVE")) _player_count = max(1, floor(global.PAUSE_PLAYERS_ACTIVE));
+    else if (instance_number(oPlayer) > 1) _player_count = 2;
+
+    for (var _pid_seed = 0; _pid_seed < _player_count; ++_pid_seed){
+        scr_party_debug_seed_random(_pid_seed, count);
+    }
 
     if (variable_global_exists("DEMO_FORCE_SPECIES") && is_array(global.DEMO_FORCE_SPECIES) && array_length(global.DEMO_FORCE_SPECIES) > 0){
-        scr_party_demo_apply_forced(0);
-        if (instance_number(oPlayer) > 1) scr_party_demo_apply_forced(1);
+        for (var _pid_force = 0; _pid_force < _player_count; ++_pid_force){
+            scr_party_demo_apply_forced(_pid_force);
+        }
     }
 }
 
@@ -67,7 +73,7 @@ function scr_party_debug_seed_list(_pid, _species_array){
         party_model_add_mon(_pid, party_model_copy_mon(_mon_struct));
     }
     P.sel = 0; P.scroll = 0; P.swap_index = -1; P.menu_sel = 0; P.lock = 0;
-    show_debug_message("[DEMO] Seeded " + string(array_length(P.mons)) + " forced Pokémon to PARTY[" + string(_pid) + "].");
+    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[DEMO] Seeded " + string(array_length(P.mons)) + " forced Pokémon to PARTY[" + string(_pid) + "].");
 }
 
 /// scr_party_demo_apply_forced(pid)
@@ -197,7 +203,7 @@ function scr_party_debug_seed_random(_pid, _count)
     }
 
     P.sel = 0; P.scroll = 0; P.swap_index = -1; P.menu_sel = 0; P.lock = 0;
-    show_debug_message("[DEMO] Seeded " + string(array_length(P.mons)) + " random Pokémon to PARTY[" + string(_pid) + "].");
+    if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[DEMO] Seeded " + string(array_length(P.mons)) + " random Pokémon to PARTY[" + string(_pid) + "].");
 
     var _mons_arr = party_model_get_mons(_pid);
     if (array_length(_mons_arr) > 0){
@@ -207,7 +213,7 @@ function scr_party_debug_seed_random(_pid, _count)
             variable_struct_set(_copy, "shiny", true);
             party_model_update_mon(_pid, shiny_index, _copy);
         }
-        show_debug_message("[DEMO] Shiny assigned to party slot " + string(shiny_index));
+        if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG) show_debug_message("[DEMO] Shiny assigned to party slot " + string(shiny_index));
         if (variable_global_exists("DATA_DEBUG") && global.DATA_DEBUG){
             for (var __si = 0; __si < array_length(_mons_arr); __si++){
                 var __s = _mons_arr[__si];
