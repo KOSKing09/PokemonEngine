@@ -85,7 +85,7 @@ rogue_world_register_biome("grassland", {
 });
 
 rogue_world_register_biome("forest", {
-    floor_tile: 18,z
+    floor_tile: 18,
     solid_tile: 1,
     solid_chance: 0,
     blend: [
